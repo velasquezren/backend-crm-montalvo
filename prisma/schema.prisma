@@ -1,0 +1,194 @@
+// Fuente única de verdad del modelo de datos — CRM_MANIFESTO.md (frontend) §1.1.
+// No duplicar estos tipos a mano en ningún otro archivo del backend o frontend.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Rol {
+  ADMIN
+  AGENTE
+}
+
+enum CategoriaCliente {
+  PROSPECTO
+  BRONZE
+  SILVER
+  GOLD
+}
+
+enum OrigenLead {
+  FACEBOOK_LEAD_AD
+  FACEBOOK_COMENTARIO
+  FACEBOOK_MENSAJE
+  INSTAGRAM_LEAD_AD
+  INSTAGRAM_COMENTARIO
+  INSTAGRAM_MENSAJE
+  WHATSAPP_DIRECTO
+  PRESENCIAL
+  IMPORTACION /// carga masiva desde datos históricos (ej. FileMaker), sin interacción real todavía
+}
+
+enum EstadoVenta {
+  GANADA
+  EN_PROCESO
+  PERDIDA
+}
+
+enum EstadoLead {
+  NUEVO
+  CONTACTADO
+  CONVERTIDO
+  PERDIDO
+}
+
+enum EstadoComision {
+  PENDIENTE
+  PAGADA
+}
+
+enum DireccionMensaje {
+  ENTRANTE
+  SALIENTE
+}
+
+model Usuario {
+  id             String         @id @default(uuid())
+  nombre         String
+  email          String         @unique
+  passwordHash   String
+  rol            Rol            @default(AGENTE)
+  activo         Boolean        @default(true)
+  clientes       Cliente[]      @relation("AgenteAsignado")
+  intereses      Interes[]
+  leads          Lead[]
+  conversaciones Conversacion[]
+  ventas         Venta[]
+  comisiones     Comision[]
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+}
+
+model Cliente {
+  id             String           @id @default(uuid())
+  nombre         String
+  telefono       String           @unique
+  email          String?
+  categoria      CategoriaCliente @default(PROSPECTO)
+  agente         Usuario?         @relation("AgenteAsignado", fields: [agenteId], references: [id])
+  agenteId       String?
+  /// Metadatos libres de fuentes externas (ej. import FileMaker: CI, dirección, edad).
+  /// No se modela como columnas fijas para no acoplar el schema a un origen específico.
+  datosExtra     Json?
+  intereses      Interes[]
+  leads          Lead[]
+  conversaciones Conversacion[]
+  ventas         Venta[]
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  @@index([categoria])
+  @@index([nombre])
+}
+
+model Interes {
+  id                String     @id @default(uuid())
+  cliente           Cliente    @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  clienteId         String
+  descripcion       String
+  categoriaProducto String?
+  origen            OrigenLead
+  agente            Usuario?   @relation(fields: [agenteId], references: [id])
+  agenteId          String?
+  createdAt         DateTime   @default(now())
+
+  @@index([clienteId])
+}
+
+model Lead {
+  id         String     @id @default(uuid())
+  cliente    Cliente    @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  clienteId  String
+  origen     OrigenLead
+  estado     EstadoLead @default(NUEVO)
+  metaLeadId String?    @unique
+  agente     Usuario?   @relation(fields: [agenteId], references: [id])
+  agenteId   String?
+  createdAt  DateTime   @default(now())
+
+  @@index([clienteId])
+  @@index([estado])
+}
+
+model Conversacion {
+  id        String    @id @default(uuid())
+  cliente   Cliente   @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  clienteId String
+  agente    Usuario?  @relation(fields: [agenteId], references: [id])
+  agenteId  String?
+  mensajes  Mensaje[]
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@index([clienteId])
+}
+
+model Mensaje {
+  id             String           @id @default(uuid())
+  conversacion   Conversacion     @relation(fields: [conversacionId], references: [id], onDelete: Cascade)
+  conversacionId String
+  direccion      DireccionMensaje
+  contenido      String
+  whatsappMsgId  String?          @unique
+  createdAt      DateTime         @default(now())
+
+  @@index([conversacionId])
+}
+
+model Venta {
+  id        String      @id @default(uuid())
+  cliente   Cliente     @relation(fields: [clienteId], references: [id])
+  clienteId String
+  agente    Usuario     @relation(fields: [agenteId], references: [id])
+  agenteId  String
+  producto  String
+  /// Montos en bolivianos (Bs) — moneda única del sistema, ver shared/pipes/moneda.pipe.ts en el frontend.
+  monto     Decimal     @db.Decimal(12, 2)
+  estado    EstadoVenta @default(GANADA)
+  comision  Comision?
+  createdAt DateTime    @default(now())
+
+  @@index([clienteId])
+  @@index([agenteId])
+}
+
+model Comision {
+  id        String         @id @default(uuid())
+  venta     Venta          @relation(fields: [ventaId], references: [id])
+  ventaId   String         @unique
+  agente    Usuario        @relation(fields: [agenteId], references: [id])
+  agenteId  String
+  monto     Decimal        @db.Decimal(12, 2)
+  estado    EstadoComision @default(PENDIENTE)
+  pagadaEn  DateTime?
+  createdAt DateTime       @default(now())
+
+  @@index([agenteId])
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  entidad   String
+  entidadId String
+  accion    String
+  usuarioId String?
+  cambios   Json?
+  createdAt DateTime @default(now())
+
+  @@index([entidad, entidadId])
+}
