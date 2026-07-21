@@ -1,4 +1,9 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import * as bcrypt from 'bcryptjs';
 
 import { PrismaService } from '../../prisma/prisma.service';
@@ -58,9 +63,30 @@ export class UsuariosService {
     return this.prisma.usuario.findUnique({ where: { email } });
   }
 
-  async update(id: string, dto: UpdateUsuarioDto) {
-    await this.findOne(id);
+  async update(id: string, dto: UpdateUsuarioDto, ejecutorId?: string) {
+    const actual = await this.findOne(id);
     const { password, ...resto } = dto;
+
+    /* Un admin no puede quitarse a sí mismo el rol ni desactivarse: se quedaría
+       sin acceso a la gestión y, si es el único, nadie podría recuperarla. */
+    if (ejecutorId && ejecutorId === id) {
+      if (resto.rol && resto.rol !== 'ADMIN') {
+        throw new BadRequestException(
+          'No puedes quitarte a ti mismo el rol de administrador.',
+        );
+      }
+      if (resto.activo === false) {
+        throw new BadRequestException('No puedes desactivar tu propia cuenta.');
+      }
+    }
+
+    /* Tampoco se puede dejar el sistema sin ningún administrador activo. */
+    const dejaDeSerAdmin =
+      actual.rol === 'ADMIN' &&
+      ((resto.rol && resto.rol !== 'ADMIN') || resto.activo === false);
+    if (dejaDeSerAdmin) {
+      await this.verificarQueQuedaOtroAdmin(id);
+    }
 
     return this.prisma.usuario.update({
       where: { id },
@@ -73,12 +99,32 @@ export class UsuariosService {
   }
 
   /** Desactivación en vez de borrado — el historial de ventas/comisiones se preserva. */
-  async desactivar(id: string) {
-    await this.findOne(id);
+  async desactivar(id: string, ejecutorId?: string) {
+    const usuario = await this.findOne(id);
+
+    if (ejecutorId && ejecutorId === id) {
+      throw new BadRequestException('No puedes desactivar tu propia cuenta.');
+    }
+    if (usuario.rol === 'ADMIN') {
+      await this.verificarQueQuedaOtroAdmin(id);
+    }
+
     return this.prisma.usuario.update({
       where: { id },
       data: { activo: false },
       select: SIN_PASSWORD,
     });
+  }
+
+  /** Evita el bloqueo total: siempre debe quedar al menos un ADMIN activo. */
+  private async verificarQueQuedaOtroAdmin(excluyendoId: string): Promise<void> {
+    const otros = await this.prisma.usuario.count({
+      where: { rol: 'ADMIN', activo: true, id: { not: excluyendoId } },
+    });
+    if (otros === 0) {
+      throw new BadRequestException(
+        'Es el último administrador activo: asigna otro antes de desactivarlo o cambiar su rol.',
+      );
+    }
   }
 }
