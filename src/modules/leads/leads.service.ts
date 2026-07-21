@@ -19,13 +19,24 @@ export class LeadsService {
     private readonly clientesService: ClientesService,
   ) {}
 
-  /** Visibilidad por rol: AGENTE ve sus leads + los sin asignar; ADMIN todo. */
-  async findAll(query: QueryLeadDto, soloAgenteId?: string) {
-    const where: Prisma.LeadWhereInput = {
-      origen: query.origen,
+  /**
+   * Construye el filtro común de leads.
+   * Visibilidad por rol: AGENTE ve sus leads + los sin asignar; ADMIN todo.
+   * El histórico importado se excluye salvo que se pida explícitamente.
+   */
+  private construirWhere(query: QueryLeadDto, soloAgenteId?: string): Prisma.LeadWhereInput {
+    const excluirHistorico = !query.incluirImportacion && !query.origen;
+
+    return {
+      origen: query.origen ?? (excluirHistorico ? { not: 'IMPORTACION' } : undefined),
+      estado: query.estado,
       agenteId: query.agenteId,
       ...(soloAgenteId ? { OR: [{ agenteId: soloAgenteId }, { agenteId: null }] } : {}),
     };
+  }
+
+  async findAll(query: QueryLeadDto, soloAgenteId?: string) {
+    const where = this.construirWhere(query, soloAgenteId);
     const { skip, take } = calcularPaginacion(query);
 
     const [datos, total] = await this.prisma.$transaction([
@@ -43,6 +54,37 @@ export class LeadsService {
     ]);
 
     return paginar(datos, total, query);
+  }
+
+  /**
+   * Conteo real por estado, para las cabeceras de las columnas del kanban.
+   * Sin esto la UI solo puede mostrar cuántas tarjetas cargó, no cuántas hay.
+   */
+  async resumenPorEstado(query: QueryLeadDto, soloAgenteId?: string) {
+    const where = this.construirWhere(query, soloAgenteId);
+
+    const estados: EstadoLead[] = ['NUEVO', 'CONTACTADO', 'CONVERTIDO', 'PERDIDO'];
+
+    /* Un count por estado + el del histórico, todos en la misma transacción.
+       Con el índice Lead(estado) es tan barato como un groupBy y el tipado
+       queda explícito. */
+    const resultados = await this.prisma.$transaction([
+      ...estados.map(estado => this.prisma.lead.count({ where: { ...where, estado } })),
+      this.prisma.lead.count({ where: { origen: 'IMPORTACION' } }),
+    ]);
+
+    const conteos = {} as Record<EstadoLead, number>;
+    estados.forEach((estado, i) => {
+      conteos[estado] = resultados[i];
+    });
+    const historico = resultados[estados.length];
+
+    return {
+      porEstado: conteos,
+      totalPipeline: Object.values(conteos).reduce((suma, n) => suma + n, 0),
+      /* Cuántos pacientes históricos hay archivados fuera del pipeline. */
+      historicoImportado: historico,
+    };
   }
 
   /**

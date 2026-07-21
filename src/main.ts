@@ -40,7 +40,14 @@ async function bootstrap(): Promise<void> {
     }),
   );
 
-  await app.listen(process.env.PORT ?? 3001);
+  /**
+   * En producción se escucha solo en loopback: el tráfico público entra por
+   * Apache, que termina el TLS y hace de proxy inverso. Así el puerto de la
+   * app nunca queda expuesto a internet sin cifrar, aunque cambie el firewall.
+   * En desarrollo se deja abierto para poder probar desde otros dispositivos.
+   */
+  const host = process.env.NODE_ENV === 'production' ? '127.0.0.1' : '0.0.0.0';
+  await app.listen(process.env.PORT ?? 3001, host);
 }
 
 bootstrap();
