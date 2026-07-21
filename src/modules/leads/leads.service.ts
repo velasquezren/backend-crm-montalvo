@@ -1,9 +1,11 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
+import { EstadoLead, Prisma } from '@prisma/client';
 
 import { PrismaService } from '../../prisma/prisma.service';
 import { ClientesService } from '../clientes/clientes.service';
 import { CreateLeadPresencialDto } from './dto/create-lead-presencial.dto';
 import { QueryLeadDto } from './dto/query-lead.dto';
+import { calcularPaginacion, paginar } from '../../common/dto/pagination.dto';
 
 /**
  * Módulo Leads — fuentes de entrada del negocio (Meta + presencial).
@@ -19,19 +21,28 @@ export class LeadsService {
 
   /** Visibilidad por rol: AGENTE ve sus leads + los sin asignar; ADMIN todo. */
   async findAll(query: QueryLeadDto, soloAgenteId?: string) {
-    return this.prisma.lead.findMany({
-      where: {
-        origen: query.origen,
-        agenteId: query.agenteId,
-        ...(soloAgenteId ? { OR: [{ agenteId: soloAgenteId }, { agenteId: null }] } : {}),
-      },
-      orderBy: { createdAt: 'desc' },
-      include: {
-        cliente: { select: { id: true, nombre: true, telefono: true, categoria: true } },
-        agente: { select: { id: true, nombre: true } },
-      },
-      take: 200,
-    });
+    const where: Prisma.LeadWhereInput = {
+      origen: query.origen,
+      agenteId: query.agenteId,
+      ...(soloAgenteId ? { OR: [{ agenteId: soloAgenteId }, { agenteId: null }] } : {}),
+    };
+    const { skip, take } = calcularPaginacion(query);
+
+    const [datos, total] = await this.prisma.$transaction([
+      this.prisma.lead.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          cliente: { select: { id: true, nombre: true, telefono: true, categoria: true } },
+          agente: { select: { id: true, nombre: true } },
+        },
+        skip,
+        take,
+      }),
+      this.prisma.lead.count({ where }),
+    ]);
+
+    return paginar(datos, total, query);
   }
 
   /**
@@ -98,7 +109,12 @@ export class LeadsService {
     });
   }
 
-  async updateEstado(id: string, estado: any) {
+  async updateEstado(id: string, estado: EstadoLead) {
+    const existe = await this.prisma.lead.findUnique({ where: { id }, select: { id: true } });
+    if (!existe) {
+      throw new NotFoundException(`Lead ${id} no encontrado`);
+    }
+
     return this.prisma.lead.update({
       where: { id },
       data: { estado },

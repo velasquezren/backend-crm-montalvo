@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
+import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 
 import { AuditModule } from './common/audit/audit.module';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
@@ -18,6 +19,9 @@ import { PrismaModule } from './prisma/prisma.module';
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
+    /* Límite de peticiones global (RNF-01). El login lo endurece aún más
+       con su propio @Throttle — ver auth.controller.ts. */
+    ThrottlerModule.forRoot([{ name: 'general', ttl: 60_000, limit: 120 }]),
     PrismaModule,
     AuditModule,
     AuthModule,
@@ -30,7 +34,8 @@ import { PrismaModule } from './prisma/prisma.module';
     KpisModule,
   ],
   providers: [
-    /* RNF-01: todo endpoint exige JWT (salvo @Public) y valida roles */
+    /* RNF-01: límite de peticiones → JWT (salvo @Public) → validación de roles */
+    { provide: APP_GUARD, useClass: ThrottlerGuard },
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: RolesGuard },
   ],

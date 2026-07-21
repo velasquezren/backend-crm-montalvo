@@ -1,7 +1,9 @@
 import { EstadoVenta } from '@prisma/client';
 import { IsDateString, IsEnum, IsOptional, IsString } from 'class-validator';
 
-export class QueryVentaDto {
+import { PaginationDto } from '../../../common/dto/pagination.dto';
+
+export class QueryVentaDto extends PaginationDto {
   @IsOptional()
   @IsEnum(EstadoVenta)
   estado?: EstadoVenta;

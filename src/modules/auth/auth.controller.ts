@@ -1,6 +1,8 @@
 import { Body, Controller, Get, Patch, Post } from '@nestjs/common';
 
 import { CurrentUser, UsuarioJwt } from '../../common/decorators/current-user.decorator';
+import { Throttle } from '@nestjs/throttler';
+
 import { Public } from '../../common/decorators/public.decorator';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
@@ -10,7 +12,12 @@ import { UpdateUsuarioDto } from '../usuarios/dto/update-usuario.dto';
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
+  /**
+   * Límite estricto contra fuerza bruta: 5 intentos por minuto y por IP.
+   * Sin esto un atacante podía probar contraseñas sin ningún freno.
+   */
   @Public()
+  @Throttle({ general: { ttl: 60_000, limit: 5 } })
   @Post('login')
   login(@Body() dto: LoginDto) {
     return this.authService.login(dto);

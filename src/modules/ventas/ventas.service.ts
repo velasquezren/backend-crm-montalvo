@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { EstadoVenta } from '@prisma/client';
+import { EstadoVenta, Prisma } from '@prisma/client';
 
 import { AuditService } from '../../common/audit/audit.service';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -8,6 +8,7 @@ import { ComisionesService } from '../comisiones/comisiones.service';
 import { LeadsService } from '../leads/leads.service';
 import { CreateVentaDto } from './dto/create-venta.dto';
 import { QueryVentaDto } from './dto/query-venta.dto';
+import { calcularPaginacion, paginar } from '../../common/dto/pagination.dto';
 
 /**
  * Módulo Ventas — RF-11/RF-12.
@@ -56,22 +57,32 @@ export class VentasService {
   }
 
   async findAll(query: QueryVentaDto) {
-    return this.prisma.venta.findMany({
-      where: {
-        estado: query.estado,
-        agenteId: query.agenteId,
-        createdAt: {
-          gte: query.desde ? new Date(query.desde) : undefined,
-          lte: query.hasta ? new Date(query.hasta) : undefined,
+    const where: Prisma.VentaWhereInput = {
+      estado: query.estado,
+      agenteId: query.agenteId,
+      createdAt: {
+        gte: query.desde ? new Date(query.desde) : undefined,
+        lte: query.hasta ? new Date(query.hasta) : undefined,
+      },
+    };
+    const { skip, take } = calcularPaginacion(query);
+
+    const [datos, total] = await this.prisma.$transaction([
+      this.prisma.venta.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          cliente: { select: { id: true, nombre: true, telefono: true } },
+          agente: { select: { id: true, nombre: true } },
+          comision: { select: { id: true, monto: true, estado: true } },
         },
-      },
-      orderBy: { createdAt: 'desc' },
-      include: {
-        cliente: { select: { id: true, nombre: true, telefono: true } },
-        agente: { select: { id: true, nombre: true } },
-        comision: { select: { id: true, monto: true, estado: true } },
-      },
-    });
+        skip,
+        take,
+      }),
+      this.prisma.venta.count({ where }),
+    ]);
+
+    return paginar(datos, total, query);
   }
 
   /** Cambio de estado (solo ADMIN, garantizado en el controller) — RF-12: el agente no se toca. */

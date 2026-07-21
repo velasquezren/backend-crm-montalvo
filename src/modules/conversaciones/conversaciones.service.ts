@@ -27,6 +27,10 @@ export class ConversacionesService {
         mensajes: { orderBy: { createdAt: 'desc' }, take: 1 },
         _count: { select: { mensajes: true } },
       },
+      /* El inbox no se pagina a propósito: la UI filtra por pestañas
+         (Todas / Sin asignar / Mis chats) sobre el conjunto cargado, igual
+         que WhatsApp Web. Se acota a las 100 conversaciones más recientes;
+         las antiguas se alcanzan por el buscador de clientes. */
       take: 100,
     });
   }

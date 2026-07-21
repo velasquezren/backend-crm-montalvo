@@ -4,6 +4,7 @@ import * as bcrypt from 'bcryptjs';
 
 import { UsuariosService } from '../usuarios/usuarios.service';
 import { LoginDto } from './dto/login.dto';
+import { UpdateUsuarioDto } from '../usuarios/dto/update-usuario.dto';
 
 /**
  * Módulo Auth — RNF-01: JWT + bcrypt.
@@ -46,7 +47,7 @@ export class AuthService {
     return this.usuariosService.findOne(id);
   }
 
-  async updatePerfil(id: string, dto: any) {
+  async updatePerfil(id: string, dto: UpdateUsuarioDto) {
     // Evitar que el agente se cambie su propio rol o estado activo/inactivo por seguridad
     const { rol, activo, ...cleanDto } = dto;
     return this.usuariosService.update(id, cleanDto);

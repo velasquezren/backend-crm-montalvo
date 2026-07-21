@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 
 import { PrismaService } from '../../prisma/prisma.service';
+import { calcularPaginacion, paginar, PaginationDto } from '../dto/pagination.dto';
 
 /**
  * Bitácora de cambios — RF-19/RF-20, RNF-05.
@@ -34,10 +35,15 @@ export class AuditService {
     }
   }
 
-  async historial(entidad: string, entidadId: string) {
-    return this.prisma.auditLog.findMany({
-      where: { entidad, entidadId },
-      orderBy: { createdAt: 'desc' },
-    });
+  async historial(entidad: string, entidadId: string, query: PaginationDto = {}) {
+    const where = { entidad, entidadId };
+    const { skip, take } = calcularPaginacion(query);
+
+    const [datos, total] = await this.prisma.$transaction([
+      this.prisma.auditLog.findMany({ where, orderBy: { createdAt: 'desc' }, skip, take }),
+      this.prisma.auditLog.count({ where }),
+    ]);
+
+    return paginar(datos, total, query);
   }
 }

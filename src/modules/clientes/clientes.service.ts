@@ -2,6 +2,7 @@ import { ConflictException, Injectable, NotFoundException } from '@nestjs/common
 import { CategoriaCliente, Prisma } from '@prisma/client';
 
 import { AuditService } from '../../common/audit/audit.service';
+import { calcularPaginacion, paginar } from '../../common/dto/pagination.dto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateClienteDto } from './dto/create-cliente.dto';
 import { CreateInteresDto } from './dto/create-interes.dto';
@@ -61,15 +62,24 @@ export class ClientesService {
         : {}),
     };
 
-    return this.prisma.cliente.findMany({
-      where,
-      orderBy: { updatedAt: 'desc' },
-      include: {
-        intereses: { orderBy: { createdAt: 'desc' }, take: 5 },
-        agente: { select: { id: true, nombre: true } },
-      },
-      take: 100,
-    });
+    const { skip, take } = calcularPaginacion(query);
+
+    /* Una sola ida a la base: página + total, en paralelo. */
+    const [datos, total] = await this.prisma.$transaction([
+      this.prisma.cliente.findMany({
+        where,
+        orderBy: { updatedAt: 'desc' },
+        include: {
+          intereses: { orderBy: { createdAt: 'desc' }, take: 5 },
+          agente: { select: { id: true, nombre: true } },
+        },
+        skip,
+        take,
+      }),
+      this.prisma.cliente.count({ where }),
+    ]);
+
+    return paginar(datos, total, query);
   }
 
   async findOne(id: string) {
@@ -126,19 +136,26 @@ export class ClientesService {
     const hace90Dias = new Date();
     hace90Dias.setDate(hace90Dias.getDate() - 90);
 
-    const ventasGanadas = await this.prisma.venta.findMany({
-      where: { clienteId, estado: 'GANADA' },
-    });
+    /* Se agrega en SQL en vez de traer todas las ventas del cliente a memoria
+       para filtrarlas y sumarlas en JS: la base solo devuelve 3 números. */
+    const [recientes, historicas] = await this.prisma.$transaction([
+      this.prisma.venta.aggregate({
+        where: { clienteId, estado: 'GANADA', createdAt: { gte: hace90Dias } },
+        _count: true,
+        _sum: { monto: true },
+      }),
+      this.prisma.venta.count({ where: { clienteId, estado: 'GANADA' } }),
+    ]);
 
-    const ventasRecientes = ventasGanadas.filter(v => v.createdAt >= hace90Dias);
-    const montoReciente = ventasRecientes.reduce((suma, v) => suma + Number(v.monto), 0);
+    const cantidadReciente = recientes._count;
+    const montoReciente = Number(recientes._sum.monto ?? 0);
 
     let categoria: CategoriaCliente = 'PROSPECTO';
-    if (ventasRecientes.length >= 3 || montoReciente >= 10_000) {
+    if (cantidadReciente >= 3 || montoReciente >= 10_000) {
       categoria = 'GOLD';
-    } else if (ventasRecientes.length >= 1) {
+    } else if (cantidadReciente >= 1) {
       categoria = 'SILVER';
-    } else if (ventasGanadas.length >= 1) {
+    } else if (historicas >= 1) {
       categoria = 'BRONZE';
     }
 

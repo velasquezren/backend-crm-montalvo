@@ -3,6 +3,7 @@ import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common
 import { CurrentUser, UsuarioJwt } from '../../common/decorators/current-user.decorator';
 import { CreateLeadPresencialDto } from './dto/create-lead-presencial.dto';
 import { QueryLeadDto } from './dto/query-lead.dto';
+import { UpdateEstadoLeadDto } from './dto/update-estado-lead.dto';
 import { LeadsService } from './leads.service';
 
 @Controller('leads')
@@ -21,7 +22,7 @@ export class LeadsController {
   }
 
   @Patch(':id/estado')
-  updateEstado(@Param('id') id: string, @Body('estado') estado: any) {
-    return this.leadsService.updateEstado(id, estado);
+  updateEstado(@Param('id') id: string, @Body() dto: UpdateEstadoLeadDto) {
+    return this.leadsService.updateEstado(id, dto.estado);
   }
 }
