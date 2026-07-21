@@ -29,15 +29,26 @@ export class AuthService {
     }
 
     const payload = {
-      sub: usuario.id,
-      email: usuario.email,
-      nombre: usuario.nombre,
-      rol: usuario.rol,
+       sub: usuario.id,
+       email: usuario.email,
+       nombre: usuario.nombre,
+       rol: usuario.rol,
+       foto: usuario.foto,
     };
 
     return {
       access_token: await this.jwtService.signAsync(payload),
       usuario: payload,
     };
+  }
+
+  async getPerfil(id: string) {
+    return this.usuariosService.findOne(id);
+  }
+
+  async updatePerfil(id: string, dto: any) {
+    // Evitar que el agente se cambie su propio rol o estado activo/inactivo por seguridad
+    const { rol, activo, ...cleanDto } = dto;
+    return this.usuariosService.update(id, cleanDto);
   }
 }

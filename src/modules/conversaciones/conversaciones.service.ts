@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 
 import { PrismaService } from '../../prisma/prisma.service';
 import { ClientesService } from '../clientes/clientes.service';
@@ -25,6 +25,7 @@ export class ConversacionesService {
         cliente: { select: { id: true, nombre: true, telefono: true, categoria: true } },
         agente: { select: { id: true, nombre: true } },
         mensajes: { orderBy: { createdAt: 'desc' }, take: 1 },
+        _count: { select: { mensajes: true } },
       },
       take: 100,
     });
@@ -60,6 +61,41 @@ export class ConversacionesService {
     });
 
     return { ...mensaje, clienteTelefono: conversacion.cliente.telefono };
+  }
+
+  /** Asignar/reasignar un agente a una conversación (solo ADMIN). */
+  async asignarAgente(conversacionId: string, agenteId: string | null) {
+    const conversacion = await this.prisma.conversacion.findUnique({
+      where: { id: conversacionId },
+    });
+    if (!conversacion) {
+      throw new NotFoundException(`Conversación ${conversacionId} no encontrada`);
+    }
+
+    if (agenteId) {
+      const agente = await this.prisma.usuario.findUnique({ where: { id: agenteId } });
+      if (!agente || !agente.activo) {
+        throw new NotFoundException(`Agente ${agenteId} no encontrado o inactivo`);
+      }
+    }
+
+    return this.prisma.conversacion.update({
+      where: { id: conversacionId },
+      data: { agenteId },
+      include: {
+        cliente: { select: { id: true, nombre: true, telefono: true, categoria: true } },
+        agente: { select: { id: true, nombre: true } },
+      },
+    });
+  }
+
+  /** Lista de agentes activos — para el dropdown de asignación del admin. */
+  async findAgentes() {
+    return this.prisma.usuario.findMany({
+      where: { activo: true },
+      select: { id: true, nombre: true, rol: true },
+      orderBy: { nombre: 'asc' },
+    });
   }
 
   /**

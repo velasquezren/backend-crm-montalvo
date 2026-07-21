@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
 
 import { CurrentUser, UsuarioJwt } from '../../common/decorators/current-user.decorator';
 import { CreateLeadPresencialDto } from './dto/create-lead-presencial.dto';
@@ -18,5 +18,10 @@ export class LeadsController {
   @Post('presencial')
   createPresencial(@Body() dto: CreateLeadPresencialDto, @CurrentUser() usuario: UsuarioJwt) {
     return this.leadsService.createPresencial(dto, usuario.sub);
+  }
+
+  @Patch(':id/estado')
+  updateEstado(@Param('id') id: string, @Body('estado') estado: any) {
+    return this.leadsService.updateEstado(id, estado);
   }
 }

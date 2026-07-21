@@ -11,6 +11,7 @@ const SIN_PASSWORD = {
   email: true,
   rol: true,
   activo: true,
+  foto: true,
   createdAt: true,
   updatedAt: true,
 } as const;

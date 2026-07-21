@@ -1,7 +1,9 @@
-import { Body, Controller, Get, Param, Post } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post } from '@nestjs/common';
 
 import { CurrentUser, UsuarioJwt } from '../../common/decorators/current-user.decorator';
+import { Roles } from '../../common/decorators/roles.decorator';
 import { ConversacionesService } from './conversaciones.service';
+import { AsignarAgenteDto } from './dto/asignar-agente.dto';
 import { EnviarMensajeDto } from './dto/enviar-mensaje.dto';
 
 @Controller('conversaciones')
@@ -26,5 +28,21 @@ export class ConversacionesController {
     @CurrentUser() usuario: UsuarioJwt,
   ) {
     return this.conversacionesService.enviarMensaje(id, dto.contenido, usuario.sub);
+  }
+
+  /** Asignar agente a conversación — solo ADMIN. */
+  @Patch(':id/agente')
+  @Roles('ADMIN')
+  asignarAgente(
+    @Param('id') id: string,
+    @Body() dto: AsignarAgenteDto,
+  ) {
+    return this.conversacionesService.asignarAgente(id, dto.agenteId);
+  }
+
+  /** Lista de agentes activos — para el dropdown de asignación del admin. */
+  @Get('meta/agentes')
+  findAgentes() {
+    return this.conversacionesService.findAgentes();
   }
 }

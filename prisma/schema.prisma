@@ -64,6 +64,7 @@ model Usuario {
   passwordHash   String
   rol            Rol            @default(AGENTE)
   activo         Boolean        @default(true)
+  foto           String?
   clientes       Cliente[]      @relation("AgenteAsignado")
   intereses      Interes[]
   leads          Lead[]
@@ -94,6 +95,7 @@ model Cliente {
 
   @@index([categoria])
   @@index([nombre])
+  @@index([agenteId])
 }
 
 model Interes {
@@ -123,6 +125,7 @@ model Lead {
 
   @@index([clienteId])
   @@index([estado])
+  @@index([agenteId])
 }
 
 model Conversacion {
@@ -136,6 +139,8 @@ model Conversacion {
   updatedAt DateTime  @updatedAt
 
   @@index([clienteId])
+  @@index([agenteId])
+  @@index([updatedAt])
 }
 
 model Mensaje {
@@ -147,7 +152,7 @@ model Mensaje {
   whatsappMsgId  String?          @unique
   createdAt      DateTime         @default(now())
 
-  @@index([conversacionId])
+  @@index([conversacionId, createdAt])
 }
 
 model Venta {
@@ -165,6 +170,8 @@ model Venta {
 
   @@index([clienteId])
   @@index([agenteId])
+  @@index([estado])
+  @@index([createdAt])
 }
 
 model Comision {

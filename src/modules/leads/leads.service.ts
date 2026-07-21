@@ -97,4 +97,15 @@ export class LeadsService {
       data: { clienteId: cliente.id, origen: datos.origen, metaLeadId: datos.metaLeadId },
     });
   }
+
+  async updateEstado(id: string, estado: any) {
+    return this.prisma.lead.update({
+      where: { id },
+      data: { estado },
+      include: {
+        cliente: { select: { id: true, nombre: true, telefono: true, categoria: true } },
+        agente: { select: { id: true, nombre: true } },
+      },
+    });
+  }
 }
