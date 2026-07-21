@@ -4,6 +4,12 @@ import { IsArray, IsOptional, IsString, ValidateNested } from 'class-validator';
 /**
  * Validación perimetral del webhook de WhatsApp Cloud API.
  * Estructura: { entry: [{ changes: [{ value: { messages: [{ from, id, text: { body } }] } }] }] }
+ *
+ * Se modelan solo los campos que el CRM usa. Meta envía muchos más
+ * (metadata, statuses, pricing…) y añade nuevos con el tiempo, por eso estos
+ * webhooks NO usan `forbidNonWhitelisted`: rechazar el payload por un campo
+ * desconocido haría que Meta desactive la suscripción tras varios fallos.
+ * Ver el pipe declarado en whatsapp-webhook.controller.ts.
  */
 export class WhatsappTextDto {
   @IsOptional()
@@ -30,7 +36,31 @@ export class WhatsappMessageDto {
   text?: WhatsappTextDto;
 }
 
+/** Perfil del remitente: trae el nombre real con el que se da de alta al cliente. */
+export class WhatsappProfileDto {
+  @IsOptional()
+  @IsString()
+  name?: string;
+}
+
+export class WhatsappContactDto {
+  @IsOptional()
+  @IsString()
+  wa_id?: string;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => WhatsappProfileDto)
+  profile?: WhatsappProfileDto;
+}
+
 export class WhatsappValueDto {
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => WhatsappContactDto)
+  contacts?: WhatsappContactDto[];
+
   @IsOptional()
   @IsArray()
   @ValidateNested({ each: true })

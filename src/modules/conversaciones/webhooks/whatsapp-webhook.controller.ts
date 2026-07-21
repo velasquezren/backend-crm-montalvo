@@ -1,13 +1,30 @@
-import { Body, Controller, ForbiddenException, Get, Post, Query } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  ForbiddenException,
+  Get,
+  Logger,
+  Post,
+  Query,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 import { Public } from '../../../common/decorators/public.decorator';
 import { ConversacionesService } from '../conversaciones.service';
 import { WhatsappWebhookDto } from './dto/whatsapp-webhook.dto';
 
-/** Webhook de WhatsApp Cloud API — RF-09. Mensajes de texto entrantes se persisten. */
+/**
+ * Webhook de WhatsApp Cloud API — RF-09. Los mensajes de texto entrantes se
+ * persisten y crean cliente + conversación si no existían.
+ *
+ * El DTO modela solo lo que el CRM usa; el `whitelist` global descarta el
+ * resto del payload de Meta sin rechazarlo (ver main.ts: `forbidNonWhitelisted`
+ * está desactivado justo por estos webhooks).
+ */
 @Controller('webhooks/whatsapp')
 export class WhatsappWebhookController {
+  private readonly logger = new Logger(WhatsappWebhookController.name);
+
   constructor(
     private readonly config: ConfigService,
     private readonly conversacionesService: ConversacionesService,
@@ -30,20 +47,33 @@ export class WhatsappWebhookController {
   @Public()
   @Post()
   async recibir(@Body() payload: WhatsappWebhookDto): Promise<{ received: true }> {
-    const mensajes =
-      payload.entry
-        ?.flatMap(e => e.changes ?? [])
-        .flatMap(c => c.value?.messages ?? [])
-        .filter(m => m.type === 'text' && m.from && m.text?.body) ?? [];
+    const cambios = payload.entry?.flatMap(e => e.changes ?? []) ?? [];
 
-    for (const mensaje of mensajes) {
-      await this.conversacionesService.procesarEntrante(
-        `+${mensaje.from}`,
-        mensaje.text!.body!,
-        mensaje.id,
+    for (const cambio of cambios) {
+      const mensajes = (cambio.value?.messages ?? []).filter(
+        m => m.type === 'text' && m.from && m.text?.body,
       );
+
+      for (const mensaje of mensajes) {
+        /* WhatsApp manda el nombre del perfil en `contacts`, emparejado por wa_id.
+           Se usa para dar de alta al cliente con su nombre real en vez de un
+           marcador tipo "WhatsApp +591…". */
+        const contacto = cambio.value?.contacts?.find(c => c.wa_id === mensaje.from);
+
+        await this.conversacionesService.procesarEntrante(
+          `+${mensaje.from}`,
+          mensaje.text!.body!,
+          mensaje.id,
+          contacto?.profile?.name?.trim() || undefined,
+        );
+      }
+
+      if (mensajes.length > 0) {
+        this.logger.log(`WhatsApp: ${mensajes.length} mensaje(s) entrante(s) procesado(s)`);
+      }
     }
 
+    /* Meta exige un 200 rápido; si no, reintenta y acaba desactivando el webhook. */
     return { received: true };
   }
 }

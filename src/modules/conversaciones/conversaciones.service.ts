@@ -107,7 +107,17 @@ export class ConversacionesService {
    * Crea cliente y conversación si no existen — RF: registro automático
    * de cliente ante mensaje sin antecedentes.
    */
-  async procesarEntrante(telefono: string, contenido: string, whatsappMsgId?: string) {
+  /**
+   * @param nombrePerfil Nombre del perfil de WhatsApp, si Meta lo envía.
+   *   Evita dar de alta al cliente como "WhatsApp +591…" cuando escribe por
+   *   primera vez; si no viene, se usa el marcador con el teléfono.
+   */
+  async procesarEntrante(
+    telefono: string,
+    contenido: string,
+    whatsappMsgId?: string,
+    nombrePerfil?: string,
+  ) {
     if (whatsappMsgId) {
       const yaExiste = await this.prisma.mensaje.findUnique({ where: { whatsappMsgId } });
       if (yaExiste) {
@@ -118,7 +128,7 @@ export class ConversacionesService {
     let cliente = await this.clientesService.findByTelefono(telefono);
     if (!cliente) {
       cliente = await this.clientesService.create({
-        nombre: `WhatsApp ${telefono}`,
+        nombre: nombrePerfil || `WhatsApp ${telefono}`,
         telefono,
       });
     }

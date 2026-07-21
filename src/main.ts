@@ -31,10 +31,18 @@ async function bootstrap(): Promise<void> {
 
   app.useGlobalPipes(
     new ValidationPipe({
+      /**
+       * `whitelist` descarta las propiedades no declaradas en el DTO, así que
+       * ningún campo inesperado llega a la lógica de negocio.
+       *
+       * NO se usa `forbidNonWhitelisted`: además de descartar, rechazaría la
+       * petición con 400. Eso rompe los webhooks de Meta (WhatsApp y Lead Ads),
+       * cuyos payloads traen decenas de campos que no modelamos y que cambian
+       * con el tiempo; tras varios 400 Meta desactiva la suscripción. Como los
+       * pipes globales se aplican siempre —un @UsePipes en el controlador se
+       * suma, no lo reemplaza— la única forma de recibirlos es no activarlo.
+       */
       whitelist: true,
-      /* Rechaza propiedades no declaradas en el DTO en vez de ignorarlas
-         en silencio: evita que un cliente mande campos inesperados. */
-      forbidNonWhitelisted: true,
       transform: true,
       transformOptions: { enableImplicitConversion: false },
     }),

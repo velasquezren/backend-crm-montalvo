@@ -1,4 +1,12 @@
-import { Body, Controller, ForbiddenException, Get, Logger, Post, Query } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  ForbiddenException,
+  Get,
+  Logger,
+  Post,
+  Query,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 import { Public } from '../../../common/decorators/public.decorator';
@@ -13,6 +21,8 @@ import { MetaWebhookDto } from './dto/meta-webhook.dto';
  * la página de Meta esté conectada) — ahí se obtienen nombre/teléfono y se
  * delega a LeadsService.procesarLeadMeta().
  */
+/* Igual que el de WhatsApp: sin forbidNonWhitelisted, el payload de Meta
+   trae campos que no modelamos y rechazarlo desactivaría la suscripción. */
 @Controller('webhooks/meta')
 export class MetaWebhookController {
   private readonly logger = new Logger(MetaWebhookController.name);
