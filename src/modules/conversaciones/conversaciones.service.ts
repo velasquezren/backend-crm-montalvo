@@ -35,7 +35,7 @@ export class ConversacionesService {
     const conversacion = await this.prisma.conversacion.findUnique({
       where: { id },
       include: {
-        cliente: { select: { id: true, nombre: true, telefono: true, categoria: true } },
+        cliente: { select: { id: true, nombre: true, telefono: true, email: true, categoria: true, datosExtra: true } },
         agente: { select: { id: true, nombre: true } },
         mensajes: { orderBy: { createdAt: 'asc' } },
       },
