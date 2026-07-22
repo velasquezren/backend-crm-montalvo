@@ -1,5 +1,6 @@
 import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
+import { IoAdapter } from '@nestjs/platform-socket.io';
 import compression from 'compression';
 import helmet from 'helmet';
 
@@ -28,6 +29,10 @@ async function bootstrap(): Promise<void> {
     origin: origenes,
     credentials: true,
   });
+
+  /* Sin esto, Nest no sabe con qué adapter servir los WebSocketGateway
+     (ConversacionesGateway) y las conexiones fallarían en silencio. */
+  app.useWebSocketAdapter(new IoAdapter(app));
 
   app.useGlobalPipes(
     new ValidationPipe({

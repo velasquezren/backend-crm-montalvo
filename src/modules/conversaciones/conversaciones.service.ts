@@ -1,8 +1,13 @@
-import { ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 import { PrismaService } from '../../prisma/prisma.service';
 import { ClientesService } from '../clientes/clientes.service';
+import { ConversacionesGateway } from './conversaciones.gateway';
+
+/** Mensajes que trae el detalle de una conversación (más recientes primero, luego se reordenan).
+ *  Sin tope, un chat de años de antigüedad haría cada vez más lento cada poll/reload. */
+const LIMITE_MENSAJES_DETALLE = 300;
 
 /**
  * Módulo Conversaciones — RF-09/RF-10.
@@ -17,6 +22,7 @@ export class ConversacionesService {
     private readonly prisma: PrismaService,
     private readonly clientesService: ClientesService,
     private readonly config: ConfigService,
+    private readonly gateway: ConversacionesGateway,
   ) {}
 
   /** Visibilidad por rol: AGENTE ve sus conversaciones + las sin asignar; ADMIN todo. */
@@ -50,8 +56,29 @@ export class ConversacionesService {
       include: {
         cliente: { select: { id: true, nombre: true, telefono: true, email: true, categoria: true, datosExtra: true } },
         agente: { select: { id: true, nombre: true } },
-        mensajes: { orderBy: { createdAt: 'asc' } },
+        /* Se traen las más recientes primero (para poder acotar con `take`)
+           y se reordenan a ascendente en memoria — invertir 300 elementos
+           es despreciable frente a traer un historial sin límite. */
+        mensajes: { orderBy: { createdAt: 'desc' }, take: LIMITE_MENSAJES_DETALLE },
       },
+    });
+    if (
+      !conversacion ||
+      (soloAgenteId && conversacion.agenteId && conversacion.agenteId !== soloAgenteId)
+    ) {
+      throw new NotFoundException(`Conversación ${id} no encontrada`);
+    }
+    conversacion.mensajes.reverse();
+    return conversacion;
+  }
+
+  /** Versión liviana del chequeo de propiedad de `findOne`, sin traer mensajes:
+   *  la usan `enviarMensaje`/`asignarAgente`, que solo necesitan confirmar
+   *  dueño + el teléfono del cliente, no el historial completo del chat. */
+  private async obtenerConversacionPropia(id: string, soloAgenteId?: string) {
+    const conversacion = await this.prisma.conversacion.findUnique({
+      where: { id },
+      select: { id: true, agenteId: true, cliente: { select: { telefono: true } } },
     });
     if (
       !conversacion ||
@@ -71,52 +98,68 @@ export class ConversacionesService {
     agenteId: string,
     soloAgenteId?: string,
   ) {
-    const conversacion = await this.findOne(conversacionId, soloAgenteId);
+    const conversacion = await this.obtenerConversacionPropia(conversacionId, soloAgenteId);
 
-    const mensaje = await this.prisma.mensaje.create({
-      data: { conversacionId, direccion: 'SALIENTE', contenido },
-    });
+    /* Un solo round-trip a la base para ambos writes, y atómico: si el update
+       de la conversación falla, no queda un mensaje huérfano sin reflejarse
+       en updatedAt/agenteId. */
+    const [mensaje] = await this.prisma.$transaction([
+      this.prisma.mensaje.create({
+        data: { conversacionId, direccion: 'SALIENTE', contenido },
+      }),
+      this.prisma.conversacion.update({
+        where: { id: conversacionId },
+        data: { agenteId, updatedAt: new Date() },
+      }),
+    ]);
 
-    await this.prisma.conversacion.update({
-      where: { id: conversacionId },
-      data: { agenteId, updatedAt: new Date() },
-    });
+    /* Empuja el refresco a los demás clientes conectados (ver ConversacionesGateway). */
+    this.gateway.emitirActividad(conversacionId);
 
-    /* Envío real por WhatsApp Cloud API si el token y phone_id están en .env */
-    const token = this.config.get<string>('WHATSAPP_TOKEN') || this.config.get<string>('WHATSAPP_ACCESS_TOKEN');
-    const phoneId = this.config.get<string>('WHATSAPP_PHONE_ID') || this.config.get<string>('WHATSAPP_PHONE_NUMBER_ID');
-
-    if (token && phoneId) {
-      try {
-        const destino = conversacion.cliente.telefono.replace(/\+/g, '').trim();
-        const response = await fetch(`https://graph.facebook.com/v25.0/${phoneId}/messages`, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            messaging_product: 'whatsapp',
-            recipient_type: 'individual',
-            to: destino,
-            type: 'text',
-            text: { body: contenido },
-          }),
-        });
-
-        if (!response.ok) {
-          const errBody = await response.text();
-          this.logger.error(`Error enviando WhatsApp a Meta (${response.status}): ${errBody}`);
-        } else {
-          const data = await response.json();
-          this.logger.log(`Mensaje WhatsApp enviado a +${destino}. Meta ID: ${data.messages?.[0]?.id}`);
-        }
-      } catch (error) {
-        this.logger.error('Excepción al conectar con Meta Graph API', error);
-      }
-    }
+    /* Envío real por WhatsApp Cloud API — deliberadamente SIN await: el
+       agente no debe esperar el round-trip a Meta (300-900ms típico, a veces
+       más) para ver su mensaje como enviado. Errores quedan registrados pero
+       ya no pueden retrasar ni tumbar la respuesta al agente. */
+    void this.enviarPorWhatsApp(conversacion.cliente.telefono, contenido);
 
     return { ...mensaje, clienteTelefono: conversacion.cliente.telefono };
+  }
+
+  /** Ver comentario en `enviarMensaje`: se dispara sin await a propósito. */
+  private async enviarPorWhatsApp(telefono: string, contenido: string): Promise<void> {
+    const token = this.config.get<string>('WHATSAPP_TOKEN') || this.config.get<string>('WHATSAPP_ACCESS_TOKEN');
+    const phoneId = this.config.get<string>('WHATSAPP_PHONE_ID') || this.config.get<string>('WHATSAPP_PHONE_NUMBER_ID');
+    if (!token || !phoneId) {
+      return;
+    }
+
+    try {
+      const destino = telefono.replace(/\+/g, '').trim();
+      const response = await fetch(`https://graph.facebook.com/v25.0/${phoneId}/messages`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          messaging_product: 'whatsapp',
+          recipient_type: 'individual',
+          to: destino,
+          type: 'text',
+          text: { body: contenido },
+        }),
+      });
+
+      if (!response.ok) {
+        const errBody = await response.text();
+        this.logger.error(`Error enviando WhatsApp a Meta (${response.status}): ${errBody}`);
+      } else {
+        const data = await response.json();
+        this.logger.log(`Mensaje WhatsApp enviado a +${destino}. Meta ID: ${data.messages?.[0]?.id}`);
+      }
+    } catch (error) {
+      this.logger.error('Excepción al conectar con Meta Graph API', error);
+    }
   }
 
   /** Asignar/reasignar un agente a una conversación (solo ADMIN). */
@@ -195,14 +238,23 @@ export class ConversacionesService {
       });
     }
 
-    const mensaje = await this.prisma.mensaje.create({
-      data: {
-        conversacionId: conversacion.id,
-        direccion: 'ENTRANTE',
-        contenido,
-        whatsappMsgId,
-      },
-    });
+    /* `conversacion.update` bumpea `updatedAt` — sin esto un mensaje entrante
+       no subía el chat al tope del inbox (ordenado por updatedAt desc), y el
+       agente podía no notar que había algo nuevo hasta revisar chat por chat. */
+    const [mensaje] = await this.prisma.$transaction([
+      this.prisma.mensaje.create({
+        data: {
+          conversacionId: conversacion.id,
+          direccion: 'ENTRANTE',
+          contenido,
+          whatsappMsgId,
+        },
+      }),
+      this.prisma.conversacion.update({
+        where: { id: conversacion.id },
+        data: { updatedAt: new Date() },
+      }),
+    ]);
 
     /* Auto-crear Lead en la tabla de Oportunidades (Leads & Prospectos) si no existe */
     const leadExiste = await this.prisma.lead.findFirst({
@@ -217,6 +269,10 @@ export class ConversacionesService {
         },
       });
     }
+
+    /* Empuja el refresco a los agentes conectados — así el mensaje aparece
+       en segundos en vez de esperar el próximo poll. */
+    this.gateway.emitirActividad(conversacion.id);
 
     return mensaje;
   }

@@ -105,6 +105,43 @@ no pasan `soloAgenteId` — son lógica de negocio legítima, no el agente naveg
 parámetro es opcional y por defecto `undefined` (sin restricción) exactamente para no romper esos
 casos.
 
+## Llamadas externas lentas: nunca bloquear la respuesta al cliente
+
+Si un endpoint dispara una llamada a un servicio de terceros que no determina
+el resultado que ve el usuario (ej. reenviar un mensaje por WhatsApp Cloud API
+tras ya haberlo guardado en la base), **no la esperes (`await`) antes de
+responder**. El agente no debería pagar con latencia el round-trip a un
+tercero (Meta: 300-900ms típico) por algo que ya ocurrió (el mensaje ya está
+guardado). Ver `enviarMensaje()`/`enviarPorWhatsApp()` en
+`conversaciones.service.ts`: la llamada a Meta se dispara con `void this.algo(...)`,
+nunca con `await`, y sus errores solo se registran con el logger — nunca deben
+poder tumbar ni demorar la respuesta HTTP.
+
+```ts
+// ✅ el agente ve su mensaje enviado en cuanto se guarda en la base
+const mensaje = await this.prisma.mensaje.create({ ... });
+void this.enviarPorWhatsApp(telefono, contenido); // sin await, a propósito
+return mensaje;
+```
+
+## Tiempo real: push por WebSocket en vez de que el frontend haga polling
+
+Cuando una vista necesita reflejar cambios que otro actor produce (mensajes
+entrantes de un webhook, otro agente escribiendo) el patrón es un
+`@WebSocketGateway` liviano que **solo avisa que algo cambió**, nunca lleva
+los datos en el payload — el dato real se sigue sirviendo por REST, que es
+donde vive el escopado por rol. Ver `ConversacionesGateway`
+(`conversaciones.gateway.ts`): se autentica el handshake con el mismo
+`JwtService` que usa `JwtAuthGuard`, y `emitirActividad(conversacionId)` se
+llama tras cada `mensaje.create` (tanto en `enviarMensaje` como en
+`procesarEntrante` del webhook). Requiere `app.useWebSocketAdapter(new IoAdapter(app))`
+en `main.ts` — sin esto el gateway no tiene con qué servir las conexiones.
+
+**Un mensaje entrante debe bumpear `conversacion.updatedAt`**, no solo crear
+el `Mensaje`: el inbox ordena por `updatedAt desc`, así que sin este update
+un chat con un mensaje nuevo del paciente no sube al tope de la lista hasta
+que un agente responda. Ambos writes van en la misma `$transaction`.
+
 ## Consultas: agregar en SQL, no en JS
 
 Prohibido traer filas para contarlas o sumarlas en memoria:
