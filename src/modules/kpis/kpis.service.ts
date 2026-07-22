@@ -60,8 +60,21 @@ export class KpisService {
         where: { createdAt: rango, agenteId: soloAgenteId },
         _sum: { monto: true },
       }),
-      this.prisma.conversacion.count(),
-      this.prisma.lead.count({ where: { estado: 'CONTACTADO' } }),
+      /* Escopadas por soloAgenteId igual que ventas/comisiones arriba: sin esto
+         un AGENTE veía el funnel de TODA la clínica (conversaciones y leads
+         contactados de sus compañeros), no solo el suyo. */
+      this.prisma.conversacion.count({
+        where: soloAgenteId
+          ? { OR: [{ agenteId: soloAgenteId }, { agenteId: null }] }
+          : undefined,
+      }),
+      this.prisma.lead.count({
+        where: {
+          estado: 'CONTACTADO',
+          origen: { not: 'IMPORTACION' },
+          ...(soloAgenteId ? { OR: [{ agenteId: soloAgenteId }, { agenteId: null }] } : {}),
+        },
+      }),
     ]);
 
     /* Nombres de agentes para el ranking (una sola consulta) */

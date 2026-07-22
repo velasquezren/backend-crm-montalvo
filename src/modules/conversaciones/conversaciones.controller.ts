@@ -17,8 +17,9 @@ export class ConversacionesController {
   }
 
   @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.conversacionesService.findOne(id);
+  findOne(@Param('id') id: string, @CurrentUser() usuario: UsuarioJwt) {
+    const soloAgenteId = usuario.rol === 'ADMIN' ? undefined : usuario.sub;
+    return this.conversacionesService.findOne(id, soloAgenteId);
   }
 
   @Post(':id/mensajes')
@@ -27,7 +28,8 @@ export class ConversacionesController {
     @Body() dto: EnviarMensajeDto,
     @CurrentUser() usuario: UsuarioJwt,
   ) {
-    return this.conversacionesService.enviarMensaje(id, dto.contenido, usuario.sub);
+    const soloAgenteId = usuario.rol === 'ADMIN' ? undefined : usuario.sub;
+    return this.conversacionesService.enviarMensaje(id, dto.contenido, usuario.sub, soloAgenteId);
   }
 
   /** Asignar agente a conversación — solo ADMIN. */

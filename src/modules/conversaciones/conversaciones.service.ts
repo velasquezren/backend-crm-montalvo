@@ -38,7 +38,13 @@ export class ConversacionesService {
     });
   }
 
-  async findOne(id: string) {
+  /**
+   * @param soloAgenteId Si viene (usuario AGENTE, no ADMIN), solo puede ver
+   *   conversaciones propias o sin asignar. Sin esto, cualquier agente podía
+   *   leer o responder la conversación de OTRO agente por ID, sin importar
+   *   quién la tenía asignada. 404 en vez de 403 para no confirmar existencia.
+   */
+  async findOne(id: string, soloAgenteId?: string) {
     const conversacion = await this.prisma.conversacion.findUnique({
       where: { id },
       include: {
@@ -47,14 +53,25 @@ export class ConversacionesService {
         mensajes: { orderBy: { createdAt: 'asc' } },
       },
     });
-    if (!conversacion) {
+    if (
+      !conversacion ||
+      (soloAgenteId && conversacion.agenteId && conversacion.agenteId !== soloAgenteId)
+    ) {
       throw new NotFoundException(`Conversación ${id} no encontrada`);
     }
     return conversacion;
   }
 
-  async enviarMensaje(conversacionId: string, contenido: string, agenteId: string) {
-    const conversacion = await this.findOne(conversacionId);
+  /** `soloAgenteId` — ver la nota de `findOne`. Si la conversación estaba sin
+   *  asignar, el envío la asigna automáticamente al agente que responde
+   *  primero (comportamiento ya existente, ahora también protegido). */
+  async enviarMensaje(
+    conversacionId: string,
+    contenido: string,
+    agenteId: string,
+    soloAgenteId?: string,
+  ) {
+    const conversacion = await this.findOne(conversacionId, soloAgenteId);
 
     const mensaje = await this.prisma.mensaje.create({
       data: { conversacionId, direccion: 'SALIENTE', contenido },

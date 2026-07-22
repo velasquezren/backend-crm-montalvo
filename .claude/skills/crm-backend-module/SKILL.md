@@ -76,6 +76,35 @@ Convención: un **AGENTE** ve lo suyo + lo sin asignar (pool); un **ADMIN** ve t
 Endpoints exclusivos de admin: `@Roles('ADMIN')`. Endpoints sin sesión: `@Public()`.
 Los tres guards globales (Throttler → JWT → Roles) están en `app.module.ts`.
 
+### La regla de `findAll` se aplica también a `findOne` y a las mutaciones
+
+Escopar solo el listado no basta: si `findOne(id)`/`update(id, …)` no repiten el mismo chequeo,
+un agente autenticado puede leer o editar **cualquier** registro por ID con solo conocer el UUID,
+sin importar a quién esté asignado — el filtro del listado se vuelve cosmético. Encontrado real en
+Clientes y Conversaciones (ver commits que arreglan "ownership check").
+
+```ts
+// service — mismo soloAgenteId que findAll, 404 (no 403) para no confirmar que el registro existe
+async findOne(id: string, soloAgenteId?: string) {
+  const registro = await this.prisma.cliente.findUnique({ where: { id } });
+  if (!registro || (soloAgenteId && registro.agenteId && registro.agenteId !== soloAgenteId)) {
+    throw new NotFoundException(`Cliente ${id} no encontrado`);
+  }
+  return registro;
+}
+```
+
+`update()` debe llamar a este `findOne(id, soloAgenteId)` antes de escribir, no a una versión sin
+escopar. Los **agregados** (KPIs, conteos) tienen el mismo hueco si no se filtran por `soloAgenteId`
+igual que las consultas de detalle — ver el bug corregido en `kpis.service.ts` (`resumen()` sumaba
+conversaciones y leads de toda la clínica al funnel de un agente).
+
+**Excepción a propósito:** las llamadas *internas* entre módulos (ej. `VentasService` llamando a
+`ClientesService.findOne(dto.clienteId)` para validar que el cliente existe al registrar una venta)
+no pasan `soloAgenteId` — son lógica de negocio legítima, no el agente navegando IDs a mano. El
+parámetro es opcional y por defecto `undefined` (sin restricción) exactamente para no romper esos
+casos.
+
 ## Consultas: agregar en SQL, no en JS
 
 Prohibido traer filas para contarlas o sumarlas en memoria:
@@ -116,7 +145,10 @@ Con datos reales en la base, revisa siempre el SQL antes de aplicarlo (`--create
 
 - `helmet()` + `compression()` en `main.ts`
 - CORS restringido a `CORS_ORIGINS` (env), no abierto
-- `ValidationPipe` con `whitelist` + `forbidNonWhitelisted`
+- `ValidationPipe` con `whitelist` (descarta campos no declarados) — **sin** `forbidNonWhitelisted`:
+  se probó y se quitó a propósito, porque rechaza con 400 los webhooks de Meta (traen decenas de
+  campos que no modelamos) y tras varios 400 Meta desactiva la suscripción. `whitelist` solo ya
+  protege contra que un cliente cuele campos inesperados; no lo reactives sin filtrar antes por ruta.
 - Rate limit global 120/min; **login 5/min** contra fuerza bruta
 - Contraseñas con bcrypt; el JWT nunca lleva datos sensibles
 

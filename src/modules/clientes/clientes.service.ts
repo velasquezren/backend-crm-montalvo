@@ -82,7 +82,14 @@ export class ClientesService {
     return paginar(datos, total, query);
   }
 
-  async findOne(id: string) {
+  /**
+   * @param soloAgenteId Si viene (usuario AGENTE, no ADMIN), solo puede ver
+   *   clientes propios o del pool sin asignar — la misma regla de `findAll`.
+   *   Sin esto, cualquier agente autenticado podía leer la ficha de CUALQUIER
+   *   cliente por ID sabiendo el UUID, sin importar a quién estaba asignado.
+   *   404 en vez de 403 para no confirmar que el registro existe.
+   */
+  async findOne(id: string, soloAgenteId?: string) {
     const cliente = await this.prisma.cliente.findUnique({
       where: { id },
       include: {
@@ -92,7 +99,7 @@ export class ClientesService {
       },
     });
 
-    if (!cliente) {
+    if (!cliente || (soloAgenteId && cliente.agenteId && cliente.agenteId !== soloAgenteId)) {
       throw new NotFoundException(`Cliente ${id} no encontrado`);
     }
     return cliente;
@@ -102,8 +109,9 @@ export class ClientesService {
     return this.prisma.cliente.findUnique({ where: { telefono } });
   }
 
-  async update(id: string, dto: UpdateClienteDto, usuarioId?: string) {
-    await this.findOne(id);
+  /** `soloAgenteId` — ver la nota de `findOne`: mismo hueco existía en edición. */
+  async update(id: string, dto: UpdateClienteDto, usuarioId?: string, soloAgenteId?: string) {
+    await this.findOne(id, soloAgenteId);
     const actualizado = await this.prisma.cliente.update({
       where: { id },
       data: {

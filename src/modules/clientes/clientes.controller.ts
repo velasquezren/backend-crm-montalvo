@@ -23,8 +23,9 @@ export class ClientesController {
   }
 
   @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.clientesService.findOne(id);
+  findOne(@Param('id') id: string, @CurrentUser() usuario: UsuarioJwt) {
+    const soloAgenteId = usuario.rol === 'ADMIN' ? undefined : usuario.sub;
+    return this.clientesService.findOne(id, soloAgenteId);
   }
 
   @Patch(':id')
@@ -33,7 +34,8 @@ export class ClientesController {
     @Body() dto: UpdateClienteDto,
     @CurrentUser() usuario: UsuarioJwt,
   ) {
-    return this.clientesService.update(id, dto, usuario.sub);
+    const soloAgenteId = usuario.rol === 'ADMIN' ? undefined : usuario.sub;
+    return this.clientesService.update(id, dto, usuario.sub, soloAgenteId);
   }
 
   @Post(':id/intereses')
