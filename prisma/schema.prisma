@@ -133,14 +133,16 @@ model Lead {
 model Conversacion {
   id        String    @id @default(uuid())
   cliente   Cliente   @relation(fields: [clienteId], references: [id], onDelete: Cascade)
-  clienteId String
+  /// Único: un inbox de WhatsApp tiene UN hilo por contacto (igual que la app
+  /// de WhatsApp). Además cierra la race de dos webhooks entrantes simultáneos
+  /// creando dos conversaciones para el mismo cliente — ver procesarEntrante.
+  clienteId String    @unique
   agente    Usuario?  @relation(fields: [agenteId], references: [id])
   agenteId  String?
   mensajes  Mensaje[]
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
 
-  @@index([clienteId])
   @@index([agenteId])
   @@index([updatedAt])
   @@index([agenteId, updatedAt])

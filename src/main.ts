@@ -1,5 +1,6 @@
 import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
+import { NestExpressApplication } from '@nestjs/platform-express';
 import { IoAdapter } from '@nestjs/platform-socket.io';
 import compression from 'compression';
 import helmet from 'helmet';
@@ -7,7 +8,21 @@ import helmet from 'helmet';
 import { AppModule } from './app.module';
 
 async function bootstrap(): Promise<void> {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule);
+
+  /**
+   * Confiar en el proxy SOLO cuando el peer inmediato es loopback (Apache, que
+   * corre en 127.0.0.1). Así `req.ip` toma la IP real del cliente del
+   * `X-Forwarded-For` que agrega Apache, en vez de ver siempre 127.0.0.1.
+   *
+   * Sin esto, el rate-limit por IP no existía: TODAS las peticiones caían en
+   * el mismo bucket (127.0.0.1), así que el límite de login (5/min) y el
+   * general (120/min) se compartían entre todos los usuarios — 5 claves mal
+   * escritas y quedaban todos bloqueados. `loopback` (no `true`) evita que un
+   * atacante externo falsifique su IP mandando su propio X-Forwarded-For:
+   * solo se confía en la cabecera si quien conecta es el propio Apache local.
+   */
+  app.set('trust proxy', 'loopback');
 
   /* Cabeceras de seguridad HTTP (RNF-01). */
   app.use(helmet());

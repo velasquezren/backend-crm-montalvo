@@ -167,6 +167,55 @@ Mezclarlo todo en un commit hace imposible saber después qué migración hizo
 qué. Pasó una vez con 5 índices compuestos que existían en `schema.prisma`
 pero nunca se habían migrado — ver `fix_indices_faltantes`.
 
+## Get-or-create bajo concurrencia: `upsert` NO basta, usa catch-P2002
+
+Cualquier endpoint que reciba tráfico concurrente para la misma entidad
+(webhooks de Meta, que se entregan en paralelo y con reintentos) tiene una
+race clásica en el patrón `findFirst → si no existe → create`: dos peticiones
+simultáneas ven "no existe" a la vez y ambas crean; la segunda choca contra el
+índice único con un 500 (P2002). **Probado: `prisma.upsert` tampoco lo resuelve**
+— internamente hace el mismo "buscar → insertar" y también rebota bajo carrera.
+
+El patrón correcto (ver `ClientesService.obtenerOCrearPorTelefono` y
+`ConversacionesService.obtenerOCrearConversacion`): intentar crear y, si el
+único rebota, releer — para entonces la otra petición ya lo creó.
+
+```ts
+const existente = await this.prisma.x.findUnique({ where: { clave } });
+if (existente) return existente;
+try {
+  return await this.prisma.x.create({ data: { … } });
+} catch (error) {
+  if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+    const yaCreado = await this.prisma.x.findUnique({ where: { clave } });
+    if (yaCreado) return yaCreado; // otra petición concurrente lo creó
+  }
+  throw error;
+}
+```
+
+Requiere que exista el índice único sobre la clave. Si una entidad relacionada
+NO puede ser única (ej. un cliente sí puede tener varios `Lead`), no fuerces un
+único: en su lugar **ata su creación a la de una entidad que sí lo sea** — el
+lead de "primer contacto" se crea solo cuando `obtenerOCrearConversacion`
+devuelve `esNueva: true`, y como la conversación es única por cliente,
+exactamente una petición concurrente lo dispara. Verifica siempre con una
+prueba real de N webhooks en paralelo (`curl … &` × N) que los conteos
+resultantes son 1/1/N/1, no confíes en que "debería" estar bien.
+
+## Rate-limit tras un proxy inverso: `trust proxy` o el límite es global
+
+El `ThrottlerGuard` (y el `@Throttle` del login) filtran por `req.ip`. Detrás
+de Apache/nginx en loopback, sin configurar `trust proxy` Express ve siempre
+`127.0.0.1` → **todas** las peticiones caen en el mismo bucket y el límite
+"por IP" se comparte entre todos los usuarios (5 logins fallidos y quedan
+todos bloqueados). En `main.ts`: `app.set('trust proxy', 'loopback')` — toma
+la IP real del `X-Forwarded-For` que agrega el proxy, y `loopback` (no `true`)
+evita que un cliente externo falsifique su IP. Los webhooks de proveedores
+(Meta) van con `@SkipThrottle()`: sus ráfagas y reintentos no deben chocar
+contra el límite —tras varios 429 Meta desactiva la suscripción— y son
+idempotentes de todos modos.
+
 ## Consultas: agregar en SQL, no en JS
 
 Prohibido traer filas para contarlas o sumarlas en memoria:
@@ -211,7 +260,10 @@ Con datos reales en la base, revisa siempre el SQL antes de aplicarlo (`--create
   se probó y se quitó a propósito, porque rechaza con 400 los webhooks de Meta (traen decenas de
   campos que no modelamos) y tras varios 400 Meta desactiva la suscripción. `whitelist` solo ya
   protege contra que un cliente cuele campos inesperados; no lo reactives sin filtrar antes por ruta.
-- Rate limit global 120/min; **login 5/min** contra fuerza bruta
+- Rate limit 120/min general; **login 5/min** contra fuerza bruta — **por IP real**
+  gracias a `trust proxy` (ver sección de rate-limit arriba); el webhook de WhatsApp
+  va con `@SkipThrottle()`
+- HTTP/2 en el vhost de Apache (`Protocols h2 http/1.1`); WebSocket proxyado en `/socket.io/`
 - Contraseñas con bcrypt; el JWT nunca lleva datos sensibles
 
 ## Antes de dar por terminado

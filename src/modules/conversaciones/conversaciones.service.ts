@@ -1,5 +1,6 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { Prisma } from '@prisma/client';
 
 import { PrismaService } from '../../prisma/prisma.service';
 import { ClientesService } from '../clientes/clientes.service';
@@ -253,6 +254,39 @@ export class ConversacionesService {
     });
   }
 
+  /**
+   * Get-or-create de la conversación de un cliente, a prueba de concurrencia.
+   * Un inbox de WhatsApp tiene UN hilo por contacto (`Conversacion.clienteId`
+   * es único). Mismo patrón que el cliente: intentar crear y, si el único
+   * rebota (P2002) porque otro webhook simultáneo la creó primero, releer.
+   *
+   * Devuelve `esNueva` para que el llamador sepa si ESTA petición fue la que
+   * la creó — bajo carrera, exactamente una lo será (el único lo garantiza).
+   * Se usa para disparar el auto-alta del Lead una sola vez (ver
+   * `procesarEntrante`), que si no tendría su propia race (Lead no es único
+   * por cliente porque un cliente puede tener varias oportunidades).
+   */
+  private async obtenerOCrearConversacion(
+    clienteId: string,
+  ): Promise<{ conversacion: { id: string }; esNueva: boolean }> {
+    const existente = await this.prisma.conversacion.findUnique({ where: { clienteId } });
+    if (existente) {
+      return { conversacion: existente, esNueva: false };
+    }
+    try {
+      const creada = await this.prisma.conversacion.create({ data: { clienteId } });
+      return { conversacion: creada, esNueva: true };
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+        const yaCreada = await this.prisma.conversacion.findUnique({ where: { clienteId } });
+        if (yaCreada) {
+          return { conversacion: yaCreada, esNueva: false };
+        }
+      }
+      throw error;
+    }
+  }
+
   /** Lista de agentes activos — para el dropdown de asignación del admin. */
   async findAgentes() {
     return this.prisma.usuario.findMany({
@@ -285,23 +319,15 @@ export class ConversacionesService {
       }
     }
 
-    let cliente = await this.clientesService.findByTelefono(telefono);
-    if (!cliente) {
-      cliente = await this.clientesService.create({
-        nombre: nombrePerfil || `WhatsApp ${telefono}`,
-        telefono,
-      });
-    }
+    /* Get-or-create atómico: dos webhooks simultáneos de un número nuevo no
+       deben pelearse por el índice único de telefono (antes: 500 + reintento
+       de Meta). Ver ClientesService.obtenerOCrearPorTelefono. */
+    const cliente = await this.clientesService.obtenerOCrearPorTelefono(
+      nombrePerfil || `WhatsApp ${telefono}`,
+      telefono,
+    );
 
-    let conversacion = await this.prisma.conversacion.findFirst({
-      where: { clienteId: cliente.id },
-      orderBy: { updatedAt: 'desc' },
-    });
-    if (!conversacion) {
-      conversacion = await this.prisma.conversacion.create({
-        data: { clienteId: cliente.id },
-      });
-    }
+    const { conversacion, esNueva } = await this.obtenerOCrearConversacion(cliente.id);
 
     /* `conversacion.update` bumpea `updatedAt` — sin esto un mensaje entrante
        no subía el chat al tope del inbox (ordenado por updatedAt desc), y el
@@ -321,11 +347,13 @@ export class ConversacionesService {
       }),
     ]);
 
-    /* Auto-crear Lead en la tabla de Oportunidades (Leads & Prospectos) si no existe */
-    const leadExiste = await this.prisma.lead.findFirst({
-      where: { clienteId: cliente.id },
-    });
-    if (!leadExiste) {
+    /* Auto-crear el Lead de Oportunidades SOLO en el primer contacto: se ata a
+       que la conversación se haya creado nueva en ESTA petición. Antes se hacía
+       con `lead.findFirst → create` sin escopar, que bajo carrera creaba un lead
+       por cada webhook simultáneo (Lead no es único por cliente — un cliente
+       puede tener varias oportunidades). Como la creación de la conversación
+       está serializada por el índice único, exactamente un webhook ve `esNueva`. */
+    if (esNueva) {
       await this.prisma.lead.create({
         data: {
           clienteId: cliente.id,

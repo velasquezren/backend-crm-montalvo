@@ -109,6 +109,39 @@ export class ClientesService {
     return this.prisma.cliente.findUnique({ where: { telefono } });
   }
 
+  /**
+   * Get-or-create por teléfono, a prueba de concurrencia — para el webhook
+   * de WhatsApp.
+   *
+   * A diferencia de `create()` (que lanza 409 si el teléfono ya existe, lo
+   * correcto para el alta manual desde el CRM), aquí dos mensajes entrantes
+   * simultáneos de un número nuevo NO deben pelearse: sin esto, el segundo
+   * `create` reventaba contra el índice único de `telefono` con un 500 y Meta
+   * reintentaba el webhook.
+   *
+   * OJO: `prisma.upsert` NO basta — internamente hace "buscar → insertar", así
+   * que bajo carrera real uno de los dos inserts choca igual contra el único
+   * (probado). El patrón correcto es intentar crear y, si el índice único
+   * rebota (P2002), releer: para entonces la otra petición ya lo creó.
+   */
+  async obtenerOCrearPorTelefono(nombre: string, telefono: string) {
+    const existente = await this.findByTelefono(telefono);
+    if (existente) {
+      return existente;
+    }
+    try {
+      return await this.prisma.cliente.create({ data: { nombre, telefono } });
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+        const yaCreado = await this.findByTelefono(telefono);
+        if (yaCreado) {
+          return yaCreado; // otra petición concurrente lo creó en el ínterin
+        }
+      }
+      throw error;
+    }
+  }
+
   /** `soloAgenteId` — ver la nota de `findOne`: mismo hueco existía en edición. */
   async update(id: string, dto: UpdateClienteDto, usuarioId?: string, soloAgenteId?: string) {
     await this.findOne(id, soloAgenteId);

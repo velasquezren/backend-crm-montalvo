@@ -8,6 +8,7 @@ import {
   Query,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { SkipThrottle } from '@nestjs/throttler';
 
 import { Public } from '../../../common/decorators/public.decorator';
 import { ConversacionesService } from '../conversaciones.service';
@@ -20,7 +21,14 @@ import { WhatsappWebhookDto } from './dto/whatsapp-webhook.dto';
  * El DTO modela solo lo que el CRM usa; el `whitelist` global descarta el
  * resto del payload de Meta sin rechazarlo (ver main.ts: `forbidNonWhitelisted`
  * está desactivado justo por estos webhooks).
+ *
+ * `@SkipThrottle()`: las ráfagas de Meta (varios mensajes juntos, o reintentos
+ * masivos tras una caída) no deben chocar contra el rate-limit global — tras
+ * varios 429 Meta desactiva la suscripción. No se puede limitar por IP de
+ * forma útil (todo llega de los rangos de Meta) y el endpoint ya es idempotente
+ * por `whatsappMsgId`, así que reintentos duplicados no hacen daño.
  */
+@SkipThrottle()
 @Controller('webhooks/whatsapp')
 export class WhatsappWebhookController {
   private readonly logger = new Logger(WhatsappWebhookController.name);
