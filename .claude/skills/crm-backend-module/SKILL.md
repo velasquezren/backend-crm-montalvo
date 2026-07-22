@@ -142,6 +142,31 @@ el `Mensaje`: el inbox ordena por `updatedAt desc`, así que sin este update
 un chat con un mensaje nuevo del paciente no sube al tope de la lista hasta
 que un agente responda. Ambos writes van en la misma `$transaction`.
 
+## Estados de entrega estilo WhatsApp (ticks): usa lo que el proveedor ya manda
+
+Antes de construir un mecanismo propio de "¿llegó el mensaje?", revisa si el
+proveedor externo ya lo notifica — WhatsApp Cloud API manda un array
+`statuses` (sent/delivered/read/failed) en el mismo webhook que usa para
+mensajes entrantes, correlacionado por el id que la propia API devolvió al
+enviar. Ver `Mensaje.estadoEnvio` + `procesarEstadoMensaje()` en
+`conversaciones.service.ts` y el manejo de `cambio.value?.statuses` en
+`whatsapp-webhook.controller.ts`: no hay polling ni verificación activa,
+solo escuchar lo que Meta ya envía. El estado nunca retrocede (un 'delivered'
+tardío no debe pisar un 'read' que ya llegó) — se compara antes de escribir.
+
+## Migraciones: si `--create-only` trae cambios que no pediste, es drift
+
+Antes de aplicar una migración nueva, mira el SQL generado. Si aparece algo
+que no tiene que ver con tu cambio (índices, columnas de otro módulo), el
+`schema.prisma` del repo ya iba adelantado a la última migración committeada
+— alguien tocó el schema sin generar migración (`db push`, edición a mano, o
+una sesión paralela). No lo mezcles con tu cambio: aísla el schema al estado
+previo (`git stash` de `schema.prisma`), genera una migración solo para ese
+drift, aplícala, y recién ahí restaura tu cambio y genera la migración real.
+Mezclarlo todo en un commit hace imposible saber después qué migración hizo
+qué. Pasó una vez con 5 índices compuestos que existían en `schema.prisma`
+pero nunca se habían migrado — ver `fix_indices_faltantes`.
+
 ## Consultas: agregar en SQL, no en JS
 
 Prohibido traer filas para contarlas o sumarlas en memoria:

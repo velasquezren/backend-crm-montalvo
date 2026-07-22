@@ -102,10 +102,12 @@ export class ConversacionesService {
 
     /* Un solo round-trip a la base para ambos writes, y atómico: si el update
        de la conversación falla, no queda un mensaje huérfano sin reflejarse
-       en updatedAt/agenteId. */
+       en updatedAt/agenteId. `estadoEnvio: ENVIADO` es optimista (el tick
+       sencillo aparece antes de saber si Meta lo aceptó), igual que hace
+       WhatsApp/Messenger — se corrige a FALLIDO si el envío real rebota. */
     const [mensaje] = await this.prisma.$transaction([
       this.prisma.mensaje.create({
-        data: { conversacionId, direccion: 'SALIENTE', contenido },
+        data: { conversacionId, direccion: 'SALIENTE', contenido, estadoEnvio: 'ENVIADO' },
       }),
       this.prisma.conversacion.update({
         where: { id: conversacionId },
@@ -118,19 +120,25 @@ export class ConversacionesService {
 
     /* Envío real por WhatsApp Cloud API — deliberadamente SIN await: el
        agente no debe esperar el round-trip a Meta (300-900ms típico, a veces
-       más) para ver su mensaje como enviado. Errores quedan registrados pero
-       ya no pueden retrasar ni tumbar la respuesta al agente. */
-    void this.enviarPorWhatsApp(conversacion.cliente.telefono, contenido);
+       más) para ver su mensaje como enviado. El resultado (Meta ID o FALLIDO)
+       se corrige en segundo plano y empuja un segundo aviso por WebSocket
+       para actualizar el tick sin que el agente tenga que refrescar. */
+    void this.enviarPorWhatsApp(mensaje.id, conversacionId, conversacion.cliente.telefono, contenido);
 
     return { ...mensaje, clienteTelefono: conversacion.cliente.telefono };
   }
 
   /** Ver comentario en `enviarMensaje`: se dispara sin await a propósito. */
-  private async enviarPorWhatsApp(telefono: string, contenido: string): Promise<void> {
+  private async enviarPorWhatsApp(
+    mensajeId: string,
+    conversacionId: string,
+    telefono: string,
+    contenido: string,
+  ): Promise<void> {
     const token = this.config.get<string>('WHATSAPP_TOKEN') || this.config.get<string>('WHATSAPP_ACCESS_TOKEN');
     const phoneId = this.config.get<string>('WHATSAPP_PHONE_ID') || this.config.get<string>('WHATSAPP_PHONE_NUMBER_ID');
     if (!token || !phoneId) {
-      return;
+      return; // sin credenciales configuradas: el mensaje queda ENVIADO (solo local), comportamiento previo intacto
     }
 
     try {
@@ -153,13 +161,70 @@ export class ConversacionesService {
       if (!response.ok) {
         const errBody = await response.text();
         this.logger.error(`Error enviando WhatsApp a Meta (${response.status}): ${errBody}`);
+        await this.prisma.mensaje.update({
+          where: { id: mensajeId },
+          data: { estadoEnvio: 'FALLIDO' },
+        });
       } else {
         const data = await response.json();
-        this.logger.log(`Mensaje WhatsApp enviado a +${destino}. Meta ID: ${data.messages?.[0]?.id}`);
+        const metaMsgId: string | undefined = data.messages?.[0]?.id;
+        this.logger.log(`Mensaje WhatsApp enviado a +${destino}. Meta ID: ${metaMsgId}`);
+        /* Guarda el id que asignó Meta — así el webhook de `statuses`
+           (entregado/leído) puede correlacionar de vuelta con este mensaje. */
+        if (metaMsgId) {
+          await this.prisma.mensaje.update({
+            where: { id: mensajeId },
+            data: { whatsappMsgId: metaMsgId },
+          });
+        }
       }
     } catch (error) {
       this.logger.error('Excepción al conectar con Meta Graph API', error);
+      await this.prisma.mensaje.update({
+        where: { id: mensajeId },
+        data: { estadoEnvio: 'FALLIDO' },
+      });
     }
+
+    /* Avisa de nuevo: el primer aviso (arriba en enviarMensaje) ya hizo que el
+       agente viera la burbuja; este es para que el tick se actualice sin
+       esperar un reload manual. */
+    this.gateway.emitirActividad(conversacionId);
+  }
+
+  /**
+   * Confirmaciones de entrega/lectura del webhook de WhatsApp (`statuses`).
+   * Se correlaciona por `whatsappMsgId` — el id que Meta devolvió al enviar.
+   * Un mensaje puede recibir varios statuses de mejor a peor (sent → delivered
+   * → read); si llegan fuera de orden, nunca se retrocede LEIDO → ENTREGADO.
+   */
+  async procesarEstadoMensaje(whatsappMsgId: string, status: string): Promise<void> {
+    const mensaje = await this.prisma.mensaje.findUnique({ where: { whatsappMsgId } });
+    if (!mensaje) {
+      return; // status de un mensaje que no reconocemos (o llegó antes que el propio envío se guardara)
+    }
+
+    const ahora = new Date();
+    if (status === 'read' && mensaje.estadoEnvio !== 'LEIDO') {
+      await this.prisma.mensaje.update({
+        where: { id: mensaje.id },
+        data: { estadoEnvio: 'LEIDO', leidoEn: mensaje.leidoEn ?? ahora, entregadoEn: mensaje.entregadoEn ?? ahora },
+      });
+    } else if (status === 'delivered' && mensaje.estadoEnvio !== 'LEIDO' && mensaje.estadoEnvio !== 'ENTREGADO') {
+      await this.prisma.mensaje.update({
+        where: { id: mensaje.id },
+        data: { estadoEnvio: 'ENTREGADO', entregadoEn: ahora },
+      });
+    } else if (status === 'failed') {
+      await this.prisma.mensaje.update({
+        where: { id: mensaje.id },
+        data: { estadoEnvio: 'FALLIDO' },
+      });
+    } else {
+      return; // 'sent' o repetido: nada nuevo que reflejar
+    }
+
+    this.gateway.emitirActividad(mensaje.conversacionId);
   }
 
   /** Asignar/reasignar un agente a una conversación (solo ADMIN). */

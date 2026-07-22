@@ -71,6 +71,16 @@ export class WhatsappWebhookController {
       if (mensajes.length > 0) {
         this.logger.log(`WhatsApp: ${mensajes.length} mensaje(s) entrante(s) procesado(s)`);
       }
+
+      /* Confirmaciones de entrega/lectura de mensajes SALIENTES nuestros
+         (los ticks del chat) — Meta las manda en el mismo payload, en
+         `statuses`, no en `messages`. */
+      const estados = cambio.value?.statuses ?? [];
+      for (const estado of estados) {
+        if (estado.id && estado.status) {
+          await this.conversacionesService.procesarEstadoMensaje(estado.id, estado.status);
+        }
+      }
     }
 
     /* Meta exige un 200 rápido; si no, reintenta y acaba desactivando el webhook. */

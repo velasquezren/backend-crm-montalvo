@@ -54,6 +54,19 @@ export class WhatsappContactDto {
   profile?: WhatsappProfileDto;
 }
 
+/** Confirmación de entrega/lectura de un mensaje SALIENTE nuestro (ticks de WhatsApp). */
+export class WhatsappStatusDto {
+  /** El mismo id que Meta devolvió al enviar — así se correlaciona con `Mensaje.whatsappMsgId`. */
+  @IsOptional()
+  @IsString()
+  id?: string;
+
+  /** 'sent' | 'delivered' | 'read' | 'failed' */
+  @IsOptional()
+  @IsString()
+  status?: string;
+}
+
 export class WhatsappValueDto {
   @IsOptional()
   @IsArray()
@@ -66,6 +79,12 @@ export class WhatsappValueDto {
   @ValidateNested({ each: true })
   @Type(() => WhatsappMessageDto)
   messages?: WhatsappMessageDto[];
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => WhatsappStatusDto)
+  statuses?: WhatsappStatusDto[];
 }
 
 export class WhatsappChangeDto {

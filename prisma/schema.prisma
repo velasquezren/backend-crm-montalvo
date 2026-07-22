@@ -153,9 +153,22 @@ model Mensaje {
   direccion      DireccionMensaje
   contenido      String
   whatsappMsgId  String?          @unique
+  /// Solo aplica a SALIENTE — el paciente no tiene "estado de entrega" hacia nosotros.
+  /// Ticks estilo WhatsApp: ENVIADO al crear, luego lo actualiza la respuesta de Meta
+  /// (FALLIDO) o el webhook de `statuses` (ENTREGADO/LEIDO).
+  estadoEnvio    EstadoMensaje?
+  entregadoEn    DateTime?
+  leidoEn        DateTime?
   createdAt      DateTime         @default(now())
 
   @@index([conversacionId, createdAt])
+}
+
+enum EstadoMensaje {
+  ENVIADO
+  ENTREGADO
+  LEIDO
+  FALLIDO
 }
 
 model Venta {
