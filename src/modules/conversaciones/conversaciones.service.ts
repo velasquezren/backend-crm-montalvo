@@ -187,10 +187,19 @@ export class ConversacionesService {
       },
     });
 
-    await this.prisma.conversacion.update({
-      where: { id: conversacion.id },
-      data: { updatedAt: new Date() },
+    /* Auto-crear Lead en la tabla de Oportunidades (Leads & Prospectos) si no existe */
+    const leadExiste = await this.prisma.lead.findFirst({
+      where: { clienteId: cliente.id },
     });
+    if (!leadExiste) {
+      await this.prisma.lead.create({
+        data: {
+          clienteId: cliente.id,
+          origen: 'WHATSAPP_DIRECTO',
+          estado: 'NUEVO',
+        },
+      });
+    }
 
     return mensaje;
   }
