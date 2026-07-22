@@ -27,6 +27,8 @@ export class KpisService {
       leadsConvertidosPorOrigen,
       clientesPorCategoria,
       comisiones,
+      totalConversaciones,
+      leadsContactados,
     ] = await Promise.all([
       this.prisma.venta.aggregate({
         where: { estado: 'GANADA', createdAt: rango, agenteId: soloAgenteId },
@@ -58,6 +60,8 @@ export class KpisService {
         where: { createdAt: rango, agenteId: soloAgenteId },
         _sum: { monto: true },
       }),
+      this.prisma.conversacion.count(),
+      this.prisma.lead.count({ where: { estado: 'CONTACTADO' } }),
     ]);
 
     /* Nombres de agentes para el ranking (una sola consulta) */
@@ -98,6 +102,10 @@ export class KpisService {
       comisiones: {
         pendiente: Number(comisiones.find(c => c.estado === 'PENDIENTE')?._sum.monto ?? 0),
         pagada: Number(comisiones.find(c => c.estado === 'PAGADA')?._sum.monto ?? 0),
+      },
+      funnel: {
+        conversacionesTotal: totalConversaciones,
+        leadsContactados: leadsContactados,
       },
     };
   }
