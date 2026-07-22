@@ -1,4 +1,5 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 
 import { PrismaService } from '../../prisma/prisma.service';
 import { ClientesService } from '../clientes/clientes.service';
@@ -6,14 +7,16 @@ import { ClientesService } from '../clientes/clientes.service';
 /**
  * Módulo Conversaciones — RF-09/RF-10.
  * Persiste toda la mensajería vinculada a cliente + agente.
- * El envío real por WhatsApp Cloud API queda pendiente de configurar
- * WHATSAPP_TOKEN/WHATSAPP_PHONE_ID en .env — la persistencia ya es definitiva.
+ * Si WHATSAPP_TOKEN y WHATSAPP_PHONE_ID están en .env, envía los mensajes por Meta Cloud API.
  */
 @Injectable()
 export class ConversacionesService {
+  private readonly logger = new Logger(ConversacionesService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly clientesService: ClientesService,
+    private readonly config: ConfigService,
   ) {}
 
   /** Visibilidad por rol: AGENTE ve sus conversaciones + las sin asignar; ADMIN todo. */
@@ -53,8 +56,6 @@ export class ConversacionesService {
   async enviarMensaje(conversacionId: string, contenido: string, agenteId: string) {
     const conversacion = await this.findOne(conversacionId);
 
-    /* TODO (requiere WHATSAPP_TOKEN): POST a graph.facebook.com/{phone_id}/messages.
-       Hasta entonces el mensaje queda persistido y visible en el CRM. */
     const mensaje = await this.prisma.mensaje.create({
       data: { conversacionId, direccion: 'SALIENTE', contenido },
     });
@@ -63,6 +64,40 @@ export class ConversacionesService {
       where: { id: conversacionId },
       data: { agenteId, updatedAt: new Date() },
     });
+
+    /* Envío real por WhatsApp Cloud API si el token y phone_id están en .env */
+    const token = this.config.get<string>('WHATSAPP_TOKEN') || this.config.get<string>('WHATSAPP_ACCESS_TOKEN');
+    const phoneId = this.config.get<string>('WHATSAPP_PHONE_ID') || this.config.get<string>('WHATSAPP_PHONE_NUMBER_ID');
+
+    if (token && phoneId) {
+      try {
+        const destino = conversacion.cliente.telefono.replace(/\+/g, '').trim();
+        const response = await fetch(`https://graph.facebook.com/v25.0/${phoneId}/messages`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            messaging_product: 'whatsapp',
+            recipient_type: 'individual',
+            to: destino,
+            type: 'text',
+            text: { body: contenido },
+          }),
+        });
+
+        if (!response.ok) {
+          const errBody = await response.text();
+          this.logger.error(`Error enviando WhatsApp a Meta (${response.status}): ${errBody}`);
+        } else {
+          const data = await response.json();
+          this.logger.log(`Mensaje WhatsApp enviado a +${destino}. Meta ID: ${data.messages?.[0]?.id}`);
+        }
+      } catch (error) {
+        this.logger.error('Excepción al conectar con Meta Graph API', error);
+      }
+    }
 
     return { ...mensaje, clienteTelefono: conversacion.cliente.telefono };
   }
