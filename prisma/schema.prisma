@@ -126,6 +126,8 @@ model Lead {
   @@index([clienteId])
   @@index([estado])
   @@index([agenteId])
+  @@index([origen, estado])
+  @@index([agenteId, estado])
 }
 
 model Conversacion {
@@ -141,6 +143,7 @@ model Conversacion {
   @@index([clienteId])
   @@index([agenteId])
   @@index([updatedAt])
+  @@index([agenteId, updatedAt])
 }
 
 model Mensaje {
@@ -172,6 +175,7 @@ model Venta {
   @@index([agenteId])
   @@index([estado])
   @@index([createdAt])
+  @@index([agenteId, estado])
 }
 
 model Comision {
@@ -186,6 +190,7 @@ model Comision {
   createdAt DateTime       @default(now())
 
   @@index([agenteId])
+  @@index([agenteId, estado])
 }
 
 model AuditLog {
