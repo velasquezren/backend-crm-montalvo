@@ -2,12 +2,20 @@ import { Injectable } from '@nestjs/common';
 
 import { PrismaService } from '../../prisma/prisma.service';
 
+interface CacheItem<T> {
+  data: T;
+  expiresAt: number;
+}
+
 /**
  * Módulo KPIs — RF-16/RF-17/RF-18.
  * Solo lectura: agrega datos de los demás dominios para el dashboard.
  */
 @Injectable()
 export class KpisService {
+  private cache = new Map<string, CacheItem<unknown>>();
+  private readonly CACHE_TTL_MS = 5000; // 5 segundos de caché ultrarrápida en memoria
+
   constructor(private readonly prisma: PrismaService) {}
 
   /**
@@ -15,6 +23,14 @@ export class KpisService {
    * (soloAgenteId); los agregados de leads/clientes son globales para ambos roles.
    */
   async resumen(desde?: string, hasta?: string, soloAgenteId?: string) {
+    const cacheKey = `${desde ?? ''}_${hasta ?? ''}_${soloAgenteId ?? 'ALL'}`;
+    const ahora = Date.now();
+    const cached = this.cache.get(cacheKey);
+
+    if (cached && cached.expiresAt > ahora) {
+      return cached.data;
+    }
+
     const rango = {
       gte: desde ? new Date(desde) : undefined,
       lte: hasta ? new Date(hasta) : undefined,
@@ -84,7 +100,7 @@ export class KpisService {
     });
     const nombrePorId = new Map(agentes.map(a => [a.id, a.nombre]));
 
-    return {
+    const resultado = {
       ventas: {
         total: Number(ventasGanadas._sum.monto ?? 0),
         cantidad: ventasGanadas._count,
@@ -121,5 +137,8 @@ export class KpisService {
         leadsContactados: leadsContactados,
       },
     };
+
+    this.cache.set(cacheKey, { data: resultado, expiresAt: ahora + this.CACHE_TTL_MS });
+    return resultado;
   }
 }

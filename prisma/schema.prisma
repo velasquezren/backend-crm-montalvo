@@ -95,7 +95,9 @@ model Cliente {
 
   @@index([categoria])
   @@index([nombre])
+  @@index([email])
   @@index([agenteId])
+  @@index([updatedAt])
 }
 
 model Interes {
@@ -126,6 +128,7 @@ model Lead {
   @@index([clienteId])
   @@index([estado])
   @@index([agenteId])
+  @@index([createdAt])
   @@index([origen, estado])
   @@index([agenteId, estado])
 }
@@ -205,6 +208,7 @@ model Comision {
   createdAt DateTime       @default(now())
 
   @@index([agenteId])
+  @@index([createdAt])
   @@index([agenteId, estado])
 }
 
@@ -218,4 +222,5 @@ model AuditLog {
   createdAt DateTime @default(now())
 
   @@index([entidad, entidadId])
+  @@index([createdAt])
 }
