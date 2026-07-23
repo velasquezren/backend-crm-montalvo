@@ -384,6 +384,59 @@ export class ConversacionesService {
     this.gateway.emitirActividad(conversacionId);
   }
 
+  /**
+   * Marca el último mensaje entrante como leído (tildes azules para el
+   * paciente) y, si `typing`, muestra "escribiendo…". Se llama al abrir el
+   * chat y mientras el agente redacta — así el paciente ve que lo atienden,
+   * como en cualquier CRM de primer nivel. Fire-and-forget: nunca demora la UI.
+   */
+  async marcarLeido(conversacionId: string, soloAgenteId?: string, typing = false): Promise<{ ok: boolean }> {
+    const conv = await this.prisma.conversacion.findUnique({
+      where: { id: conversacionId },
+      select: { id: true, agenteId: true },
+    });
+    if (!conv || (soloAgenteId && conv.agenteId && conv.agenteId !== soloAgenteId)) {
+      return { ok: false }; // sin dueño o inexistente: no confirmamos nada a Meta
+    }
+
+    /* Solo los mensajes entrantes tienen whatsappMsgId para referenciar. */
+    const ultimoEntrante = await this.prisma.mensaje.findFirst({
+      where: { conversacionId, direccion: 'ENTRANTE', whatsappMsgId: { not: null } },
+      orderBy: { createdAt: 'desc' },
+      select: { whatsappMsgId: true },
+    });
+    if (ultimoEntrante?.whatsappMsgId) {
+      void this.enviarEstadoLectura(ultimoEntrante.whatsappMsgId, typing);
+    }
+    return { ok: true };
+  }
+
+  /** Ver `marcarLeido`: se dispara sin await a propósito. */
+  private async enviarEstadoLectura(whatsappMsgId: string, typing: boolean): Promise<void> {
+    const token = this.config.get<string>('WHATSAPP_TOKEN') || this.config.get<string>('WHATSAPP_ACCESS_TOKEN');
+    const phoneId = this.config.get<string>('WHATSAPP_PHONE_ID') || this.config.get<string>('WHATSAPP_PHONE_NUMBER_ID');
+    if (!token || !phoneId) {
+      return;
+    }
+    try {
+      const response = await fetch(`https://graph.facebook.com/v25.0/${phoneId}/messages`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messaging_product: 'whatsapp',
+          status: 'read',
+          message_id: whatsappMsgId,
+          ...(typing ? { typing_indicator: { type: 'text' } } : {}),
+        }),
+      });
+      if (!response.ok) {
+        this.logger.warn(`No se pudo marcar leído (${response.status}): ${await response.text()}`);
+      }
+    } catch (error) {
+      this.logger.error('Excepción al marcar leído en Meta Graph API', error);
+    }
+  }
+
   /** Asignar/reasignar un agente a una conversación (solo ADMIN). */
   async asignarAgente(conversacionId: string, agenteId: string | null) {
     const conversacion = await this.prisma.conversacion.findUnique({

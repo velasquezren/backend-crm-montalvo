@@ -6,6 +6,7 @@ import { ConversacionesService } from './conversaciones.service';
 import { AsignarAgenteDto } from './dto/asignar-agente.dto';
 import { EnviarMensajeDto } from './dto/enviar-mensaje.dto';
 import { EnviarPlantillaDto } from './dto/enviar-plantilla.dto';
+import { MarcarLeidoDto } from './dto/marcar-leido.dto';
 
 @Controller('conversaciones')
 export class ConversacionesController {
@@ -31,6 +32,17 @@ export class ConversacionesController {
   ) {
     const soloAgenteId = usuario.rol === 'ADMIN' ? undefined : usuario.sub;
     return this.conversacionesService.enviarMensaje(id, dto.contenido, usuario.sub, soloAgenteId);
+  }
+
+  /** Marca como leído (tildes azules) el último mensaje entrante; `typing` muestra "escribiendo…". */
+  @Post(':id/leido')
+  marcarLeido(
+    @Param('id') id: string,
+    @Body() dto: MarcarLeidoDto,
+    @CurrentUser() usuario: UsuarioJwt,
+  ) {
+    const soloAgenteId = usuario.rol === 'ADMIN' ? undefined : usuario.sub;
+    return this.conversacionesService.marcarLeido(id, soloAgenteId, dto.typing ?? false);
   }
 
   /** Plantillas aprobadas de la WABA — para el selector al escribir fuera de la ventana de 24h. */
