@@ -14,7 +14,7 @@ interface CacheItem<T> {
 @Injectable()
 export class KpisService {
   private cache = new Map<string, CacheItem<unknown>>();
-  private readonly CACHE_TTL_MS = 5000; // 5 segundos de caché ultrarrápida en memoria
+  private readonly CACHE_TTL_MS = 15000; // 15 segundos de caché ultra-rápida en memoria
 
   constructor(private readonly prisma: PrismaService) {}
 

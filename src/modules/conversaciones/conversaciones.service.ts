@@ -26,21 +26,25 @@ export class ConversacionesService {
     private readonly gateway: ConversacionesGateway,
   ) {}
 
+  private agentesCache: { data: any[]; expiresAt: number } | null = null;
+
   /** Visibilidad por rol: AGENTE ve sus conversaciones + las sin asignar; ADMIN todo. */
   async findAll(soloAgenteId?: string) {
     return this.prisma.conversacion.findMany({
       where: soloAgenteId ? { OR: [{ agenteId: soloAgenteId }, { agenteId: null }] } : undefined,
       orderBy: { updatedAt: 'desc' },
-      include: {
+      select: {
+        id: true,
+        updatedAt: true,
         cliente: { select: { id: true, nombre: true, telefono: true, categoria: true } },
         agente: { select: { id: true, nombre: true } },
-        mensajes: { orderBy: { createdAt: 'desc' }, take: 1 },
+        mensajes: {
+          select: { id: true, contenido: true, direccion: true, estadoEnvio: true, createdAt: true },
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+        },
         _count: { select: { mensajes: true } },
       },
-      /* El inbox no se pagina a propósito: la UI filtra por pestañas
-         (Todas / Sin asignar / Mis chats) sobre el conjunto cargado, igual
-         que WhatsApp Web. Se acota a las 100 conversaciones más recientes;
-         las antiguas se alcanzan por el buscador de clientes. */
       take: 100,
     });
   }
@@ -287,13 +291,19 @@ export class ConversacionesService {
     }
   }
 
-  /** Lista de agentes activos — para el dropdown de asignación del admin. */
+  /** Lista de agentes activos — para el dropdown de asignación del admin (cacheada 30s). */
   async findAgentes() {
-    return this.prisma.usuario.findMany({
+    const ahora = Date.now();
+    if (this.agentesCache && this.agentesCache.expiresAt > ahora) {
+      return this.agentesCache.data;
+    }
+    const agentes = await this.prisma.usuario.findMany({
       where: { activo: true },
       select: { id: true, nombre: true, rol: true },
       orderBy: { nombre: 'asc' },
     });
+    this.agentesCache = { data: agentes, expiresAt: ahora + 30000 };
+    return agentes;
   }
 
   /**
