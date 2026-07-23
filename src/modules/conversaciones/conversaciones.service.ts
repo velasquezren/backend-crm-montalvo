@@ -10,6 +10,24 @@ import { ConversacionesGateway } from './conversaciones.gateway';
  *  Sin tope, un chat de años de antigüedad haría cada vez más lento cada poll/reload. */
 const LIMITE_MENSAJES_DETALLE = 300;
 
+/** Forma cruda de una plantilla en la respuesta de Meta (solo lo que usamos). */
+interface PlantillaMeta {
+  name: string;
+  status: string;
+  category: string;
+  language: string;
+  components?: Array<{ type: string; text?: string }>;
+}
+
+/** Plantilla aprobada, simplificada para el selector del inbox. */
+export interface PlantillaResumen {
+  nombre: string;
+  idioma: string;
+  categoria: string;
+  cuerpo: string;
+  variables: number;
+}
+
 /**
  * Módulo Conversaciones — RF-09/RF-10.
  * Persiste toda la mensajería vinculada a cliente + agente.
@@ -230,6 +248,140 @@ export class ConversacionesService {
     }
 
     this.gateway.emitirActividad(mensaje.conversacionId);
+  }
+
+  /**
+   * Lista las plantillas APROBADAS de la WABA — para el selector del inbox.
+   * Solo las aprobadas se pueden enviar (Meta rechaza el resto). Se piden los
+   * campos mínimos que la UI necesita para previsualizar y contar variables.
+   */
+  async listarPlantillas(): Promise<PlantillaResumen[]> {
+    const token = this.config.get<string>('WHATSAPP_TOKEN') || this.config.get<string>('WHATSAPP_ACCESS_TOKEN');
+    const wabaId = this.config.get<string>('WHATSAPP_WABA_ID');
+    if (!token || !wabaId) {
+      this.logger.warn('WHATSAPP_WABA_ID o token no configurados; no se pueden listar plantillas');
+      return [];
+    }
+
+    try {
+      const url = `https://graph.facebook.com/v25.0/${wabaId}/message_templates?fields=name,status,category,language,components&limit=100`;
+      const response = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+      if (!response.ok) {
+        this.logger.error(`Error listando plantillas (${response.status}): ${await response.text()}`);
+        return [];
+      }
+      const data = (await response.json()) as { data?: PlantillaMeta[] };
+      return (data.data ?? [])
+        .filter(p => p.status === 'APPROVED')
+        .map(p => {
+          const body = p.components?.find(c => c.type === 'BODY')?.text ?? '';
+          return {
+            nombre: p.name,
+            idioma: p.language,
+            categoria: p.category,
+            cuerpo: body,
+            /* Nº de variables del cuerpo: cuenta los {{...}} distintos para que
+               la UI sepa cuántos campos pedir antes de enviar. */
+            variables: [...new Set(body.match(/\{\{[^}]+\}\}/g) ?? [])].length,
+          };
+        });
+    } catch (error) {
+      this.logger.error('Excepción al listar plantillas de Meta', error);
+      return [];
+    }
+  }
+
+  /**
+   * Envía una plantilla aprobada a un paciente — único modo permitido fuera de
+   * la ventana de 24h. Mismo patrón que `enviarMensaje`: persiste, avisa por
+   * WebSocket, y dispara la llamada a Meta SIN await (el agente no espera el
+   * round-trip). `contenido` es el texto ya renderizado que se guarda.
+   */
+  async enviarPlantilla(
+    conversacionId: string,
+    dto: { plantilla: string; idioma: string; parametros?: string[]; contenido: string },
+    agenteId: string,
+    soloAgenteId?: string,
+  ) {
+    const conversacion = await this.obtenerConversacionPropia(conversacionId, soloAgenteId);
+
+    const [mensaje] = await this.prisma.$transaction([
+      this.prisma.mensaje.create({
+        data: { conversacionId, direccion: 'SALIENTE', contenido: dto.contenido, estadoEnvio: 'ENVIADO' },
+      }),
+      this.prisma.conversacion.update({
+        where: { id: conversacionId },
+        data: { agenteId, updatedAt: new Date() },
+      }),
+    ]);
+
+    this.gateway.emitirActividad(conversacionId);
+
+    void this.enviarPlantillaPorWhatsApp(
+      mensaje.id,
+      conversacionId,
+      conversacion.cliente.telefono,
+      dto,
+    );
+
+    return { ...mensaje, clienteTelefono: conversacion.cliente.telefono };
+  }
+
+  /** Ver `enviarPlantilla`: se dispara sin await a propósito. */
+  private async enviarPlantillaPorWhatsApp(
+    mensajeId: string,
+    conversacionId: string,
+    telefono: string,
+    dto: { plantilla: string; idioma: string; parametros?: string[] },
+  ): Promise<void> {
+    const token = this.config.get<string>('WHATSAPP_TOKEN') || this.config.get<string>('WHATSAPP_ACCESS_TOKEN');
+    const phoneId = this.config.get<string>('WHATSAPP_PHONE_ID') || this.config.get<string>('WHATSAPP_PHONE_NUMBER_ID');
+    if (!token || !phoneId) {
+      return;
+    }
+
+    /* El cuerpo solo se incluye si la plantilla tiene variables; una plantilla
+       sin variables con un `components` vacío es rechazada por Meta. */
+    const componentes =
+      dto.parametros && dto.parametros.length > 0
+        ? [{ type: 'body', parameters: dto.parametros.map(text => ({ type: 'text', text })) }]
+        : undefined;
+
+    try {
+      const destino = telefono.replace(/\+/g, '').trim();
+      const response = await fetch(`https://graph.facebook.com/v25.0/${phoneId}/messages`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messaging_product: 'whatsapp',
+          recipient_type: 'individual',
+          to: destino,
+          type: 'template',
+          template: {
+            name: dto.plantilla,
+            language: { code: dto.idioma },
+            ...(componentes ? { components: componentes } : {}),
+          },
+        }),
+      });
+
+      if (!response.ok) {
+        this.logger.error(`Error enviando plantilla a Meta (${response.status}): ${await response.text()}`);
+        await this.prisma.mensaje.update({ where: { id: mensajeId }, data: { estadoEnvio: 'FALLIDO' } });
+      } else {
+        const data = await response.json();
+        const metaMsgId: string | undefined = data.messages?.[0]?.id;
+        this.logger.log(`Plantilla "${dto.plantilla}" enviada a +${destino}. Meta ID: ${metaMsgId}`);
+        if (metaMsgId) {
+          await this.prisma.mensaje.update({ where: { id: mensajeId }, data: { whatsappMsgId: metaMsgId } });
+        }
+      }
+    } catch (error) {
+      this.logger.error('Excepción al enviar plantilla por Meta Graph API', error);
+      await this.prisma.mensaje.update({ where: { id: mensajeId }, data: { estadoEnvio: 'FALLIDO' } });
+    }
+
+    this.gateway.emitirActividad(conversacionId);
   }
 
   /** Asignar/reasignar un agente a una conversación (solo ADMIN). */
