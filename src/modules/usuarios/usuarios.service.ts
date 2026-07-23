@@ -118,8 +118,15 @@ export class UsuariosService {
 
   /**
    * Eliminación física definitiva del usuario.
-   * IMPORTANTE: No elimina ningún Cliente ni Lead (los 15k+ leads permanecen intactos).
-   * Únicamente desvincula el agenteId (dejándolos sin asignar) y elimina el usuario.
+   * IMPORTANTE: No elimina ningún Cliente ni Lead (los 15k+ leads permanecen intactos):
+   * solo desvincula el agenteId (dejándolos sin asignar) y elimina el usuario.
+   *
+   * Se BLOQUEA si el agente tiene ventas registradas: `Venta.agenteId` no es
+   * nullable, así que borrar el usuario obligaría a borrar sus ventas (y sus
+   * comisiones) — es decir, destruir historial de ingresos real y corromper
+   * los KPIs. En ese caso el agente debe DESACTIVARSE (soft-delete), que lo
+   * saca del sistema sin perder nada. El borrado físico queda solo para
+   * agentes sin historial de ventas (ej. una cuenta creada por error).
    */
   async eliminarDefinitivamente(id: string, ejecutorId?: string) {
     const usuario = await this.findOne(id);
@@ -131,13 +138,19 @@ export class UsuariosService {
       await this.verificarQueQuedaOtroAdmin(id);
     }
 
+    const ventas = await this.prisma.venta.count({ where: { agenteId: id } });
+    if (ventas > 0) {
+      throw new BadRequestException(
+        `Este agente tiene ${ventas} venta(s) registrada(s): eliminarlo borraría ese historial de ingresos. ` +
+          'Usa "Desactivar" en su lugar — lo saca del sistema conservando todo su historial.',
+      );
+    }
+
     await this.prisma.$transaction([
       this.prisma.cliente.updateMany({ where: { agenteId: id }, data: { agenteId: null } }),
       this.prisma.lead.updateMany({ where: { agenteId: id }, data: { agenteId: null } }),
       this.prisma.conversacion.updateMany({ where: { agenteId: id }, data: { agenteId: null } }),
       this.prisma.interes.updateMany({ where: { agenteId: id }, data: { agenteId: null } }),
-      this.prisma.comision.deleteMany({ where: { agenteId: id } }),
-      this.prisma.venta.deleteMany({ where: { agenteId: id } }),
       this.prisma.usuario.delete({ where: { id } }),
     ]);
 
