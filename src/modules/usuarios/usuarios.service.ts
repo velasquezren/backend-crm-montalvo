@@ -116,6 +116,34 @@ export class UsuariosService {
     });
   }
 
+  /**
+   * Eliminación física definitiva del usuario.
+   * IMPORTANTE: No elimina ningún Cliente ni Lead (los 15k+ leads permanecen intactos).
+   * Únicamente desvincula el agenteId (dejándolos sin asignar) y elimina el usuario.
+   */
+  async eliminarDefinitivamente(id: string, ejecutorId?: string) {
+    const usuario = await this.findOne(id);
+
+    if (ejecutorId && ejecutorId === id) {
+      throw new BadRequestException('No puedes eliminar tu propia cuenta de administrador.');
+    }
+    if (usuario.rol === 'ADMIN') {
+      await this.verificarQueQuedaOtroAdmin(id);
+    }
+
+    await this.prisma.$transaction([
+      this.prisma.cliente.updateMany({ where: { agenteId: id }, data: { agenteId: null } }),
+      this.prisma.lead.updateMany({ where: { agenteId: id }, data: { agenteId: null } }),
+      this.prisma.conversacion.updateMany({ where: { agenteId: id }, data: { agenteId: null } }),
+      this.prisma.interes.updateMany({ where: { agenteId: id }, data: { agenteId: null } }),
+      this.prisma.comision.deleteMany({ where: { agenteId: id } }),
+      this.prisma.venta.deleteMany({ where: { agenteId: id } }),
+      this.prisma.usuario.delete({ where: { id } }),
+    ]);
+
+    return { message: `Usuario ${usuario.nombre} eliminado permanentemente. Sus leads permanecen intactos y sin asignar.` };
+  }
+
   /** Evita el bloqueo total: siempre debe quedar al menos un ADMIN activo. */
   private async verificarQueQuedaOtroAdmin(excluyendoId: string): Promise<void> {
     const otros = await this.prisma.usuario.count({

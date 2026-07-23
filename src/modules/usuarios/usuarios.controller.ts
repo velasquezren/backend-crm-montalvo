@@ -41,4 +41,9 @@ export class UsuariosController {
   desactivar(@Param('id') id: string, @CurrentUser() usuario: UsuarioJwt) {
     return this.usuariosService.desactivar(id, usuario.sub);
   }
+
+  @Delete(':id/hard')
+  eliminarDefinitivamente(@Param('id') id: string, @CurrentUser() usuario: UsuarioJwt) {
+    return this.usuariosService.eliminarDefinitivamente(id, usuario.sub);
+  }
 }
