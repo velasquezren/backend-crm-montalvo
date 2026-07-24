@@ -98,7 +98,7 @@ export class VentasService {
       a: estado,
     });
 
-    if (estado === 'GANADA') {
+    if (estado === 'GANADA' && venta.estado !== 'GANADA') {
       await this.comisionesService.generarParaVenta(actualizada);
       await this.clientesService.actualizarCategoria(actualizada.clienteId);
       await this.leadsService.marcarConvertidos(actualizada.clienteId);
