@@ -153,6 +153,17 @@ export class ClientesService {
       },
     });
 
+    if (dto.agenteId !== undefined) {
+      await this.prisma.lead.updateMany({
+        where: { clienteId: id },
+        data: { agenteId: dto.agenteId },
+      });
+      await this.prisma.conversacion.updateMany({
+        where: { clienteId: id },
+        data: { agenteId: dto.agenteId },
+      });
+    }
+
     await this.audit.registrar('Cliente', id, 'ACTUALIZADO', usuarioId, { ...dto });
     return actualizado;
   }

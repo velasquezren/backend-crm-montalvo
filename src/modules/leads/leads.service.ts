@@ -31,7 +31,15 @@ export class LeadsService {
       origen: query.origen ?? (excluirHistorico ? { not: 'IMPORTACION' } : undefined),
       estado: query.estado,
       agenteId: query.agenteId,
-      ...(soloAgenteId ? { OR: [{ agenteId: soloAgenteId }, { agenteId: null }] } : {}),
+      ...(soloAgenteId
+        ? {
+            OR: [
+              { agenteId: soloAgenteId },
+              { agenteId: null },
+              { cliente: { agenteId: soloAgenteId } },
+            ],
+          }
+        : {}),
     };
   }
 
@@ -44,7 +52,15 @@ export class LeadsService {
         where,
         orderBy: { createdAt: 'desc' },
         include: {
-          cliente: { select: { id: true, nombre: true, telefono: true, categoria: true } },
+          cliente: {
+            select: {
+              id: true,
+              nombre: true,
+              telefono: true,
+              categoria: true,
+              agente: { select: { id: true, nombre: true } },
+            },
+          },
           agente: { select: { id: true, nombre: true } },
         },
         skip,
@@ -53,7 +69,12 @@ export class LeadsService {
       this.prisma.lead.count({ where }),
     ]);
 
-    return paginar(datos, total, query);
+    const datosMapeados = datos.map(lead => ({
+      ...lead,
+      agente: lead.agente ?? lead.cliente?.agente ?? null,
+    }));
+
+    return paginar(datosMapeados, total, query);
   }
 
   /**
@@ -117,10 +138,27 @@ export class LeadsService {
       });
     }
 
-    return this.prisma.lead.create({
-      data: { clienteId: cliente.id, origen: 'PRESENCIAL', agenteId },
-      include: { cliente: true },
+    const agenteFinal = agenteId || cliente.agenteId || undefined;
+    const lead = await this.prisma.lead.create({
+      data: { clienteId: cliente.id, origen: 'PRESENCIAL', agenteId: agenteFinal },
+      include: {
+        cliente: {
+          select: {
+            id: true,
+            nombre: true,
+            telefono: true,
+            categoria: true,
+            agente: { select: { id: true, nombre: true } },
+          },
+        },
+        agente: { select: { id: true, nombre: true } },
+      },
     });
+
+    return {
+      ...lead,
+      agente: lead.agente ?? lead.cliente?.agente ?? null,
+    };
   }
 
   /**
@@ -133,9 +171,26 @@ export class LeadsService {
     origen: 'FACEBOOK_LEAD_AD' | 'INSTAGRAM_LEAD_AD';
     metaLeadId: string;
   }) {
-    const existente = await this.prisma.lead.findUnique({ where: { metaLeadId: datos.metaLeadId } });
+    const existente = await this.prisma.lead.findUnique({
+      where: { metaLeadId: datos.metaLeadId },
+      include: {
+        cliente: {
+          select: {
+            id: true,
+            nombre: true,
+            telefono: true,
+            categoria: true,
+            agente: { select: { id: true, nombre: true } },
+          },
+        },
+        agente: { select: { id: true, nombre: true } },
+      },
+    });
     if (existente) {
-      return existente; // Meta reintenta webhooks: idempotencia por metaLeadId
+      return {
+        ...existente,
+        agente: existente.agente ?? existente.cliente?.agente ?? null,
+      };
     }
 
     let cliente = await this.clientesService.findByTelefono(datos.telefono);
@@ -146,9 +201,31 @@ export class LeadsService {
       });
     }
 
-    return this.prisma.lead.create({
-      data: { clienteId: cliente.id, origen: datos.origen, metaLeadId: datos.metaLeadId },
+    const nuevoLead = await this.prisma.lead.create({
+      data: {
+        clienteId: cliente.id,
+        origen: datos.origen,
+        metaLeadId: datos.metaLeadId,
+        agenteId: cliente.agenteId,
+      },
+      include: {
+        cliente: {
+          select: {
+            id: true,
+            nombre: true,
+            telefono: true,
+            categoria: true,
+            agente: { select: { id: true, nombre: true } },
+          },
+        },
+        agente: { select: { id: true, nombre: true } },
+      },
     });
+
+    return {
+      ...nuevoLead,
+      agente: nuevoLead.agente ?? nuevoLead.cliente?.agente ?? null,
+    };
   }
 
   async updateEstado(id: string, estado: EstadoLead) {
@@ -157,13 +234,68 @@ export class LeadsService {
       throw new NotFoundException(`Lead ${id} no encontrado`);
     }
 
-    return this.prisma.lead.update({
+    const lead = await this.prisma.lead.update({
       where: { id },
       data: { estado },
       include: {
-        cliente: { select: { id: true, nombre: true, telefono: true, categoria: true } },
+        cliente: {
+          select: {
+            id: true,
+            nombre: true,
+            telefono: true,
+            categoria: true,
+            agente: { select: { id: true, nombre: true } },
+          },
+        },
         agente: { select: { id: true, nombre: true } },
       },
     });
+
+    return {
+      ...lead,
+      agente: lead.agente ?? lead.cliente?.agente ?? null,
+    };
+  }
+
+  async asignarAgente(id: string, agenteId: string | null) {
+    const existe = await this.prisma.lead.findUnique({ where: { id }, select: { id: true, clienteId: true } });
+    if (!existe) {
+      throw new NotFoundException(`Lead ${id} no encontrado`);
+    }
+
+    if (agenteId) {
+      const agente = await this.prisma.usuario.findUnique({ where: { id: agenteId } });
+      if (!agente || !agente.activo) {
+        throw new NotFoundException(`Agente ${agenteId} no encontrado o inactivo`);
+      }
+    }
+
+    const [lead] = await this.prisma.$transaction([
+      this.prisma.lead.update({
+        where: { id },
+        data: { agenteId },
+        include: {
+          cliente: {
+            select: {
+              id: true,
+              nombre: true,
+              telefono: true,
+              categoria: true,
+              agente: { select: { id: true, nombre: true } },
+            },
+          },
+          agente: { select: { id: true, nombre: true } },
+        },
+      }),
+      this.prisma.cliente.update({
+        where: { id: existe.clienteId },
+        data: { agenteId },
+      }),
+    ]);
+
+    return {
+      ...lead,
+      agente: lead.agente ?? lead.cliente?.agente ?? null,
+    };
   }
 }

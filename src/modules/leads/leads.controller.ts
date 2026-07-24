@@ -32,4 +32,9 @@ export class LeadsController {
   updateEstado(@Param('id') id: string, @Body() dto: UpdateEstadoLeadDto) {
     return this.leadsService.updateEstado(id, dto.estado);
   }
+
+  @Patch(':id/agente')
+  asignarAgente(@Param('id') id: string, @Body('agenteId') agenteId: string | null) {
+    return this.leadsService.asignarAgente(id, agenteId);
+  }
 }

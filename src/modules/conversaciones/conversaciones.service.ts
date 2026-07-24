@@ -58,13 +58,29 @@ export class ConversacionesService {
 
   /** Visibilidad por rol: AGENTE ve sus conversaciones + las sin asignar; ADMIN todo. */
   async findAll(soloAgenteId?: string) {
-    return this.prisma.conversacion.findMany({
-      where: soloAgenteId ? { OR: [{ agenteId: soloAgenteId }, { agenteId: null }] } : undefined,
+    const conversaciones = await this.prisma.conversacion.findMany({
+      where: soloAgenteId
+        ? {
+            OR: [
+              { agenteId: soloAgenteId },
+              { agenteId: null },
+              { cliente: { agenteId: soloAgenteId } },
+            ],
+          }
+        : undefined,
       orderBy: { updatedAt: 'desc' },
       select: {
         id: true,
         updatedAt: true,
-        cliente: { select: { id: true, nombre: true, telefono: true, categoria: true } },
+        cliente: {
+          select: {
+            id: true,
+            nombre: true,
+            telefono: true,
+            categoria: true,
+            agente: { select: { id: true, nombre: true } },
+          },
+        },
         agente: { select: { id: true, nombre: true } },
         mensajes: {
           select: { id: true, contenido: true, direccion: true, estadoEnvio: true, tipo: true, createdAt: true },
@@ -75,6 +91,11 @@ export class ConversacionesService {
       },
       take: 100,
     });
+
+    return conversaciones.map(c => ({
+      ...c,
+      agente: c.agente ?? c.cliente?.agente ?? null,
+    }));
   }
 
   /**
@@ -87,7 +108,17 @@ export class ConversacionesService {
     const conversacion = await this.prisma.conversacion.findUnique({
       where: { id },
       include: {
-        cliente: { select: { id: true, nombre: true, telefono: true, email: true, categoria: true, datosExtra: true } },
+        cliente: {
+          select: {
+            id: true,
+            nombre: true,
+            telefono: true,
+            email: true,
+            categoria: true,
+            datosExtra: true,
+            agente: { select: { id: true, nombre: true } },
+          },
+        },
         agente: { select: { id: true, nombre: true } },
         /* Se traen las más recientes primero (para poder acotar con `take`)
            y se reordenan a ascendente en memoria — invertir 300 elementos
@@ -112,7 +143,11 @@ export class ConversacionesService {
         mediaUrl: m.mediaKey ? await this.r2.urlFirmada(m.mediaKey) : null,
       })),
     );
-    return { ...conversacion, mensajes };
+    return {
+      ...conversacion,
+      agente: conversacion.agente ?? conversacion.cliente?.agente ?? null,
+      mensajes,
+    };
   }
 
   /** Versión liviana del chequeo de propiedad de `findOne`, sin traer mensajes:
@@ -473,14 +508,37 @@ export class ConversacionesService {
       }
     }
 
-    return this.prisma.conversacion.update({
-      where: { id: conversacionId },
-      data: { agenteId },
-      include: {
-        cliente: { select: { id: true, nombre: true, telefono: true, categoria: true } },
-        agente: { select: { id: true, nombre: true } },
-      },
-    });
+    const [actualizada] = await this.prisma.$transaction([
+      this.prisma.conversacion.update({
+        where: { id: conversacionId },
+        data: { agenteId },
+        include: {
+          cliente: {
+            select: {
+              id: true,
+              nombre: true,
+              telefono: true,
+              categoria: true,
+              agente: { select: { id: true, nombre: true } },
+            },
+          },
+          agente: { select: { id: true, nombre: true } },
+        },
+      }),
+      this.prisma.cliente.update({
+        where: { id: conversacion.clienteId },
+        data: { agenteId },
+      }),
+      this.prisma.lead.updateMany({
+        where: { clienteId: conversacion.clienteId },
+        data: { agenteId },
+      }),
+    ]);
+
+    return {
+      ...actualizada,
+      agente: actualizada.agente ?? actualizada.cliente?.agente ?? null,
+    };
   }
 
   /**
@@ -608,6 +666,7 @@ export class ConversacionesService {
           clienteId: cliente.id,
           origen: 'WHATSAPP_DIRECTO',
           estado: 'NUEVO',
+          agenteId: cliente.agenteId,
         },
       });
     }
