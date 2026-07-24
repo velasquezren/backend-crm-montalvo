@@ -87,7 +87,13 @@ export class ConversacionesService {
           orderBy: { createdAt: 'desc' },
           take: 1,
         },
-        _count: { select: { mensajes: true } },
+        _count: {
+          select: {
+            mensajes: {
+              where: { direccion: 'ENTRANTE', leidoEn: null },
+            },
+          },
+        },
       },
       take: 100,
     });
@@ -95,6 +101,7 @@ export class ConversacionesService {
     return conversaciones.map(c => ({
       ...c,
       agente: c.agente ?? c.cliente?.agente ?? null,
+      noLeidosCount: c._count.mensajes,
     }));
   }
 
@@ -451,10 +458,16 @@ export class ConversacionesService {
       select: { id: true, agenteId: true },
     });
     if (!conv || (soloAgenteId && conv.agenteId && conv.agenteId !== soloAgenteId)) {
-      return { ok: false }; // sin dueño o inexistente: no confirmamos nada a Meta
+      return { ok: false };
     }
 
-    /* Solo los mensajes entrantes tienen whatsappMsgId para referenciar. */
+    /* Marca todos los mensajes entrantes sin leer como leídos en la BD */
+    await this.prisma.mensaje.updateMany({
+      where: { conversacionId, direccion: 'ENTRANTE', leidoEn: null },
+      data: { leidoEn: new Date() },
+    });
+
+    /* Solo los mensajes entrantes tienen whatsappMsgId para referenciar */
     const ultimoEntrante = await this.prisma.mensaje.findFirst({
       where: { conversacionId, direccion: 'ENTRANTE', whatsappMsgId: { not: null } },
       orderBy: { createdAt: 'desc' },
