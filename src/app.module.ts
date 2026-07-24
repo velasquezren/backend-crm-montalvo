@@ -12,6 +12,7 @@ import { ComisionesModule } from './modules/comisiones/comisiones.module';
 import { ConversacionesModule } from './modules/conversaciones/conversaciones.module';
 import { KpisModule } from './modules/kpis/kpis.module';
 import { LeadsModule } from './modules/leads/leads.module';
+import { PlantillasAgenteModule } from './modules/plantillas-agente/plantillas-agente.module';
 import { UsuariosModule } from './modules/usuarios/usuarios.module';
 import { VentasModule } from './modules/ventas/ventas.module';
 import { PrismaModule } from './prisma/prisma.module';
@@ -32,6 +33,7 @@ import { PrismaModule } from './prisma/prisma.module';
     VentasModule,
     ComisionesModule,
     KpisModule,
+    PlantillasAgenteModule,
   ],
   providers: [
     /* RNF-01: límite de peticiones → JWT (salvo @Public) → validación de roles */

@@ -71,8 +71,9 @@ model Usuario {
   conversaciones Conversacion[]
   ventas         Venta[]
   comisiones     Comision[]
-  createdAt      DateTime       @default(now())
-  updatedAt      DateTime       @updatedAt
+  plantillas     PlantillaAgente[]
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
 }
 
 model Cliente {
@@ -242,3 +243,19 @@ model AuditLog {
   @@index([entidad, entidadId])
   @@index([createdAt])
 }
+
+model PlantillaAgente {
+  id        String   @id @default(uuid())
+  usuario   Usuario  @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  usuarioId String
+  titulo    String
+  atajo     String?
+  contenido String
+  tags      String[] @default([])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([usuarioId])
+  @@index([atajo])
+}
+
