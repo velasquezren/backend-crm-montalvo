@@ -29,17 +29,21 @@ export class AuthService {
       throw new UnauthorizedException('Credenciales inválidas');
     }
 
+    /* El JWT viaja en el header Authorization de CADA petición: debe ser
+       chico. La foto (base64, hasta 2 MB) NUNCA va acá — hacía el token de
+       ~2.7 MB y disparaba HTTP 431 (Request Header Fields Too Large) en todo
+       lo autenticado. Solo identificadores. La foto se devuelve aparte en el
+       cuerpo de la respuesta (el frontend la guarda en su propio storage). */
     const payload = {
-       sub: usuario.id,
-       email: usuario.email,
-       nombre: usuario.nombre,
-       rol: usuario.rol,
-       foto: usuario.foto,
+      sub: usuario.id,
+      email: usuario.email,
+      nombre: usuario.nombre,
+      rol: usuario.rol,
     };
 
     return {
       access_token: await this.jwtService.signAsync(payload),
-      usuario: payload,
+      usuario: { ...payload, foto: usuario.foto },
     };
   }
 
