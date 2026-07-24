@@ -228,19 +228,47 @@ export class ConversacionesService {
 
     try {
       const destino = telefono.replace(/\+/g, '').trim();
+
+      /* Detectar si el contenido es una URL de imagen o documento PDF */
+      const esUrl = contenido.trim().startsWith('http://') || contenido.trim().startsWith('https://');
+      const esImagen = esUrl && /\.(png|jpe?g|webp|gif)(\?.*)?$/i.test(contenido.trim());
+      const esPdf = esUrl && /\.pdf(\?.*)?$/i.test(contenido.trim());
+
+      let metaPayload: any;
+
+      if (esImagen) {
+        metaPayload = {
+          messaging_product: 'whatsapp',
+          recipient_type: 'individual',
+          to: destino,
+          type: 'image',
+          image: { link: contenido.trim() },
+        };
+      } else if (esPdf) {
+        metaPayload = {
+          messaging_product: 'whatsapp',
+          recipient_type: 'individual',
+          to: destino,
+          type: 'document',
+          document: { link: contenido.trim(), filename: 'Documento.pdf' },
+        };
+      } else {
+        metaPayload = {
+          messaging_product: 'whatsapp',
+          recipient_type: 'individual',
+          to: destino,
+          type: 'text',
+          text: { body: contenido },
+        };
+      }
+
       const response = await fetch(`https://graph.facebook.com/v25.0/${phoneId}/messages`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          messaging_product: 'whatsapp',
-          recipient_type: 'individual',
-          to: destino,
-          type: 'text',
-          text: { body: contenido },
-        }),
+        body: JSON.stringify(metaPayload),
       });
 
       if (!response.ok) {
