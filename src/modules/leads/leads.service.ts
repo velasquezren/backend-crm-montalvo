@@ -291,6 +291,10 @@ export class LeadsService {
         where: { id: existe.clienteId },
         data: { agenteId },
       }),
+      this.prisma.conversacion.updateMany({
+        where: { clienteId: existe.clienteId },
+        data: { agenteId },
+      }),
     ]);
 
     return {
