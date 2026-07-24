@@ -25,6 +25,17 @@ export class CreateClienteDto {
   @IsString()
   agenteId?: string;
 
+  @IsOptional()
+  @IsString()
+  empresa?: string;
+
+  @IsOptional()
+  edad?: number | string;
+
+  @IsOptional()
+  @IsString()
+  lugarNacimiento?: string;
+
   /** Campos de un origen externo sin columna dedicada (ej. import FileMaker). */
   @IsOptional()
   @IsObject()

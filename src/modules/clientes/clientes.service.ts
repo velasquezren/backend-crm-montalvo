@@ -28,14 +28,18 @@ export class ClientesService {
       throw new ConflictException(`Ya existe un cliente con el teléfono ${dto.telefono}`);
     }
 
+    const { empresa, edad, lugarNacimiento, datosExtra, ...restoDto } = dto;
+    const datosExtraCombinados = {
+      ...(datosExtra || {}),
+      ...(empresa !== undefined ? { empresa } : {}),
+      ...(edad !== undefined ? { edad } : {}),
+      ...(lugarNacimiento !== undefined ? { lugarNacimiento } : {}),
+    };
+
     return this.prisma.cliente.create({
       data: {
-        nombre: dto.nombre,
-        telefono: dto.telefono,
-        email: dto.email,
-        categoria: dto.categoria,
-        agenteId: dto.agenteId,
-        datosExtra: dto.datosExtra as Prisma.InputJsonValue | undefined,
+        ...restoDto,
+        datosExtra: Object.keys(datosExtraCombinados).length > 0 ? (datosExtraCombinados as Prisma.InputJsonValue) : undefined,
       },
     });
   }
@@ -144,14 +148,25 @@ export class ClientesService {
 
   /** `soloAgenteId` — ver la nota de `findOne`: mismo hueco existía en edición. */
   async update(id: string, dto: UpdateClienteDto, usuarioId?: string, soloAgenteId?: string) {
-    await this.findOne(id, soloAgenteId);
+    const clienteActual = await this.findOne(id, soloAgenteId);
+    const datosExtraExistentes = (clienteActual.datosExtra as Record<string, any>) || {};
+
+    const { empresa, edad, lugarNacimiento, datosExtra, ...restoDto } = dto;
+
+    const nuevosDatosExtra = {
+      ...datosExtraExistentes,
+      ...(datosExtra || {}),
+      ...(empresa !== undefined ? { empresa } : {}),
+      ...(edad !== undefined ? { edad } : {}),
+      ...(lugarNacimiento !== undefined ? { lugarNacimiento } : {}),
+    };
 
     const [actualizado] = await this.prisma.$transaction([
       this.prisma.cliente.update({
         where: { id },
         data: {
-          ...dto,
-          datosExtra: dto.datosExtra as Prisma.InputJsonValue | undefined,
+          ...restoDto,
+          datosExtra: nuevosDatosExtra as Prisma.InputJsonValue,
         },
       }),
       ...(dto.agenteId !== undefined
