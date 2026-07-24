@@ -72,6 +72,7 @@ model Usuario {
   ventas         Venta[]
   comisiones     Comision[]
   plantillas     PlantillaAgente[]
+  recursosMemoria RecursoMemoriaAgente[]
   createdAt      DateTime          @default(now())
   updatedAt      DateTime          @updatedAt
 }
@@ -258,4 +259,49 @@ model PlantillaAgente {
   @@index([usuarioId])
   @@index([atajo])
 }
+
+enum TipoRecursoMemoria {
+  TEXTO
+  IMAGEN
+  DOCUMENTO
+  ENLACE
+}
+
+enum CategoriaRecursoMemoria {
+  GENERAL
+  RESPUESTA_RAPIDA
+  PROMOCION
+  PRECIOS
+  PRODUCTO_TRATAMIENTO
+  INSTRUCCION_INTERNA
+}
+
+model RecursoMemoriaAgente {
+  id           String                  @id @default(uuid())
+  usuario      Usuario                 @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  usuarioId    String
+
+  titulo       String                  @db.VarChar(120)
+  contenido    String?                 @db.Text
+  tipo         TipoRecursoMemoria      @default(TEXTO)
+  categoria    CategoriaRecursoMemoria @default(GENERAL)
+  atajo        String?                 @db.VarChar(35)
+
+  mediaKey     String?                 @db.VarChar(255)
+  mediaMime    String?                 @db.VarChar(100)
+  mediaNombre  String?                 @db.VarChar(255)
+  pesoBytes    Int                     @default(0)
+
+  tags         String[]                @default([])
+  metadata     Json?
+
+  createdAt    DateTime                @default(now())
+  updatedAt    DateTime                @updatedAt
+
+  @@index([usuarioId, categoria])
+  @@index([usuarioId, tipo])
+  @@index([usuarioId, atajo])
+  @@index([usuarioId, createdAt])
+}
+
 
