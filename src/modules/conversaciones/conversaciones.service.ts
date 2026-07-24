@@ -651,7 +651,7 @@ export class ConversacionesService {
         this.logger.error(`No se pudo descargar media ${media.mediaId} (${archivo.status})`);
         return;
       }
-      const bytes = new Uint8Array(await archivo.arrayBuffer());
+      const bytes = await archivo.arrayBuffer();
 
       /* 3) Subir a R2 y registrar la clave en el mensaje. */
       const key = `wa/${conversacionId}/${mensajeId}`;
