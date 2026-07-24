@@ -10,9 +10,39 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { SkipThrottle } from '@nestjs/throttler';
 
+import { TipoMensaje } from '@prisma/client';
+
 import { Public } from '../../../common/decorators/public.decorator';
 import { ConversacionesService } from '../conversaciones.service';
-import { WhatsappWebhookDto } from './dto/whatsapp-webhook.dto';
+import { WhatsappMessageDto, WhatsappWebhookDto } from './dto/whatsapp-webhook.dto';
+
+/** Extrae el objeto de media de un mensaje entrante y lo normaliza, o null si no es media soportada. */
+function extraerMedia(
+  mensaje: WhatsappMessageDto,
+): { tipo: TipoMensaje; mediaId: string; mime: string; nombre?: string; caption?: string } | null {
+  const mapa: Array<[keyof WhatsappMessageDto, TipoMensaje]> = [
+    ['image', 'IMAGEN'],
+    ['document', 'DOCUMENTO'],
+    ['audio', 'AUDIO'],
+    ['video', 'VIDEO'],
+    ['sticker', 'STICKER'],
+  ];
+  for (const [campo, tipo] of mapa) {
+    const media = mensaje[campo] as
+      | { id?: string; mime_type?: string; filename?: string; caption?: string }
+      | undefined;
+    if (media?.id) {
+      return {
+        tipo,
+        mediaId: media.id,
+        mime: media.mime_type ?? 'application/octet-stream',
+        nombre: media.filename,
+        caption: media.caption,
+      };
+    }
+  }
+  return null;
+}
 
 /**
  * Webhook de WhatsApp Cloud API — RF-09. Los mensajes de texto entrantes se
@@ -58,26 +88,38 @@ export class WhatsappWebhookController {
     const cambios = payload.entry?.flatMap(e => e.changes ?? []) ?? [];
 
     for (const cambio of cambios) {
-      const mensajes = (cambio.value?.messages ?? []).filter(
-        m => m.type === 'text' && m.from && m.text?.body,
-      );
+      let procesados = 0;
+      for (const mensaje of cambio.value?.messages ?? []) {
+        if (!mensaje.from) continue;
 
-      for (const mensaje of mensajes) {
         /* WhatsApp manda el nombre del perfil en `contacts`, emparejado por wa_id.
            Se usa para dar de alta al cliente con su nombre real en vez de un
            marcador tipo "WhatsApp +591…". */
         const contacto = cambio.value?.contacts?.find(c => c.wa_id === mensaje.from);
+        const nombrePerfil = contacto?.profile?.name?.trim() || undefined;
+        const telefono = `+${mensaje.from}`;
 
-        await this.conversacionesService.procesarEntrante(
-          `+${mensaje.from}`,
-          mensaje.text!.body!,
-          mensaje.id,
-          contacto?.profile?.name?.trim() || undefined,
-        );
+        if (mensaje.type === 'text' && mensaje.text?.body) {
+          await this.conversacionesService.procesarEntrante(telefono, mensaje.text.body, mensaje.id, nombrePerfil);
+          procesados++;
+        } else {
+          const media = extraerMedia(mensaje);
+          if (media) {
+            await this.conversacionesService.procesarEntrante(
+              telefono,
+              media.caption ?? '',
+              mensaje.id,
+              nombrePerfil,
+              { tipo: media.tipo, mediaId: media.mediaId, mime: media.mime, nombre: media.nombre },
+            );
+            procesados++;
+          }
+          /* Otros tipos (ubicación, contactos, reacciones…) se ignoran por ahora. */
+        }
       }
 
-      if (mensajes.length > 0) {
-        this.logger.log(`WhatsApp: ${mensajes.length} mensaje(s) entrante(s) procesado(s)`);
+      if (procesados > 0) {
+        this.logger.log(`WhatsApp: ${procesados} mensaje(s) entrante(s) procesado(s)`);
       }
 
       /* Confirmaciones de entrega/lectura de mensajes SALIENTES nuestros

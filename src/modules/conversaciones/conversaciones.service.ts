@@ -1,10 +1,19 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Prisma } from '@prisma/client';
+import { Prisma, TipoMensaje } from '@prisma/client';
 
+import { R2Service } from '../../common/storage/r2.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ClientesService } from '../clientes/clientes.service';
 import { ConversacionesGateway } from './conversaciones.gateway';
+
+/** Media entrante ya normalizada por el webhook (ver extraerMedia). */
+export interface MediaEntrante {
+  tipo: TipoMensaje;
+  mediaId: string;
+  mime: string;
+  nombre?: string;
+}
 
 /** Mensajes que trae el detalle de una conversación (más recientes primero, luego se reordenan).
  *  Sin tope, un chat de años de antigüedad haría cada vez más lento cada poll/reload. */
@@ -42,6 +51,7 @@ export class ConversacionesService {
     private readonly clientesService: ClientesService,
     private readonly config: ConfigService,
     private readonly gateway: ConversacionesGateway,
+    private readonly r2: R2Service,
   ) {}
 
   private agentesCache: { data: any[]; expiresAt: number } | null = null;
@@ -57,7 +67,7 @@ export class ConversacionesService {
         cliente: { select: { id: true, nombre: true, telefono: true, categoria: true } },
         agente: { select: { id: true, nombre: true } },
         mensajes: {
-          select: { id: true, contenido: true, direccion: true, estadoEnvio: true, createdAt: true },
+          select: { id: true, contenido: true, direccion: true, estadoEnvio: true, tipo: true, createdAt: true },
           orderBy: { createdAt: 'desc' },
           take: 1,
         },
@@ -92,7 +102,17 @@ export class ConversacionesService {
       throw new NotFoundException(`Conversación ${id} no encontrada`);
     }
     conversacion.mensajes.reverse();
-    return conversacion;
+
+    /* A cada mensaje con archivo se le adjunta una URL firmada fresca (15 min):
+       el frontend la usa como `src` de la imagen/audio/enlace. Se firman en
+       paralelo; los mensajes de solo texto no pagan nada. */
+    const mensajes = await Promise.all(
+      conversacion.mensajes.map(async m => ({
+        ...m,
+        mediaUrl: m.mediaKey ? await this.r2.urlFirmada(m.mediaKey) : null,
+      })),
+    );
+    return { ...conversacion, mensajes };
   }
 
   /** Versión liviana del chequeo de propiedad de `findOne`, sin traer mensajes:
@@ -526,6 +546,7 @@ export class ConversacionesService {
     contenido: string,
     whatsappMsgId?: string,
     nombrePerfil?: string,
+    media?: MediaEntrante,
   ) {
     if (whatsappMsgId) {
       const yaExiste = await this.prisma.mensaje.findUnique({ where: { whatsappMsgId } });
@@ -554,6 +575,11 @@ export class ConversacionesService {
           direccion: 'ENTRANTE',
           contenido,
           whatsappMsgId,
+          /* Para media: se guarda el tipo/mime/nombre ya; `mediaKey` queda null
+             hasta que la descarga+subida a R2 termine en segundo plano. */
+          tipo: media?.tipo ?? 'TEXTO',
+          mediaMime: media?.mime ?? null,
+          mediaNombre: media?.nombre ?? null,
         },
       }),
       this.prisma.conversacion.update({
@@ -561,6 +587,14 @@ export class ConversacionesService {
         data: { updatedAt: new Date() },
       }),
     ]);
+
+    /* La media se descarga de Meta y se sube a R2 SIN await: el webhook debe
+       responder 200 rápido (si tarda, Meta reintenta y termina desactivando la
+       suscripción). Al terminar, se actualiza mediaKey y se avisa por WebSocket
+       para que el chat muestre la foto sin recargar. */
+    if (media && this.r2.habilitado) {
+      void this.descargarYSubirMedia(mensaje.id, conversacion.id, media);
+    }
 
     /* Auto-crear el Lead de Oportunidades SOLO en el primer contacto: se ata a
        que la conversación se haya creado nueva en ESTA petición. Antes se hacía
@@ -583,5 +617,50 @@ export class ConversacionesService {
     this.gateway.emitirActividad(conversacion.id);
 
     return mensaje;
+  }
+
+  /**
+   * Descarga la media de Meta y la sube a R2 (fire-and-forget, ver
+   * `procesarEntrante`). Flujo: media_id → URL temporal de Meta → bytes →
+   * PUT en R2 con clave `wa/<conversacionId>/<mensajeId>`. Al terminar,
+   * guarda `mediaKey` y avisa por WebSocket para que la foto aparezca sola.
+   */
+  private async descargarYSubirMedia(
+    mensajeId: string,
+    conversacionId: string,
+    media: MediaEntrante,
+  ): Promise<void> {
+    const token = this.config.get<string>('WHATSAPP_TOKEN') || this.config.get<string>('WHATSAPP_ACCESS_TOKEN');
+    if (!token) return;
+
+    try {
+      /* 1) media_id → URL temporal (válida 5 min). */
+      const metaResp = await fetch(`https://graph.facebook.com/v25.0/${media.mediaId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!metaResp.ok) {
+        this.logger.error(`No se pudo obtener URL de media ${media.mediaId} (${metaResp.status})`);
+        return;
+      }
+      const { url } = (await metaResp.json()) as { url?: string };
+      if (!url) return;
+
+      /* 2) Descargar los bytes (requiere el token también en el CDN de Meta). */
+      const archivo = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+      if (!archivo.ok) {
+        this.logger.error(`No se pudo descargar media ${media.mediaId} (${archivo.status})`);
+        return;
+      }
+      const bytes = new Uint8Array(await archivo.arrayBuffer());
+
+      /* 3) Subir a R2 y registrar la clave en el mensaje. */
+      const key = `wa/${conversacionId}/${mensajeId}`;
+      await this.r2.subir(key, bytes, media.mime);
+      await this.prisma.mensaje.update({ where: { id: mensajeId }, data: { mediaKey: key } });
+
+      this.gateway.emitirActividad(conversacionId);
+    } catch (error) {
+      this.logger.error(`Excepción bajando/subiendo media ${media.mediaId}`, error);
+    }
   }
 }

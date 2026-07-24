@@ -17,6 +17,27 @@ export class WhatsappTextDto {
   body?: string;
 }
 
+/** Objeto de media entrante (image/document/audio/video/sticker). */
+export class WhatsappMediaDto {
+  @IsOptional()
+  @IsString()
+  id?: string;
+
+  @IsOptional()
+  @IsString()
+  mime_type?: string;
+
+  /** Solo documentos. */
+  @IsOptional()
+  @IsString()
+  filename?: string;
+
+  /** Pie de foto (image/video/document). */
+  @IsOptional()
+  @IsString()
+  caption?: string;
+}
+
 export class WhatsappMessageDto {
   @IsOptional()
   @IsString()
@@ -26,6 +47,7 @@ export class WhatsappMessageDto {
   @IsString()
   id?: string;
 
+  /** 'text' | 'image' | 'document' | 'audio' | 'video' | 'sticker' | … */
   @IsOptional()
   @IsString()
   type?: string;
@@ -34,6 +56,31 @@ export class WhatsappMessageDto {
   @ValidateNested()
   @Type(() => WhatsappTextDto)
   text?: WhatsappTextDto;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => WhatsappMediaDto)
+  image?: WhatsappMediaDto;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => WhatsappMediaDto)
+  document?: WhatsappMediaDto;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => WhatsappMediaDto)
+  audio?: WhatsappMediaDto;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => WhatsappMediaDto)
+  video?: WhatsappMediaDto;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => WhatsappMediaDto)
+  sticker?: WhatsappMediaDto;
 }
 
 /** Perfil del remitente: trae el nombre real con el que se da de alta al cliente. */

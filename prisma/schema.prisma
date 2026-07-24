@@ -156,8 +156,17 @@ model Mensaje {
   conversacion   Conversacion     @relation(fields: [conversacionId], references: [id], onDelete: Cascade)
   conversacionId String
   direccion      DireccionMensaje
+  /// Para media, `contenido` guarda el pie de foto (caption) o el nombre del archivo; puede ir vacío.
   contenido      String
   whatsappMsgId  String?          @unique
+  /// Tipo de contenido. TEXTO por defecto; el resto llega por el webhook de media.
+  tipo           TipoMensaje      @default(TEXTO)
+  /// Clave del objeto en R2 (Cloudflare). Null mientras se descarga/sube en segundo plano.
+  mediaKey       String?
+  /// MIME real del archivo (image/jpeg, application/pdf, audio/ogg…).
+  mediaMime      String?
+  /// Nombre original del archivo (documentos). Null para imágenes/audio.
+  mediaNombre    String?
   /// Solo aplica a SALIENTE — el paciente no tiene "estado de entrega" hacia nosotros.
   /// Ticks estilo WhatsApp: ENVIADO al crear, luego lo actualiza la respuesta de Meta
   /// (FALLIDO) o el webhook de `statuses` (ENTREGADO/LEIDO).
@@ -167,6 +176,15 @@ model Mensaje {
   createdAt      DateTime         @default(now())
 
   @@index([conversacionId, createdAt])
+}
+
+enum TipoMensaje {
+  TEXTO
+  IMAGEN
+  DOCUMENTO
+  AUDIO
+  VIDEO
+  STICKER
 }
 
 enum EstadoMensaje {
