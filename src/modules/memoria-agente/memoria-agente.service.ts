@@ -166,7 +166,7 @@ export class MemoriaAgenteService {
     const creado = await this.prisma.recursoMemoriaAgente.create({
       data: {
         usuarioId,
-        titulo: dto.titulo.trim() || file.originalname,
+        titulo: dto.titulo?.trim() || file.originalname,
         contenido: dto.contenido?.trim() ?? null,
         tipo: dto.tipo ?? tipoInferido,
         categoria: dto.categoria ?? 'GENERAL',
