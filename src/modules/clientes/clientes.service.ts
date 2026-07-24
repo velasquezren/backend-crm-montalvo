@@ -145,24 +145,28 @@ export class ClientesService {
   /** `soloAgenteId` — ver la nota de `findOne`: mismo hueco existía en edición. */
   async update(id: string, dto: UpdateClienteDto, usuarioId?: string, soloAgenteId?: string) {
     await this.findOne(id, soloAgenteId);
-    const actualizado = await this.prisma.cliente.update({
-      where: { id },
-      data: {
-        ...dto,
-        datosExtra: dto.datosExtra as Prisma.InputJsonValue | undefined,
-      },
-    });
 
-    if (dto.agenteId !== undefined) {
-      await this.prisma.lead.updateMany({
-        where: { clienteId: id },
-        data: { agenteId: dto.agenteId },
-      });
-      await this.prisma.conversacion.updateMany({
-        where: { clienteId: id },
-        data: { agenteId: dto.agenteId },
-      });
-    }
+    const [actualizado] = await this.prisma.$transaction([
+      this.prisma.cliente.update({
+        where: { id },
+        data: {
+          ...dto,
+          datosExtra: dto.datosExtra as Prisma.InputJsonValue | undefined,
+        },
+      }),
+      ...(dto.agenteId !== undefined
+        ? [
+            this.prisma.lead.updateMany({
+              where: { clienteId: id },
+              data: { agenteId: dto.agenteId },
+            }),
+            this.prisma.conversacion.updateMany({
+              where: { clienteId: id },
+              data: { agenteId: dto.agenteId },
+            }),
+          ]
+        : []),
+    ]);
 
     await this.audit.registrar('Cliente', id, 'ACTUALIZADO', usuarioId, { ...dto });
     return actualizado;
