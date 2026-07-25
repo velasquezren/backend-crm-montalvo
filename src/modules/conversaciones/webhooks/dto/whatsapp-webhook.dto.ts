@@ -38,6 +38,59 @@ export class WhatsappMediaDto {
   caption?: string;
 }
 
+/**
+ * Respuesta a un botón de RESPUESTA RÁPIDA de una plantilla (`type: 'button'`).
+ * Meta manda el texto del botón que tocó el cliente en `text` (y lo duplica en
+ * `payload`). Es la respuesta que antes se perdía: el cliente toca "Confirmar"
+ * en la plantilla y esa respuesta no llegaba al CRM.
+ */
+export class WhatsappButtonDto {
+  @IsOptional()
+  @IsString()
+  text?: string;
+
+  @IsOptional()
+  @IsString()
+  payload?: string;
+}
+
+/** Cuerpo de un botón/opción interactiva pulsada (button_reply / list_reply). */
+export class WhatsappInteractiveReplyDto {
+  @IsOptional()
+  @IsString()
+  id?: string;
+
+  @IsOptional()
+  @IsString()
+  title?: string;
+
+  @IsOptional()
+  @IsString()
+  description?: string;
+}
+
+/**
+ * Respuesta a un mensaje INTERACTIVO (`type: 'interactive'`): botones de
+ * respuesta (`button_reply`) o selección de lista (`list_reply`). El texto que
+ * eligió el cliente viene en `.title`.
+ */
+export class WhatsappInteractiveDto {
+  /** 'button_reply' | 'list_reply' */
+  @IsOptional()
+  @IsString()
+  type?: string;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => WhatsappInteractiveReplyDto)
+  button_reply?: WhatsappInteractiveReplyDto;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => WhatsappInteractiveReplyDto)
+  list_reply?: WhatsappInteractiveReplyDto;
+}
+
 export class WhatsappMessageDto {
   @IsOptional()
   @IsString()
@@ -47,7 +100,7 @@ export class WhatsappMessageDto {
   @IsString()
   id?: string;
 
-  /** 'text' | 'image' | 'document' | 'audio' | 'video' | 'sticker' | … */
+  /** 'text' | 'image' | 'document' | 'audio' | 'video' | 'sticker' | 'button' | 'interactive' | … */
   @IsOptional()
   @IsString()
   type?: string;
@@ -81,6 +134,18 @@ export class WhatsappMessageDto {
   @ValidateNested()
   @Type(() => WhatsappMediaDto)
   sticker?: WhatsappMediaDto;
+
+  /** Respuesta a un botón de respuesta rápida de plantilla (`type: 'button'`). */
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => WhatsappButtonDto)
+  button?: WhatsappButtonDto;
+
+  /** Respuesta a botones interactivos / listas (`type: 'interactive'`). */
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => WhatsappInteractiveDto)
+  interactive?: WhatsappInteractiveDto;
 }
 
 /** Perfil del remitente: trae el nombre real con el que se da de alta al cliente. */

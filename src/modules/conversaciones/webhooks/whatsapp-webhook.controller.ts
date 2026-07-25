@@ -45,6 +45,24 @@ function extraerMedia(
 }
 
 /**
+ * Extrae el texto que el cliente eligió al pulsar un botón de plantilla o un
+ * botón/lista interactiva, o null si el mensaje no es una respuesta de este
+ * tipo. Estas respuestas llegan con su propio `type` y antes se descartaban.
+ */
+function extraerRespuestaBoton(mensaje: WhatsappMessageDto): string | null {
+  if (mensaje.type === 'button') {
+    const texto = mensaje.button?.text ?? mensaje.button?.payload;
+    return texto?.trim() || null;
+  }
+  if (mensaje.type === 'interactive') {
+    const texto =
+      mensaje.interactive?.button_reply?.title ?? mensaje.interactive?.list_reply?.title;
+    return texto?.trim() || null;
+  }
+  return null;
+}
+
+/**
  * Webhook de WhatsApp Cloud API — RF-09. Los mensajes de texto entrantes se
  * persisten y crean cliente + conversación si no existían.
  *
@@ -103,8 +121,15 @@ export class WhatsappWebhookController {
           await this.conversacionesService.procesarEntrante(telefono, mensaje.text.body, mensaje.id, nombrePerfil);
           procesados++;
         } else {
-          const media = extraerMedia(mensaje);
-          if (media) {
+          const respuestaBoton = extraerRespuestaBoton(mensaje);
+          const media = respuestaBoton ? null : extraerMedia(mensaje);
+          if (respuestaBoton) {
+            /* El cliente pulsó un botón de una plantilla (Confirmar, Sí, etc.).
+               Se guarda como mensaje entrante de texto: aparece en el chat,
+               reabre la ventana de 24h y crea el lead si la conversación es nueva. */
+            await this.conversacionesService.procesarEntrante(telefono, respuestaBoton, mensaje.id, nombrePerfil);
+            procesados++;
+          } else if (media) {
             await this.conversacionesService.procesarEntrante(
               telefono,
               media.caption ?? '',
