@@ -28,8 +28,8 @@ export class ConversacionesController {
   obtenerMensajesAnteriores(
     @Param('id') id: string,
     @Query('antesDe') antesDe: string,
-    @Query('limit') limit?: string,
     @CurrentUser() usuario: UsuarioJwt,
+    @Query('limit') limit?: string,
   ) {
     const soloAgenteId = usuario.rol === 'ADMIN' ? undefined : usuario.sub;
     return this.conversacionesService.obtenerMensajesAnteriores(id, antesDe, Number(limit) || 50, soloAgenteId);
