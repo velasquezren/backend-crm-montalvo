@@ -102,68 +102,66 @@ export class WhatsappWebhookController {
 
   @Public()
   @Post()
-  async recibir(@Body() payload: WhatsappWebhookDto): Promise<{ received: true }> {
-    const cambios = payload.entry?.flatMap(e => e.changes ?? []) ?? [];
-
-    for (const cambio of cambios) {
-      let procesados = 0;
-      for (const mensaje of cambio.value?.messages ?? []) {
-        if (!mensaje.from) continue;
-
-        /* WhatsApp manda el nombre del perfil en `contacts`, emparejado por wa_id.
-           Se usa para dar de alta al cliente con su nombre real en vez de un
-           marcador tipo "WhatsApp +591…". */
-        const contacto = cambio.value?.contacts?.find(c => c.wa_id === mensaje.from);
-        const nombrePerfil = contacto?.profile?.name?.trim() || undefined;
-        const telefono = `+${mensaje.from}`;
-
-        if (mensaje.type === 'text' && mensaje.text?.body) {
-          await this.conversacionesService.procesarEntrante(telefono, mensaje.text.body, mensaje.id, nombrePerfil);
-          procesados++;
-        } else {
-          const respuestaBoton = extraerRespuestaBoton(mensaje);
-          const media = respuestaBoton ? null : extraerMedia(mensaje);
-          if (respuestaBoton) {
-            /* El cliente pulsó un botón de una plantilla (Confirmar, Sí, etc.).
-               Se guarda como mensaje entrante de texto: aparece en el chat,
-               reabre la ventana de 24h y crea el lead si la conversación es nueva. */
-            await this.conversacionesService.procesarEntrante(telefono, respuestaBoton, mensaje.id, nombrePerfil);
-            procesados++;
-          } else if (media) {
-            await this.conversacionesService.procesarEntrante(
-              telefono,
-              media.caption ?? '',
-              mensaje.id,
-              nombrePerfil,
-              { tipo: media.tipo, mediaId: media.mediaId, mime: media.mime, nombre: media.nombre },
-            );
-            procesados++;
-          }
-          /* Otros tipos (ubicación, contactos, reacciones…) se ignoran por ahora. */
-        }
-      }
-
-      if (procesados > 0) {
-        this.logger.log(`WhatsApp: ${procesados} mensaje(s) entrante(s) procesado(s)`);
-      }
-
-      /* Confirmaciones de entrega/lectura de mensajes SALIENTES nuestros
-         (los ticks del chat) — Meta las manda en el mismo payload, en
-         `statuses`, no en `messages`. */
-      const estados = cambio.value?.statuses ?? [];
-      for (const estado of estados) {
-        if (estado.id && estado.status) {
-          if (estado.status === 'failed') {
-            const estadoAny = estado as any;
-            const errorDetalle = estadoAny.errors?.[0] ? `${estadoAny.errors[0].code}: ${estadoAny.errors[0].title}` : JSON.stringify(estado);
-            this.logger.error(`Mensaje WhatsApp fallido en Meta (MsgId: ${estado.id}): ${errorDetalle}`);
-          }
-          await this.conversacionesService.procesarEstadoMensaje(estado.id, estado.status);
-        }
-      }
-    }
-
-    /* Meta exige un 200 rápido; si no, reintenta y acaba desactivando el webhook. */
+  recibir(@Body() payload: WhatsappWebhookDto): { received: true } {
+    /* Meta exige un 200 rápido (< 3s); procesamos el payload de forma asíncrona
+       para responder en < 2ms y evitar desactivación por timeouts durante ráfagas. */
+    void this.procesarWebhookAsync(payload);
     return { received: true };
+  }
+
+  private async procesarWebhookAsync(payload: WhatsappWebhookDto): Promise<void> {
+    try {
+      const cambios = payload.entry?.flatMap(e => e.changes ?? []) ?? [];
+
+      for (const cambio of cambios) {
+        let procesados = 0;
+        for (const mensaje of cambio.value?.messages ?? []) {
+          if (!mensaje.from) continue;
+
+          const contacto = cambio.value?.contacts?.find(c => c.wa_id === mensaje.from);
+          const nombrePerfil = contacto?.profile?.name?.trim() || undefined;
+          const telefono = `+${mensaje.from}`;
+
+          if (mensaje.type === 'text' && mensaje.text?.body) {
+            await this.conversacionesService.procesarEntrante(telefono, mensaje.text.body, mensaje.id, nombrePerfil);
+            procesados++;
+          } else {
+            const respuestaBoton = extraerRespuestaBoton(mensaje);
+            const media = respuestaBoton ? null : extraerMedia(mensaje);
+            if (respuestaBoton) {
+              await this.conversacionesService.procesarEntrante(telefono, respuestaBoton, mensaje.id, nombrePerfil);
+              procesados++;
+            } else if (media) {
+              await this.conversacionesService.procesarEntrante(
+                telefono,
+                media.caption ?? '',
+                mensaje.id,
+                nombrePerfil,
+                { tipo: media.tipo, mediaId: media.mediaId, mime: media.mime, nombre: media.nombre },
+              );
+              procesados++;
+            }
+          }
+        }
+
+        if (procesados > 0) {
+          this.logger.log(`WhatsApp: ${procesados} mensaje(s) entrante(s) procesado(s)`);
+        }
+
+        const estados = cambio.value?.statuses ?? [];
+        for (const estado of estados) {
+          if (estado.id && estado.status) {
+            if (estado.status === 'failed') {
+              const estadoAny = estado as any;
+              const errorDetalle = estadoAny.errors?.[0] ? `${estadoAny.errors[0].code}: ${estadoAny.errors[0].title}` : JSON.stringify(estado);
+              this.logger.error(`Mensaje WhatsApp fallido en Meta (MsgId: ${estado.id}): ${errorDetalle}`);
+            }
+            await this.conversacionesService.procesarEstadoMensaje(estado.id, estado.status);
+          }
+        }
+      }
+    } catch (error) {
+      this.logger.error('Error procesando webhook de WhatsApp de forma asíncrona', error);
+    }
   }
 }
