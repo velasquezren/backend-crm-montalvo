@@ -41,8 +41,16 @@ export class AuthService {
       rol: usuario.rol,
     };
 
+    /* Refresh token con rotación y expiración absoluta de 30 días de inactividad real */
+    const refreshToken = await this.jwtService.signAsync(
+      { sub: usuario.id, type: 'refresh' },
+      { expiresIn: '30d' },
+    );
+
     return {
       access_token: await this.jwtService.signAsync(payload),
+      refresh_token: refreshToken,
+      rememberMe: dto.rememberMe ?? true,
       usuario: { ...payload, foto: usuario.foto },
     };
   }
