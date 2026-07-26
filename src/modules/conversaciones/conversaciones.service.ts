@@ -55,6 +55,7 @@ export class ConversacionesService {
   ) {}
 
   private agentesCache: { data: any[]; expiresAt: number } | null = null;
+  private plantillasCache: { data: PlantillaResumen[]; expiresAt: number } | null = null;
 
   /** Visibilidad por rol: AGENTE ve sus conversaciones + las sin asignar; ADMIN todo. */
   async findAll(soloAgenteId?: string) {
@@ -345,7 +346,12 @@ export class ConversacionesService {
    * Solo las aprobadas se pueden enviar (Meta rechaza el resto). Se piden los
    * campos mínimos que la UI necesita para previsualizar y contar variables.
    */
-  async listarPlantillas(): Promise<PlantillaResumen[]> {
+  async listarPlantillas(forceRefresh = false): Promise<PlantillaResumen[]> {
+    const ahora = Date.now();
+    if (!forceRefresh && this.plantillasCache && ahora < this.plantillasCache.expiresAt) {
+      return this.plantillasCache.data;
+    }
+
     const token = this.config.get<string>('WHATSAPP_TOKEN') || this.config.get<string>('WHATSAPP_ACCESS_TOKEN');
     const wabaId = this.config.get<string>('WHATSAPP_WABA_ID');
     if (!token || !wabaId) {
@@ -358,10 +364,10 @@ export class ConversacionesService {
       const response = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
       if (!response.ok) {
         this.logger.error(`Error listando plantillas (${response.status}): ${await response.text()}`);
-        return [];
+        return this.plantillasCache?.data ?? [];
       }
       const data = (await response.json()) as { data?: PlantillaMeta[] };
-      return (data.data ?? [])
+      const resultado = (data.data ?? [])
         .filter(p => p.status === 'APPROVED')
         .map(p => {
           const body = p.components?.find(c => c.type === 'BODY')?.text ?? '';
@@ -375,9 +381,13 @@ export class ConversacionesService {
             variables: [...new Set(body.match(/\{\{[^}]+\}\}/g) ?? [])].length,
           };
         });
+
+      // Guardar en cache por 10 minutos (600.000 ms)
+      this.plantillasCache = { data: resultado, expiresAt: ahora + 600000 };
+      return resultado;
     } catch (error) {
       this.logger.error('Excepción al listar plantillas de Meta', error);
-      return [];
+      return this.plantillasCache?.data ?? [];
     }
   }
 

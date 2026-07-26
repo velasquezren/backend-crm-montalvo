@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
 
 import { CurrentUser, UsuarioJwt } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -47,8 +47,8 @@ export class ConversacionesController {
 
   /** Plantillas aprobadas de la WABA — para el selector al escribir fuera de la ventana de 24h. */
   @Get('meta/plantillas')
-  listarPlantillas() {
-    return this.conversacionesService.listarPlantillas();
+  listarPlantillas(@Query('refresh') refresh?: string) {
+    return this.conversacionesService.listarPlantillas(refresh === 'true');
   }
 
   /** Enviar una plantilla aprobada al paciente de esta conversación. */
