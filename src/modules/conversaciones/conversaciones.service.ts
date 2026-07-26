@@ -15,9 +15,9 @@ export interface MediaEntrante {
   nombre?: string;
 }
 
-/** Mensajes que trae el detalle de una conversación (más recientes primero, luego se reordenan).
- *  Sin tope, un chat de años de antigüedad haría cada vez más lento cada poll/reload. */
-const LIMITE_MENSAJES_DETALLE = 300;
+/** Mensajes que trae el detalle inicial de una conversación (más recientes primero, luego se reordenan).
+ *  Se acota a 50 para máxima velocidad inicial; los anteriores se cargan por cursor al hacer scroll. */
+const LIMITE_MENSAJES_DETALLE = 50;
 
 /** Forma cruda de una plantilla en la respuesta de Meta (solo lo que usamos). */
 interface PlantillaMeta {
@@ -156,6 +156,32 @@ export class ConversacionesService {
       agente: conversacion.agente ?? conversacion.cliente?.agente ?? null,
       mensajes,
     };
+  }
+
+  /**
+   * Paginación por CURSOR para mensajes antiguos (scroll infinito hacia arriba).
+   * Filtra mensajes creados estrictamente ANTES del timestamp dado (`antesDe`).
+   */
+  async obtenerMensajesAnteriores(id: string, antesDe: string, limit = 50, soloAgenteId?: string) {
+    await this.obtenerConversacionPropia(id, soloAgenteId);
+    const limiteParsed = Math.min(Math.max(Number(limit) || 50, 1), 100);
+
+    const mensajes = await this.prisma.mensaje.findMany({
+      where: {
+        conversacionId: id,
+        createdAt: { lt: new Date(antesDe) },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: limiteParsed,
+    });
+    mensajes.reverse();
+
+    return Promise.all(
+      mensajes.map(async m => ({
+        ...m,
+        mediaUrl: m.mediaKey ? await this.r2.urlFirmada(m.mediaKey) : null,
+      })),
+    );
   }
 
   /** Versión liviana del chequeo de propiedad de `findOne`, sin traer mensajes:

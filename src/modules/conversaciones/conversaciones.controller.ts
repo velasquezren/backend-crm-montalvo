@@ -24,6 +24,17 @@ export class ConversacionesController {
     return this.conversacionesService.findOne(id, soloAgenteId);
   }
 
+  @Get(':id/mensajes-anteriores')
+  obtenerMensajesAnteriores(
+    @Param('id') id: string,
+    @Query('antesDe') antesDe: string,
+    @Query('limit') limit?: string,
+    @CurrentUser() usuario: UsuarioJwt,
+  ) {
+    const soloAgenteId = usuario.rol === 'ADMIN' ? undefined : usuario.sub;
+    return this.conversacionesService.obtenerMensajesAnteriores(id, antesDe, Number(limit) || 50, soloAgenteId);
+  }
+
   @Post(':id/mensajes')
   enviarMensaje(
     @Param('id') id: string,
