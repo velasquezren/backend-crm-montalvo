@@ -30,6 +30,12 @@ async function bootstrap(): Promise<void> {
   /* Compresión de respuestas: los listados con includes pesan bastante. */
   app.use(compression());
 
+  /* Cabecera de versión del backend para sincronización PWA */
+  app.use((_req: any, res: any, next: any) => {
+    res.setHeader('X-Api-Version', '1.0.0');
+    next();
+  });
+
   /**
    * CORS restringido al origen del frontend.
    * Antes era `enableCors()` sin argumentos, que acepta CUALQUIER origen.
