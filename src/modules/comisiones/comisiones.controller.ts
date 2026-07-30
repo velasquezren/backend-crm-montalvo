@@ -1,5 +1,6 @@
 import { Controller, Get, Param, Post, Query } from '@nestjs/common';
 
+import { alcanceAgente } from '../../common/auth/alcance';
 import { CurrentUser, UsuarioJwt } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { ComisionesService } from './comisiones.service';
@@ -15,9 +16,8 @@ export class ComisionesController {
    */
   @Get()
   findAll(@Query() query: QueryComisionDto, @CurrentUser() usuario: UsuarioJwt) {
-    if (usuario.rol !== 'ADMIN') {
-      query.agenteId = usuario.sub;
-    }
+    // Un agente solo ve lo suyo; admin y super admin ven todo el equipo.
+    query.agenteId = alcanceAgente(usuario) ?? query.agenteId;
     return this.comisionesService.findAll(query);
   }
 

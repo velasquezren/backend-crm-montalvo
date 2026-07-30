@@ -1,5 +1,6 @@
 import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
 
+import { alcanceAgente } from '../../common/auth/alcance';
 import { CurrentUser, UsuarioJwt } from '../../common/decorators/current-user.decorator';
 import { ClientesService } from './clientes.service';
 import { CreateClienteDto } from './dto/create-cliente.dto';
@@ -18,13 +19,13 @@ export class ClientesController {
 
   @Get()
   findAll(@Query() query: QueryClienteDto, @CurrentUser() usuario: UsuarioJwt) {
-    const soloAgenteId = usuario.rol === 'ADMIN' ? undefined : usuario.sub;
+    const soloAgenteId = alcanceAgente(usuario);
     return this.clientesService.findAll(query, soloAgenteId);
   }
 
   @Get(':id')
   findOne(@Param('id') id: string, @CurrentUser() usuario: UsuarioJwt) {
-    const soloAgenteId = usuario.rol === 'ADMIN' ? undefined : usuario.sub;
+    const soloAgenteId = alcanceAgente(usuario);
     return this.clientesService.findOne(id, soloAgenteId);
   }
 
@@ -34,7 +35,7 @@ export class ClientesController {
     @Body() dto: UpdateClienteDto,
     @CurrentUser() usuario: UsuarioJwt,
   ) {
-    const soloAgenteId = usuario.rol === 'ADMIN' ? undefined : usuario.sub;
+    const soloAgenteId = alcanceAgente(usuario);
     return this.clientesService.update(id, dto, usuario.sub, soloAgenteId);
   }
 

@@ -1,5 +1,6 @@
 import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
 
+import { alcanceAgente } from '../../common/auth/alcance';
 import { CurrentUser, UsuarioJwt } from '../../common/decorators/current-user.decorator';
 import { CreateLeadPresencialDto } from './dto/create-lead-presencial.dto';
 import { QueryLeadDto } from './dto/query-lead.dto';
@@ -12,14 +13,14 @@ export class LeadsController {
 
   @Get()
   findAll(@Query() query: QueryLeadDto, @CurrentUser() usuario: UsuarioJwt) {
-    const soloAgenteId = usuario.rol === 'ADMIN' ? undefined : usuario.sub;
+    const soloAgenteId = alcanceAgente(usuario);
     return this.leadsService.findAll(query, soloAgenteId);
   }
 
   /** Conteos por estado para las columnas del kanban (RF-17). */
   @Get('resumen')
   resumen(@Query() query: QueryLeadDto, @CurrentUser() usuario: UsuarioJwt) {
-    const soloAgenteId = usuario.rol === 'ADMIN' ? undefined : usuario.sub;
+    const soloAgenteId = alcanceAgente(usuario);
     return this.leadsService.resumenPorEstado(query, soloAgenteId);
   }
 

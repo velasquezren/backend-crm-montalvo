@@ -2,6 +2,7 @@ import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common
 import { EstadoVenta } from '@prisma/client';
 import { IsEnum } from 'class-validator';
 
+import { alcanceAgente } from '../../common/auth/alcance';
 import { CurrentUser, UsuarioJwt } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CreateVentaDto } from './dto/create-venta.dto';
@@ -25,9 +26,8 @@ export class VentasController {
   /** Un agente ve solo sus ventas; un admin ve todas (visibilidad por rol). */
   @Get()
   findAll(@Query() query: QueryVentaDto, @CurrentUser() usuario: UsuarioJwt) {
-    if (usuario.rol !== 'ADMIN') {
-      query.agenteId = usuario.sub;
-    }
+    // Un agente solo ve lo suyo; admin y super admin ven todo el equipo.
+    query.agenteId = alcanceAgente(usuario) ?? query.agenteId;
     return this.ventasService.findAll(query);
   }
 

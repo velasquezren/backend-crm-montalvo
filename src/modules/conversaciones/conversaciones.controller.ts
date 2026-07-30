@@ -1,5 +1,6 @@
 import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
 
+import { alcanceAgente } from '../../common/auth/alcance';
 import { CurrentUser, UsuarioJwt } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { ConversacionesService } from './conversaciones.service';
@@ -14,13 +15,13 @@ export class ConversacionesController {
 
   @Get()
   findAll(@CurrentUser() usuario: UsuarioJwt) {
-    const soloAgenteId = usuario.rol === 'ADMIN' ? undefined : usuario.sub;
+    const soloAgenteId = alcanceAgente(usuario);
     return this.conversacionesService.findAll(soloAgenteId);
   }
 
   @Get(':id')
   findOne(@Param('id') id: string, @CurrentUser() usuario: UsuarioJwt) {
-    const soloAgenteId = usuario.rol === 'ADMIN' ? undefined : usuario.sub;
+    const soloAgenteId = alcanceAgente(usuario);
     return this.conversacionesService.findOne(id, soloAgenteId);
   }
 
@@ -31,7 +32,7 @@ export class ConversacionesController {
     @CurrentUser() usuario: UsuarioJwt,
     @Query('limit') limit?: string,
   ) {
-    const soloAgenteId = usuario.rol === 'ADMIN' ? undefined : usuario.sub;
+    const soloAgenteId = alcanceAgente(usuario);
     return this.conversacionesService.obtenerMensajesAnteriores(id, antesDe, Number(limit) || 50, soloAgenteId);
   }
 
@@ -41,7 +42,7 @@ export class ConversacionesController {
     @Body() dto: EnviarMensajeDto,
     @CurrentUser() usuario: UsuarioJwt,
   ) {
-    const soloAgenteId = usuario.rol === 'ADMIN' ? undefined : usuario.sub;
+    const soloAgenteId = alcanceAgente(usuario);
     return this.conversacionesService.enviarMensaje(id, dto.contenido, usuario.sub, soloAgenteId);
   }
 
@@ -52,7 +53,7 @@ export class ConversacionesController {
     @Body() dto: MarcarLeidoDto,
     @CurrentUser() usuario: UsuarioJwt,
   ) {
-    const soloAgenteId = usuario.rol === 'ADMIN' ? undefined : usuario.sub;
+    const soloAgenteId = alcanceAgente(usuario);
     return this.conversacionesService.marcarLeido(id, soloAgenteId, dto.typing ?? false);
   }
 
@@ -69,7 +70,7 @@ export class ConversacionesController {
     @Body() dto: EnviarPlantillaDto,
     @CurrentUser() usuario: UsuarioJwt,
   ) {
-    const soloAgenteId = usuario.rol === 'ADMIN' ? undefined : usuario.sub;
+    const soloAgenteId = alcanceAgente(usuario);
     return this.conversacionesService.enviarPlantilla(id, dto, usuario.sub, soloAgenteId);
   }
 

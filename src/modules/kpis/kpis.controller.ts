@@ -1,5 +1,6 @@
 import { Controller, Get, Query } from '@nestjs/common';
 
+import { alcanceAgente } from '../../common/auth/alcance';
 import { CurrentUser, UsuarioJwt } from '../../common/decorators/current-user.decorator';
 import { KpisService } from './kpis.service';
 
@@ -14,7 +15,7 @@ export class KpisController {
     @Query('desde') desde?: string,
     @Query('hasta') hasta?: string,
   ) {
-    const soloAgenteId = usuario.rol === 'ADMIN' ? undefined : usuario.sub;
+    const soloAgenteId = alcanceAgente(usuario);
     return this.kpisService.resumen(desde, hasta, soloAgenteId);
   }
 }
