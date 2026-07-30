@@ -8,7 +8,7 @@ import { UsuariosService } from './usuarios.service';
 
 /** Gestión de agentes — solo administradores. */
 @Controller('usuarios')
-@Roles('ADMIN')
+@Roles('SUPER_ADMIN')
 export class UsuariosController {
   constructor(private readonly usuariosService: UsuariosService) {}
 

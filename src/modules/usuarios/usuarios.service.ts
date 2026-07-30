@@ -72,22 +72,20 @@ export class UsuariosService {
     /* Un admin no puede quitarse a sí mismo el rol ni desactivarse: se quedaría
        sin acceso a la gestión y, si es el único, nadie podría recuperarla. */
     if (ejecutorId && ejecutorId === id) {
-      if (resto.rol && resto.rol !== 'ADMIN') {
-        throw new BadRequestException(
-          'No puedes quitarte a ti mismo el rol de administrador.',
-        );
+      if (resto.rol && resto.rol !== actual.rol) {
+        throw new BadRequestException('No puedes cambiarte a ti mismo el rol.');
       }
       if (resto.activo === false) {
         throw new BadRequestException('No puedes desactivar tu propia cuenta.');
       }
     }
 
-    /* Tampoco se puede dejar el sistema sin ningún administrador activo. */
-    const dejaDeSerAdmin =
-      actual.rol === 'ADMIN' &&
-      ((resto.rol && resto.rol !== 'ADMIN') || resto.activo === false);
-    if (dejaDeSerAdmin) {
-      await this.verificarQueQuedaOtroAdmin(id);
+    /* Tampoco se puede dejar el sistema sin ningún super administrador activo. */
+    const dejaDeSerSuperAdmin =
+      actual.rol === 'SUPER_ADMIN' &&
+      ((resto.rol && resto.rol !== 'SUPER_ADMIN') || resto.activo === false);
+    if (dejaDeSerSuperAdmin) {
+      await this.verificarQueQuedaOtroSuperAdmin(id);
     }
 
     return this.prisma.usuario.update({
@@ -131,8 +129,8 @@ export class UsuariosService {
     if (ejecutorId && ejecutorId === id) {
       throw new BadRequestException('No puedes desactivar tu propia cuenta.');
     }
-    if (usuario.rol === 'ADMIN') {
-      await this.verificarQueQuedaOtroAdmin(id);
+    if (usuario.rol === 'SUPER_ADMIN') {
+      await this.verificarQueQuedaOtroSuperAdmin(id);
     }
 
     return this.prisma.usuario.update({
@@ -142,14 +140,20 @@ export class UsuariosService {
     });
   }
 
-  /** Evita el bloqueo total: siempre debe quedar al menos un ADMIN activo. */
-  private async verificarQueQuedaOtroAdmin(excluyendoId: string): Promise<void> {
+  /**
+   * Evita el bloqueo total: siempre debe quedar al menos un SUPER_ADMIN activo.
+   *
+   * Es el rol crítico —sin él nadie puede gestionar agentes ni asignar los
+   * códigos de empresa de los que depende la planilla— y además es el único que
+   * puede volver a crear otro super admin.
+   */
+  private async verificarQueQuedaOtroSuperAdmin(excluyendoId: string): Promise<void> {
     const otros = await this.prisma.usuario.count({
-      where: { rol: 'ADMIN', activo: true, id: { not: excluyendoId } },
+      where: { rol: 'SUPER_ADMIN', activo: true, id: { not: excluyendoId } },
     });
     if (otros === 0) {
       throw new BadRequestException(
-        'Es el último administrador activo: asigna otro antes de desactivarlo o cambiar su rol.',
+        'Es el último super administrador activo: asigna otro antes de desactivarlo o cambiar su rol.',
       );
     }
   }

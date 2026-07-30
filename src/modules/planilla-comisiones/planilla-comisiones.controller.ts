@@ -58,9 +58,12 @@ class CambiarEstadoPeriodoDto {
 /**
  * Planilla de comisiones (liquidación mensual desde el Excel de FileMaker).
  *
- * Todo el módulo es exclusivo de ADMIN: son datos de remuneración de todo el
+ * El módulo entero es de ADMIN para arriba: son datos de remuneración de todo el
  * equipo, no información que un agente deba ver. Por eso no hay escopado por
  * agente aquí — el guard de roles corta antes.
+ *
+ * Cargar y borrar planillas queda además reservado al SUPER_ADMIN: es quien
+ * administra los códigos de empresa de los que depende toda la liquidación.
  */
 @Roles('ADMIN')
 @Controller('planilla-comisiones')
@@ -74,6 +77,7 @@ export class PlanillaComisionesController {
   /* ── Importación y periodos ─────────────────────────────────────────── */
 
   @Post('importar')
+  @Roles('SUPER_ADMIN')
   @UseInterceptors(FileInterceptor('archivo'))
   importar(
     @UploadedFile() archivo: ArchivoSubido | undefined,
@@ -116,6 +120,7 @@ export class PlanillaComisionesController {
   }
 
   @Delete('periodos/:id')
+  @Roles('SUPER_ADMIN')
   eliminarPeriodo(@Param('id') id: string, @CurrentUser() usuario: UsuarioJwt) {
     return this.planilla.eliminarPeriodo(id, usuario.sub);
   }
@@ -176,12 +181,6 @@ export class PlanillaComisionesController {
   @Get('vendedoras')
   listarVendedoras() {
     return this.planilla.listarVendedoras();
-  }
-
-  /** Agentes del CRM disponibles para vincular a una vendedora del Excel. */
-  @Get('agentes-vinculables')
-  listarAgentesVinculables() {
-    return this.planilla.listarAgentesVinculables();
   }
 
   @Patch('vendedoras/:id')

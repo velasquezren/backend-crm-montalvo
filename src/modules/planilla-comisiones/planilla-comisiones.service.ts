@@ -4,13 +4,7 @@ import { EstadoPeriodo, Prisma, VendedoraComision } from '@prisma/client';
 import { AuditService } from '../../common/audit/audit.service';
 import { calcularPaginacion, paginar } from '../../common/dto/pagination.dto';
 import { PrismaService } from '../../prisma/prisma.service';
-import {
-  clasificarFila,
-  determinarTipo,
-  FilaExcel,
-  nombresCoinciden,
-  normalizar,
-} from './clasificador';
+import { clasificarFila, determinarTipo, FilaExcel, normalizar } from './clasificador';
 import { ConfiguracionComisionesService } from './configuracion-comisiones.service';
 import { ActualizarVendedoraDto } from './dto/configuracion.dto';
 import { AjustarVentaDto, ImportarExcelDto, QueryPeriodosDto, QueryVentasImportadasDto } from './dto/planilla.dto';
@@ -250,72 +244,7 @@ export class PlanillaComisionesService {
       where: { codigo: { in: Array.from(detectadas.keys()) } },
     });
 
-    await this.enlazarConAgentes(vendedoras);
-
     return new Map(vendedoras.map(v => [v.codigo, v]));
-  }
-
-  /**
-   * Enlaza cada vendedora con el agente del CRM que sea la misma persona.
-   *
-   * Dos vías, en orden de fiabilidad:
-   *   1. `Usuario.codigo` == `vendedora.codigo` (el identificador de la empresa).
-   *   2. El nombre, solo si hay **exactamente un** agente candidato — con dos o
-   *      más no se adivina: se deja sin enlazar para que lo resuelva un humano.
-   *
-   * Solo rellena huecos: nunca pisa un enlace hecho a mano desde el panel.
-   */
-  private async enlazarConAgentes(vendedoras: readonly VendedoraComision[]): Promise<void> {
-    const pendientes = vendedoras.filter(v => !v.usuarioId);
-    if (pendientes.length === 0) return;
-
-    // Agentes que aún no están enlazados a ninguna vendedora.
-    const agentes = await this.prisma.usuario.findMany({
-      where: { activo: true, vendedoraComision: { is: null } },
-      select: { id: true, nombre: true, codigo: true },
-    });
-    if (agentes.length === 0) return;
-
-    const yaUsados = new Set<string>();
-
-    for (const vendedora of pendientes) {
-      const libres = agentes.filter(a => !yaUsados.has(a.id));
-
-      const porCodigo = libres.find(a => a.codigo && a.codigo === vendedora.codigo);
-      let elegido = porCodigo ?? null;
-
-      if (!elegido) {
-        const porNombre = libres.filter(a => nombresCoinciden(a.nombre, vendedora.nombre));
-        // Ambiguo (dos homónimos) → no se enlaza, lo decide administración.
-        if (porNombre.length === 1) {
-          elegido = porNombre[0];
-        } else if (porNombre.length > 1) {
-          this.logger.warn(
-            `"${vendedora.nombre}" cruza con ${porNombre.length} agentes; enlazar a mano.`,
-          );
-        }
-      }
-
-      if (!elegido) continue;
-
-      try {
-        await this.prisma.vendedoraComision.update({
-          where: { id: vendedora.id },
-          data: { usuarioId: elegido.id },
-        });
-        yaUsados.add(elegido.id);
-        this.logger.log(
-          `Vendedora "${vendedora.nombre}" enlazada al agente "${elegido.nombre}" ` +
-            `(${porCodigo ? 'por código' : 'por nombre'})`,
-        );
-      } catch (error) {
-        // El único de usuarioId puede rebotar si otra importación simultánea
-        // ganó la carrera: no es motivo para tumbar toda la importación.
-        if (!(error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002')) {
-          throw error;
-        }
-      }
-    }
   }
 
   private resolverVendedoraId(
@@ -530,11 +459,25 @@ export class PlanillaComisionesService {
 
   /* ── Vendedoras ─────────────────────────────────────────────────────── */
 
+  /**
+   * Vendedoras con el agente del CRM que les corresponde.
+   *
+   * El cruce es por `codigo` (el `vendedora_pk` del Excel es el mismo
+   * identificador que lleva el agente), así que no hay ningún enlace que
+   * mantener ni vincular a mano: si el agente tiene su código puesto, aparece.
+   */
   async listarVendedoras() {
-    return this.prisma.vendedoraComision.findMany({
+    const vendedoras = await this.prisma.vendedoraComision.findMany({
       orderBy: [{ configurada: 'asc' }, { nombre: 'asc' }],
-      include: { usuario: { select: { id: true, nombre: true, email: true, codigo: true } } },
     });
+
+    const agentes = await this.prisma.usuario.findMany({
+      where: { codigo: { in: vendedoras.map(v => v.codigo) } },
+      select: { id: true, nombre: true, email: true, codigo: true, activo: true },
+    });
+    const porCodigo = new Map(agentes.map(a => [a.codigo, a]));
+
+    return vendedoras.map(v => ({ ...v, agente: porCodigo.get(v.codigo) ?? null }));
   }
 
   async actualizarVendedora(
@@ -547,14 +490,10 @@ export class PlanillaComisionesService {
       throw new NotFoundException(`Vendedora ${id} no encontrada`);
     }
 
-    const { usuarioId: agenteId, ...resto } = datos;
-    const enlace = await this.resolverEnlaceAgente(id, agenteId);
-
     const vendedora = await this.prisma.vendedoraComision.update({
       where: { id },
       // Editarla desde el panel es exactamente el acto de configurarla.
-      data: { ...resto, ...enlace, configurada: true },
-      include: { usuario: { select: { id: true, nombre: true, email: true, codigo: true } } },
+      data: { ...datos, configurada: true },
     });
 
     await this.audit.registrar('VendedoraComision', id, 'ACTUALIZAR', usuarioId, {
@@ -563,48 +502,4 @@ export class PlanillaComisionesService {
     return vendedora;
   }
 
-  /**
-   * Traduce el `usuarioId` que llega del panel a lo que Prisma debe escribir:
-   * `undefined` = no tocar el enlace · `null`/'' = desvincular · id = vincular.
-   */
-  private async resolverEnlaceAgente(
-    vendedoraId: string,
-    agenteId: string | null | undefined,
-  ): Promise<{ usuarioId?: string | null }> {
-    if (agenteId === undefined) return {};
-    if (agenteId === null || agenteId === '') return { usuarioId: null };
-
-    const agente = await this.prisma.usuario.findUnique({
-      where: { id: agenteId },
-      select: { id: true, nombre: true, vendedoraComision: { select: { id: true, nombre: true } } },
-    });
-    if (!agente) {
-      throw new BadRequestException(`El agente ${agenteId} no existe`);
-    }
-
-    // Sin este aviso el único de `usuarioId` daría un 500 opaco.
-    const yaEnlazada = agente.vendedoraComision;
-    if (yaEnlazada && yaEnlazada.id !== vendedoraId) {
-      throw new ConflictException(
-        `El agente "${agente.nombre}" ya está vinculado a "${yaEnlazada.nombre}". Desvincúlalo primero.`,
-      );
-    }
-
-    return { usuarioId: agenteId };
-  }
-
-  /** Agentes activos del CRM, para el desplegable de vinculación del panel. */
-  async listarAgentesVinculables() {
-    return this.prisma.usuario.findMany({
-      where: { activo: true },
-      select: {
-        id: true,
-        nombre: true,
-        email: true,
-        codigo: true,
-        vendedoraComision: { select: { id: true, nombre: true } },
-      },
-      orderBy: { nombre: 'asc' },
-    });
-  }
 }

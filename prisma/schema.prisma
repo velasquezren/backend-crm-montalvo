@@ -11,6 +11,9 @@ datasource db {
 }
 
 enum Rol {
+  /// Manda sobre todo: gestiona agentes (les asigna el código de empresa) e
+  /// importa el Excel de la planilla. Cubre todo lo que puede hacer un ADMIN.
+  SUPER_ADMIN
   ADMIN
   AGENTE
 }
@@ -66,11 +69,11 @@ model Usuario {
   activo         Boolean        @default(true)
   foto           String?
   /// Identificador que usa la empresa para esta persona (el `vendedora_pk` de
-  /// FileMaker, ej. Pe2455). Es la vía fiable para cruzar al agente del CRM con
-  /// sus ventas en la planilla de comisiones — el nombre solo se usa de respaldo.
+  /// FileMaker, ej. Pe2455). Es la ÚNICA vía por la que la planilla de comisiones
+  /// reconoce a qué agente pertenece cada venta: al ser único y venir en el propio
+  /// Excel, no hace falta vincular nada a mano ni adivinar por el nombre.
+  /// Solo un SUPER_ADMIN puede asignarlo.
   codigo         String?        @unique @db.VarChar(40)
-  /// Ficha de comisiones de esta persona, si aparece en alguna planilla.
-  vendedoraComision VendedoraComision?
   clientes       Cliente[]      @relation("AgenteAsignado")
   intereses      Interes[]
   leads          Lead[]
@@ -462,7 +465,8 @@ model VentaImportada {
 //
 model VendedoraComision {
   id          String        @id @default(uuid())
-  /// `vendedora_pk` del Excel (ej. Pe2455).
+  /// `vendedora_pk` del Excel (ej. Pe2455). Es la MISMA clave que `Usuario.codigo`:
+  /// con eso el sistema sabe a qué agente del CRM corresponde, sin vincular a mano.
   codigo      String        @unique @db.VarChar(40)
   nombre      String        @db.VarChar(200)
   tipo        TipoVendedora @default(VENDEDORA)
@@ -471,12 +475,6 @@ model VendedoraComision {
   activa      Boolean       @default(true)
   /// false = autocreada al importar y aún sin revisar por administración.
   configurada Boolean       @default(false)
-
-  /// Agente del CRM que es esta misma persona. Se enlaza solo al importar (por
-  /// `codigo`, o por nombre cuando no hay ambigüedad) y se corrige a mano desde
-  /// el panel. Único: un agente no puede ser dos vendedoras a la vez.
-  usuario   Usuario? @relation(fields: [usuarioId], references: [id])
-  usuarioId String?  @unique
 
   ventas     VentaImportada[]
   resultados ResultadoComision[]
