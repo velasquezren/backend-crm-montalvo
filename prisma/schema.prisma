@@ -304,4 +304,292 @@ model RecursoMemoriaAgente {
   @@index([usuarioId, createdAt])
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// PLANILLA DE COMISIONES — liquidación mensual desde el Excel de FileMaker.
+//
+// Dominio SEPARADO de `Venta`/`Comision` (que modelan la venta puntual de un
+// agente dentro del CRM). Aquí se importa el export mensual de FileMaker, se
+// clasifica cada fila y se liquida la planilla del equipo comercial.
+// Nada de esto toca los modelos anteriores.
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Origen del contacto: con recursos de la empresa o propios de la vendedora.
+enum CanalVenta {
+  EMPRESA
+  PROPIO
+}
+
+enum UnidadNegocio {
+  MATERNIDAD
+  RA
+  VARIOS
+}
+
+// Clasificación de comisión de una venta (CLASIF en la planilla de Excel).
+enum ClasifComision {
+  PLANPAQ
+  PLANNIN
+  CIRUGIA
+  CONSULTA
+  LAB
+  ECOGRAFIA
+  OTROSS
+  CAMPANA
+  PROMOCION
+}
+
+// A = planes · B = cirugías y RA · C = consultas, labs, ecografías y otros.
+enum TipoComision {
+  A
+  B
+  C
+}
+
+enum NivelPlan {
+  BRONCE
+  SILVER
+  GOLD
+}
+
+enum TipoVendedora {
+  JEFA
+  VENDEDORA
+}
+
+enum AreaVendedora {
+  EJECUTIVA
+  RA
+  PUBLICIDAD
+}
+
+enum EstadoPeriodo {
+  BORRADOR
+  CALCULADO
+  CERRADO
+}
+
+// Un mes de liquidación. Único por año+mes: reimportar reemplaza sus filas.
+model PeriodoComision {
+  id            String        @id @default(uuid())
+  anio          Int
+  mes           Int
+  /// Tipo de cambio USD→BOB del mes (columna `tc` del Excel).
+  tipoCambio    Decimal       @db.Decimal(10, 4)
+  estado        EstadoPeriodo @default(BORRADOR)
+  archivoNombre String?       @db.VarChar(255)
+  filasTotales  Int           @default(0)
+  filasValidas  Int           @default(0)
+  importadoPor  String?
+  calculadoEn   DateTime?
+
+  ventas     VentaImportada[]
+  resultados ResultadoComision[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([anio, mes])
+  @@index([anio, mes])
+}
+
+// Una fila del Excel: columnas crudas + lo que dedujo el clasificador.
+model VentaImportada {
+  id        String          @id @default(uuid())
+  periodo   PeriodoComision @relation(fields: [periodoId], references: [id], onDelete: Cascade)
+  periodoId String
+
+  // ── Columnas crudas de FileMaker (se guardan tal cual para trazabilidad) ──
+  fecha             DateTime?
+  modulo            String?   @db.VarChar(40)
+  codOrigen         String?   @db.VarChar(40)
+  estadoPlan        String?   @db.VarChar(40)
+  codItem           String?   @db.VarChar(40)
+  detalle           String    @db.VarChar(300)
+  pac               String?   @db.VarChar(40)
+  paciente          String?   @db.VarChar(200)
+  medicoPk          String?   @db.VarChar(40)
+  medico            String?   @db.VarChar(200)
+  vendedoraPk       String?   @db.VarChar(40)
+  vendedoraNombre   String?   @db.VarChar(200)
+  captacion         String?   @db.VarChar(40)
+  seguro            String?   @db.VarChar(60)
+  promocion         String?   @db.VarChar(20)
+  precio            Decimal   @db.Decimal(12, 2)
+  anticipoPlan      Decimal?  @db.Decimal(12, 2)
+  tc                Decimal?  @db.Decimal(10, 4)
+  obs               String?   @db.Text
+  clasificacionPlan String?   @db.VarChar(80)
+
+  // ── Derivados por el clasificador (admin puede sobreescribirlos) ──
+  canal         CanalVenta
+  /// Base de cálculo: precio (o anticipo, si lo hay) sin el 13% de impuestos.
+  ingresoNeto   Decimal        @db.Decimal(12, 2)
+  unidadNegocio UnidadNegocio
+  clasif        ClasifComision
+  tipo          TipoComision
+  nivel         NivelPlan?
+
+  /// false = no entra al cálculo (precio 0, plan no aprobado, etc.).
+  comisionable    Boolean @default(true)
+  motivoExclusion String? @db.VarChar(200)
+  /// true = ni el diccionario ni los heurísticos reconocieron el servicio.
+  /// Comisiona provisionalmente como OTROSS, pero debe revisarse a mano.
+  requiereRevision Boolean @default(false)
+  /// true = un admin corrigió la clasificación a mano; no se pisa al recalcular.
+  ajustadaManual  Boolean @default(false)
+
+  vendedora   VendedoraComision? @relation(fields: [vendedoraId], references: [id])
+  vendedoraId String?
+
+  createdAt DateTime @default(now())
+
+  @@index([periodoId])
+  @@index([periodoId, vendedoraId])
+  @@index([periodoId, clasif])
+  @@index([periodoId, comisionable])
+  @@index([periodoId, requiereRevision])
+}
+
+//
+// * Persona que comisiona. Se autocrea al importar (por `vendedora_pk`) con
+// * `configurada = false` para que administración le fije tipo, área y sueldo.
+//
+model VendedoraComision {
+  id          String        @id @default(uuid())
+  /// `vendedora_pk` del Excel (ej. Pe2455).
+  codigo      String        @unique @db.VarChar(40)
+  nombre      String        @db.VarChar(200)
+  tipo        TipoVendedora @default(VENDEDORA)
+  area        AreaVendedora @default(EJECUTIVA)
+  sueldoBase  Decimal       @default(0) @db.Decimal(12, 2)
+  activa      Boolean       @default(true)
+  /// false = autocreada al importar y aún sin revisar por administración.
+  configurada Boolean       @default(false)
+
+  ventas     VentaImportada[]
+  resultados ResultadoComision[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([activa])
+}
+
+//
+// * Diccionario configurable `detalle` → clasificación. Se evalúa por `prioridad`
+// * ascendente ANTES de los heurísticos del clasificador, así administración
+// * puede fijar a mano cualquier servicio nuevo sin tocar código.
+//
+model ReglaClasificacion {
+  id            String         @id @default(uuid())
+  /// Texto a buscar en `detalle` (sin distinguir mayúsculas ni acentos).
+  patron        String         @db.VarChar(200)
+  /// true = el detalle debe coincidir exacto; false = basta que lo contenga.
+  exacto        Boolean        @default(false)
+  /// Limita la regla a un módulo del Excel (CONSULTA, LABORATORIO…).
+  modulo        String?        @db.VarChar(40)
+  clasif        ClasifComision
+  nivel         NivelPlan?
+  unidadNegocio UnidadNegocio?
+  prioridad     Int            @default(100)
+  activa        Boolean        @default(true)
+  notas         String?        @db.VarChar(300)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([activa, prioridad])
+}
+
+// ── Configuración editable por administración ───────────────────────────
+
+/// TIPO A. `clave`: BRONCE | SILVER | GOLD (maternidad) o PLANNIN (planes varios).
+model TarifaPlan {
+  id         String  @id @default(uuid())
+  clave      String  @unique @db.VarChar(20)
+  pctEmpresa Decimal @db.Decimal(6, 3)
+  pctPropio  Decimal @db.Decimal(6, 3)
+}
+
+/// TIPO C. Porcentaje por clasificación y canal.
+model TarifaServicio {
+  id         String         @id @default(uuid())
+  clasif     ClasifComision @unique
+  pctEmpresa Decimal        @db.Decimal(6, 3)
+  pctPropio  Decimal        @db.Decimal(6, 3)
+}
+
+/// TIPO B (ejecutivas): escala por monto acumulado de cirugías en el mes.
+model NivelCirugia {
+  id         String  @id @default(uuid())
+  nivel      Int     @unique
+  montoDesde Decimal @db.Decimal(12, 2)
+  montoHasta Decimal @db.Decimal(12, 2)
+  pctEmpresa Decimal @db.Decimal(6, 3)
+  pctPropio  Decimal @db.Decimal(6, 3)
+}
+
+/// TIPO B (coordinadoras RA): tarifa fija en USD por procedimiento.
+model TarifaRA {
+  id            String  @id @default(uuid())
+  procedimiento String  @unique @db.VarChar(120)
+  montoEmpresa  Decimal @db.Decimal(12, 2)
+  montoPropio   Decimal @db.Decimal(12, 2)
+  /// true = los montos son porcentajes sobre la base, no USD fijos (Labs RA).
+  esPorcentaje  Boolean @default(false)
+}
+
+/// Objetivos mínimos por tipo de vendedora (gatillan la comisión Tipo A y los bonos).
+model ObjetivoComision {
+  id                 String        @id @default(uuid())
+  tipo               TipoVendedora @unique
+  planesMinimos      Int
+  montoMensualUsd    Decimal       @db.Decimal(12, 2)
+  montoTrimestralUsd Decimal       @db.Decimal(12, 2)
+}
+
+/// Constantes del cálculo (IVA, factores de bono…), editables sin migración.
+model ParametroComision {
+  clave       String  @id @db.VarChar(60)
+  valor       Decimal @db.Decimal(12, 6)
+  descripcion String? @db.VarChar(300)
+}
+
+/// Liquidación final de una vendedora en un periodo.
+model ResultadoComision {
+  id          String            @id @default(uuid())
+  periodo     PeriodoComision   @relation(fields: [periodoId], references: [id], onDelete: Cascade)
+  periodoId   String
+  vendedora   VendedoraComision @relation(fields: [vendedoraId], references: [id])
+  vendedoraId String
+
+  montoVendido         Decimal @default(0) @db.Decimal(14, 2)
+  baseCalculo          Decimal @default(0) @db.Decimal(14, 2)
+  planesVendidos       Int     @default(0)
+  cumpleObjetivoPlanes Boolean @default(false)
+  acumuladoCirugias    Decimal @default(0) @db.Decimal(14, 2)
+  nivelCirugia         Int?
+
+  // Comisiones y bonos, todo en USD.
+  comisionA      Decimal @default(0) @db.Decimal(12, 2)
+  comisionB      Decimal @default(0) @db.Decimal(12, 2)
+  comisionC      Decimal @default(0) @db.Decimal(12, 2)
+  bonoJefatura   Decimal @default(0) @db.Decimal(12, 2)
+  bonoTrimestral Decimal @default(0) @db.Decimal(12, 2)
+  totalUsd       Decimal @default(0) @db.Decimal(12, 2)
+
+  // Conversión a bolivianos con el TC del periodo.
+  totalBob    Decimal @default(0) @db.Decimal(12, 2)
+  sueldoBase  Decimal @default(0) @db.Decimal(12, 2)
+  totalGanado Decimal @default(0) @db.Decimal(12, 2)
+
+  /// Desglose por clasificación y canal para el reporte por vendedora.
+  desglose Json?
+
+  createdAt DateTime @default(now())
+
+  @@unique([periodoId, vendedoraId])
+  @@index([periodoId])
+}
+
 
