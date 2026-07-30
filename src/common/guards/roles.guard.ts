@@ -2,22 +2,16 @@ import { CanActivate, ExecutionContext, ForbiddenException, Injectable } from '@
 import { Reflector } from '@nestjs/core';
 import { Rol } from '@prisma/client';
 
+import { cubreRol } from '../auth/roles';
 import { ROLES_KEY } from '../decorators/roles.decorator';
 
 /**
- * Jerarquía de roles: cada uno cubre a los de rango menor.
+ * Guard global de roles — corre después de JwtAuthGuard.
  *
- * Así `@Roles('ADMIN')` deja pasar también al SUPER_ADMIN sin tener que
- * enumerarlo endpoint por endpoint —y sin que se olvide en el próximo que se
- * añada—. Para restringir algo SOLO al super admin: `@Roles('SUPER_ADMIN')`.
+ * Aplica la jerarquía de `common/auth/roles.ts`: `@Roles('ADMIN')` deja pasar
+ * también al SUPER_ADMIN sin enumerarlo endpoint por endpoint. Para restringir
+ * algo SOLO al super admin: `@Roles('SUPER_ADMIN')`.
  */
-const RANGO: Record<Rol, number> = {
-  AGENTE: 1,
-  ADMIN: 2,
-  SUPER_ADMIN: 3,
-};
-
-/** Guard global de roles — corre después de JwtAuthGuard. */
 @Injectable()
 export class RolesGuard implements CanActivate {
   constructor(private readonly reflector: Reflector) {}
@@ -32,14 +26,10 @@ export class RolesGuard implements CanActivate {
     }
 
     const { user } = context.switchToHttp().getRequest();
-    const rango = user ? RANGO[user.rol as Rol] : undefined;
-    if (rango === undefined) {
-      throw new ForbiddenException('No tienes permisos para esta operación');
-    }
+    const rol = user?.rol as Rol | undefined;
 
     // Basta con alcanzar el menos exigente de los roles pedidos.
-    const minimoExigido = Math.min(...rolesRequeridos.map(rol => RANGO[rol]));
-    if (rango < minimoExigido) {
+    if (!rol || !rolesRequeridos.some(requerido => cubreRol(rol, requerido))) {
       throw new ForbiddenException('No tienes permisos para esta operación');
     }
     return true;

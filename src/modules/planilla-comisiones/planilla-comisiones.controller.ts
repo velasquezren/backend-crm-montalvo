@@ -17,6 +17,7 @@ import { IsEnum } from 'class-validator';
 
 import { CurrentUser, UsuarioJwt } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { AnaliticaComisionesService } from './analitica-comisiones.service';
 import { CalculoComisionesService } from './calculo-comisiones.service';
 import { ConfiguracionComisionesService } from './configuracion-comisiones.service';
 import {
@@ -72,6 +73,7 @@ export class PlanillaComisionesController {
     private readonly planilla: PlanillaComisionesService,
     private readonly calculo: CalculoComisionesService,
     private readonly configuracion: ConfiguracionComisionesService,
+    private readonly analitica: AnaliticaComisionesService,
   ) {}
 
   /* ── Importación y periodos ─────────────────────────────────────────── */
@@ -151,6 +153,12 @@ export class PlanillaComisionesController {
   @Post('periodos/:id/calcular')
   calcular(@Param('id') id: string, @CurrentUser() usuario: UsuarioJwt) {
     return this.calculo.calcular(id, usuario.sub);
+  }
+
+  /** Informe completo del mes: categorías, canales, servicios y evolución diaria. */
+  @Get('periodos/:id/analitica')
+  analiticaPeriodo(@Param('id') id: string) {
+    return this.analitica.analitica(id);
   }
 
   @Get('periodos/:id/reporte/consolidado')

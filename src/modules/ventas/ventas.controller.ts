@@ -2,7 +2,7 @@ import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common
 import { EstadoVenta } from '@prisma/client';
 import { IsEnum } from 'class-validator';
 
-import { alcanceAgente } from '../../common/auth/alcance';
+import { alcanceAgente } from '../../common/auth/roles';
 import { CurrentUser, UsuarioJwt } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CreateVentaDto } from './dto/create-venta.dto';

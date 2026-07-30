@@ -1,6 +1,6 @@
 import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
 
-import { alcanceAgente } from '../../common/auth/alcance';
+import { alcanceAgente } from '../../common/auth/roles';
 import { CurrentUser, UsuarioJwt } from '../../common/decorators/current-user.decorator';
 import { CreateLeadPresencialDto } from './dto/create-lead-presencial.dto';
 import { QueryLeadDto } from './dto/query-lead.dto';

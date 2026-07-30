@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 
+import { AnaliticaComisionesService } from './analitica-comisiones.service';
 import { CalculoComisionesService } from './calculo-comisiones.service';
 import { ConfiguracionComisionesService } from './configuracion-comisiones.service';
 import { PlanillaComisionesController } from './planilla-comisiones.controller';
@@ -14,7 +15,12 @@ import { PlanillaComisionesService } from './planilla-comisiones.service';
  */
 @Module({
   controllers: [PlanillaComisionesController],
-  providers: [PlanillaComisionesService, CalculoComisionesService, ConfiguracionComisionesService],
+  providers: [
+    PlanillaComisionesService,
+    CalculoComisionesService,
+    ConfiguracionComisionesService,
+    AnaliticaComisionesService,
+  ],
   exports: [PlanillaComisionesService],
 })
 export class PlanillaComisionesModule {}
