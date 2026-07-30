@@ -125,6 +125,31 @@ export function normalizar(texto: string | null | undefined): string {
     .toUpperCase();
 }
 
+/**
+ * ¿Son la misma persona dos nombres escritos distinto?
+ *
+ * FileMaker exporta "Canedo Villamor Claudia Marcela" (apellidos primero) y en
+ * el CRM la misma persona puede estar como "Claudia Canedo". Se comparan las
+ * palabras sin importar el orden: coinciden si TODAS las del nombre más corto
+ * están en el más largo y hay al menos dos en común (con una sola —un apellido
+ * frecuente— el riesgo de confundir a dos personas es real).
+ */
+export function nombresCoinciden(a: string, b: string): boolean {
+  const palabras = (texto: string) =>
+    normalizar(texto)
+      .split(' ')
+      .filter(p => p.length > 2); // descarta "de", "la", iniciales
+
+  const unaA = palabras(a);
+  const unaB = palabras(b);
+  if (unaA.length === 0 || unaB.length === 0) return false;
+
+  const [corto, largo] = unaA.length <= unaB.length ? [unaA, unaB] : [unaB, unaA];
+  const comunes = corto.filter(p => largo.includes(p));
+
+  return comunes.length === corto.length && comunes.length >= 2;
+}
+
 /** Redondea a 2 decimales evitando el arrastre binario de los flotantes. */
 export function redondear(valor: number): number {
   return Math.round((valor + Number.EPSILON) * 100) / 100;

@@ -65,6 +65,12 @@ model Usuario {
   rol            Rol            @default(AGENTE)
   activo         Boolean        @default(true)
   foto           String?
+  /// Identificador que usa la empresa para esta persona (el `vendedora_pk` de
+  /// FileMaker, ej. Pe2455). Es la vía fiable para cruzar al agente del CRM con
+  /// sus ventas en la planilla de comisiones — el nombre solo se usa de respaldo.
+  codigo         String?        @unique @db.VarChar(40)
+  /// Ficha de comisiones de esta persona, si aparece en alguna planilla.
+  vendedoraComision VendedoraComision?
   clientes       Cliente[]      @relation("AgenteAsignado")
   intereses      Interes[]
   leads          Lead[]
@@ -465,6 +471,12 @@ model VendedoraComision {
   activa      Boolean       @default(true)
   /// false = autocreada al importar y aún sin revisar por administración.
   configurada Boolean       @default(false)
+
+  /// Agente del CRM que es esta misma persona. Se enlaza solo al importar (por
+  /// `codigo`, o por nombre cuando no hay ambigüedad) y se corrige a mano desde
+  /// el panel. Único: un agente no puede ser dos vendedoras a la vez.
+  usuario   Usuario? @relation(fields: [usuarioId], references: [id])
+  usuarioId String?  @unique
 
   ventas     VentaImportada[]
   resultados ResultadoComision[]

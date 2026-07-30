@@ -17,6 +17,7 @@ const SIN_PASSWORD = {
   rol: true,
   activo: true,
   foto: true,
+  codigo: true,
   createdAt: true,
   updatedAt: true,
 } as const;
@@ -41,6 +42,7 @@ export class UsuariosService {
         email: dto.email,
         passwordHash: await bcrypt.hash(dto.password, 10),
         rol: dto.rol,
+        codigo: await this.normalizarCodigo(dto.codigo),
       },
       select: SIN_PASSWORD,
     });
@@ -92,10 +94,34 @@ export class UsuariosService {
       where: { id },
       data: {
         ...resto,
+        ...(resto.codigo !== undefined
+          ? { codigo: await this.normalizarCodigo(resto.codigo, id) }
+          : {}),
         ...(password ? { passwordHash: await bcrypt.hash(password, 10) } : {}),
       },
       select: SIN_PASSWORD,
     });
+  }
+
+  /**
+   * El código de empresa es único. El vacío se guarda como `null`, no como '':
+   * varias cadenas vacías chocarían contra el índice único, mientras que Postgres
+   * permite tantos NULL como haga falta.
+   */
+  private async normalizarCodigo(codigo: string | undefined, exceptoId?: string) {
+    const limpio = codigo?.trim();
+    if (!limpio) return null;
+
+    const enUso = await this.prisma.usuario.findUnique({
+      where: { codigo: limpio },
+      select: { id: true, nombre: true },
+    });
+    if (enUso && enUso.id !== exceptoId) {
+      throw new ConflictException(
+        `El código "${limpio}" ya lo usa ${enUso.nombre}.`,
+      );
+    }
+    return limpio;
   }
 
   /** Desactivación en vez de borrado — el historial de ventas/comisiones se preserva. */

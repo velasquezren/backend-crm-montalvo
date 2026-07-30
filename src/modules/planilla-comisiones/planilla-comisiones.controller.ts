@@ -178,6 +178,12 @@ export class PlanillaComisionesController {
     return this.planilla.listarVendedoras();
   }
 
+  /** Agentes del CRM disponibles para vincular a una vendedora del Excel. */
+  @Get('agentes-vinculables')
+  listarAgentesVinculables() {
+    return this.planilla.listarAgentesVinculables();
+  }
+
   @Patch('vendedoras/:id')
   actualizarVendedora(
     @Param('id') id: string,

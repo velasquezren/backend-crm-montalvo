@@ -9,6 +9,7 @@ import {
   Length,
   Max,
   Min,
+  ValidateIf,
 } from 'class-validator';
 
 import {
@@ -160,4 +161,14 @@ export class ActualizarVendedoraDto {
   @IsOptional()
   @IsBoolean()
   configurada?: boolean;
+
+  /**
+   * Agente del CRM que es esta misma persona. Cadena vacía o null = desvincular.
+   * Se usa para corregir a mano lo que el enlace automático no resolvió.
+   */
+  @IsOptional()
+  @ValidateIf((_, valor) => valor !== null && valor !== '')
+  @IsString()
+  @Length(1, 40)
+  usuarioId?: string | null;
 }
