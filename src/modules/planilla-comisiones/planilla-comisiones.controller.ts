@@ -8,10 +8,12 @@ import {
   Patch,
   Post,
   Query,
+  Res,
   UploadedFile,
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
+import { Response } from 'express';
 import { ClasifComision, EstadoPeriodo } from '@prisma/client';
 import { IsEnum } from 'class-validator';
 
@@ -20,6 +22,7 @@ import { Roles } from '../../common/decorators/roles.decorator';
 import { AnaliticaComisionesService } from './analitica-comisiones.service';
 import { CalculoComisionesService } from './calculo-comisiones.service';
 import { ConfiguracionComisionesService } from './configuracion-comisiones.service';
+import { ExportacionComisionesService } from './exportacion-comisiones.service';
 import {
   ActualizarNivelCirugiaDto,
   ActualizarObjetivoDto,
@@ -74,6 +77,7 @@ export class PlanillaComisionesController {
     private readonly calculo: CalculoComisionesService,
     private readonly configuracion: ConfiguracionComisionesService,
     private readonly analitica: AnaliticaComisionesService,
+    private readonly exportacion: ExportacionComisionesService,
   ) {}
 
   /* ── Importación y periodos ─────────────────────────────────────────── */
@@ -159,6 +163,22 @@ export class PlanillaComisionesController {
   @Get('periodos/:id/analitica')
   analiticaPeriodo(@Param('id') id: string) {
     return this.analitica.analitica(id);
+  }
+
+  /**
+   * Descarga el informe del mes en Excel. Se escribe en streaming sobre la
+   * respuesta, así que el libro no pasa entero por memoria.
+   */
+  @Get('periodos/:id/exportar')
+  async exportar(@Param('id') id: string, @Res({ passthrough: false }) res: Response) {
+    const nombre = await this.exportacion.nombreArchivo(id);
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    );
+    res.setHeader('Content-Disposition', `attachment; filename="${nombre}"`);
+    await this.exportacion.exportar(id, res);
+    res.end();
   }
 
   @Get('periodos/:id/reporte/consolidado')
