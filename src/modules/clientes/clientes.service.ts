@@ -4,6 +4,7 @@ import { CategoriaCliente, Prisma } from '@prisma/client';
 import { AuditService } from '../../common/audit/audit.service';
 import { calcularPaginacion, paginar } from '../../common/dto/pagination.dto';
 import { PrismaService } from '../../prisma/prisma.service';
+import { extraerDatosPaciente } from './datos-paciente';
 import { CreateClienteDto } from './dto/create-cliente.dto';
 import { CreateInteresDto } from './dto/create-interes.dto';
 import { QueryClienteDto } from './dto/query-cliente.dto';
@@ -106,7 +107,12 @@ export class ClientesService {
     if (!cliente || (soloAgenteId && cliente.agenteId && cliente.agenteId !== soloAgenteId)) {
       throw new NotFoundException(`Cliente ${id} no encontrado`);
     }
-    return cliente;
+
+    // `datosExtra` se traduce a una ficha con nombres del CRM y NO se envía en
+    // crudo: son 19 claves con la nomenclatura de FileMaker que el frontend no
+    // debe conocer ni transportar en cada respuesta.
+    const { datosExtra, ...resto } = cliente;
+    return { ...resto, paciente: extraerDatosPaciente(cliente.pac, datosExtra) };
   }
 
   async findByTelefono(telefono: string) {
@@ -148,8 +154,18 @@ export class ClientesService {
 
   /** `soloAgenteId` — ver la nota de `findOne`: mismo hueco existía en edición. */
   async update(id: string, dto: UpdateClienteDto, usuarioId?: string, soloAgenteId?: string) {
-    const clienteActual = await this.findOne(id, soloAgenteId);
-    const datosExtraExistentes = (clienteActual.datosExtra as Record<string, any>) || {};
+    // Valida el acceso por rol; su resultado ya no trae `datosExtra` en crudo.
+    await this.findOne(id, soloAgenteId);
+
+    // La edición fusiona sobre lo que hay, así que el JSON se relee de la base.
+    // Es una lectura por clave primaria: más barata que arrastrarlo en cada
+    // findOne solo para este caso.
+    const guardado = await this.prisma.cliente.findUnique({
+      where: { id },
+      select: { datosExtra: true },
+    });
+    const datosExtraExistentes =
+      (guardado?.datosExtra as Prisma.JsonObject | null) ?? {};
 
     const { empresa, edad, lugarNacimiento, datosExtra, ...restoDto } = dto;
 
