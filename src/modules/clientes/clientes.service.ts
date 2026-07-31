@@ -233,4 +233,38 @@ export class ClientesService {
     await this.prisma.cliente.update({ where: { id: clienteId }, data: { categoria } });
     return categoria;
   }
+
+  /**
+   * Historial clínico-comercial del paciente: los servicios que se le hicieron,
+   * tomados de las planillas de comisiones ya importadas.
+   *
+   * Cruza por `pac`, el identificador de FileMaker que ambos lados comparten.
+   * Es un join indexado sobre una columna única, no un escaneo sobre JSON.
+   * Un cliente sin `pac` (alta manual, lead de redes) simplemente no tiene
+   * historial todavía — no es un error.
+   */
+  async historialServicios(id: string, soloAgenteId?: string) {
+    const cliente = await this.findOne(id, soloAgenteId);
+    if (!cliente.pac) {
+      return { pac: null, totalServicios: 0, montoTotal: 0, servicios: [] };
+    }
+
+    const servicios = await this.prisma.ventaImportada.findMany({
+      where: { pac: cliente.pac },
+      orderBy: { fecha: 'desc' },
+      select: {
+        id: true, fecha: true, modulo: true, detalle: true, clasif: true,
+        precio: true, medico: true, vendedoraNombre: true,
+        periodo: { select: { anio: true, mes: true } },
+      },
+      take: 200,
+    });
+
+    return {
+      pac: cliente.pac,
+      totalServicios: servicios.length,
+      montoTotal: servicios.reduce((suma, s) => suma + Number(s.precio), 0),
+      servicios,
+    };
+  }
 }

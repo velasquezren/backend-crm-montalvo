@@ -116,7 +116,9 @@ export class PlanillaComisionesService {
         estadoPlan: fila.estadoPlan,
         codItem: fila.codItem,
         detalle: fila.detalle.slice(0, 300),
-        pac: fila.pac,
+        // En MAYÚSCULAS: el maestro de pacientes trae `Pac1897` y el de ventas
+        // `PAC50660`. Sin normalizar, el mismo paciente no cruzaría con su ficha.
+        pac: fila.pac ? fila.pac.toUpperCase() : null,
         paciente: fila.paciente,
         medicoPk: fila.medicoPk,
         medico: fila.medico,

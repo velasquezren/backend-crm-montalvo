@@ -94,6 +94,12 @@ model Cliente {
   categoria      CategoriaCliente @default(PROSPECTO)
   agente         Usuario?         @relation("AgenteAsignado", fields: [agenteId], references: [id])
   agenteId       String?
+  /// Identificador del paciente en FileMaker (columna `pk`: Pac1897). Es la MISMA
+  /// clave que `VentaImportada.pac`, así que el historial de servicios de un
+  /// paciente es un join indexado y no un escaneo sobre JSON.
+  /// Se guarda siempre en MAYÚSCULAS: FileMaker exporta `Pac1897` en el maestro
+  /// de pacientes y `PAC50660` en el de ventas, y sin normalizar no cruzarían.
+  pac            String?          @unique @db.VarChar(20)
   /// Metadatos libres de fuentes externas (ej. import FileMaker: CI, dirección, edad).
   /// No se modela como columnas fijas para no acoplar el schema a un origen específico.
   datosExtra     Json?

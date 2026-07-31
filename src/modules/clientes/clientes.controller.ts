@@ -48,4 +48,10 @@ export class ClientesController {
   recalcularCategoria(@Param('id') id: string) {
     return this.clientesService.actualizarCategoria(id);
   }
+
+  /** Servicios que se le realizaron al paciente (desde las planillas importadas). */
+  @Get(':id/historial')
+  historial(@Param('id') id: string, @CurrentUser() usuario: UsuarioJwt) {
+    return this.clientesService.historialServicios(id, alcanceAgente(usuario));
+  }
 }
