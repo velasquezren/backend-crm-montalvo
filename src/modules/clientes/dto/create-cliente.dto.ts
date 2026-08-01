@@ -1,5 +1,5 @@
 import { CategoriaCliente } from '@prisma/client';
-import { IsEmail, IsEnum, IsObject, IsOptional, IsPhoneNumber, IsString, MinLength } from 'class-validator';
+import { IsEmail, IsEnum, IsObject, IsOptional, IsPhoneNumber, IsString, MinLength, IsDateString} from 'class-validator';
 
 /**
  * Entrada validada para crear un cliente — RF-01.
@@ -28,9 +28,14 @@ export class CreateClienteDto {
   @IsOptional()
   @IsString()
   empresa?: string;
-
+  /**
+   * Fecha de nacimiento (AAAA-MM-DD). Sustituye al antiguo campo `edad`: la
+   * edad no se guarda porque caduca sola — se calcula al mostrarla. El volcado
+   * de FileMaker tenía edades congeladas con hasta 18 años de desvío.
+   */
   @IsOptional()
-  edad?: number | string;
+  @IsDateString()
+  fechaNacimiento?: string;
 
   @IsOptional()
   @IsString()

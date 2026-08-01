@@ -61,17 +61,19 @@ export class ClientesService {
       throw new ConflictException(`Ya existe un cliente con el teléfono ${dto.telefono}`);
     }
 
-    const { empresa, edad, lugarNacimiento, datosExtra, ...restoDto } = dto;
+    // `fechaNacimiento` NO entra en datosExtra: es columna propia. Meterla en
+    // el JSON era lo que hacía que editarla no cambiara nada en pantalla.
+    const { empresa, fechaNacimiento, lugarNacimiento, datosExtra, ...restoDto } = dto;
     const datosExtraCombinados = {
       ...(datosExtra || {}),
       ...(empresa !== undefined ? { empresa } : {}),
-      ...(edad !== undefined ? { edad } : {}),
       ...(lugarNacimiento !== undefined ? { lugarNacimiento } : {}),
     };
 
     return this.prisma.cliente.create({
       data: {
         ...restoDto,
+        ...(fechaNacimiento !== undefined ? { fechaNacimiento: new Date(fechaNacimiento) } : {}),
         datosExtra: Object.keys(datosExtraCombinados).length > 0 ? (datosExtraCombinados as Prisma.InputJsonValue) : undefined,
       },
     });
@@ -201,13 +203,12 @@ export class ClientesService {
     const datosExtraExistentes =
       (guardado?.datosExtra as Prisma.JsonObject | null) ?? {};
 
-    const { empresa, edad, lugarNacimiento, datosExtra, ...restoDto } = dto;
+    const { empresa, fechaNacimiento, lugarNacimiento, datosExtra, ...restoDto } = dto;
 
     const nuevosDatosExtra = {
       ...datosExtraExistentes,
       ...(datosExtra || {}),
       ...(empresa !== undefined ? { empresa } : {}),
-      ...(edad !== undefined ? { edad } : {}),
       ...(lugarNacimiento !== undefined ? { lugarNacimiento } : {}),
     };
 
@@ -216,6 +217,10 @@ export class ClientesService {
         where: { id },
         data: {
           ...restoDto,
+          // A su columna, no al JSON: es lo que hace que el cambio se vea.
+          ...(fechaNacimiento !== undefined
+            ? { fechaNacimiento: fechaNacimiento ? new Date(fechaNacimiento) : null }
+            : {}),
           datosExtra: nuevosDatosExtra as Prisma.InputJsonValue,
         },
       }),
