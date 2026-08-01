@@ -132,6 +132,10 @@ export class ClientesService {
       where: { id },
       select: {
         ...CAMPOS_CLIENTE,
+        // Solo la ficha lo recibe: el formulario edita `empresa`, `notas` y
+        // `tags`, que viven aquí. Sin esto el formulario abriría vacío y al
+        // guardar borraría esos campos. El listado sigue sin él.
+        datosExtra: true,
         intereses: { orderBy: { createdAt: 'desc' } },
         leads: { orderBy: { createdAt: 'desc' } },
         ventas: { orderBy: { createdAt: 'desc' } },
