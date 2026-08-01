@@ -71,14 +71,14 @@ export class ClientesService {
     const { empresa, fechaNacimiento, lugarNacimiento, datosExtra, ...restoDto } = dto;
     const datosExtraCombinados = {
       ...(datosExtra || {}),
-      ...(empresa !== undefined ? { empresa } : {}),
-      ...(lugarNacimiento !== undefined ? { lugarNacimiento } : {}),
     };
 
     return this.prisma.cliente.create({
       data: {
         ...restoDto,
         ...(fechaNacimiento !== undefined ? { fechaNacimiento: new Date(fechaNacimiento) } : {}),
+        ...(empresa !== undefined ? { empresaTrabajo: empresa || null } : {}),
+        ...(lugarNacimiento !== undefined ? { ciLugar: lugarNacimiento || null } : {}),
         datosExtra: Object.keys(datosExtraCombinados).length > 0 ? (datosExtraCombinados as Prisma.InputJsonValue) : undefined,
       },
     });
@@ -210,11 +210,13 @@ export class ClientesService {
 
     const { empresa, fechaNacimiento, lugarNacimiento, datosExtra, ...restoDto } = dto;
 
+    /* `empresa`, `lugarNacimiento` y `fechaNacimiento` tienen columna propia y
+       van ahí, no al JSON: escribir en los dos sitios es lo que hacía que la
+       ficha (que lee la columna) ignorara lo editado. El JSON queda solo para
+       lo que no tiene columna — notas, etiquetas y el residuo de FileMaker. */
     const nuevosDatosExtra = {
       ...datosExtraExistentes,
       ...(datosExtra || {}),
-      ...(empresa !== undefined ? { empresa } : {}),
-      ...(lugarNacimiento !== undefined ? { lugarNacimiento } : {}),
     };
 
     const [actualizado] = await this.prisma.$transaction([
@@ -222,10 +224,12 @@ export class ClientesService {
         where: { id },
         data: {
           ...restoDto,
-          // A su columna, no al JSON: es lo que hace que el cambio se vea.
+          // A sus columnas, no al JSON: es lo que hace que el cambio se vea.
           ...(fechaNacimiento !== undefined
             ? { fechaNacimiento: fechaNacimiento ? new Date(fechaNacimiento) : null }
             : {}),
+          ...(empresa !== undefined ? { empresaTrabajo: empresa || null } : {}),
+          ...(lugarNacimiento !== undefined ? { ciLugar: lugarNacimiento || null } : {}),
           datosExtra: nuevosDatosExtra as Prisma.InputJsonValue,
         },
       }),

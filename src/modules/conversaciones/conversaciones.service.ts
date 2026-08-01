@@ -42,6 +42,12 @@ export interface PlantillaResumen {
  * Persiste toda la mensajería vinculada a cliente + agente.
  * Si WHATSAPP_TOKEN y WHATSAPP_PHONE_ID están en .env, envía los mensajes por Meta Cloud API.
  */
+/** Lo mínimo que el filtro de conversaciones necesita de un agente. */
+export interface AgenteResumen {
+  id: string;
+  nombre: string;
+}
+
 @Injectable()
 export class ConversacionesService {
   private readonly logger = new Logger(ConversacionesService.name);
@@ -54,7 +60,7 @@ export class ConversacionesService {
     private readonly r2: R2Service,
   ) {}
 
-  private agentesCache: { data: any[]; expiresAt: number } | null = null;
+  private agentesCache: { data: AgenteResumen[]; expiresAt: number } | null = null;
   private plantillasCache: { data: PlantillaResumen[]; expiresAt: number } | null = null;
 
   /** Visibilidad por rol: AGENTE ve sus conversaciones + las sin asignar; ADMIN todo. */
@@ -123,6 +129,11 @@ export class ConversacionesService {
             telefono: true,
             email: true,
             categoria: true,
+            pac: true,
+            fechaNacimiento: true,
+            ocupacion: true,
+            empresaTrabajo: true,
+            ciLugar: true,
             datosExtra: true,
             agente: { select: { id: true, nombre: true } },
           },
@@ -261,7 +272,7 @@ export class ConversacionesService {
       const esImagen = esUrl && /\.(png|jpe?g|webp|gif)(\?.*)?$/i.test(contenido.trim());
       const esPdf = esUrl && /\.pdf(\?.*)?$/i.test(contenido.trim());
 
-      let metaPayload: any;
+      let metaPayload: Record<string, unknown>;
 
       if (esImagen) {
         metaPayload = {

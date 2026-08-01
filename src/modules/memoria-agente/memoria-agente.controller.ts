@@ -1,3 +1,4 @@
+import { ArchivoSubido } from './archivo-subido';
 import {
   Body,
   Controller,
@@ -40,7 +41,7 @@ export class MemoriaAgenteController {
   @UseInterceptors(FileInterceptor('file'))
   subirBinario(
     @Body() dto: CreateRecursoMemoriaDto,
-    @UploadedFile() file: any,
+    @UploadedFile() file: ArchivoSubido,
     @CurrentUser() usuario: UsuarioJwt,
   ) {
     return this.service.subirBinario(usuario.sub, dto, file);

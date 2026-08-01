@@ -1,3 +1,4 @@
+import type { CookieOptions } from 'express';
 import { Body, Controller, Get, Patch, Post, Res } from '@nestjs/common';
 import { Response } from 'express';
 
@@ -28,7 +29,7 @@ export class AuthController {
     const rememberMe = dto.rememberMe ?? true;
 
     if (resultado.refresh_token) {
-      const cookieOptions: any = {
+      const cookieOptions: CookieOptions = {
         httpOnly: true,
         secure: process.env.NODE_ENV === 'production',
         sameSite: 'lax',

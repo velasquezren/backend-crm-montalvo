@@ -152,8 +152,10 @@ export class WhatsappWebhookController {
         for (const estado of estados) {
           if (estado.id && estado.status) {
             if (estado.status === 'failed') {
-              const estadoAny = estado as any;
-              const errorDetalle = estadoAny.errors?.[0] ? `${estadoAny.errors[0].code}: ${estadoAny.errors[0].title}` : JSON.stringify(estado);
+              const [primerError] = estado.errors ?? [];
+              const errorDetalle = primerError
+                ? `${primerError.code}: ${primerError.title}`
+                : JSON.stringify(estado);
               this.logger.error(`Mensaje WhatsApp fallido en Meta (MsgId: ${estado.id}): ${errorDetalle}`);
             }
             await this.conversacionesService.procesarEstadoMensaje(estado.id, estado.status);

@@ -1,5 +1,5 @@
 import { Type } from 'class-transformer';
-import { IsArray, IsOptional, IsString, ValidateNested } from 'class-validator';
+import { IsArray, IsNumber, IsOptional, IsString, ValidateNested } from 'class-validator';
 
 /**
  * Validación perimetral del webhook de WhatsApp Cloud API.
@@ -167,6 +167,21 @@ export class WhatsappContactDto {
 }
 
 /** Confirmación de entrega/lectura de un mensaje SALIENTE nuestro (ticks de WhatsApp). */
+/** Detalle del fallo que Meta adjunta cuando `status === 'failed'`. */
+export class WhatsappStatusErrorDto {
+  @IsOptional()
+  @IsNumber()
+  code?: number;
+
+  @IsOptional()
+  @IsString()
+  title?: string;
+
+  @IsOptional()
+  @IsString()
+  message?: string;
+}
+
 export class WhatsappStatusDto {
   /** El mismo id que Meta devolvió al enviar — así se correlaciona con `Mensaje.whatsappMsgId`. */
   @IsOptional()
@@ -177,6 +192,13 @@ export class WhatsappStatusDto {
   @IsOptional()
   @IsString()
   status?: string;
+
+  /** Presente solo cuando el envío falló; alimenta el log de diagnóstico. */
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => WhatsappStatusErrorDto)
+  errors?: WhatsappStatusErrorDto[];
 }
 
 export class WhatsappValueDto {

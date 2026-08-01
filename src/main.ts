@@ -1,4 +1,5 @@
 import { ValidationPipe } from '@nestjs/common';
+import type { NextFunction, Request, Response } from 'express';
 import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { IoAdapter } from '@nestjs/platform-socket.io';
@@ -31,7 +32,7 @@ async function bootstrap(): Promise<void> {
   app.use(compression());
 
   /* Cabecera de versión del backend para sincronización PWA */
-  app.use((_req: any, res: any, next: any) => {
+  app.use((_req: Request, res: Response, next: NextFunction) => {
     res.setHeader('X-Api-Version', '1.0.0');
     next();
   });

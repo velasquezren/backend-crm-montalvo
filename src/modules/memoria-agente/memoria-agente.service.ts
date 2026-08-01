@@ -1,3 +1,4 @@
+import { ArchivoSubido } from './archivo-subido';
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma, TipoRecursoMemoria } from '@prisma/client';
 import { calcularPaginacion, paginar } from '../../common/dto/pagination.dto';
@@ -122,7 +123,7 @@ export class MemoriaAgenteService {
   async subirBinario(
     usuarioId: string,
     dto: CreateRecursoMemoriaDto,
-    file?: { buffer: Buffer; originalname: string; mimetype: string; size: number },
+    file?: ArchivoSubido,
   ) {
     if (!file) {
       throw new BadRequestException('Se requiere adjuntar un archivo para recursos multimedia');
