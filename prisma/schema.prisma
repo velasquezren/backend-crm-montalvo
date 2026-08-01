@@ -120,6 +120,16 @@ model Cliente {
   nit             String?         @db.VarChar(45)
   /// Saldo pendiente que arrastraba el paciente en el sistema antiguo.
   saldoTotal      Decimal?        @db.Decimal(12, 2)
+  /// Dónde trabaja (`EmpTrab` de FileMaker).
+  empresaTrabajo  String?         @db.VarChar(120)
+  /// Persona de referencia o contacto de emergencia, con su teléfono.
+  contactoRef     String?         @db.VarChar(120)
+  telefonoRef     String?         @db.VarChar(30)
+  telefonoOficina String?         @db.VarChar(30)
+  /// Visitas acumuladas en el sistema antiguo (`Movimientos`). Es el mejor
+  /// indicador de recurrencia que trae el volcado: sirve para segmentar quién
+  /// ya es paciente fiel y quién vino una sola vez.
+  visitasPrevias  Int?
 
   /// Residuo del volcado original (contadores internos de FileMaker). Se
   /// conserva por trazabilidad pero NO se envía en los listados: son 19 claves
