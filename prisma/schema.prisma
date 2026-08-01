@@ -100,8 +100,30 @@ model Cliente {
   /// Se guarda siempre en MAYÚSCULAS: FileMaker exporta `Pac1897` en el maestro
   /// de pacientes y `PAC50660` en el de ventas, y sin normalizar no cruzarían.
   pac            String?          @unique @db.VarChar(20)
-  /// Metadatos libres de fuentes externas (ej. import FileMaker: CI, dirección, edad).
-  /// No se modela como columnas fijas para no acoplar el schema a un origen específico.
+  // ── Ficha del paciente (origen: FileMaker) ──────────────────────────
+  // Columnas propias y no un JSON: el listado las trae sin coste extra, la
+  // ficha abre sin pedir nada más, y se pueden filtrar y agregar en SQL para
+  // responder preguntas de negocio.
+
+  /// Fuente de verdad de la edad. NO se guarda la edad en número: el volcado de
+  /// FileMaker traía la edad del día de la exportación y hoy miente hasta en 18
+  /// años. La edad se calcula al mostrarla; esta fecha nunca caduca.
+  fechaNacimiento DateTime?       @db.Date
+  sexo            String?         @db.VarChar(1)
+  ocupacion       String?         @db.VarChar(80)
+  ci              String?         @db.VarChar(40)
+  ciLugar         String?         @db.VarChar(30)
+  estadoCivil     String?         @db.VarChar(25)
+  direccion       String?         @db.VarChar(200)
+  nacionalidad    String?         @db.VarChar(50)
+  telefonoFijo    String?         @db.VarChar(30)
+  nit             String?         @db.VarChar(45)
+  /// Saldo pendiente que arrastraba el paciente en el sistema antiguo.
+  saldoTotal      Decimal?        @db.Decimal(12, 2)
+
+  /// Residuo del volcado original (contadores internos de FileMaker). Se
+  /// conserva por trazabilidad pero NO se envía en los listados: son 19 claves
+  /// que encarecían cada página sin que nadie las leyera.
   datosExtra     Json?
   intereses      Interes[]
   leads          Lead[]

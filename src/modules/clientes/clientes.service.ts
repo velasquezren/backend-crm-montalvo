@@ -4,7 +4,6 @@ import { CategoriaCliente, Prisma } from '@prisma/client';
 import { AuditService } from '../../common/audit/audit.service';
 import { calcularPaginacion, paginar } from '../../common/dto/pagination.dto';
 import { PrismaService } from '../../prisma/prisma.service';
-import { extraerDatosPaciente } from './datos-paciente';
 import { CreateClienteDto } from './dto/create-cliente.dto';
 import { CreateInteresDto } from './dto/create-interes.dto';
 import { QueryClienteDto } from './dto/query-cliente.dto';
@@ -16,6 +15,39 @@ import { UpdateClienteDto } from './dto/update-cliente.dto';
  * conversaciones) deben llamar a estos métodos públicos, nunca tocar
  * `prisma.cliente` directamente.
  */
+
+/**
+ * Campos que se devuelven de un cliente, en el listado y en la ficha.
+ *
+ * Se declara una vez y se usa en ambos sitios para que no puedan divergir: la
+ * ficha del paciente son columnas propias y viajan siempre, mientras que
+ * `datosExtra` (el residuo del volcado de FileMaker) queda deliberadamente
+ * fuera — se conserva en la base por trazabilidad, no para transportarlo.
+ */
+const CAMPOS_CLIENTE = {
+  id: true,
+  nombre: true,
+  telefono: true,
+  email: true,
+  categoria: true,
+  agenteId: true,
+  agente: { select: { id: true, nombre: true } },
+  pac: true,
+  fechaNacimiento: true,
+  sexo: true,
+  ocupacion: true,
+  ci: true,
+  ciLugar: true,
+  estadoCivil: true,
+  direccion: true,
+  nacionalidad: true,
+  telefonoFijo: true,
+  nit: true,
+  saldoTotal: true,
+  createdAt: true,
+  updatedAt: true,
+} as const;
+
 @Injectable()
 export class ClientesService {
   constructor(
@@ -74,10 +106,11 @@ export class ClientesService {
       this.prisma.cliente.findMany({
         where,
         orderBy: { updatedAt: 'desc' },
-        include: {
-          intereses: { orderBy: { createdAt: 'desc' }, take: 5 },
-          agente: { select: { id: true, nombre: true } },
-        },
+        // `select` explícito y no `include`: así el listado NUNCA arrastra
+        // `datosExtra`, que son 19 claves de FileMaker por fila que nadie lee.
+        // La ficha del paciente sí viaja —son escalares cortos— para que el
+        // detalle abra sin pedir nada más al servidor.
+        select: { ...CAMPOS_CLIENTE, intereses: { orderBy: { createdAt: 'desc' }, take: 5 } },
         skip,
         take,
       }),
@@ -97,7 +130,8 @@ export class ClientesService {
   async findOne(id: string, soloAgenteId?: string) {
     const cliente = await this.prisma.cliente.findUnique({
       where: { id },
-      include: {
+      select: {
+        ...CAMPOS_CLIENTE,
         intereses: { orderBy: { createdAt: 'desc' } },
         leads: { orderBy: { createdAt: 'desc' } },
         ventas: { orderBy: { createdAt: 'desc' } },
@@ -108,11 +142,7 @@ export class ClientesService {
       throw new NotFoundException(`Cliente ${id} no encontrado`);
     }
 
-    // `datosExtra` se traduce a una ficha con nombres del CRM y NO se envía en
-    // crudo: son 19 claves con la nomenclatura de FileMaker que el frontend no
-    // debe conocer ni transportar en cada respuesta.
-    const { datosExtra, ...resto } = cliente;
-    return { ...resto, paciente: extraerDatosPaciente(cliente.pac, datosExtra) };
+    return cliente;
   }
 
   async findByTelefono(telefono: string) {
