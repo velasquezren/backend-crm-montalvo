@@ -1,6 +1,6 @@
 ---
 name: crm-backend-module
-description: Patrón obligatorio de los módulos NestJS de este CRM — límites de dominio, paginación, validación con DTOs, roles y auditoría. Úsalo al crear o modificar cualquier módulo bajo src/modules/, al añadir un endpoint, al tocar el schema de Prisma o al escribir una consulta.
+description: Patrón obligatorio de los módulos NestJS de este CRM — límites de dominio, paginación, validación con DTOs, jerarquía de roles, concurrencia, webhooks y auditoría. Úsalo SIEMPRE al crear o modificar cualquier módulo bajo src/modules/, al añadir o tocar un endpoint, al escribir una consulta de Prisma, al cambiar schema.prisma o generar una migración, y al integrar un servicio externo (WhatsApp/Meta) — incluso para cambios que suenan pequeños ("agrega un campo", "un endpoint de listado").
 ---
 
 # Patrón de módulo del backend
@@ -61,20 +61,33 @@ pestañas sobre el conjunto cargado); se acota a las 100 más recientes.
 
 ## Visibilidad por rol
 
-El backend es la autoridad, no el frontend:
+El backend es la autoridad, no el frontend. Hay tres roles **jerárquicos**:
+`AGENTE` (1) < `ADMIN` (2) < `SUPER_ADMIN` (3), definidos en `common/auth/roles.ts`.
 
 ```ts
 // controller
 @Get()
 findAll(@Query() query: QueryClienteDto, @CurrentUser() usuario: UsuarioJwt) {
-  const soloAgenteId = usuario.rol === 'ADMIN' ? undefined : usuario.sub;
-  return this.service.findAll(query, soloAgenteId);
+  return this.service.findAll(query, alcanceAgente(usuario));
 }
 ```
 
-Convención: un **AGENTE** ve lo suyo + lo sin asignar (pool); un **ADMIN** ve todo.
-Endpoints exclusivos de admin: `@Roles('ADMIN')`. Endpoints sin sesión: `@Public()`.
-Los tres guards globales (Throttler → JWT → Roles) están en `app.module.ts`.
+`alcanceAgente(usuario)` devuelve el `agenteId` al que hay que limitar la consulta, o `undefined`
+si el usuario ve todo — justo lo que esperan los services en su parámetro `soloAgenteId`.
+
+**No escribas la comparación a mano** (`usuario.rol === 'ADMIN' ? undefined : usuario.sub`).
+Ese era el patrón anterior y se rompió al añadir SUPER_ADMIN: el guard tenía su tabla de rangos y
+el escopado su propia lista, y una quedó desactualizada respecto de la otra — un super admin
+terminaba viendo solo *sus* registros. Con `alcanceAgente()` y `tieneAlcanceGlobal()`, añadir un
+rol es tocar `RANGO_ROL` y nada más.
+
+Convención: un **AGENTE** ve lo suyo + lo sin asignar (pool); de **ADMIN** para arriba se ve todo.
+
+`@Roles()` también aplica la jerarquía: **`@Roles('ADMIN')` deja pasar al SUPER_ADMIN** sin
+enumerarlo endpoint por endpoint. Para restringir algo *solo* al super admin (gestión de usuarios,
+importar o eliminar una planilla de comisiones), usa `@Roles('SUPER_ADMIN')`.
+Endpoints sin sesión: `@Public()`. Los tres guards globales (Throttler → JWT → Roles) están en
+`app.module.ts`.
 
 ### La regla de `findAll` se aplica también a `findOne` y a las mutaciones
 
@@ -235,6 +248,23 @@ const { _sum, _count } = await this.prisma.venta.aggregate({
 
 Usa `$transaction([...])` para lanzar en paralelo las consultas independientes (típico: página + total).
 
+## Archivos subidos: `ArchivoSubido`, no `any`
+
+Los endpoints que reciben un archivo (importar planilla de comisiones, recursos de memoria del
+agente) usan `FileInterceptor` de Multer. Como el `@UploadedFile()` no viene tipado y no vale la
+pena instalar `@types/multer` por cuatro propiedades, existe la interfaz `ArchivoSubido`
+(`modules/memoria-agente/archivo-subido.ts`): `originalname`, `mimetype`, `size`, `buffer`.
+
+```ts
+@Post('importar')
+@Roles('SUPER_ADMIN')
+@UseInterceptors(FileInterceptor('archivo'))
+importar(@UploadedFile() archivo: ArchivoSubido, @CurrentUser() usuario: UsuarioJwt) { … }
+```
+
+Valida siempre `mimetype` y `size` en el service antes de parsear: el `ValidationPipe` no ve el
+archivo, así que un DTO no te protege aquí.
+
 ## Auditoría
 
 Toda mutación crítica (ventas, comisiones, clientes) llama a `AuditService.registrar()`.
@@ -270,4 +300,16 @@ Con datos reales en la base, revisa siempre el SQL antes de aplicarlo (`--create
 
 - `npx nest build` sin errores (**no uses el navegador en este proyecto**).
 - Probar con `curl` contra la base local (puerto 5433) si tocaste un endpoint.
-- Ningún `any`, ningún `take` fijo nuevo, ningún acceso a la tabla de otro dominio.
+- Si tocaste `schema.prisma`, la migración está generada y commiteada.
+- Ningún `any`, ningún `take` fijo nuevo, ningún acceso a la tabla de otro dominio,
+  ninguna comparación de rol a mano (usa `alcanceAgente` / `cubreRol`).
+
+## Mantenimiento
+
+`npm run check:skills` contrasta los datos de este archivo con el código: rutas citadas, los
+roles de `@Roles(...)` contra el `enum Rol` de `schema.prisma`, y los helpers de
+`common/auth/roles.ts`. Va encadenado a `npm run build`.
+
+Si añades un rol al enum y este skill no lo menciona, el check falla a propósito: esa es
+exactamente la desincronización que dejó el escopado por rol enseñando el patrón viejo.
+Verifica **datos, no criterio** — las decisiones y cicatrices de arriba se actualizan a mano.
