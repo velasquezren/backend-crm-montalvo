@@ -58,6 +58,11 @@ export const TARIFAS_SERVICIO_POR_DEFECTO: ReadonlyArray<{
  * TIPO B (ejecutivas) — escala por monto ACUMULADO de cirugías del mes.
  * El nivel se resuelve con el acumulado total y luego se aplica a todas las
  * cirugías de esa vendedora. Por debajo del nivel 1 no hay comisión.
+ *
+ * Son SEIS niveles y el último llega hasta 40.000, tal como la planilla. Hubo
+ * un nivel 7 (40.000 en adelante, 4,5%/5%) que no existe en ella: era una
+ * extrapolación nuestra que pagaba de más a quien superara el último tramo.
+ * Por encima de 40.000 se aplica el nivel 6, que es lo que la planilla hace.
  */
 export const NIVELES_CIRUGIA_POR_DEFECTO: ReadonlyArray<{
   nivel: number;
@@ -72,7 +77,6 @@ export const NIVELES_CIRUGIA_POR_DEFECTO: ReadonlyArray<{
   { nivel: 4, montoDesde: 15000, montoHasta: 22000, pctEmpresa: 3.0, pctPropio: 3.5 },
   { nivel: 5, montoDesde: 22000, montoHasta: 30000, pctEmpresa: 3.5, pctPropio: 4.0 },
   { nivel: 6, montoDesde: 30000, montoHasta: 40000, pctEmpresa: 4.0, pctPropio: 4.5 },
-  { nivel: 7, montoDesde: 40000, montoHasta: 99999999, pctEmpresa: 4.5, pctPropio: 5.0 },
 ];
 
 /**

@@ -13,6 +13,13 @@ import { AuditService } from '../../common/audit/audit.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { normalizar, redondear } from './clasificador';
 import {
+  elegirTarifaRA,
+  fraccionComisionable,
+  mesesAnteriores,
+  planesComisionables,
+  resolverNivelCirugia,
+} from './reglas-calculo';
+import {
   ConfiguracionCompleta,
   ConfiguracionComisionesService,
 } from './configuracion-comisiones.service';
@@ -175,8 +182,8 @@ export class CalculoComisionesService {
      */
     const planpaqVendidos = filas.filter(f => f.clasif === ClasifComision.PLANPAQ).length;
     const planninVendidos = filas.filter(f => f.clasif === ClasifComision.PLANNIN).length;
-    const planpaqComisionables = Math.max(0, planpaqVendidos - (objetivo?.planpaqMinimos ?? 0));
-    const planninComisionables = Math.max(0, planninVendidos - (objetivo?.planninMinimos ?? 0));
+    const planpaqComisionables = planesComisionables(planpaqVendidos, objetivo?.planpaqMinimos ?? 0);
+    const planninComisionables = planesComisionables(planninVendidos, objetivo?.planninMinimos ?? 0);
 
     const planesVendidos = planpaqVendidos + planninVendidos;
     const cumpleObjetivoPlanes = planpaqComisionables > 0 || planninComisionables > 0;
@@ -194,18 +201,16 @@ export class CalculoComisionesService {
      * Con planes de distinto nivel el total puede diferir de la planilla: si
      * administración define la regla, se cambia solo esta función.
      */
-    const fraccionComisionable = (clasif: ClasifComision): number => {
-      if (clasif === ClasifComision.PLANPAQ) {
-        return planpaqVendidos > 0 ? planpaqComisionables / planpaqVendidos : 0;
-      }
-      return planninVendidos > 0 ? planninComisionables / planninVendidos : 0;
-    };
+    const fraccionDe = (clasif: ClasifComision): number =>
+      clasif === ClasifComision.PLANPAQ
+        ? fraccionComisionable(planpaqVendidos, objetivo?.planpaqMinimos ?? 0)
+        : fraccionComisionable(planninVendidos, objetivo?.planninMinimos ?? 0);
 
     // Nivel Tipo B: se fija con el acumulado de cirugías de TODO el mes.
     const acumuladoCirugias = filas
       .filter(f => f.clasif === ClasifComision.CIRUGIA)
       .reduce((s, f) => s + f.ingresoNeto, 0);
-    const nivelCirugia = this.resolverNivelCirugia(acumuladoCirugias, config);
+    const nivelCirugia = resolverNivelCirugia(acumuladoCirugias, config.nivelesCirugia);
 
     const esCoordinadoraRA = vendedora.area === AreaVendedora.RA;
     const desglose: LineaDesglose[] = [];
@@ -230,7 +235,7 @@ export class CalculoComisionesService {
         porcentaje = this.porcentajeTipoA(primera, config);
         // La tarifa es la de la tabla; lo que se acota es la BASE, porque solo
         // comisionan los planes por encima del objetivo.
-        comisionBob = (baseGrupo * fraccionComisionable(primera.clasif) * porcentaje) / 100;
+        comisionBob = (baseGrupo * fraccionDe(primera.clasif) * porcentaje) / 100;
         comisionUsd = comisionBob / tipoCambio;
         comisionA += comisionUsd;
       } else if (primera.clasif === ClasifComision.CIRUGIA) {
@@ -319,7 +324,23 @@ export class CalculoComisionesService {
 
   private porcentajeTipoA(fila: FilaCalculo, config: ConfiguracionCompleta): number {
     // Los planes de maternidad cobran por nivel; los planes varios, por PLANNIN.
-    const clave = fila.clasif === ClasifComision.PLANNIN ? 'PLANNIN' : (fila.nivel ?? 'SILVER');
+    let clave: string;
+    if (fila.clasif === ClasifComision.PLANNIN) {
+      clave = 'PLANNIN';
+    } else if (fila.nivel) {
+      clave = fila.nivel;
+    } else {
+      // Un paquete de maternidad sin nivel legible se paga como SILVER, que es
+      // el tramo intermedio. Es una suposición sobre dinero, así que se avisa:
+      // administración puede añadir una regla al diccionario para que el nivel
+      // salga del catálogo en vez de adivinarse.
+      clave = 'SILVER';
+      this.logger.warn(
+        `Paquete sin nivel detectado, se paga como SILVER: "${fila.detalle}". ` +
+          'Añade una regla al diccionario para fijarle el nivel.',
+      );
+    }
+
     const tarifa = config.tarifasPlan.find(t => t.clave === clave);
     if (!tarifa) return 0;
     return Number(fila.canal === CanalVenta.PROPIO ? tarifa.pctPropio : tarifa.pctEmpresa);
@@ -352,17 +373,6 @@ export class CalculoComisionesService {
   }
 
   /** Ubica el acumulado de cirugías del mes en la escala; null si no llega al nivel 1. */
-  private resolverNivelCirugia(acumulado: number, config: ConfiguracionCompleta): number | null {
-    for (const escala of config.nivelesCirugia) {
-      const desde = Number(escala.montoDesde);
-      const hasta = Number(escala.montoHasta);
-      if (acumulado >= desde && acumulado <= hasta) return escala.nivel;
-    }
-    // Por encima del último tramo se aplica el nivel más alto.
-    const ultimo = config.nivelesCirugia[config.nivelesCirugia.length - 1];
-    if (ultimo && acumulado > Number(ultimo.montoHasta)) return ultimo.nivel;
-    return null;
-  }
 
   /** Tarifa RA que corresponde al procedimiento, cruzando por nombre. */
   private tarifaRA(
@@ -370,15 +380,14 @@ export class CalculoComisionesService {
     canal: CanalVenta,
     config: ConfiguracionCompleta,
   ): { montoUnitario: number; esPorcentaje: boolean } {
-    const detalle = normalizar(grupo[0].detalle);
-    const tarifa = config.tarifasRA.find(t => {
-      // Se cruza por las palabras significativas del nombre del procedimiento.
-      const claves = normalizar(t.procedimiento)
-        .split(/[^A-ZÑ0-9]+/)
-        .filter(p => p.length > 3);
-      return claves.some(clave => detalle.includes(clave));
-    });
+    const detalle = grupo[0].detalle;
 
+    // Gana la tarifa que cruce con MÁS texto, no la primera de la lista. Varios
+    // procedimientos comparten palabras ("Histeroscopia" está dentro de
+    // "Laparoscopia + Histeroscopia"), y con `find` el resultado dependía del
+    // orden en que la base devolviera las filas: la misma venta podía pagar
+    // distinto entre dos cálculos.
+    const tarifa = elegirTarifaRA(detalle, config.tarifasRA, normalizar);
     if (!tarifa) return { montoUnitario: 0, esPorcentaje: false };
 
     return {
@@ -424,6 +433,10 @@ export class CalculoComisionesService {
      *   Claudia  13.015,66 × 0,2% = 26,03   (Yelca no llegó a 12.000 → 0)
      *   pote = 117,18 → 39,06 para cada una de las 3 de publicidad
      */
+    // Una sola consulta para todo el equipo, en vez de dos por vendedora dentro
+    // del bucle. Con 5 vendedoras eran 10 viajes a la base, uno detrás de otro.
+    const promedios = await this.promediosDelTrimestre(resultados, anio, mes, mesesTrimestre, tipoCambio);
+
     let pote = 0;
 
     for (const resultado of resultados) {
@@ -436,8 +449,7 @@ export class CalculoComisionesService {
         pote += (registro.baseCalculo / tipoCambio) * factorJefatura;
       }
 
-      /* Bono trimestral: promedio de ventas de los últimos meses, en USD. */
-      const promedioUsd = await this.promedioVentasUsd(vendedora.id, anio, mes, mesesTrimestre);
+      const promedioUsd = promedios.get(vendedora.id) ?? 0;
       if (promedioUsd > Number(objetivo.montoTrimestralUsd)) {
         registro.bonoTrimestral = redondear(promedioUsd * factorTrimestral);
       }
@@ -471,39 +483,72 @@ export class CalculoComisionesService {
    * Promedio de venta mensual (USD) de una vendedora en los últimos N meses,
    * incluyendo el actual. Usa el histórico ya liquidado de periodos anteriores.
    */
-  private async promedioVentasUsd(
-    vendedoraId: string,
+  /**
+   * Promedio de ventas mensuales (USD) del trimestre, por vendedora.
+   *
+   * Dos cosas que no son obvias y que la planilla deja claras:
+   *
+   *  1. **Cuenta el mes que se está liquidando.** Sus resultados todavía no
+   *     están en la base —se guardan al final de `calcular()`— así que se toman
+   *     de memoria. Antes se leían de `ResultadoComision` y el mes en curso
+   *     quedaba fuera: en la primera liquidación el promedio salía de los dos
+   *     meses anteriores, y al recalcular usaba las cifras viejas.
+   *
+   *  2. **Divide entre los meses CON datos, no siempre entre tres.** Quien
+   *     empezó a mitad del trimestre no debe ver su promedio partido por meses
+   *     en los que no existía: en diciembre 2024 una vendedora con un solo mes
+   *     cargado promedió ese mes completo, no un tercio.
+   */
+  private async promediosDelTrimestre(
+    resultados: ReturnType<CalculoComisionesService['liquidarVendedora']>[],
     anio: number,
     mes: number,
     meses: number,
-  ): Promise<number> {
-    const desde = new Date(anio, mes - meses, 1);
-    const periodos = await this.prisma.periodoComision.findMany({
-      where: {
-        OR: [
-          { anio: { gt: desde.getFullYear() } },
-          { anio: desde.getFullYear(), mes: { gte: desde.getMonth() + 1 } },
-        ],
-        AND: [{ OR: [{ anio: { lt: anio } }, { anio, mes: { lte: mes } }] }],
-      },
-      select: { id: true, tipoCambio: true },
-    });
+    tipoCambio: number,
+  ): Promise<Map<string, number>> {
+    const acumulado = new Map<string, { totalUsd: number; meses: number }>();
 
-    if (periodos.length === 0) return 0;
+    // El mes en curso, desde memoria.
+    for (const { vendedora, registro } of resultados) {
+      acumulado.set(vendedora.id, {
+        totalUsd: registro.montoVendido / tipoCambio,
+        meses: 1,
+      });
+    }
 
-    const resultados = await this.prisma.resultadoComision.findMany({
-      where: { vendedoraId, periodoId: { in: periodos.map(p => p.id) } },
-      select: { montoVendido: true, periodoId: true },
-    });
+    // Los meses anteriores de la ventana, en una sola pasada.
+    const anteriores = mesesAnteriores(anio, mes, meses);
+    if (anteriores.length > 0) {
+      const periodos = await this.prisma.periodoComision.findMany({
+        where: { OR: anteriores },
+        select: { id: true, tipoCambio: true },
+      });
 
-    const tcPorPeriodo = new Map(periodos.map(p => [p.id, Number(p.tipoCambio) || 1]));
-    const totalUsd = resultados.reduce(
-      (s, r) => s + Number(r.montoVendido) / (tcPorPeriodo.get(r.periodoId) ?? 1),
-      0,
+      if (periodos.length > 0) {
+        const tcPorPeriodo = new Map(periodos.map(p => [p.id, Number(p.tipoCambio) || 1]));
+        const previos = await this.prisma.resultadoComision.findMany({
+          where: {
+            periodoId: { in: periodos.map(p => p.id) },
+            vendedoraId: { in: [...acumulado.keys()] },
+          },
+          select: { vendedoraId: true, periodoId: true, montoVendido: true },
+        });
+
+        for (const fila of previos) {
+          const actual = acumulado.get(fila.vendedoraId);
+          if (!actual) continue;
+          const tc = tcPorPeriodo.get(fila.periodoId) ?? 1;
+          actual.totalUsd += Number(fila.montoVendido) / tc;
+          actual.meses += 1;
+        }
+      }
+    }
+
+    return new Map(
+      [...acumulado].map(([id, { totalUsd, meses: n }]) => [id, n > 0 ? totalUsd / n : 0]),
     );
-
-    return totalUsd / meses;
   }
+
 
   /* ── Reportes ───────────────────────────────────────────────────────── */
 
