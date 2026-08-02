@@ -68,10 +68,25 @@ export class ConfiguracionComisionesService {
   constructor(private readonly prisma: PrismaService) {}
 
   /**
+   * Si esta instancia ya comprobó que la configuración está sembrada, no vuelve
+   * a comprobarlo. Sembrar es idempotente pero cuesta 8 COUNT, y se llamaba en
+   * CADA carga del panel de configuración — para siempre, aunque la instalación
+   * lleve meses sembrada.
+   *
+   * Se guarda en memoria y no en la base a propósito: al desplegar una versión
+   * que añade una tabla de configuración nueva, el proceso arranca de cero y la
+   * comprobación vuelve a correr una vez. Fue justo lo que hizo falta al añadir
+   * `MapeoCaptacion`.
+   */
+  private configuracionAsegurada = false;
+
+  /**
    * Crea los valores por defecto que aún no existan. Se llama antes de cada
    * importación, así una instalación nueva queda operativa sin pasos manuales.
    */
   async asegurarConfiguracion(): Promise<void> {
+    if (this.configuracionAsegurada) return;
+
     const [tarifasPlan, tarifasServicio, niveles, tarifasRA, objetivos, parametros, reglas, captacion] =
       await this.prisma.$transaction([
         this.prisma.tarifaPlan.count(),
@@ -129,6 +144,7 @@ export class ConfiguracionComisionesService {
       await Promise.all(pendientes);
       this.logger.log(`Configuración de comisiones sembrada (${pendientes.length} tablas)`);
     }
+    this.configuracionAsegurada = true;
   }
 
   /**
@@ -290,10 +306,13 @@ export class ConfiguracionComisionesService {
 
   async listarTodo() {
     await this.asegurarConfiguracion();
-    const config = await this.cargarConfiguracion();
-    const reglas = await this.prisma.reglaClasificacion.findMany({
-      orderBy: [{ prioridad: 'asc' }, { patron: 'asc' }],
-    });
+    // En paralelo: eran tres rondas encadenadas para armar una sola pantalla.
+    const [config, reglas] = await Promise.all([
+      this.cargarConfiguracion(),
+      this.prisma.reglaClasificacion.findMany({
+        orderBy: [{ prioridad: 'asc' }, { patron: 'asc' }],
+      }),
+    ]);
 
     return {
       tarifasPlan: config.tarifasPlan,
