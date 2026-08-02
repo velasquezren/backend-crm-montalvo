@@ -1,3 +1,5 @@
+import { normalizar } from './clasificador';
+
 /**
  * Reglas puras del cálculo de comisiones.
  *
@@ -98,19 +100,17 @@ export function mesesAnteriores(
  * distinto entre dos cálculos. Puntuar por longitud hace que gane siempre la
  * coincidencia más específica.
  *
- * `normalizador` se recibe para no duplicar aquí la normalización de texto.
- */
+*/
 export function elegirTarifaRA<T extends TarifaProcedimiento>(
   detalle: string,
   tarifas: readonly T[],
-  normalizador: (texto: string) => string,
 ): T | undefined {
-  const objetivo = normalizador(detalle);
+  const objetivo = normalizar(detalle);
   let elegida: T | undefined;
   let mejorPuntaje = 0;
 
   for (const tarifa of tarifas) {
-    const claves = normalizador(tarifa.procedimiento)
+    const claves = normalizar(tarifa.procedimiento)
       .split(/[^A-ZÑ0-9]+/)
       .filter(palabra => palabra.length > 3);
 
@@ -124,4 +124,15 @@ export function elegirTarifaRA<T extends TarifaProcedimiento>(
     }
   }
   return elegida;
+}
+
+/** Lo que cobra alguien en bonos. Un solo lugar donde se define qué suma. */
+export function sumaBonos(registro: {
+  bonoJefatura: unknown;
+  bonoPublicidad: unknown;
+  bonoTrimestral: unknown;
+}): number {
+  return (
+    Number(registro.bonoJefatura) + Number(registro.bonoPublicidad) + Number(registro.bonoTrimestral)
+  );
 }

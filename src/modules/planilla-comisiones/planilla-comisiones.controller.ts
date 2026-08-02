@@ -224,17 +224,28 @@ export class PlanillaComisionesController {
 
   /* ── Panel de configuración ─────────────────────────────────────────── */
 
+  /*
+   * Criterio de permisos de la configuración: **leerla es ADMIN, cambiarla es
+   * SUPER_ADMIN**. No es cosmético — estos valores deciden cuánto cobra cada
+   * persona, y una tarifa mal puesta se propaga a todas las liquidaciones que
+   * se recalculen después. Antes cada endpoint heredaba o no el rol según lo que
+   * recordara quien lo escribió: las metas de un mes pedían SUPER_ADMIN y las
+   * metas base —que afectan TODOS los meses— se quedaban en ADMIN.
+   */
+
   @Get('configuracion')
   configuracionCompleta() {
     return this.configuracion.listarTodo();
   }
 
   @Patch('configuracion/tarifas-plan/:clave')
+  @Roles('SUPER_ADMIN')
   actualizarTarifaPlan(@Param('clave') clave: string, @Body() dto: ActualizarTarifaPlanDto) {
     return this.configuracion.actualizarTarifaPlan(clave, dto);
   }
 
   @Patch('configuracion/tarifas-servicio/:clasif')
+  @Roles('SUPER_ADMIN')
   actualizarTarifaServicio(
     @Param('clasif') clasif: ClasifComision,
     @Body() dto: ActualizarTarifaServicioDto,
@@ -243,6 +254,7 @@ export class PlanillaComisionesController {
   }
 
   @Patch('configuracion/niveles-cirugia/:nivel')
+  @Roles('SUPER_ADMIN')
   actualizarNivelCirugia(
     @Param('nivel') nivel: string,
     @Body() dto: ActualizarNivelCirugiaDto,
@@ -255,6 +267,7 @@ export class PlanillaComisionesController {
   }
 
   @Patch('configuracion/tarifas-ra/:id')
+  @Roles('SUPER_ADMIN')
   actualizarTarifaRa(@Param('id') id: string, @Body() dto: ActualizarTarifaRaDto) {
     return this.configuracion.actualizarTarifaRa(id, dto);
   }
@@ -281,21 +294,25 @@ export class PlanillaComisionesController {
   }
 
   @Put('configuracion/captacion/:valor')
+  @Roles('SUPER_ADMIN')
   guardarCaptacion(@Param('valor') valor: string, @Body() dto: GuardarMapeoCaptacionDto) {
     return this.configuracion.guardarMapeoCaptacion(valor, dto.canal);
   }
 
   @Delete('configuracion/captacion/:valor')
+  @Roles('SUPER_ADMIN')
   eliminarCaptacion(@Param('valor') valor: string) {
     return this.configuracion.eliminarMapeoCaptacion(valor);
   }
 
   @Patch('configuracion/objetivos/:id')
+  @Roles('SUPER_ADMIN')
   actualizarObjetivo(@Param('id') id: string, @Body() dto: ActualizarObjetivoDto) {
     return this.configuracion.actualizarObjetivo(id, dto);
   }
 
   @Patch('configuracion/parametros/:clave')
+  @Roles('SUPER_ADMIN')
   actualizarParametro(@Param('clave') clave: string, @Body() dto: ActualizarParametroDto) {
     return this.configuracion.actualizarParametro(clave, dto);
   }
@@ -303,16 +320,19 @@ export class PlanillaComisionesController {
   /* ── Diccionario de clasificación ───────────────────────────────────── */
 
   @Post('configuracion/reglas')
+  @Roles('SUPER_ADMIN')
   crearRegla(@Body() dto: CrearReglaDto) {
     return this.configuracion.crearRegla(dto);
   }
 
   @Patch('configuracion/reglas/:id')
+  @Roles('SUPER_ADMIN')
   actualizarRegla(@Param('id') id: string, @Body() dto: CrearReglaDto) {
     return this.configuracion.actualizarRegla(id, dto);
   }
 
   @Delete('configuracion/reglas/:id')
+  @Roles('SUPER_ADMIN')
   eliminarRegla(@Param('id') id: string) {
     return this.configuracion.eliminarRegla(id);
   }

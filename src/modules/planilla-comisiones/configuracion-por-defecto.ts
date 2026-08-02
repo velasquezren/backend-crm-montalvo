@@ -1,4 +1,10 @@
-import { ClasifComision, NivelPlan, TipoVendedora, UnidadNegocio } from '@prisma/client';
+import {
+  CanalVenta,
+  ClasifComision,
+  NivelPlan,
+  TipoVendedora,
+  UnidadNegocio,
+} from '@prisma/client';
 
 /**
  * Valores iniciales de la planilla de comisiones, tomados del documento de
@@ -185,3 +191,20 @@ export const REGLAS_POR_DEFECTO: ReadonlyArray<{
   { patron: 'Paquete Bariatrica', exacto: false, modulo: null, clasif: ClasifComision.PLANNIN, nivel: null, unidadNegocio: UnidadNegocio.VARIOS, prioridad: 100, notas: 'Paquete especial, no maternidad' },
   { patron: 'Paquete Niño Sano', exacto: false, modulo: null, clasif: ClasifComision.PLANNIN, nivel: null, unidadNegocio: UnidadNegocio.VARIOS, prioridad: 100, notas: 'Paquete especial, no maternidad' },
 ];
+
+/**
+ * Mapeo inicial de `captacion` → canal. Se siembra en `MapeoCaptacion` la primera
+ * vez y a partir de ahí manda la base: administración lo edita.
+ *
+ * `FACEBOOK` va a EMPRESA a propósito, no por descuido: en la planilla de la
+ * clínica una venta llegada por Facebook cobra la tarifa de empresa (un plan
+ * Gold por Facebook pagó 3%, que es la tasa empresa, no el 5% de propio).
+ */
+export const CAPTACION_POR_DEFECTO: ReadonlyArray<{ valor: string; canal: CanalVenta }> = [
+  { valor: 'PROPIO', canal: CanalVenta.PROPIO },
+  { valor: 'REDES', canal: CanalVenta.PROPIO },
+  { valor: 'CLINICA', canal: CanalVenta.EMPRESA },
+  { valor: 'FACEBOOK', canal: CanalVenta.EMPRESA },
+  { valor: 'INSTAGRAM', canal: CanalVenta.EMPRESA },
+];
+

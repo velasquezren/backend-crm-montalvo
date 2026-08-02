@@ -5,7 +5,6 @@ import {
   planesComisionables,
   resolverNivelCirugia,
 } from './reglas-calculo';
-import { normalizar } from './clasificador';
 import { NIVELES_CIRUGIA_POR_DEFECTO, TARIFAS_RA_POR_DEFECTO } from './configuracion-por-defecto';
 
 describe('escala de cirugías (Tipo B)', () => {
@@ -102,31 +101,31 @@ describe('tarifas de Reproducción Asistida', () => {
   const tarifas = TARIFAS_RA_POR_DEFECTO;
 
   it('reconoce el procedimiento por su nombre', () => {
-    expect(elegirTarifaRA('Biopsia Embrionaria', tarifas, normalizar)?.montoEmpresa).toBe(10);
-    expect(elegirTarifaRA('Inseminación artificial', tarifas, normalizar)?.montoEmpresa).toBe(5);
+    expect(elegirTarifaRA('Biopsia Embrionaria', tarifas)?.montoEmpresa).toBe(10);
+    expect(elegirTarifaRA('Inseminación artificial', tarifas)?.montoEmpresa).toBe(5);
   });
 
   // "Histeroscopia" está contenido en "Laparoscopia + Histeroscopia": antes
   // ganaba el primero que devolviera la base, así que la misma venta podía
   // pagar 5 o 10 según el orden de las filas.
   it('gana la coincidencia más específica, no la primera', () => {
-    const elegida = elegirTarifaRA('laparoscopia+ Histeroscopia', tarifas, normalizar);
+    const elegida = elegirTarifaRA('laparoscopia+ Histeroscopia', tarifas);
     expect(elegida?.procedimiento).toBe('Laparoscopia + Histeroscopia');
     expect(elegida?.montoEmpresa).toBe(10);
   });
 
   it('es estable aunque cambie el orden de las tarifas', () => {
     const alReves = [...tarifas].reverse();
-    expect(elegirTarifaRA('laparoscopia+ Histeroscopia', alReves, normalizar)?.procedimiento).toBe(
+    expect(elegirTarifaRA('laparoscopia+ Histeroscopia', alReves)?.procedimiento).toBe(
       'Laparoscopia + Histeroscopia',
     );
   });
 
   it('ignora acentos y mayúsculas', () => {
-    expect(elegirTarifaRA('ASPIRACION DE OVULOS', tarifas, normalizar)?.montoEmpresa).toBe(20);
+    expect(elegirTarifaRA('ASPIRACION DE OVULOS', tarifas)?.montoEmpresa).toBe(20);
   });
 
   it('un procedimiento desconocido no cruza con nada', () => {
-    expect(elegirTarifaRA('Consulta de control', tarifas, normalizar)).toBeUndefined();
+    expect(elegirTarifaRA('Consulta de control', tarifas)).toBeUndefined();
   });
 });

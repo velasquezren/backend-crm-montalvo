@@ -12,9 +12,9 @@ import {
 } from '@prisma/client';
 
 import { PrismaService } from '../../prisma/prisma.service';
-import { CAPTACION_POR_DEFECTO, normalizar } from './clasificador';
-import { ReglaDiccionario } from './clasificador';
+import { normalizar, ReglaDiccionario } from './clasificador';
 import {
+  CAPTACION_POR_DEFECTO,
   NIVELES_CIRUGIA_POR_DEFECTO,
   OBJETIVOS_POR_DEFECTO,
   PARAM,
@@ -44,6 +44,14 @@ export interface ConfiguracionCompleta {
   parametros: Map<string, number>;
   /** Valor de `captacion` del Excel → canal. Editable por administración. */
   mapeosCaptacion: Map<string, CanalVenta>;
+
+  // Índices de los catálogos anteriores. El motor los consulta una vez por
+  // grupo y por vendedora —cientos de veces en una liquidación— y con arrays
+  // eso era una búsqueda lineal cada vez. Se arman aquí, una sola vez.
+  objetivosPorTipo: Map<TipoVendedora, ObjetivoComision>;
+  tarifasPlanPorClave: Map<string, TarifaPlan>;
+  tarifasServicioPorClasif: Map<ClasifComision, TarifaServicio>;
+  nivelesPorNumero: Map<number, NivelCirugia>;
 }
 
 /**
@@ -123,18 +131,32 @@ export class ConfiguracionComisionesService {
     }
   }
 
-  /** Lee de una sola vez todo lo que el motor de cálculo necesita. */
-  async cargarConfiguracion(): Promise<ConfiguracionCompleta> {
-    const [tarifasPlan, tarifasServicio, nivelesCirugia, tarifasRA, objetivos, parametros, captacion] =
-      await this.prisma.$transaction([
+  /**
+   * Lee de una sola vez todo lo que el motor de cálculo necesita.
+   *
+   * Con `periodoId` devuelve las metas que rigen ESE mes (las propias si
+   * existen, si no las base). Sin él, solo las base — que es lo que quiere el
+   * panel de configuración. Resolverlo aquí y no en el motor evita que alguien
+   * reasigne `config.objetivos` después de haberlas leído, y que `listarTodo()`
+   * termine exponiendo las de todos los meses mezcladas.
+   */
+  async cargarConfiguracion(periodoId?: string): Promise<ConfiguracionCompleta> {
+    const [catalogos, objetivos] = await Promise.all([
+      this.prisma.$transaction([
         this.prisma.tarifaPlan.findMany(),
         this.prisma.tarifaServicio.findMany(),
         this.prisma.nivelCirugia.findMany({ orderBy: { nivel: 'asc' } }),
         this.prisma.tarifaRA.findMany(),
-        this.prisma.objetivoComision.findMany(),
         this.prisma.parametroComision.findMany(),
         this.prisma.mapeoCaptacion.findMany(),
-      ]);
+      ]),
+      periodoId
+        ? this.objetivosParaPeriodo(periodoId)
+        : this.prisma.objetivoComision.findMany({ where: { periodoId: null } }),
+    ]);
+
+    const [tarifasPlan, tarifasServicio, nivelesCirugia, tarifasRA, parametros, captacion] =
+      catalogos;
 
     return {
       tarifasPlan,
@@ -144,6 +166,10 @@ export class ConfiguracionComisionesService {
       objetivos,
       parametros: new Map(parametros.map(p => [p.clave, Number(p.valor)])),
       mapeosCaptacion: new Map(captacion.map(m => [m.valor, m.canal])),
+      objetivosPorTipo: new Map(objetivos.map(o => [o.tipo, o])),
+      tarifasPlanPorClave: new Map(tarifasPlan.map(t => [t.clave, t])),
+      tarifasServicioPorClasif: new Map(tarifasServicio.map(t => [t.clasif, t])),
+      nivelesPorNumero: new Map(nivelesCirugia.map(n => [n.nivel, n])),
     };
   }
 
@@ -213,11 +239,15 @@ export class ConfiguracionComisionesService {
 
   /** Quitar un valor lo devuelve al comportamiento por defecto: EMPRESA. */
   async eliminarMapeoCaptacion(valor: string) {
+    // Se normaliza igual que al guardar: la clave de la tabla es texto
+    // normalizado, así que sin esto una entrada creada como "Tik Tok" no se
+    // podría borrar escribiendo lo mismo.
+    const clave = normalizar(valor);
     await this.exigirExistencia(
-      this.prisma.mapeoCaptacion.count({ where: { valor } }),
+      this.prisma.mapeoCaptacion.count({ where: { valor: clave } }),
       `Captación ${valor}`,
     );
-    return this.prisma.mapeoCaptacion.delete({ where: { valor } });
+    return this.prisma.mapeoCaptacion.delete({ where: { valor: clave } });
   }
 
   /**

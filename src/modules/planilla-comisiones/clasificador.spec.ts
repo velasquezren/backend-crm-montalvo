@@ -1,3 +1,4 @@
+import { CAPTACION_POR_DEFECTO } from './configuracion-por-defecto';
 import { ClasifComision, NivelPlan } from '@prisma/client';
 
 import {
@@ -57,17 +58,29 @@ describe('normalizar', () => {
 });
 
 describe('canal de venta (paso 1)', () => {
+  // El mapa se pasa siempre: es lo que administración edita, y clasificar
+  // contra otra cosa sería probar un comportamiento que producción no usa.
+  const mapeos = new Map(CAPTACION_POR_DEFECTO.map(m => [m.valor, m.canal]));
+
   it.each([
     ['Clinica', 'EMPRESA'],
     ['Redes', 'PROPIO'],
     ['Propio', 'PROPIO'],
+    // Verificado en la planilla: un plan Gold vendido por Facebook cobró la
+    // tarifa de empresa (3%), no la de propio (5%).
+    ['Facebook', 'EMPRESA'],
   ])('captación "%s" → %s', (captacion, esperado) => {
-    expect(determinarCanal(captacion)).toBe(esperado);
+    expect(determinarCanal(captacion, mapeos)).toBe(esperado);
   });
 
   it('sin captación asume EMPRESA, no PROPIO: el canal propio paga más', () => {
-    expect(determinarCanal(null)).toBe('EMPRESA');
-    expect(determinarCanal('')).toBe('EMPRESA');
+    expect(determinarCanal(null, mapeos)).toBe('EMPRESA');
+    expect(determinarCanal('', mapeos)).toBe('EMPRESA');
+  });
+
+  it('un canal que nadie configuró cae en EMPRESA, la tarifa más baja', () => {
+    expect(determinarCanal('TikTok', mapeos)).toBe('EMPRESA');
+    expect(determinarCanal('Propio', new Map())).toBe('EMPRESA');
   });
 });
 

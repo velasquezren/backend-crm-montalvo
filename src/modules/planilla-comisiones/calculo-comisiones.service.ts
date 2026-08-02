@@ -18,6 +18,7 @@ import {
   mesesAnteriores,
   planesComisionables,
   resolverNivelCirugia,
+  sumaBonos,
 } from './reglas-calculo';
 import {
   ConfiguracionCompleta,
@@ -82,10 +83,9 @@ export class CalculoComisionesService {
       throw new ConflictException('El periodo está CERRADO: reábrelo para recalcular');
     }
 
-    const config = await this.configuracion.cargarConfiguracion();
-    // Las metas pueden ser propias de este mes; si no lo son, rigen las de por
-    // defecto. Se resuelve antes de liquidar para que toda la pasada use las mismas.
-    config.objetivos = await this.configuracion.objetivosParaPeriodo(periodoId);
+    // La config se pide POR PERIODO: trae ya resueltas las metas que rigen este
+    // mes, sean las propias o las base.
+    const config = await this.configuracion.cargarConfiguracion(periodoId);
     const tipoCambio = Number(periodo.tipoCambio) || 1;
 
     const [filasCrudas, vendedoras] = await Promise.all([
@@ -167,7 +167,7 @@ export class CalculoComisionesService {
     config: ConfiguracionCompleta,
     tipoCambio: number,
   ) {
-    const objetivo = config.objetivos.find(o => o.tipo === vendedora.tipo);
+    const objetivo = config.objetivosPorTipo.get(vendedora.tipo);
 
     const montoVendido = filas.reduce((s, f) => s + f.precio, 0);
     const baseCalculo = filas.reduce((s, f) => s + f.ingresoNeto, 0);
@@ -341,7 +341,7 @@ export class CalculoComisionesService {
       );
     }
 
-    const tarifa = config.tarifasPlan.find(t => t.clave === clave);
+    const tarifa = config.tarifasPlanPorClave.get(clave);
     if (!tarifa) return 0;
     return Number(fila.canal === CanalVenta.PROPIO ? tarifa.pctPropio : tarifa.pctEmpresa);
   }
@@ -352,7 +352,7 @@ export class CalculoComisionesService {
     config: ConfiguracionCompleta,
   ): number {
     if (nivel === null) return 0;
-    const escala = config.nivelesCirugia.find(n => n.nivel === nivel);
+    const escala = config.nivelesPorNumero.get(nivel);
     if (!escala) return 0;
     return Number(canal === CanalVenta.PROPIO ? escala.pctPropio : escala.pctEmpresa);
   }
@@ -367,7 +367,7 @@ export class CalculoComisionesService {
     if (fila.unidadNegocio === UnidadNegocio.RA && !esCoordinadoraRA) {
       return config.parametros.get(PARAM.PCT_TIPO_C_RA) ?? 0;
     }
-    const tarifa = config.tarifasServicio.find(t => t.clasif === fila.clasif);
+    const tarifa = config.tarifasServicioPorClasif.get(fila.clasif);
     if (!tarifa) return 0;
     return Number(fila.canal === CanalVenta.PROPIO ? tarifa.pctPropio : tarifa.pctEmpresa);
   }
@@ -387,7 +387,7 @@ export class CalculoComisionesService {
     // "Laparoscopia + Histeroscopia"), y con `find` el resultado dependía del
     // orden en que la base devolviera las filas: la misma venta podía pagar
     // distinto entre dos cálculos.
-    const tarifa = elegirTarifaRA(detalle, config.tarifasRA, normalizar);
+    const tarifa = elegirTarifaRA(detalle, config.tarifasRA);
     if (!tarifa) return { montoUnitario: 0, esPorcentaje: false };
 
     return {
@@ -441,7 +441,7 @@ export class CalculoComisionesService {
 
     for (const resultado of resultados) {
       const { vendedora, registro } = resultado;
-      const objetivo = config.objetivos.find(o => o.tipo === vendedora.tipo);
+      const objetivo = config.objetivosPorTipo.get(vendedora.tipo);
       if (!objetivo) continue;
 
       const vendidoUsd = registro.montoVendido / tipoCambio;
@@ -574,11 +574,7 @@ export class CalculoComisionesService {
         comisionA: acc.comisionA + Number(r.comisionA),
         comisionB: acc.comisionB + Number(r.comisionB),
         comisionC: acc.comisionC + Number(r.comisionC),
-        bonos:
-          acc.bonos +
-          Number(r.bonoJefatura) +
-          Number(r.bonoPublicidad) +
-          Number(r.bonoTrimestral),
+        bonos: acc.bonos + sumaBonos(r),
         totalUsd: acc.totalUsd + Number(r.totalUsd),
         totalBob: acc.totalBob + Number(r.totalBob),
         totalGanado: acc.totalGanado + Number(r.totalGanado),
@@ -616,6 +612,9 @@ export class CalculoComisionesService {
         bonoJefatura: Number(r.bonoJefatura),
         bonoPublicidad: Number(r.bonoPublicidad),
         bonoTrimestral: Number(r.bonoTrimestral),
+        /// Ya sumados: si cada plantilla los sumara por su cuenta, añadir un
+        /// cuarto bono obligaría a acordarse de todas.
+        totalBonos: redondear(sumaBonos(r)),
         totalUsd: Number(r.totalUsd),
         totalBob: Number(r.totalBob),
         sueldoBase: Number(r.sueldoBase),
@@ -708,7 +707,7 @@ export class CalculoComisionesService {
         bonoJefatura: f.bonoJefatura,
         bonoPublicidad: f.bonoPublicidad,
         bonoTrimestral: f.bonoTrimestral,
-        totalBonos: redondear(f.bonoJefatura + f.bonoPublicidad + f.bonoTrimestral),
+        totalBonos: redondear(sumaBonos(f)),
       })),
     };
   }

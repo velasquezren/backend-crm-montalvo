@@ -179,7 +179,7 @@ export class ExportacionComisionesService {
         ...f,
         cumpleObjetivo: f.cumpleObjetivoPlanes ? 'Sí' : 'No',
         nivelCirugia: f.nivelCirugia ?? '—',
-        bonos: f.bonoJefatura + f.bonoPublicidad + f.bonoTrimestral,
+        bonos: f.totalBonos,
       });
     }
 

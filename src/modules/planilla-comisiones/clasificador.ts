@@ -131,26 +131,6 @@ export function redondear(valor: number): number {
 }
 
 /**
- * Mapeo inicial de `captacion` → canal. Se siembra en `MapeoCaptacion` la
- * primera vez y a partir de ahí manda la base: administración lo edita.
- *
- * `FACEBOOK` va a EMPRESA a propósito, no por descuido: en la planilla de la
- * clínica una venta llegada por Facebook cobra la tarifa de empresa (un plan
- * Gold por Facebook pagó 3%, que es la tasa empresa, no el 5% de propio).
- */
-export const CAPTACION_POR_DEFECTO: ReadonlyArray<{ valor: string; canal: CanalVenta }> = [
-  { valor: 'PROPIO', canal: CanalVenta.PROPIO },
-  { valor: 'REDES', canal: CanalVenta.PROPIO },
-  { valor: 'CLINICA', canal: CanalVenta.EMPRESA },
-  { valor: 'FACEBOOK', canal: CanalVenta.EMPRESA },
-  { valor: 'INSTAGRAM', canal: CanalVenta.EMPRESA },
-];
-
-const CAPTACION_FALLBACK: ReadonlyMap<string, CanalVenta> = new Map(
-  CAPTACION_POR_DEFECTO.map(m => [m.valor, m.canal]),
-);
-
-/**
  * PASO 1 — Canal de venta.
  * Lo desconocido cae en EMPRESA, que es la tarifa más baja: si aparece un canal
  * nuevo, el sistema paga de menos y administración lo corrige, en vez de pagar
@@ -158,7 +138,7 @@ const CAPTACION_FALLBACK: ReadonlyMap<string, CanalVenta> = new Map(
  */
 export function determinarCanal(
   captacion: string | null,
-  mapeos: ReadonlyMap<string, CanalVenta> = CAPTACION_FALLBACK,
+  mapeos: ReadonlyMap<string, CanalVenta>,
 ): CanalVenta {
   const valor = normalizar(captacion);
   if (!valor) return CanalVenta.EMPRESA;
@@ -193,20 +173,52 @@ export function calcularIngresoNeto(
   return redondear(precio * (1 - iva));
 }
 
+/** Regla con su patrón y módulo ya normalizados, lista para comparar. */
+interface ReglaPreparada extends ReglaDiccionario {
+  patronNorm: string;
+  moduloNorm: string;
+}
+
+/**
+ * Diccionario ordenado por prioridad y con los textos ya normalizados.
+ *
+ * Se memoriza por identidad del array porque el importador llama al clasificador
+ * una vez POR FILA con el mismo diccionario: sin esto, un Excel de 3.000 filas
+ * con 20 reglas normalizaba los mismos 40 textos 120.000 veces, y copiaba y
+ * ordenaba el array otras 3.000. Es memoización pura —mismo array, mismo
+ * resultado—, no estado oculto.
+ */
+const reglasPreparadas = new WeakMap<readonly ReglaDiccionario[], ReglaPreparada[]>();
+
+function prepararReglas(reglas: readonly ReglaDiccionario[]): ReglaPreparada[] {
+  const yaHecho = reglasPreparadas.get(reglas);
+  if (yaHecho) return yaHecho;
+
+  const preparadas = [...reglas]
+    .sort((a, b) => a.prioridad - b.prioridad)
+    .map(regla => ({
+      ...regla,
+      patronNorm: normalizar(regla.patron),
+      moduloNorm: normalizar(regla.modulo),
+    }));
+
+  reglasPreparadas.set(reglas, preparadas);
+  return preparadas;
+}
+
 /** Busca en el diccionario la primera regla (por prioridad) que cruce con la fila. */
 export function buscarRegla(
   fila: FilaExcel,
   reglas: readonly ReglaDiccionario[],
+  detalleNorm = normalizar(fila.detalle),
+  moduloNorm = normalizar(fila.modulo),
 ): ReglaDiccionario | null {
-  const detalle = normalizar(fila.detalle);
-  const modulo = normalizar(fila.modulo);
-
-  const ordenadas = [...reglas].sort((a, b) => a.prioridad - b.prioridad);
-  for (const regla of ordenadas) {
-    if (regla.modulo && normalizar(regla.modulo) !== modulo) continue;
-    const patron = normalizar(regla.patron);
-    if (!patron) continue;
-    const cruza = regla.exacto ? detalle === patron : detalle.includes(patron);
+  for (const regla of prepararReglas(reglas)) {
+    if (regla.moduloNorm && regla.moduloNorm !== moduloNorm) continue;
+    if (!regla.patronNorm) continue;
+    const cruza = regla.exacto
+      ? detalleNorm === regla.patronNorm
+      : detalleNorm.includes(regla.patronNorm);
     if (cruza) return regla;
   }
   return null;
@@ -317,12 +329,16 @@ export function clasificarFila(
   fila: FilaExcel,
   reglas: readonly ReglaDiccionario[] = [],
   iva: number = IVA_POR_DEFECTO,
-  mapeosCaptacion?: ReadonlyMap<string, CanalVenta>,
+  mapeosCaptacion: ReadonlyMap<string, CanalVenta> = new Map(),
 ): ResultadoClasificacion {
   const canal = determinarCanal(fila.captacion, mapeosCaptacion);
   const ingresoNeto = calcularIngresoNeto(fila.precio, fila.anticipoPlan, iva);
 
-  const regla = buscarRegla(fila, reglas);
+  // Se normalizan una sola vez: los pasos 3 a 6 los volvían a calcular cada uno.
+  const detalleNorm = normalizar(fila.detalle);
+  const moduloNorm = normalizar(fila.modulo);
+
+  const regla = buscarRegla(fila, reglas, detalleNorm, moduloNorm);
   const unidadNegocio = determinarUnidadNegocio(fila, regla);
 
   const clasifHeuristica = determinarClasifHeuristica(fila, unidadNegocio);
