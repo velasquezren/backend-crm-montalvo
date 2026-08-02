@@ -15,7 +15,7 @@ import {
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { Response } from 'express';
-import { ClasifComision, EstadoPeriodo } from '@prisma/client';
+import { ClasifComision, EstadoPeriodo, TipoVendedora } from '@prisma/client';
 import { IsEnum } from 'class-validator';
 
 import { CurrentUser, UsuarioJwt } from '../../common/decorators/current-user.decorator';
@@ -257,6 +257,27 @@ export class PlanillaComisionesController {
   @Patch('configuracion/tarifas-ra/:id')
   actualizarTarifaRa(@Param('id') id: string, @Body() dto: ActualizarTarifaRaDto) {
     return this.configuracion.actualizarTarifaRa(id, dto);
+  }
+
+  @Get('periodos/:id/objetivos')
+  objetivosDelPeriodo(@Param('id') id: string) {
+    return this.configuracion.objetivosParaPeriodo(id);
+  }
+
+  @Put('periodos/:id/objetivos/:tipo')
+  @Roles('SUPER_ADMIN')
+  guardarObjetivoDePeriodo(
+    @Param('id') id: string,
+    @Param('tipo') tipo: TipoVendedora,
+    @Body() dto: ActualizarObjetivoDto,
+  ) {
+    return this.configuracion.guardarObjetivoDePeriodo(id, tipo, dto);
+  }
+
+  @Delete('periodos/:id/objetivos/:tipo')
+  @Roles('SUPER_ADMIN')
+  eliminarObjetivoDePeriodo(@Param('id') id: string, @Param('tipo') tipo: TipoVendedora) {
+    return this.configuracion.eliminarObjetivoDePeriodo(id, tipo);
   }
 
   @Put('configuracion/captacion/:valor')

@@ -8,6 +8,7 @@ import {
   TarifaRA,
   TarifaServicio,
   CanalVenta,
+  TipoVendedora,
 } from '@prisma/client';
 
 import { PrismaService } from '../../prisma/prisma.service';
@@ -69,7 +70,9 @@ export class ConfiguracionComisionesService {
         this.prisma.tarifaServicio.count(),
         this.prisma.nivelCirugia.count(),
         this.prisma.tarifaRA.count(),
-        this.prisma.objetivoComision.count(),
+        // Solo las metas POR DEFECTO: si existieran únicamente las de algún mes,
+        // seguirían faltando las base y hay que sembrarlas igual.
+        this.prisma.objetivoComision.count({ where: { periodoId: null } }),
         this.prisma.parametroComision.count(),
         this.prisma.reglaClasificacion.count(),
         this.prisma.mapeoCaptacion.count(),
@@ -142,6 +145,57 @@ export class ConfiguracionComisionesService {
       parametros: new Map(parametros.map(p => [p.clave, Number(p.valor)])),
       mapeosCaptacion: new Map(captacion.map(m => [m.valor, m.canal])),
     };
+  }
+
+  /**
+   * Metas que rigen para un periodo: las propias del mes si administración las
+   * definió, y si no las de por defecto. Es lo que consume el motor de cálculo.
+   *
+   * Se resuelve aquí y no en el cálculo para que exista un solo lugar donde se
+   * decide qué meta manda: si mañana se agrega una tercera capa (por vendedora,
+   * por ejemplo), el motor no se entera.
+   */
+  async objetivosParaPeriodo(periodoId: string): Promise<ObjetivoComision[]> {
+    const filas = await this.prisma.objetivoComision.findMany({
+      where: { OR: [{ periodoId: null }, { periodoId }] },
+    });
+
+    const porTipo = new Map<TipoVendedora, ObjetivoComision>();
+    for (const fila of filas) {
+      // El del periodo pisa al de por defecto, llegue en el orden que llegue.
+      if (fila.periodoId !== null || !porTipo.has(fila.tipo)) {
+        porTipo.set(fila.tipo, fila);
+      }
+    }
+    return [...porTipo.values()];
+  }
+
+  /** Define o cambia las metas propias de un mes. */
+  async guardarObjetivoDePeriodo(
+    periodoId: string,
+    tipo: TipoVendedora,
+    dto: ActualizarObjetivoDto,
+  ): Promise<ObjetivoComision> {
+    await this.exigirExistencia(
+      this.prisma.periodoComision.count({ where: { id: periodoId } }),
+      `Periodo ${periodoId}`,
+    );
+    return this.prisma.objetivoComision.upsert({
+      where: { tipo_periodoId: { tipo, periodoId } },
+      create: { tipo, periodoId, ...dto },
+      update: dto,
+    });
+  }
+
+  /** Quita las metas propias del mes: vuelve a regir la de por defecto. */
+  async eliminarObjetivoDePeriodo(periodoId: string, tipo: TipoVendedora) {
+    await this.exigirExistencia(
+      this.prisma.objetivoComision.count({ where: { periodoId, tipo } }),
+      `Meta ${tipo} del periodo`,
+    );
+    return this.prisma.objetivoComision.delete({
+      where: { tipo_periodoId: { tipo, periodoId } },
+    });
   }
 
   /** Alta o cambio de un valor de captación (el `valor` es la clave primaria). */

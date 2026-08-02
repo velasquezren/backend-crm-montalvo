@@ -441,6 +441,7 @@ model PeriodoComision {
 
   ventas     VentaImportada[]
   resultados ResultadoComision[]
+  objetivos  ObjetivoComision[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -598,9 +599,20 @@ model TarifaRA {
 }
 
 /// Objetivos mínimos por tipo de vendedora (gatillan la comisión Tipo A y los bonos).
+/// Metas del equipo comercial. Hay dos capas:
+///  · `periodoId = null` → metas POR DEFECTO, las que rigen mientras nadie diga otra cosa.
+///  · `periodoId = X`    → metas propias de ese mes, que pisan a las de por defecto.
+///
+/// Se modela así y no como un único valor global porque administración sube o
+/// baja las metas según la temporada, y una planilla ya liquidada tiene que
+/// seguir mostrando con qué meta se calculó. Cambiar la meta de marzo no puede
+/// reescribir lo que se pagó en febrero.
 model ObjetivoComision {
   id   String        @id @default(uuid())
-  tipo TipoVendedora @unique
+  tipo TipoVendedora
+
+  periodo   PeriodoComision? @relation(fields: [periodoId], references: [id], onDelete: Cascade)
+  periodoId String?
 
   /// Paquetes/planes de maternidad (PLANPAQ) que hay que SUPERAR para que
   /// empiecen a comisionar. Son dos objetivos distintos y no uno solo: la
@@ -610,6 +622,12 @@ model ObjetivoComision {
   planninMinimos     Int     @default(1)
   montoMensualUsd    Decimal @db.Decimal(12, 2)
   montoTrimestralUsd Decimal @db.Decimal(12, 2)
+
+  /// Un solo juego de metas por tipo y periodo. Ojo: en Postgres los NULL son
+  /// distintos entre sí, así que este único NO impide dos filas por defecto del
+  /// mismo tipo — eso lo cubre un índice parcial creado en la migración.
+  @@unique([tipo, periodoId])
+  @@index([periodoId])
 }
 
 /// Constantes del cálculo (IVA, factores de bono…), editables sin migración.

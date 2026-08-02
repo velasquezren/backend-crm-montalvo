@@ -76,6 +76,9 @@ export class CalculoComisionesService {
     }
 
     const config = await this.configuracion.cargarConfiguracion();
+    // Las metas pueden ser propias de este mes; si no lo son, rigen las de por
+    // defecto. Se resuelve antes de liquidar para que toda la pasada use las mismas.
+    config.objetivos = await this.configuracion.objetivosParaPeriodo(periodoId);
     const tipoCambio = Number(periodo.tipoCambio) || 1;
 
     const [filasCrudas, vendedoras] = await Promise.all([
