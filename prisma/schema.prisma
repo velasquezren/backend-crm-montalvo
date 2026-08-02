@@ -619,6 +619,19 @@ model ParametroComision {
   descripcion String? @db.VarChar(300)
 }
 
+/// Qué valor de la columna `captacion` del Excel cuenta como venta propia.
+///
+/// Es la diferencia entre cobrar 4,5% y 5,5% (o 1% y 2% en planes), así que no
+/// puede vivir hardcodeado: administración cambia los canales sin avisar y hoy
+/// el criterio no es obvio — en la planilla, una venta llegada por **Facebook
+/// cuenta como EMPRESA**, no como propia. Lo que no esté en esta tabla se trata
+/// como EMPRESA, que es la opción conservadora (paga menos).
+model MapeoCaptacion {
+  /// Valor tal como llega en el Excel, ya normalizado (mayúsculas, sin tildes).
+  valor String     @id @db.VarChar(60)
+  canal CanalVenta
+}
+
 /// Liquidación final de una vendedora en un periodo.
 model ResultadoComision {
   id          String            @id @default(uuid())

@@ -17,6 +17,7 @@ import {
   NivelPlan,
   TipoVendedora,
   UnidadNegocio,
+  CanalVenta,
 } from '@prisma/client';
 
 /** Los porcentajes se manejan como número entero/decimal de porcentaje: 4.5 = 4,5%. */
@@ -167,4 +168,13 @@ export class ActualizarVendedoraDto {
   @IsBoolean()
   configurada?: boolean;
 
+}
+
+/**
+ * Alta o cambio de un valor de captación. `valor` viaja normalizado (mayúsculas,
+ * sin tildes) porque así es como el clasificador compara contra el Excel.
+ */
+export class GuardarMapeoCaptacionDto {
+  @IsEnum(CanalVenta)
+  canal!: CanalVenta;
 }

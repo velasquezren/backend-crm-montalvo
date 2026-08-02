@@ -60,9 +60,10 @@ export class PlanillaComisionesService {
       );
     }
 
-    const [reglas, iva] = await Promise.all([
+    const [reglas, iva, mapeosCaptacion] = await Promise.all([
       this.configuracion.cargarReglas(),
       this.configuracion.obtenerIva(),
+      this.configuracion.cargarMapeosCaptacion(),
     ]);
 
     // Ajustes manuales previos, para no perderlos al reimportar el mes.
@@ -102,7 +103,7 @@ export class PlanillaComisionesService {
     const lote: Prisma.VentaImportadaCreateManyInput[] = [];
 
     for (const fila of filas) {
-      const resultado = clasificarFila(fila, reglas, iva);
+      const resultado = clasificarFila(fila, reglas, iva, mapeosCaptacion);
       if (resultado.requiereRevision) sinClasificar++;
       if (resultado.comisionable) filasValidas++;
 

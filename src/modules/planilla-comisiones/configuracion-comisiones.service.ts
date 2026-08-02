@@ -7,9 +7,11 @@ import {
   TarifaPlan,
   TarifaRA,
   TarifaServicio,
+  CanalVenta,
 } from '@prisma/client';
 
 import { PrismaService } from '../../prisma/prisma.service';
+import { CAPTACION_POR_DEFECTO, normalizar } from './clasificador';
 import { ReglaDiccionario } from './clasificador';
 import {
   NIVELES_CIRUGIA_POR_DEFECTO,
@@ -39,6 +41,8 @@ export interface ConfiguracionCompleta {
   tarifasRA: TarifaRA[];
   objetivos: ObjetivoComision[];
   parametros: Map<string, number>;
+  /** Valor de `captacion` del Excel → canal. Editable por administración. */
+  mapeosCaptacion: Map<string, CanalVenta>;
 }
 
 /**
@@ -59,7 +63,7 @@ export class ConfiguracionComisionesService {
    * importación, así una instalación nueva queda operativa sin pasos manuales.
    */
   async asegurarConfiguracion(): Promise<void> {
-    const [tarifasPlan, tarifasServicio, niveles, tarifasRA, objetivos, parametros, reglas] =
+    const [tarifasPlan, tarifasServicio, niveles, tarifasRA, objetivos, parametros, reglas, captacion] =
       await this.prisma.$transaction([
         this.prisma.tarifaPlan.count(),
         this.prisma.tarifaServicio.count(),
@@ -68,6 +72,7 @@ export class ConfiguracionComisionesService {
         this.prisma.objetivoComision.count(),
         this.prisma.parametroComision.count(),
         this.prisma.reglaClasificacion.count(),
+        this.prisma.mapeoCaptacion.count(),
       ]);
 
     const pendientes: Promise<unknown>[] = [];
@@ -98,6 +103,11 @@ export class ConfiguracionComisionesService {
         this.prisma.parametroComision.createMany({ data: [...PARAMETROS_POR_DEFECTO] }),
       );
     }
+    if (captacion === 0) {
+      pendientes.push(
+        this.prisma.mapeoCaptacion.createMany({ data: [...CAPTACION_POR_DEFECTO] }),
+      );
+    }
     if (reglas === 0) {
       pendientes.push(
         this.prisma.reglaClasificacion.createMany({ data: [...REGLAS_POR_DEFECTO] }),
@@ -112,7 +122,7 @@ export class ConfiguracionComisionesService {
 
   /** Lee de una sola vez todo lo que el motor de cálculo necesita. */
   async cargarConfiguracion(): Promise<ConfiguracionCompleta> {
-    const [tarifasPlan, tarifasServicio, nivelesCirugia, tarifasRA, objetivos, parametros] =
+    const [tarifasPlan, tarifasServicio, nivelesCirugia, tarifasRA, objetivos, parametros, captacion] =
       await this.prisma.$transaction([
         this.prisma.tarifaPlan.findMany(),
         this.prisma.tarifaServicio.findMany(),
@@ -120,6 +130,7 @@ export class ConfiguracionComisionesService {
         this.prisma.tarifaRA.findMany(),
         this.prisma.objetivoComision.findMany(),
         this.prisma.parametroComision.findMany(),
+        this.prisma.mapeoCaptacion.findMany(),
       ]);
 
     return {
@@ -129,7 +140,40 @@ export class ConfiguracionComisionesService {
       tarifasRA,
       objetivos,
       parametros: new Map(parametros.map(p => [p.clave, Number(p.valor)])),
+      mapeosCaptacion: new Map(captacion.map(m => [m.valor, m.canal])),
     };
+  }
+
+  /** Alta o cambio de un valor de captación (el `valor` es la clave primaria). */
+  async guardarMapeoCaptacion(valor: string, canal: CanalVenta) {
+    const clave = normalizar(valor);
+    if (!clave) {
+      throw new NotFoundException('El valor de captación no puede ir vacío');
+    }
+    return this.prisma.mapeoCaptacion.upsert({
+      where: { valor: clave },
+      create: { valor: clave, canal },
+      update: { canal },
+    });
+  }
+
+  /** Quitar un valor lo devuelve al comportamiento por defecto: EMPRESA. */
+  async eliminarMapeoCaptacion(valor: string) {
+    await this.exigirExistencia(
+      this.prisma.mapeoCaptacion.count({ where: { valor } }),
+      `Captación ${valor}`,
+    );
+    return this.prisma.mapeoCaptacion.delete({ where: { valor } });
+  }
+
+  /**
+   * Mapeo `captacion` → canal, para el importador. Se lee aparte de
+   * `cargarConfiguracion()` porque la importación no necesita tarifas ni
+   * objetivos: solo clasificar filas.
+   */
+  async cargarMapeosCaptacion(): Promise<Map<string, CanalVenta>> {
+    const mapeos = await this.prisma.mapeoCaptacion.findMany();
+    return new Map(mapeos.map(m => [m.valor, m.canal]));
   }
 
   /** Diccionario activo, en el formato que espera el clasificador. */
@@ -174,6 +218,9 @@ export class ConfiguracionComisionesService {
       tarifasRA: config.tarifasRA,
       objetivos: config.objetivos,
       parametros: Array.from(config.parametros, ([clave, valor]) => ({ clave, valor })),
+      captacion: Array.from(config.mapeosCaptacion, ([valor, canal]) => ({ valor, canal })).sort(
+        (a, b) => a.valor.localeCompare(b.valor),
+      ),
       reglas,
     };
   }

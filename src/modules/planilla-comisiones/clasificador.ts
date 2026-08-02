@@ -131,16 +131,38 @@ export function redondear(valor: number): number {
 }
 
 /**
- * PASO 1 — Canal de venta.
- * `Clinica` (y el vacío, por defecto) son contactos generados con recursos de
- * la empresa; `Redes` y `Propio` los genera la propia vendedora.
+ * Mapeo inicial de `captacion` → canal. Se siembra en `MapeoCaptacion` la
+ * primera vez y a partir de ahí manda la base: administración lo edita.
+ *
+ * `FACEBOOK` va a EMPRESA a propósito, no por descuido: en la planilla de la
+ * clínica una venta llegada por Facebook cobra la tarifa de empresa (un plan
+ * Gold por Facebook pagó 3%, que es la tasa empresa, no el 5% de propio).
  */
-export function determinarCanal(captacion: string | null): CanalVenta {
+export const CAPTACION_POR_DEFECTO: ReadonlyArray<{ valor: string; canal: CanalVenta }> = [
+  { valor: 'PROPIO', canal: CanalVenta.PROPIO },
+  { valor: 'REDES', canal: CanalVenta.PROPIO },
+  { valor: 'CLINICA', canal: CanalVenta.EMPRESA },
+  { valor: 'FACEBOOK', canal: CanalVenta.EMPRESA },
+  { valor: 'INSTAGRAM', canal: CanalVenta.EMPRESA },
+];
+
+const CAPTACION_FALLBACK: ReadonlyMap<string, CanalVenta> = new Map(
+  CAPTACION_POR_DEFECTO.map(m => [m.valor, m.canal]),
+);
+
+/**
+ * PASO 1 — Canal de venta.
+ * Lo desconocido cae en EMPRESA, que es la tarifa más baja: si aparece un canal
+ * nuevo, el sistema paga de menos y administración lo corrige, en vez de pagar
+ * de más y tener que recuperarlo.
+ */
+export function determinarCanal(
+  captacion: string | null,
+  mapeos: ReadonlyMap<string, CanalVenta> = CAPTACION_FALLBACK,
+): CanalVenta {
   const valor = normalizar(captacion);
-  if (valor === 'REDES' || valor === 'PROPIO') {
-    return CanalVenta.PROPIO;
-  }
-  return CanalVenta.EMPRESA;
+  if (!valor) return CanalVenta.EMPRESA;
+  return mapeos.get(valor) ?? CanalVenta.EMPRESA;
 }
 
 /**
@@ -295,8 +317,9 @@ export function clasificarFila(
   fila: FilaExcel,
   reglas: readonly ReglaDiccionario[] = [],
   iva: number = IVA_POR_DEFECTO,
+  mapeosCaptacion?: ReadonlyMap<string, CanalVenta>,
 ): ResultadoClasificacion {
-  const canal = determinarCanal(fila.captacion);
+  const canal = determinarCanal(fila.captacion, mapeosCaptacion);
   const ingresoNeto = calcularIngresoNeto(fila.precio, fila.anticipoPlan, iva);
 
   const regla = buscarRegla(fila, reglas);

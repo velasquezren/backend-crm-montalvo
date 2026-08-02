@@ -3,6 +3,7 @@ import {
   Body,
   Controller,
   Delete,
+  Put,
   Get,
   Param,
   Patch,
@@ -26,6 +27,7 @@ import { ExportacionComisionesService } from './exportacion-comisiones.service';
 import {
   ActualizarNivelCirugiaDto,
   ActualizarObjetivoDto,
+  GuardarMapeoCaptacionDto,
   ActualizarParametroDto,
   ActualizarTarifaPlanDto,
   ActualizarTarifaRaDto,
@@ -255,6 +257,16 @@ export class PlanillaComisionesController {
   @Patch('configuracion/tarifas-ra/:id')
   actualizarTarifaRa(@Param('id') id: string, @Body() dto: ActualizarTarifaRaDto) {
     return this.configuracion.actualizarTarifaRa(id, dto);
+  }
+
+  @Put('configuracion/captacion/:valor')
+  guardarCaptacion(@Param('valor') valor: string, @Body() dto: GuardarMapeoCaptacionDto) {
+    return this.configuracion.guardarMapeoCaptacion(valor, dto.canal);
+  }
+
+  @Delete('configuracion/captacion/:valor')
+  eliminarCaptacion(@Param('valor') valor: string) {
+    return this.configuracion.eliminarMapeoCaptacion(valor);
   }
 
   @Patch('configuracion/objetivos/:id')
