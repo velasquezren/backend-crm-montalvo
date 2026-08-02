@@ -72,8 +72,19 @@ describe('canal de venta (paso 1)', () => {
 });
 
 describe('base de cálculo (paso 2)', () => {
-  it('descuenta el 13% del precio de lista', () => {
-    expect(calcularIngresoNeto(3532.87, null)).toBe(3126.43);
+  // Valores tomados de "CALCULO COMISION DICIEMBRE 2024.xlsx". Son la prueba de
+  // que la clínica liquida con `precio × 0,87` y no con `precio ÷ 1,13`: si
+  // alguien vuelve a la división, estos dos casos fallan.
+  it('descuenta el 13% multiplicando por 0,87 — celda D15 de CALCULO BONOS COORD', () => {
+    expect(calcularIngresoNeto(27061.48, null)).toBe(23543.49);
+  });
+
+  it('mismo criterio en la hoja de ejecutivas — celda D6 de CALCULO BONOS', () => {
+    expect(calcularIngresoNeto(36285.54, null)).toBe(31568.42);
+  });
+
+  it('NO usa la división 1/1,13 (dejaría 88,50 en vez de 87,00 sobre 100)', () => {
+    expect(calcularIngresoNeto(100, null)).toBe(87);
   });
 
   it('cuando el plan tiene anticipo, ese monto manda y NO se le vuelve a quitar el IVA', () => {
@@ -81,7 +92,7 @@ describe('base de cálculo (paso 2)', () => {
   });
 
   it('un anticipo en cero no cuenta como anticipo', () => {
-    expect(calcularIngresoNeto(113, 0)).toBe(100);
+    expect(calcularIngresoNeto(113, 0)).toBe(98.31);
   });
 });
 

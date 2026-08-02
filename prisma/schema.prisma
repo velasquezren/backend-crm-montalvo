@@ -599,11 +599,17 @@ model TarifaRA {
 
 /// Objetivos mínimos por tipo de vendedora (gatillan la comisión Tipo A y los bonos).
 model ObjetivoComision {
-  id                 String        @id @default(uuid())
-  tipo               TipoVendedora @unique
-  planesMinimos      Int
-  montoMensualUsd    Decimal       @db.Decimal(12, 2)
-  montoTrimestralUsd Decimal       @db.Decimal(12, 2)
+  id   String        @id @default(uuid())
+  tipo TipoVendedora @unique
+
+  /// Paquetes/planes de maternidad (PLANPAQ) que hay que SUPERAR para que
+  /// empiecen a comisionar. Son dos objetivos distintos y no uno solo: la
+  /// planilla los lleva por separado (`PLANPAQTVENDEDORA`=4, `PLANNINVENDEDORA`=1).
+  planpaqMinimos     Int
+  /// Planes varios / niño sano (PLANNIN). Objetivo propio, casi siempre 1.
+  planninMinimos     Int     @default(1)
+  montoMensualUsd    Decimal @db.Decimal(12, 2)
+  montoTrimestralUsd Decimal @db.Decimal(12, 2)
 }
 
 /// Constantes del cálculo (IVA, factores de bono…), editables sin migración.
@@ -624,15 +630,30 @@ model ResultadoComision {
   montoVendido         Decimal @default(0) @db.Decimal(14, 2)
   baseCalculo          Decimal @default(0) @db.Decimal(14, 2)
   planesVendidos       Int     @default(0)
+  /// true = generó comisión Tipo A, es decir superó alguno de los dos objetivos.
   cumpleObjetivoPlanes Boolean @default(false)
   acumuladoCirugias    Decimal @default(0) @db.Decimal(14, 2)
   nivelCirugia         Int?
+
+  // Desglose del Tipo A. Solo comisionan los planes que SUPERAN el objetivo,
+  // así que hace falta guardar cuántos se vendieron y cuántos comisionaron:
+  // sin esto no se puede explicar a una vendedora por qué cobró lo que cobró.
+  planpaqVendidos      Int @default(0)
+  planpaqComisionables Int @default(0)
+  planninVendidos      Int @default(0)
+  planninComisionables Int @default(0)
 
   // Comisiones y bonos, todo en USD.
   comisionA      Decimal @default(0) @db.Decimal(12, 2)
   comisionB      Decimal @default(0) @db.Decimal(12, 2)
   comisionC      Decimal @default(0) @db.Decimal(12, 2)
+  /// Bono de jefatura. En la planilla real SIEMPRE va en cero: el pote que
+  /// genera se reparte entre publicidad (ver `bonoPublicidad`). Se conserva la
+  /// columna porque la planilla la muestra y porque administración podría
+  /// decidir pagarlo a la jefa en el futuro.
   bonoJefatura   Decimal @default(0) @db.Decimal(12, 2)
+  /// Parte del pote de jefatura que le toca a cada persona del área PUBLICIDAD.
+  bonoPublicidad Decimal @default(0) @db.Decimal(12, 2)
   bonoTrimestral Decimal @default(0) @db.Decimal(12, 2)
   totalUsd       Decimal @default(0) @db.Decimal(12, 2)
 

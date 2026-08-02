@@ -147,6 +147,18 @@ export function determinarCanal(captacion: string | null): CanalVenta {
  * PASO 2 — Base de cálculo.
  * Si el plan tiene anticipo, ese monto manda y **ya viene sin impuestos**
  * (caso borde 6); si no, se descuenta el IVA del precio de lista.
+ *
+ * El descuento es `precio × (1 − iva)`, **no** `precio ÷ (1 + iva)`. No es lo
+ * mismo: sobre 100 el primero deja 87,00 y el segundo 88,50. La planilla de la
+ * clínica usa el primero — verificado celda por celda contra
+ * "CALCULO COMISION DICIEMBRE 2024.xlsx":
+ *
+ *   27.061,48 × 0,87 = 23.543,4876   (CALCULO BONOS COORD, D15)
+ *   36.285,54 × 0,87 = 31.568,4198   (CALCULO BONOS, D6)
+ *
+ * Contablemente `÷ 1,13` sería lo correcto para extraer el neto de un precio
+ * que YA incluye impuesto, pero aquí manda cómo liquida administración: si un
+ * día cambian de criterio, se cambia acá y en el parámetro IVA, no fila por fila.
  */
 export function calcularIngresoNeto(
   precio: number,
@@ -156,7 +168,7 @@ export function calcularIngresoNeto(
   if (anticipoPlan !== null && anticipoPlan > 0) {
     return redondear(anticipoPlan);
   }
-  return redondear(precio / (1 + iva));
+  return redondear(precio * (1 - iva));
 }
 
 /** Busca en el diccionario la primera regla (por prioridad) que cruce con la fila. */

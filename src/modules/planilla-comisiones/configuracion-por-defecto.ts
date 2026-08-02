@@ -98,15 +98,25 @@ export const TARIFAS_RA_POR_DEFECTO: ReadonlyArray<{
   { procedimiento: 'NA (Rejuvenecimiento, Curetaje, etc.)', montoEmpresa: 0, montoPropio: 0, esPorcentaje: false },
 ];
 
-/** Objetivos mínimos: gatillan la comisión Tipo A y los bonos. */
+/**
+ * Objetivos mínimos. Ojo con la semántica: **hay que superarlos, no igualarlos**.
+ * Solo los planes por encima del objetivo comisionan (ver `liquidarVendedora`).
+ * En diciembre 2024 una vendedora hizo exactamente 4 PLANPAQ con objetivo 4 y
+ * cobró cero por Tipo A.
+ *
+ * Son objetivos separados por tipo de plan (`PLANPAQTVENDEDORA`, `PLANNINVENDEDORA`
+ * en la hoja "Hoja1 (2)" de la planilla). El objetivo de monto es el que gatilla
+ * el bono de jefatura, y es independiente de los de cantidad.
+ */
 export const OBJETIVOS_POR_DEFECTO: ReadonlyArray<{
   tipo: TipoVendedora;
-  planesMinimos: number;
+  planpaqMinimos: number;
+  planninMinimos: number;
   montoMensualUsd: number;
   montoTrimestralUsd: number;
 }> = [
-  { tipo: TipoVendedora.VENDEDORA, planesMinimos: 4, montoMensualUsd: 12000, montoTrimestralUsd: 15000 },
-  { tipo: TipoVendedora.JEFA, planesMinimos: 6, montoMensualUsd: 15000, montoTrimestralUsd: 15000 },
+  { tipo: TipoVendedora.VENDEDORA, planpaqMinimos: 4, planninMinimos: 1, montoMensualUsd: 12000, montoTrimestralUsd: 15000 },
+  { tipo: TipoVendedora.JEFA, planpaqMinimos: 6, planninMinimos: 1, montoMensualUsd: 15000, montoTrimestralUsd: 15000 },
 ];
 
 /**

@@ -158,16 +158,45 @@ export class CalculoComisionesService {
     tipoCambio: number,
   ) {
     const objetivo = config.objetivos.find(o => o.tipo === vendedora.tipo);
-    const planesMinimos = objetivo?.planesMinimos ?? 0;
 
     const montoVendido = filas.reduce((s, f) => s + f.precio, 0);
     const baseCalculo = filas.reduce((s, f) => s + f.ingresoNeto, 0);
 
-    // Objetivo Tipo A: cantidad de planes y paquetes vendidos en el mes.
-    const planesVendidos = filas.filter(
-      f => f.clasif === ClasifComision.PLANPAQ || f.clasif === ClasifComision.PLANNIN,
-    ).length;
-    const cumpleObjetivoPlanes = planesVendidos >= planesMinimos;
+    /*
+     * Objetivo Tipo A — el objetivo no es un interruptor, es una franquicia.
+     * Solo comisionan los planes que lo SUPERAN: con 5 paquetes y objetivo 4,
+     * comisiona 1, no los 5. E igualar el objetivo paga cero (en diciembre 2024
+     * una vendedora hizo 4 de 4 y no cobró Tipo A).
+     *
+     * Son dos objetivos independientes, uno por tipo de plan.
+     */
+    const planpaqVendidos = filas.filter(f => f.clasif === ClasifComision.PLANPAQ).length;
+    const planninVendidos = filas.filter(f => f.clasif === ClasifComision.PLANNIN).length;
+    const planpaqComisionables = Math.max(0, planpaqVendidos - (objetivo?.planpaqMinimos ?? 0));
+    const planninComisionables = Math.max(0, planninVendidos - (objetivo?.planninMinimos ?? 0));
+
+    const planesVendidos = planpaqVendidos + planninVendidos;
+    const cumpleObjetivoPlanes = planpaqComisionables > 0 || planninComisionables > 0;
+
+    /*
+     * Qué parte de la base de un grupo llega a comisionar. Los planes de una
+     * misma clasificación se reparten en varios grupos (por nivel y por canal),
+     * así que el excedente se prorratea entre ellos en proporción a la cantidad.
+     *
+     * PENDIENTE DE ADMINISTRACIÓN: la planilla no dice QUÉ planes concretos son
+     * los que comisionan cuando alguien supera el objetivo (¿los más caros?,
+     * ¿los últimos del mes?). El prorrateo es la interpretación neutral y
+     * reproduce exacto el caso de PLANNIN de diciembre 2024
+     * (2 vendidos, objetivo 1, base 1747,48 → (1747,48/2) × 1 × 3% = 26,21).
+     * Con planes de distinto nivel el total puede diferir de la planilla: si
+     * administración define la regla, se cambia solo esta función.
+     */
+    const fraccionComisionable = (clasif: ClasifComision): number => {
+      if (clasif === ClasifComision.PLANPAQ) {
+        return planpaqVendidos > 0 ? planpaqComisionables / planpaqVendidos : 0;
+      }
+      return planninVendidos > 0 ? planninComisionables / planninVendidos : 0;
+    };
 
     // Nivel Tipo B: se fija con el acumulado de cirugías de TODO el mes.
     const acumuladoCirugias = filas
@@ -195,10 +224,10 @@ export class CalculoComisionesService {
 
       if (primera.clasif === ClasifComision.PLANPAQ || primera.clasif === ClasifComision.PLANNIN) {
         tipo = 'A';
-        porcentaje = cumpleObjetivoPlanes
-          ? this.porcentajeTipoA(primera, config)
-          : 0; // no cumplió el objetivo de planes → no comisiona Tipo A
-        comisionBob = (baseGrupo * porcentaje) / 100;
+        porcentaje = this.porcentajeTipoA(primera, config);
+        // La tarifa es la de la tabla; lo que se acota es la BASE, porque solo
+        // comisionan los planes por encima del objetivo.
+        comisionBob = (baseGrupo * fraccionComisionable(primera.clasif) * porcentaje) / 100;
         comisionUsd = comisionBob / tipoCambio;
         comisionA += comisionUsd;
       } else if (primera.clasif === ClasifComision.CIRUGIA) {
@@ -250,12 +279,17 @@ export class CalculoComisionesService {
         baseCalculo: redondear(baseCalculo),
         planesVendidos,
         cumpleObjetivoPlanes,
+        planpaqVendidos,
+        planpaqComisionables,
+        planninVendidos,
+        planninComisionables,
         acumuladoCirugias: redondear(acumuladoCirugias),
         nivelCirugia,
         comisionA: redondear(comisionA),
         comisionB: redondear(comisionB),
         comisionC: redondear(comisionC),
         bonoJefatura: 0,
+        bonoPublicidad: 0,
         bonoTrimestral: 0,
         totalUsd: redondear(comisionA + comisionB + comisionC),
         totalBob: redondear((comisionA + comisionB + comisionC) * tipoCambio),
@@ -370,40 +404,48 @@ export class CalculoComisionesService {
     const factorTrimestral = config.parametros.get(PARAM.FACTOR_BONO_TRIMESTRAL) ?? 0.005;
     const mesesTrimestre = Math.max(1, config.parametros.get(PARAM.MESES_BONO_TRIMESTRAL) ?? 3);
 
-    // Monto vendido de todo el equipo, en USD.
-    const vendidoEquipoUsd = resultados.reduce((s, r) => s + r.registro.montoVendido, 0) / tipoCambio;
-
-    let bonoJefaturaTotal = 0;
+    /*
+     * Pote de jefatura. Contra lo que sugiere el nombre, no lo cobra la jefa:
+     * es una bolsa que genera el equipo comercial y que termina íntegra en el
+     * área de publicidad. En la planilla de diciembre 2024 la columna
+     * "BONO A PAGAR" de TODAS las vendedoras —incluidas las dos jefas, Viviana
+     * y Maricela— está en cero, y el total aparece repartido en partes iguales
+     * entre las tres personas de publicidad.
+     *
+     * Cada vendedora aporta al pote `su ingreso neto × factor`, y solo si ella
+     * superó SU propio objetivo de monto (la jefa 15.000, las vendedoras
+     * 12.000). No es el excedente sobre el objetivo: es el neto completo.
+     *
+     *   Viviana  31.568,42 × 0,2% = 63,14
+     *   Zuany    14.005,37 × 0,2% = 28,01
+     *   Claudia  13.015,66 × 0,2% = 26,03   (Yelca no llegó a 12.000 → 0)
+     *   pote = 117,18 → 39,06 para cada una de las 3 de publicidad
+     */
+    let pote = 0;
 
     for (const resultado of resultados) {
-      const { vendedora } = resultado;
+      const { vendedora, registro } = resultado;
       const objetivo = config.objetivos.find(o => o.tipo === vendedora.tipo);
       if (!objetivo) continue;
 
-      /* Bono mensual de jefatura: solo la jefa, y solo si el equipo superó el objetivo. */
-      if (vendedora.tipo === TipoVendedora.JEFA) {
-        const objetivoUsd = Number(objetivo.montoMensualUsd);
-        if (vendidoEquipoUsd > objetivoUsd) {
-          const bono = (vendidoEquipoUsd - objetivoUsd) * factorJefatura;
-          resultado.registro.bonoJefatura = redondear(bono);
-          bonoJefaturaTotal += bono;
-        }
+      const vendidoUsd = registro.montoVendido / tipoCambio;
+      if (vendidoUsd > Number(objetivo.montoMensualUsd)) {
+        pote += (registro.baseCalculo / tipoCambio) * factorJefatura;
       }
 
       /* Bono trimestral: promedio de ventas de los últimos meses, en USD. */
       const promedioUsd = await this.promedioVentasUsd(vendedora.id, anio, mes, mesesTrimestre);
-      const objetivoTrimestral = Number(objetivo.montoTrimestralUsd);
-      if (promedioUsd > objetivoTrimestral) {
-        resultado.registro.bonoTrimestral = redondear(promedioUsd * factorTrimestral);
+      if (promedioUsd > Number(objetivo.montoTrimestralUsd)) {
+        registro.bonoTrimestral = redondear(promedioUsd * factorTrimestral);
       }
     }
 
-    /* Bono de publicidad: reparto equitativo del bono de jefatura. */
+    /* El pote completo va a publicidad, en partes iguales. */
     const publicidad = resultados.filter(r => r.vendedora.area === AreaVendedora.PUBLICIDAD);
-    if (publicidad.length > 0 && bonoJefaturaTotal > 0) {
-      const porPersona = redondear(bonoJefaturaTotal / publicidad.length);
-      for (const resultado of publicidad) {
-        resultado.registro.bonoJefatura = porPersona;
+    if (publicidad.length > 0 && pote > 0) {
+      const porPersona = redondear(pote / publicidad.length);
+      for (const { registro } of publicidad) {
+        registro.bonoPublicidad = porPersona;
       }
     }
 
@@ -414,6 +456,7 @@ export class CalculoComisionesService {
           registro.comisionB +
           registro.comisionC +
           registro.bonoJefatura +
+          registro.bonoPublicidad +
           registro.bonoTrimestral,
       );
       registro.totalBob = redondear(registro.totalUsd * tipoCambio);
@@ -483,7 +526,11 @@ export class CalculoComisionesService {
         comisionA: acc.comisionA + Number(r.comisionA),
         comisionB: acc.comisionB + Number(r.comisionB),
         comisionC: acc.comisionC + Number(r.comisionC),
-        bonos: acc.bonos + Number(r.bonoJefatura) + Number(r.bonoTrimestral),
+        bonos:
+          acc.bonos +
+          Number(r.bonoJefatura) +
+          Number(r.bonoPublicidad) +
+          Number(r.bonoTrimestral),
         totalUsd: acc.totalUsd + Number(r.totalUsd),
         totalBob: acc.totalBob + Number(r.totalBob),
         totalGanado: acc.totalGanado + Number(r.totalGanado),
@@ -519,6 +566,7 @@ export class CalculoComisionesService {
         comisionB: Number(r.comisionB),
         comisionC: Number(r.comisionC),
         bonoJefatura: Number(r.bonoJefatura),
+        bonoPublicidad: Number(r.bonoPublicidad),
         bonoTrimestral: Number(r.bonoTrimestral),
         totalUsd: Number(r.totalUsd),
         totalBob: Number(r.totalBob),
@@ -561,6 +609,7 @@ export class CalculoComisionesService {
         comisionB: Number(resultado.comisionB),
         comisionC: Number(resultado.comisionC),
         bonoJefatura: Number(resultado.bonoJefatura),
+        bonoPublicidad: Number(resultado.bonoPublicidad),
         bonoTrimestral: Number(resultado.bonoTrimestral),
         totalUsd: Number(resultado.totalUsd),
         totalBob: Number(resultado.totalBob),
@@ -585,6 +634,7 @@ export class CalculoComisionesService {
         comisionTipoBUsd: f.comisionB,
         comisionTipoCUsd: f.comisionC,
         bonoJefaturaUsd: f.bonoJefatura,
+        bonoPublicidadUsd: f.bonoPublicidad,
         bonoTrimestralUsd: f.bonoTrimestral,
         totalComisionUsd: f.totalUsd,
         totalComisionBob: f.totalBob,
@@ -608,8 +658,9 @@ export class CalculoComisionesService {
         planesVendidos: f.planesVendidos,
         cumpleObjetivoPlanes: f.cumpleObjetivoPlanes,
         bonoJefatura: f.bonoJefatura,
+        bonoPublicidad: f.bonoPublicidad,
         bonoTrimestral: f.bonoTrimestral,
-        totalBonos: redondear(f.bonoJefatura + f.bonoTrimestral),
+        totalBonos: redondear(f.bonoJefatura + f.bonoPublicidad + f.bonoTrimestral),
       })),
     };
   }

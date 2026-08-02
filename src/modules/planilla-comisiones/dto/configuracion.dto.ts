@@ -72,9 +72,15 @@ export class ActualizarTarifaRaDto {
 }
 
 export class ActualizarObjetivoDto {
+  /** Paquetes de maternidad a superar (no basta con igualar) para comisionar Tipo A. */
   @IsInt()
   @Min(0)
-  planesMinimos!: number;
+  planpaqMinimos!: number;
+
+  /** Planes varios / niño sano. Objetivo independiente del anterior. */
+  @IsInt()
+  @Min(0)
+  planninMinimos!: number;
 
   @IsNumber()
   @Min(0)
