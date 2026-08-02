@@ -157,6 +157,15 @@ model Cliente {
   // `Cliente_saldoTotal_idx` es parcial (`WHERE "saldoTotal" > 0`) y el lenguaje de
   // Prisma no puede expresar un WHERE: vive solo en el SQL de la migración. Prisma
   // no lo ve y por eso tampoco intenta borrarlo.
+
+  // Búsqueda por texto. Un B-tree no sirve para `ILIKE '%texto%'` —el comodín
+  // inicial lo inutiliza— así que estos son GIN de trigramas. Sin ellos, cada
+  // tecleo en el buscador era un Seq Scan sobre 15.000+ filas (41 ms → 0,2 ms).
+  // Se declaran aquí, y no solo en el SQL, porque Prisma SÍ los ve: si faltaran,
+  // el próximo `migrate dev` generaría una migración borrándolos.
+  @@index([nombre(ops: raw("gin_trgm_ops"))], type: Gin, map: "Cliente_nombre_trgm_idx")
+  @@index([email(ops: raw("gin_trgm_ops"))], type: Gin, map: "Cliente_email_trgm_idx")
+  @@index([telefono(ops: raw("gin_trgm_ops"))], type: Gin, map: "Cliente_telefono_trgm_idx")
 }
 
 model Interes {
@@ -506,6 +515,10 @@ model VentaImportada {
   @@index([periodoId, clasif])
   @@index([periodoId, comisionable])
   @@index([periodoId, requiereRevision])
+
+  // Se buscan al revisar la clasificación de un mes; ver la nota de Cliente.
+  @@index([detalle(ops: raw("gin_trgm_ops"))], type: Gin, map: "VentaImportada_detalle_trgm_idx")
+  @@index([paciente(ops: raw("gin_trgm_ops"))], type: Gin, map: "VentaImportada_paciente_trgm_idx")
 }
 
 //
