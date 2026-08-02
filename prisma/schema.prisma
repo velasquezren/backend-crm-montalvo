@@ -658,39 +658,50 @@ model ResultadoComision {
   vendedora   VendedoraComision @relation(fields: [vendedoraId], references: [id])
   vendedoraId String
 
-  montoVendido         Decimal @default(0) @db.Decimal(14, 2)
-  baseCalculo          Decimal @default(0) @db.Decimal(14, 2)
+  // ── Lo vendido en el mes ─────────────────────────────────────────────
+  montoVendido Decimal @default(0) @db.Decimal(14, 2)
+  /// Monto sin impuestos: es sobre esto que se aplican los porcentajes.
+  baseCalculo  Decimal @default(0) @db.Decimal(14, 2)
+
+  // ── Tipo A · planes ──────────────────────────────────────────────────
+  // Solo comisionan los planes que SUPERAN el objetivo, así que se guardan
+  // los dos números: sin ellos no se le puede explicar a una vendedora por
+  // qué cobró lo que cobró.
+  planpaqVendidos      Int     @default(0)
+  planpaqComisionables Int     @default(0)
+  planninVendidos      Int     @default(0)
+  planninComisionables Int     @default(0)
+  /// Suma de los dos tipos de plan, para no recalcularla en cada reporte.
   planesVendidos       Int     @default(0)
   /// true = generó comisión Tipo A, es decir superó alguno de los dos objetivos.
   cumpleObjetivoPlanes Boolean @default(false)
-  acumuladoCirugias    Decimal @default(0) @db.Decimal(14, 2)
-  nivelCirugia         Int?
 
-  // Desglose del Tipo A. Solo comisionan los planes que SUPERAN el objetivo,
-  // así que hace falta guardar cuántos se vendieron y cuántos comisionaron:
-  // sin esto no se puede explicar a una vendedora por qué cobró lo que cobró.
-  planpaqVendidos      Int @default(0)
-  planpaqComisionables Int @default(0)
-  planninVendidos      Int @default(0)
-  planninComisionables Int @default(0)
+  // ── Tipo B · cirugías ────────────────────────────────────────────────
+  /// El nivel sale de este acumulado y luego se aplica a TODAS las cirugías.
+  acumuladoCirugias Decimal @default(0) @db.Decimal(14, 2)
+  nivelCirugia      Int?
 
-  // Comisiones y bonos, todo en USD.
-  comisionA      Decimal @default(0) @db.Decimal(12, 2)
-  comisionB      Decimal @default(0) @db.Decimal(12, 2)
-  comisionC      Decimal @default(0) @db.Decimal(12, 2)
-  /// Bono de jefatura. En la planilla real SIEMPRE va en cero: el pote que
-  /// genera se reparte entre publicidad (ver `bonoPublicidad`). Se conserva la
-  /// columna porque la planilla la muestra y porque administración podría
-  /// decidir pagarlo a la jefa en el futuro.
+  // ── Comisiones, en USD ───────────────────────────────────────────────
+  comisionA Decimal @default(0) @db.Decimal(12, 2)
+  comisionB Decimal @default(0) @db.Decimal(12, 2)
+  comisionC Decimal @default(0) @db.Decimal(12, 2)
+
+  // ── Bonos, en USD ────────────────────────────────────────────────────
+  /// En la planilla real SIEMPRE va en cero: el pote que genera el equipo se
+  /// reparte entre publicidad (ver `bonoPublicidad`). Se conserva la columna
+  /// porque la planilla la muestra y porque administración podría decidir
+  /// pagárselo a la jefa en el futuro.
   bonoJefatura   Decimal @default(0) @db.Decimal(12, 2)
   /// Parte del pote de jefatura que le toca a cada persona del área PUBLICIDAD.
   bonoPublicidad Decimal @default(0) @db.Decimal(12, 2)
   bonoTrimestral Decimal @default(0) @db.Decimal(12, 2)
-  totalUsd       Decimal @default(0) @db.Decimal(12, 2)
 
-  // Conversión a bolivianos con el TC del periodo.
+  // ── Totales ──────────────────────────────────────────────────────────
+  totalUsd    Decimal @default(0) @db.Decimal(12, 2)
+  /// `totalUsd` convertido con el TC del periodo.
   totalBob    Decimal @default(0) @db.Decimal(12, 2)
   sueldoBase  Decimal @default(0) @db.Decimal(12, 2)
+  /// Lo que la persona se lleva: comisiones y bonos en Bs, más su sueldo.
   totalGanado Decimal @default(0) @db.Decimal(12, 2)
 
   /// Desglose por clasificación y canal para el reporte por vendedora.
