@@ -147,6 +147,16 @@ model Cliente {
   @@index([email])
   @@index([agenteId])
   @@index([updatedAt])
+  // Índices de la ficha (creados en `20260801092107_ficha_paciente_columnas` y
+  // `20260801103453_cliente_datos_filemaker_restantes`). Se declaran aquí para que
+  // el schema refleje la base real: sin esto `migrate dev` los veía como sobrantes
+  // y generaba una migración que los BORRABA.
+  @@index([fechaNacimiento])
+  @@index([ocupacion])
+  @@index([visitasPrevias(sort: Desc)])
+  // `Cliente_saldoTotal_idx` es parcial (`WHERE "saldoTotal" > 0`) y el lenguaje de
+  // Prisma no puede expresar un WHERE: vive solo en el SQL de la migración. Prisma
+  // no lo ve y por eso tampoco intenta borrarlo.
 }
 
 model Interes {
