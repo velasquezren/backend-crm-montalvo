@@ -16,6 +16,7 @@ import { MemoriaAgenteModule } from './modules/memoria-agente/memoria-agente.mod
 import { PlanillaComisionesModule } from './modules/planilla-comisiones/planilla-comisiones.module';
 import { PlantillasAgenteModule } from './modules/plantillas-agente/plantillas-agente.module';
 import { UsuariosModule } from './modules/usuarios/usuarios.module';
+import { ServiciosModule } from './modules/servicios/servicios.module';
 import { VentasModule } from './modules/ventas/ventas.module';
 import { PrismaModule } from './prisma/prisma.module';
 
@@ -32,6 +33,7 @@ import { PrismaModule } from './prisma/prisma.module';
     ClientesModule,
     LeadsModule,
     ConversacionesModule,
+    ServiciosModule,
     VentasModule,
     ComisionesModule,
     KpisModule,
