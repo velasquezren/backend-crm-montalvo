@@ -69,7 +69,12 @@ export class PlanillaComisionesService {
     // Ajustes manuales previos, para no perderlos al reimportar el mes.
     const ajustesPrevios = existente ? await this.leerAjustesManuales(existente.id) : new Map();
 
-    const vendedoras = await this.sincronizarVendedoras(filas);
+    /* Vendedoras y médicos se registran en paralelo: son tablas distintas y
+       ninguna depende de la otra. */
+    const [vendedoras] = await Promise.all([
+      this.sincronizarVendedoras(filas),
+      this.sincronizarMedicos(filas),
+    ]);
 
     const periodo = await this.prisma.periodoComision.upsert({
       where: { anio_mes: { anio, mes } },
@@ -223,6 +228,58 @@ export class PlanillaComisionesService {
    * Quedan con `configurada = false` para que salgan en las alertas hasta que
    * administración les fije tipo, área y sueldo.
    */
+  /**
+   * Registra a quien atendió, tomándolo de `medico_pk`.
+   *
+   * Mismo criterio que las vendedoras y por la misma razón: FileMaker identifica
+   * a la PERSONA con ese código, así que es la única clave estable. El nombre no
+   * lo es — `Dr1946` llega como "Azogue Rivera Claudia María" y como
+   * "Claudia María Azogue Rivera" según el mes.
+   *
+   * Por eso el nombre se **actualiza** en cada importación y el código nunca: si
+   * corrigen la grafía en FileMaker, el CRM la adopta sin duplicar a la persona.
+   *
+   * No crea usuarios: atender pacientes y entrar al sistema son cosas distintas.
+   * Quedan con `configurado = false` hasta que administración los revise.
+   */
+  private async sincronizarMedicos(filas: readonly FilaExcel[]): Promise<void> {
+    const detectados = new Map<string, string>();
+    for (const fila of filas) {
+      const codigo = fila.medicoPk?.trim();
+      if (!codigo) continue;
+      const nombre = fila.medico?.trim();
+      // La última grafía del archivo gana: es la más reciente.
+      if (nombre) detectados.set(codigo, nombre);
+      else if (!detectados.has(codigo)) detectados.set(codigo, codigo);
+    }
+
+    if (detectados.size === 0) return;
+
+    await this.prisma.medico.createMany({
+      data: Array.from(detectados, ([codigo, nombre]) => ({ codigo, nombre: nombre.slice(0, 200) })),
+      skipDuplicates: true,
+    });
+
+    /* A los que ya existían se les refresca el nombre. Son decenas, no miles:
+       40 personas distintas en los tres meses de 2026. */
+    const existentes = await this.prisma.medico.findMany({
+      where: { codigo: { in: [...detectados.keys()] } },
+      select: { id: true, codigo: true, nombre: true },
+    });
+
+    const renombrados = existentes.filter(m => m.nombre !== detectados.get(m.codigo));
+    if (renombrados.length > 0) {
+      await this.prisma.$transaction(
+        renombrados.map(m =>
+          this.prisma.medico.update({
+            where: { id: m.id },
+            data: { nombre: (detectados.get(m.codigo) as string).slice(0, 200) },
+          }),
+        ),
+      );
+    }
+  }
+
   private async sincronizarVendedoras(
     filas: readonly FilaExcel[],
   ): Promise<Map<string, VendedoraComision>> {

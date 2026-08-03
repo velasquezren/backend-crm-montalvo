@@ -534,6 +534,44 @@ model VentaImportada {
 // * Persona que comisiona. Se autocrea al importar (por `vendedora_pk`) con
 // * `configurada = false` para que administración le fije tipo, área y sueldo.
 //
+/// Quien atiende al paciente. Sale de `medico_pk` del Excel de FileMaker.
+///
+/// **Un médico NO es un usuario.** Son cosas distintas y a propósito:
+///  · `Medico`  = un rol clínico. Existe para poder medir producción por
+///                profesional, aunque esa persona nunca entre al sistema.
+///  · `Usuario` = alguien que inicia sesión. Solo lo necesitan los pocos que
+///                de verdad usan el CRM (hoy, el Dr. Montalvo).
+///
+/// Se unen por `codigo`, que es la misma clave que `Usuario.codigo` y que
+/// `VendedoraComision.codigo`: FileMaker identifica a la PERSONA con ese código,
+/// no a su función. Por eso una misma persona puede ser médica y vendedora a la
+/// vez sin duplicarse, y por eso el prefijo no dice nada del rol: `Dr1970` es
+/// vendedora y `Pe2308` es el técnico de rayos X.
+///
+/// El nombre no sirve como identidad: el mismo `Dr1946` aparece en el Excel como
+/// "Azogue Rivera Claudia María" y como "Claudia María Azogue Rivera".
+model Medico {
+  id     String @id @default(uuid())
+  codigo String @unique @db.VarChar(40)
+  /// Última grafía vista en el Excel; se actualiza si cambia.
+  nombre String @db.VarChar(200)
+
+  /// Especialidad u observaciones que administración quiera anotar.
+  especialidad String? @db.VarChar(120)
+
+  /// false = dejó de atender. No se borra: sus atenciones históricas siguen
+  /// necesitando a quién apuntar.
+  activo Boolean @default(true)
+
+  /// false = lo creó solo el importador y administración aún no lo revisó.
+  configurado Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([activo])
+}
+
 model VendedoraComision {
   id          String        @id @default(uuid())
   /// `vendedora_pk` del Excel (ej. Pe2455). Es la MISMA clave que `Usuario.codigo`:
