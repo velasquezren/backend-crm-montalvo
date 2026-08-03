@@ -55,18 +55,6 @@ export interface LineaDesglose {
   tipo: 'A' | 'B' | 'C';
 }
 
-/**
- * Motor de liquidación de la planilla.
- *
- * Convenciones de moneda, explícitas porque el documento de negocio mezcla:
- *  • La base de cálculo y los montos vendidos vienen del Excel, en **BOB**.
- *  • Los porcentajes (A, B ejecutivas, C) se aplican sobre esa base en BOB y el
- *    resultado se convierte a **USD** con el TC del periodo.
- *  • Las tarifas RA son **USD fijos por procedimiento**, así que no se convierten.
- *  • Los objetivos y bonos se evalúan en **USD**.
- * Todo esto es configurable desde `ParametroComision` salvo el sentido de la
- * conversión, que es el del propio reporte final (Comisión USD → × TC → BOB).
- */
 /** Los planes de una clasificación, en el formato que espera la regla pura. */
 function candidatos(filas: readonly FilaCalculo[], clasif: ClasifComision): PlanCandidato[] {
   return filas
@@ -74,6 +62,34 @@ function candidatos(filas: readonly FilaCalculo[], clasif: ClasifComision): Plan
     .map(f => ({ id: f.id, base: f.ingresoNeto, comisionaPlan: f.comisionaPlan }));
 }
 
+/**
+ * Motor de liquidación de la planilla.
+ *
+ * **Todo el cálculo ocurre en la moneda del Excel, que es el DÓLAR.** El tipo de
+ * cambio se aplica UNA sola vez, al final, para saber cuánto se paga en Bs.
+ *
+ * No es una suposición. En la hoja `COMISIONES (COORD)` de la planilla conviven
+ * en la misma columna una tarifa fija y un porcentaje sobre la base:
+ *
+ *   Laparoscopia-Histeroscopia · 2 procedimientos · base 6.632,96
+ *     COMISION USD = 20      (2 × la tarifa fija de 10 USD)
+ *     COMISION BOB = 139,40  (20 × 6,97)
+ *
+ *   By pass Gástrico · base 6.204,83
+ *     COMISION USD = 62,05   (6.204,83 × 1 %)
+ *     COMISION BOB = 432,48  (62,05 × 6,97)
+ *
+ * Que 10 USD fijos y `base × 1 %` se sumen en la misma columna solo cuadra si la
+ * base YA está en dólares. Y las dos filas convierten a Bs con el mismo TC.
+ *
+ * Hubo una versión que dividía la base entre el TC antes de aplicar el
+ * porcentaje: partía de que el Excel venía en bolivianos. Con eso las comisiones
+ * salían siete veces más bajas y, peor, quedaban en otra unidad que los bonos
+ * —que sí se calculaban sin dividir—, así que el total sumaba dólares con
+ * bolivianos y luego multiplicaba todo por el TC otra vez.
+ *
+ * Las tarifas RA fijas ya son USD por procedimiento y por eso nunca se tocan.
+ */
 @Injectable()
 export class CalculoComisionesService {
   private readonly logger = new Logger(CalculoComisionesService.name);
@@ -240,7 +256,6 @@ export class CalculoComisionesService {
       const baseGrupo = grupo.reduce((s, f) => s + f.ingresoNeto, 0);
 
       let porcentaje = 0;
-      let comisionBob = 0;
       let comisionUsd = 0;
       let tipo: 'A' | 'B' | 'C' = 'C';
 
@@ -251,31 +266,27 @@ export class CalculoComisionesService {
         const baseElegida = grupo
           .filter(f => planesElegidos.has(f.id))
           .reduce((s, f) => s + f.ingresoNeto, 0);
-        comisionBob = (baseElegida * porcentaje) / 100;
-        comisionUsd = comisionBob / tipoCambio;
+        comisionUsd = (baseElegida * porcentaje) / 100;
         comisionA += comisionUsd;
       } else if (primera.clasif === ClasifComision.CIRUGIA) {
         tipo = 'B';
         if (esCoordinadoraRA) {
-          // Tarifa fija en USD por procedimiento (ya en dólares).
           const { montoUnitario, esPorcentaje } = this.tarifaRA(grupo, primera.canal, config);
           if (esPorcentaje) {
             porcentaje = montoUnitario;
-            comisionUsd = (baseGrupo * porcentaje) / 100 / tipoCambio;
+            comisionUsd = (baseGrupo * porcentaje) / 100;
           } else {
             comisionUsd = montoUnitario * grupo.length;
           }
         } else {
           porcentaje = this.porcentajeTipoB(nivelCirugia, primera.canal, config);
-          comisionBob = (baseGrupo * porcentaje) / 100;
-          comisionUsd = comisionBob / tipoCambio;
+          comisionUsd = (baseGrupo * porcentaje) / 100;
         }
         comisionB += comisionUsd;
       } else {
         tipo = 'C';
         porcentaje = this.porcentajeTipoC(primera, config, esCoordinadoraRA);
-        comisionBob = (baseGrupo * porcentaje) / 100;
-        comisionUsd = comisionBob / tipoCambio;
+        comisionUsd = (baseGrupo * porcentaje) / 100;
         comisionC += comisionUsd;
       }
 
@@ -461,15 +472,15 @@ export class CalculoComisionesService {
       if (!objetivo) continue;
 
       /*
-       * Los objetivos se comparan contra el monto EN BOLIVIANOS, sin convertir.
-       * Verificado en la planilla ("CALCULO BONOS", fila 15): a Viviana le
-       * contrastan 36.285,54 contra el objetivo 15.000 y la diferencia que
-       * anotan es 21.285,54 — resta directa, sin tipo de cambio. Y el aporte al
-       * pote es el neto por el factor: 31.568,42 × 0,002 = 63,14.
+       * El objetivo se compara directamente contra el monto vendido, sin tocar
+       * el tipo de cambio: ambos ya están en dólares, igual que el resto del
+       * cálculo. Verificado en la planilla ("CALCULO BONOS", fila 15): a Viviana
+       * le contrastan 36.285,54 contra el objetivo 15.000 y la diferencia que
+       * anotan es 21.285,54 — resta directa. Y el aporte al pote es el neto por
+       * el factor: 31.568,42 × 0,002 = 63,14.
        *
        * Dividir antes entre el TC hacía el umbral siete veces más exigente: con
-       * los tres meses reales de 2026 nadie lo alcanzaba nunca y el bono salía
-       * siempre en cero.
+       * los meses reales nadie lo alcanzaba nunca y el bono salía siempre en cero.
        */
       if (registro.montoVendido > Number(objetivo.montoMensualUsd)) {
         pote += registro.baseCalculo * factorJefatura;
@@ -536,9 +547,9 @@ export class CalculoComisionesService {
     mes: number,
     meses: number,
   ): Promise<Map<string, number>> {
-    /* Todo en bolivianos: es la moneda en la que la planilla compara contra el
-       objetivo trimestral (15.000). Convertir a dólares hacía el umbral siete
-       veces más alto y el bono no se pagaba nunca. */
+    /* En dólares, como todo el cálculo: es la unidad en la que la planilla
+       compara contra el objetivo trimestral (15.000). Volver a dividir entre el
+       TC hacía el umbral siete veces más alto y el bono no se pagaba nunca. */
     const acumulado = new Map<string, { total: number; meses: number }>();
 
     // El mes en curso, desde memoria.

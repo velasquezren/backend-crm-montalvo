@@ -227,3 +227,51 @@ describe('selección de planes comisionables', () => {
     expect(uno).toEqual(dos);
   });
 });
+
+/*
+ * La moneda del cálculo. Estas cifras salen de "CALCULO COMISION DICIEMBRE
+ * 2024.xlsx" y son la prueba de que la planilla trabaja en DÓLARES de punta a
+ * punta, aplicando el tipo de cambio una sola vez al final.
+ *
+ * Si alguien vuelve a dividir la base entre el TC antes de aplicar el
+ * porcentaje —como se hizo una vez, asumiendo que el Excel venía en bolivianos—
+ * estas cuentas dejan de cerrar.
+ */
+describe('moneda: el cálculo va en dólares y el TC se aplica al final', () => {
+  const TC = 6.97;
+  const redondear2 = (n: number) => Math.round(n * 100) / 100;
+
+  it('una tarifa RA fija y un porcentaje se suman en la MISMA unidad', () => {
+    // Hoja `COMISIONES (COORD)`, filas 16 y 21 — Carla y Maricela.
+    const porTarifaFija = 2 * 10; // 2 procedimientos × 10 USD
+    const porPorcentaje = 6204.8313 * 0.01;
+
+    expect(porTarifaFija).toBe(20);
+    expect(redondear2(porPorcentaje)).toBe(62.05);
+
+    // Y ambas se convierten a bolivianos con el mismo TC. Se redondea al final,
+    // igual que la planilla: redondear antes desviaría un céntimo.
+    expect(redondear2(porTarifaFija * TC)).toBe(139.4);
+    expect(redondear2(porPorcentaje * TC)).toBe(432.48);
+  });
+
+  it('la comisión de cirugías es base × %, sin dividir', () => {
+    // Hoja `COMISIONES (POR VENDEDORA)`, Viviana: 6 cirugías, nivel 5 empresa.
+    expect(redondear2(22054.17 * 0.035)).toBe(771.9);
+  });
+
+  it('el total de Viviana en diciembre cuadra con el consolidado', () => {
+    const comisiones = 973.4031105; // suma de sus Tipo A, B y C, sin redondear
+    const bonoTrimestral = redondear2(36285.54 * 0.005); // 0,5 % de su diciembre
+
+    expect(bonoTrimestral).toBe(181.43);
+    expect(redondear2(comisiones + bonoTrimestral)).toBe(1154.83);
+    // TOTAL A PAGAR BOB del consolidado.
+    expect(redondear2((comisiones + bonoTrimestral) * TC)).toBe(8049.19);
+  });
+
+  it('el aporte al pote de jefatura es el neto × factor, sin convertir', () => {
+    // Hoja `CALCULO BONOS`, fila 15: Viviana 31.568,42 × 0,2 % = 63,14.
+    expect(redondear2(31568.4198 * 0.002)).toBe(63.14);
+  });
+});
