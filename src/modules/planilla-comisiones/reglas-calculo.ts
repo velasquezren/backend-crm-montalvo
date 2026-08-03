@@ -60,19 +60,6 @@ export function planesComisionables(vendidos: number, objetivo: number): number 
 }
 
 /**
- * Qué proporción de la base de un grupo llega a comisionar.
- *
- * Los planes de una misma clasificación se reparten en varios grupos (por nivel
- * y por canal), así que el excedente se prorratea entre ellos según la cantidad.
- * Reproduce exacto el caso de PLANNIN de diciembre 2024: 2 vendidos, objetivo 1,
- * base 1.747,48 → (1.747,48 / 2) × 1 × 3% = 26,21.
- */
-export function fraccionComisionable(vendidos: number, objetivo: number): number {
-  if (vendidos <= 0) return 0;
-  return planesComisionables(vendidos, objetivo) / vendidos;
-}
-
-/**
  * Los `meses - 1` meses anteriores al que se liquida, como pares año/mes.
  * Cruza el cambio de año sin cuentas a mano: enero con ventana de 3 devuelve
  * diciembre y noviembre del año pasado.

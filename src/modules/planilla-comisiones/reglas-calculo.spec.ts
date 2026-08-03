@@ -3,7 +3,6 @@ import {
   PlanCandidato,
   seleccionarPlanesComisionables,
   elegirTarifaRA,
-  fraccionComisionable,
   mesesAnteriores,
   planesComisionables,
   resolverNivelCirugia,
@@ -61,16 +60,26 @@ describe('objetivo de planes como franquicia (Tipo A)', () => {
     expect(planesComisionables(3, 0)).toBe(3);
   });
 
-  // Diciembre 2024, PLANNIN de Viviana: 2 vendidos, objetivo 1, base 1747,48.
-  // La planilla pagó 26,21 = (1747,48 / 2) × 1 × 3%.
-  it('prorratea la base según la proporción que comisiona', () => {
-    const fraccion = fraccionComisionable(2, 1);
-    expect(fraccion).toBe(0.5);
-    expect(Math.round(1747.48 * fraccion * 0.03 * 100) / 100).toBe(26.21);
+  it('sin ventas no da negativo', () => {
+    expect(planesComisionables(0, 4)).toBe(0);
   });
 
-  it('sin ventas no divide por cero', () => {
-    expect(fraccionComisionable(0, 4)).toBe(0);
+  /*
+   * Caso real de la planilla: los 2 PLANNIN de Viviana, objetivo 1, base 873,74
+   * cada uno. Pagaron 26,21 — que es la base COMPLETA de uno por su 3 %, no la
+   * mitad de la suma. Con bases iguales los dos criterios dan el mismo número, y
+   * por eso este caso no bastaba para descubrir que el prorrateo estaba mal.
+   */
+  it('paga la base completa del plan elegido, no una fracción', () => {
+    const plannin: PlanCandidato[] = [
+      { id: 'nino-a', base: 873.74, comisionaPlan: null },
+      { id: 'nino-b', base: 873.74, comisionaPlan: null },
+    ];
+    const { elegidos } = seleccionarPlanesComisionables(plannin, 1);
+    expect(elegidos.size).toBe(1);
+
+    const base = plannin.filter(p => elegidos.has(p.id)).reduce((s, p) => s + p.base, 0);
+    expect(Math.round(base * 0.03 * 100) / 100).toBe(26.21);
   });
 });
 

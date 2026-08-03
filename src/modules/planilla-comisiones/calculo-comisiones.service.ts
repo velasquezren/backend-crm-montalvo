@@ -4,14 +4,13 @@ import {
   CanalVenta,
   ClasifComision,
   EstadoPeriodo,
-  TipoVendedora,
   UnidadNegocio,
   VendedoraComision,
 } from '@prisma/client';
 
 import { AuditService } from '../../common/audit/audit.service';
 import { PrismaService } from '../../prisma/prisma.service';
-import { normalizar, redondear } from './clasificador';
+import { redondear } from './clasificador';
 import {
   cierraTrimestre,
   elegirTarifaRA,
