@@ -528,6 +528,13 @@ model VentaImportada {
   // Se buscan al revisar la clasificación de un mes; ver la nota de Cliente.
   @@index([detalle(ops: raw("gin_trgm_ops"))], type: Gin, map: "VentaImportada_detalle_trgm_idx")
   @@index([paciente(ops: raw("gin_trgm_ops"))], type: Gin, map: "VentaImportada_paciente_trgm_idx")
+
+  // El historial clínico agrupa por paciente y por médico sobre TODOS los
+  // periodos, no dentro de uno: los índices compuestos de arriba empiezan por
+  // `periodoId` y no le sirven. Hoy son 1.287 filas y da igual, pero la tabla
+  // suma ~450 al mes y en dos años serían 11.000.
+  @@index([pac])
+  @@index([medicoPk])
 }
 
 //

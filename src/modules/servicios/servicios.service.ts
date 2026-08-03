@@ -14,6 +14,13 @@ import {
 } from './normalizacion';
 import { QueryMedicosDto, QueryPacientesDto, QueryServiciosDto } from './dto/query-servicios.dto';
 
+/**
+ * Cuántos servicios se muestran en la línea de tiempo de un paciente. No se
+ * pagina porque la gracia es verla entera de un vistazo; el tope existe para que
+ * un caso extremo no traiga miles de filas.
+ */
+const LIMITE_HISTORIAL = 500;
+
 /** Fila de conteo por valor crudo, tal como la devuelve un GROUP BY. */
 interface ConteoCrudo {
   valor: string | null;
@@ -59,8 +66,8 @@ export class ServiciosService {
       conFicha,
     ] = await Promise.all([
       this.prisma.ventaImportada.aggregate({ where, _count: true, _sum: { precio: true } }),
-      this.contarDistintos('pac', where),
-      this.contarDistintos('medicoPk', where),
+      this.contarDistintos('pac', query),
+      this.contarDistintos('medicoPk', query),
       this.prisma.ventaImportada.groupBy({
         by: ['modulo'],
         where,
@@ -85,7 +92,7 @@ export class ServiciosService {
         take: 12,
       }),
       this.serviciosPorMes(where),
-      this.cobertura(where),
+      this.cobertura(query),
     ]);
 
     return {
@@ -222,6 +229,9 @@ export class ServiciosService {
       this.prisma.ventaImportada.findMany({
         where: { pac: codigo },
         orderBy: [{ fecha: 'desc' }, { detalle: 'asc' }],
+        // Tope duro: un paciente con años de historial no debe poder tumbar la
+        // pantalla ni traerse miles de filas. Hoy el máximo real son 20.
+        take: LIMITE_HISTORIAL,
         select: {
           id: true, fecha: true, modulo: true, detalle: true, precio: true,
           medico: true, medicoPk: true, seguro: true, clasif: true,
@@ -323,36 +333,66 @@ export class ServiciosService {
     };
   }
 
-  /** `COUNT(DISTINCT …)`, que Prisma no expresa con `groupBy`. */
+  /**
+   * `COUNT(DISTINCT …)`, que Prisma no expresa con `groupBy`.
+   *
+   * Va en SQL y no con `findMany({ distinct })`: eso último trae a Node una fila
+   * por valor distinto solo para medir el array, y crece con cada paciente nuevo.
+   */
   private async contarDistintos(
     campo: 'pac' | 'medicoPk',
-    where: Prisma.VentaImportadaWhereInput,
+    query: QueryServiciosDto,
   ): Promise<number> {
-    const filas = await this.prisma.ventaImportada.findMany({
-      where: { ...where, [campo]: { not: null } },
-      distinct: [campo],
-      select: { [campo]: true },
-    });
-    return filas.length;
+    const columna = campo === 'pac' ? Prisma.sql`v."pac"` : Prisma.sql`v."medicoPk"`;
+    const filas = await this.prisma.$queryRaw<Array<{ total: bigint }>>`
+      SELECT count(DISTINCT ${columna}) AS total
+      FROM "VentaImportada" v
+      WHERE ${columna} IS NOT NULL ${this.condicionesSql(query)}
+    `;
+    return Number(filas[0]?.total ?? 0);
   }
 
-  /** Cuántos servicios encuentran la ficha del paciente en el CRM. */
-  private async cobertura(where: Prisma.VentaImportadaWhereInput) {
-    const [total, conPac] = await Promise.all([
-      this.prisma.ventaImportada.count({ where }),
-      this.prisma.ventaImportada.count({ where: { ...where, pac: { not: null } } }),
-    ]);
+  /**
+   * El mismo filtro del dashboard, expresado en SQL para las consultas crudas.
+   *
+   * Convive con `filtroServicios()`, que es su gemelo para Prisma. Son dos
+   * escrituras del MISMO criterio y hay que cambiarlas juntas: la alternativa
+   * era pasar todo el dashboard a SQL crudo y perder el tipado de `groupBy`.
+   */
+  private condicionesSql(query: QueryServiciosDto): Prisma.Sql {
+    const partes: Prisma.Sql[] = [];
+    if (query.periodoId) partes.push(Prisma.sql`AND v."periodoId" = ${query.periodoId}`);
+    if (query.modulo) partes.push(Prisma.sql`AND v."modulo" = ${query.modulo}`);
+    if (query.desde) partes.push(Prisma.sql`AND v."fecha" >= ${new Date(query.desde)}`);
+    if (query.hasta) partes.push(Prisma.sql`AND v."fecha" <= ${new Date(query.hasta)}`);
+    return partes.length > 0 ? Prisma.join(partes, ' ') : Prisma.empty;
+  }
 
-    const enlazados = await this.prisma.$queryRaw<Array<{ total: bigint }>>`
-      SELECT count(*) AS total FROM "VentaImportada" v
-      JOIN "Cliente" c ON c."pac" = v."pac"
-      WHERE v."pac" IS NOT NULL
+  /**
+   * Cuántos servicios encuentran la ficha del paciente en el CRM.
+   *
+   * Las tres cifras salen de UNA consulta y con EL MISMO filtro que el resto del
+   * dashboard. Antes el conteo de enlazados iba sin filtro: al acotar por módulo,
+   * la insignia comparaba los enlazados de todo el historial contra los servicios
+   * del módulo, y el porcentaje salía inventado.
+   */
+  private async cobertura(query: QueryServiciosDto) {
+    const filas = await this.prisma.$queryRaw<
+      Array<{ servicios: bigint; con_codigo: bigint; con_ficha: bigint }>
+    >`
+      SELECT count(*) AS servicios,
+             count(v."pac") AS con_codigo,
+             count(c."id") AS con_ficha
+      FROM "VentaImportada" v
+      LEFT JOIN "Cliente" c ON c."pac" = v."pac"
+      WHERE TRUE ${this.condicionesSql(query)}
     `;
 
+    const fila = filas[0];
     return {
-      servicios: total,
-      conCodigo: conPac,
-      conFicha: Number(enlazados[0]?.total ?? 0),
+      servicios: Number(fila?.servicios ?? 0),
+      conCodigo: Number(fila?.con_codigo ?? 0),
+      conFicha: Number(fila?.con_ficha ?? 0),
     };
   }
 
