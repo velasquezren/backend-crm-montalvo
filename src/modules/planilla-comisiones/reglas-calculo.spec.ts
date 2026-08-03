@@ -1,4 +1,4 @@
-import {
+import { cierraTrimestre,
   elegirTarifaRA,
   fraccionComisionable,
   mesesAnteriores,
@@ -127,5 +127,22 @@ describe('tarifas de Reproducción Asistida', () => {
 
   it('un procedimiento desconocido no cruza con nada', () => {
     expect(elegirTarifaRA('Consulta de control', tarifas)).toBeUndefined();
+  });
+});
+
+describe('cierre de trimestre', () => {
+  it.each([3, 6, 9, 12])('el mes %i cierra trimestre', mes => {
+    expect(cierraTrimestre(mes)).toBe(true);
+  });
+
+  it.each([1, 2, 4, 5, 7, 8, 10, 11])('el mes %i no lo cierra', mes => {
+    expect(cierraTrimestre(mes)).toBe(false);
+  });
+
+  it('la ventana de un mes de cierre es el trimestre calendario', () => {
+    expect(mesesAnteriores(2026, 3, 3)).toEqual([
+      { anio: 2026, mes: 2 },
+      { anio: 2026, mes: 1 },
+    ]);
   });
 });

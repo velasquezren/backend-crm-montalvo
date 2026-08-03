@@ -13,6 +13,7 @@ import { AuditService } from '../../common/audit/audit.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { normalizar, redondear } from './clasificador';
 import {
+  cierraTrimestre,
   elegirTarifaRA,
   fraccionComisionable,
   mesesAnteriores,
@@ -435,7 +436,7 @@ export class CalculoComisionesService {
      */
     // Una sola consulta para todo el equipo, en vez de dos por vendedora dentro
     // del bucle. Con 5 vendedoras eran 10 viajes a la base, uno detrás de otro.
-    const promedios = await this.promediosDelTrimestre(resultados, anio, mes, mesesTrimestre, tipoCambio);
+    const promedios = await this.promediosDelTrimestre(resultados, anio, mes, mesesTrimestre);
 
     let pote = 0;
 
@@ -444,14 +445,29 @@ export class CalculoComisionesService {
       const objetivo = config.objetivosPorTipo.get(vendedora.tipo);
       if (!objetivo) continue;
 
-      const vendidoUsd = registro.montoVendido / tipoCambio;
-      if (vendidoUsd > Number(objetivo.montoMensualUsd)) {
-        pote += (registro.baseCalculo / tipoCambio) * factorJefatura;
+      /*
+       * Los objetivos se comparan contra el monto EN BOLIVIANOS, sin convertir.
+       * Verificado en la planilla ("CALCULO BONOS", fila 15): a Viviana le
+       * contrastan 36.285,54 contra el objetivo 15.000 y la diferencia que
+       * anotan es 21.285,54 — resta directa, sin tipo de cambio. Y el aporte al
+       * pote es el neto por el factor: 31.568,42 × 0,002 = 63,14.
+       *
+       * Dividir antes entre el TC hacía el umbral siete veces más exigente: con
+       * los tres meses reales de 2026 nadie lo alcanzaba nunca y el bono salía
+       * siempre en cero.
+       */
+      if (registro.montoVendido > Number(objetivo.montoMensualUsd)) {
+        pote += registro.baseCalculo * factorJefatura;
       }
 
-      const promedioUsd = promedios.get(vendedora.id) ?? 0;
-      if (promedioUsd > Number(objetivo.montoTrimestralUsd)) {
-        registro.bonoTrimestral = redondear(promedioUsd * factorTrimestral);
+      /*
+       * El promedio del trimestre es solo el requisito; lo que se paga es el
+       * 0,5 % del MES que se liquida. En el consolidado de la planilla Viviana
+       * cobró 181,43 = 36.285,54 × 0,005 (su diciembre), no el promedio.
+       */
+      const promedio = promedios.get(vendedora.id) ?? 0;
+      if (cierraTrimestre(mes) && promedio > Number(objetivo.montoTrimestralUsd)) {
+        registro.bonoTrimestral = redondear(registro.montoVendido * factorTrimestral);
       }
     }
 
@@ -504,16 +520,15 @@ export class CalculoComisionesService {
     anio: number,
     mes: number,
     meses: number,
-    tipoCambio: number,
   ): Promise<Map<string, number>> {
-    const acumulado = new Map<string, { totalUsd: number; meses: number }>();
+    /* Todo en bolivianos: es la moneda en la que la planilla compara contra el
+       objetivo trimestral (15.000). Convertir a dólares hacía el umbral siete
+       veces más alto y el bono no se pagaba nunca. */
+    const acumulado = new Map<string, { total: number; meses: number }>();
 
     // El mes en curso, desde memoria.
     for (const { vendedora, registro } of resultados) {
-      acumulado.set(vendedora.id, {
-        totalUsd: registro.montoVendido / tipoCambio,
-        meses: 1,
-      });
+      acumulado.set(vendedora.id, { total: registro.montoVendido, meses: 1 });
     }
 
     // Los meses anteriores de la ventana, en una sola pasada.
@@ -525,27 +540,25 @@ export class CalculoComisionesService {
       });
 
       if (periodos.length > 0) {
-        const tcPorPeriodo = new Map(periodos.map(p => [p.id, Number(p.tipoCambio) || 1]));
         const previos = await this.prisma.resultadoComision.findMany({
           where: {
             periodoId: { in: periodos.map(p => p.id) },
             vendedoraId: { in: [...acumulado.keys()] },
           },
-          select: { vendedoraId: true, periodoId: true, montoVendido: true },
+          select: { vendedoraId: true, montoVendido: true },
         });
 
         for (const fila of previos) {
           const actual = acumulado.get(fila.vendedoraId);
           if (!actual) continue;
-          const tc = tcPorPeriodo.get(fila.periodoId) ?? 1;
-          actual.totalUsd += Number(fila.montoVendido) / tc;
+          actual.total += Number(fila.montoVendido);
           actual.meses += 1;
         }
       }
     }
 
     return new Map(
-      [...acumulado].map(([id, { totalUsd, meses: n }]) => [id, n > 0 ? totalUsd / n : 0]),
+      [...acumulado].map(([id, { total, meses: n }]) => [id, n > 0 ? total / n : 0]),
     );
   }
 

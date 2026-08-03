@@ -101,7 +101,9 @@ export const TARIFAS_RA_POR_DEFECTO: ReadonlyArray<{
   { procedimiento: 'Congelamiento de embriones', montoEmpresa: 5, montoPropio: 8, esPorcentaje: false },
   { procedimiento: 'Histeroscopia (Bettocchi)', montoEmpresa: 5, montoPropio: 8, esPorcentaje: false },
   { procedimiento: 'Inseminación', montoEmpresa: 5, montoPropio: 8, esPorcentaje: false },
-  { procedimiento: 'Laboratorios RA (Etapa I)', montoEmpresa: 1.0, montoPropio: 1.43, esPorcentaje: true },
+  /* 1 % en los dos canales: la planilla no aplica aquí la regla del ÷0,7
+     (`Parametro RA`, filas 53-54: LAboratoriosCLINICA 0,01 y LAboratoriosPROPIA 0,01). */
+  { procedimiento: 'Laboratorios RA (Etapa I)', montoEmpresa: 1.0, montoPropio: 1.0, esPorcentaje: true },
   { procedimiento: 'Laparoscopia + Histeroscopia', montoEmpresa: 10, montoPropio: 15, esPorcentaje: false },
   { procedimiento: 'Miomectomía y otras', montoEmpresa: 10, montoPropio: 15, esPorcentaje: false },
   { procedimiento: 'Transferencias Especiales', montoEmpresa: 20, montoPropio: 29, esPorcentaje: false },
@@ -188,7 +190,12 @@ export const REGLAS_POR_DEFECTO: ReadonlyArray<{
   { patron: 'Electrocardiograma', exacto: false, modulo: null, clasif: ClasifComision.OTROSS, nivel: null, unidadNegocio: null, prioridad: 100, notas: null },
   { patron: 'Internación', exacto: false, modulo: null, clasif: ClasifComision.OTROSS, nivel: null, unidadNegocio: null, prioridad: 100, notas: 'Se agrupa con otros servicios' },
   { patron: 'Valoración Cardiológica', exacto: false, modulo: null, clasif: ClasifComision.CONSULTA, nivel: null, unidadNegocio: null, prioridad: 100, notas: null },
-  { patron: 'Paquete Bariatrica', exacto: false, modulo: null, clasif: ClasifComision.PLANNIN, nivel: null, unidadNegocio: UnidadNegocio.VARIOS, prioridad: 100, notas: 'Paquete especial, no maternidad' },
+  /* Los paquetes bariátricos son cirugía y van por Tipo B: en la planilla de
+     administración «Manga Gastrica» y «By Pass Gastrico» están clasificados
+     CIRUGIA aunque la columna de origen los llame «Paquete». */
+  { patron: 'Paquete Bariatrica', exacto: false, modulo: null, clasif: ClasifComision.CIRUGIA, nivel: null, unidadNegocio: UnidadNegocio.VARIOS, prioridad: 30, notas: 'Cirugia bariatrica (Tipo B), pese a venir como paquete' },
+  { patron: 'Manga Gastrica', exacto: false, modulo: null, clasif: ClasifComision.CIRUGIA, nivel: null, unidadNegocio: UnidadNegocio.VARIOS, prioridad: 30, notas: 'Cirugia bariatrica' },
+  { patron: 'By Pass Gastrico', exacto: false, modulo: null, clasif: ClasifComision.CIRUGIA, nivel: null, unidadNegocio: UnidadNegocio.VARIOS, prioridad: 30, notas: 'Cirugia bariatrica' },
   { patron: 'Paquete Niño Sano', exacto: false, modulo: null, clasif: ClasifComision.PLANNIN, nivel: null, unidadNegocio: UnidadNegocio.VARIOS, prioridad: 100, notas: 'Paquete especial, no maternidad' },
 ];
 
@@ -201,10 +208,23 @@ export const REGLAS_POR_DEFECTO: ReadonlyArray<{
  * Gold por Facebook pagó 3%, que es la tasa empresa, no el 5% de propio).
  */
 export const CAPTACION_POR_DEFECTO: ReadonlyArray<{ valor: string; canal: CanalVenta }> = [
+  /* Lo único que es venta PROPIA: contacto conseguido por la vendedora fuera
+     de la clínica y con sus propios recursos. */
   { valor: 'PROPIO', canal: CanalVenta.PROPIO },
-  { valor: 'REDES', canal: CanalVenta.PROPIO },
+  { valor: 'PROPIA', canal: CanalVenta.PROPIO },
+
+  /* Todo lo demás es recurso de la empresa. No es una suposición: está escrito
+     en la planilla ("CALCULO COMISION DICIEMBRE 2024.xlsx", hoja `Hoja1 (2)`,
+     fila 24): «Se considera RE cualquier contacto generado con recursos de la
+     empresa, por ejemplo: pacientes de clínica, RRSS, ferias, brunch de mamás,
+     talleres formativos». REDES son las RRSS de la clínica, y RAMADA y EXPOBEBE
+     son ferias. */
   { valor: 'CLINICA', canal: CanalVenta.EMPRESA },
+  { valor: 'REDES', canal: CanalVenta.EMPRESA },
   { valor: 'FACEBOOK', canal: CanalVenta.EMPRESA },
   { valor: 'INSTAGRAM', canal: CanalVenta.EMPRESA },
+  { valor: 'RAMADA', canal: CanalVenta.EMPRESA },
+  { valor: 'EXPOBEBE', canal: CanalVenta.EMPRESA },
+  { valor: 'EXPO BEBE', canal: CanalVenta.EMPRESA },
 ];
 

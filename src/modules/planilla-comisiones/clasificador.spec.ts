@@ -62,13 +62,27 @@ describe('canal de venta (paso 1)', () => {
   // contra otra cosa sería probar un comportamiento que producción no usa.
   const mapeos = new Map(CAPTACION_POR_DEFECTO.map(m => [m.valor, m.canal]));
 
+  /*
+   * La regla no se dedujo, está escrita: "CALCULO COMISION DICIEMBRE 2024.xlsx",
+   * hoja `Hoja1 (2)`, fila 24 — «Se considera RE cualquier contacto generado con
+   * recursos de la empresa, por ejemplo: pacientes de clínica, RRSS, ferias,
+   * brunch de mamás, talleres formativos», y fila 25 — «Se considera RP
+   * cualquier contacto generado fuera de la clínica con los recursos de la
+   * propia vendedora».
+   *
+   * Es decir: solo lo que la vendedora consigue por su cuenta es PROPIO. Las
+   * redes sociales y las ferias son de la clínica. En diciembre 183 de 185
+   * ventas se cobraron como EMPRESA.
+   */
   it.each([
     ['Clinica', 'EMPRESA'],
-    ['Redes', 'PROPIO'],
-    ['Propio', 'PROPIO'],
-    // Verificado en la planilla: un plan Gold vendido por Facebook cobró la
-    // tarifa de empresa (3%), no la de propio (5%).
+    ['Redes', 'EMPRESA'],
     ['Facebook', 'EMPRESA'],
+    ['Instagram', 'EMPRESA'],
+    ['Ramada', 'EMPRESA'],
+    ['Expobebe', 'EMPRESA'],
+    ['Propio', 'PROPIO'],
+    ['Propia', 'PROPIO'],
   ])('captación "%s" → %s', (captacion, esperado) => {
     expect(determinarCanal(captacion, mapeos)).toBe(esperado);
   });

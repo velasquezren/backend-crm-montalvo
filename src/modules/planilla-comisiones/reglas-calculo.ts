@@ -136,3 +136,19 @@ export function sumaBonos(registro: {
     Number(registro.bonoJefatura) + Number(registro.bonoPublicidad) + Number(registro.bonoTrimestral)
   );
 }
+
+/**
+ * ¿Este mes cierra un trimestre calendario? (marzo, junio, septiembre, diciembre)
+ *
+ * El bono trimestral premia el promedio de tres meses, así que solo tiene
+ * sentido liquidarlo cuando el trimestre está completo. Pagarlo todos los meses
+ * lo cobraría tres veces, y en el primer mes del trimestre el "promedio" sería
+ * un solo mes — que es justo lo que pasaba: en enero de 2026 el motor pagaba
+ * 213,63 a quien facturó 42.725, con un único mes de historia.
+ *
+ * Diciembre, el mes de la planilla de referencia, es cierre de trimestre; por
+ * eso allí ambos criterios daban el mismo número y la diferencia no se veía.
+ */
+export function cierraTrimestre(mes: number): boolean {
+  return mes % 3 === 0;
+}
