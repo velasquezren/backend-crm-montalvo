@@ -225,7 +225,8 @@ export class ServiciosService {
         select: {
           id: true, fecha: true, modulo: true, detalle: true, precio: true,
           medico: true, medicoPk: true, seguro: true, clasif: true,
-          vendedoraNombre: true, periodo: { select: { anio: true, mes: true } },
+          paciente: true, vendedoraNombre: true,
+          periodo: { select: { anio: true, mes: true } },
         },
       }),
     ]);
@@ -239,8 +240,13 @@ export class ServiciosService {
 
     return {
       pac: codigo,
-      /** Del Excel cuando no hay ficha: el historial no depende del CRM. */
-      nombre: ficha?.nombre ?? servicios[0]?.detalle ?? codigo,
+      /**
+       * Del Excel cuando no hay ficha: el historial no depende de que el CRM
+       * conozca al paciente. Es `paciente`, NO `detalle` — este último es el
+       * nombre del servicio, y usarlo mostraba "Internación" como si fuera la
+       * persona.
+       */
+      nombre: ficha?.nombre ?? servicios.find(s => s.paciente)?.paciente ?? codigo,
       ficha: ficha ? { ...ficha, edad, saldoTotal: Number(ficha.saldoTotal ?? 0) } : null,
       resumen: {
         servicios: servicios.length,
