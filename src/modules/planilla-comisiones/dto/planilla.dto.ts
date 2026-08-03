@@ -1,5 +1,15 @@
 import { Transform, TransformFnParams, Type } from 'class-transformer';
-import { IsBoolean, IsEnum, IsInt, IsOptional, IsString, Length, Max, Min } from 'class-validator';
+import {
+  IsBoolean,
+  IsEnum,
+  IsInt,
+  IsOptional,
+  IsString,
+  Length,
+  Max,
+  Min,
+  ValidateIf,
+} from 'class-validator';
 
 import { CanalVenta, ClasifComision, NivelPlan, UnidadNegocio } from '@prisma/client';
 
@@ -81,6 +91,15 @@ export class AjustarVentaDto {
   @IsString()
   @Length(1, 40)
   vendedoraId?: string;
+
+  /**
+   * Solo para planes: si ESTE plan comisiona cuando la vendedora superó su
+   * objetivo. `null` devuelve la decisión al sistema (base más baja primero).
+   */
+  @IsOptional()
+  @ValidateIf((_objeto, valor) => valor !== null)
+  @IsBoolean()
+  comisionaPlan?: boolean | null;
 }
 
 /** Listado de periodos. */

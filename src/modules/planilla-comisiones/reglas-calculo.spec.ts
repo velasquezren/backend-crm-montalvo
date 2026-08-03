@@ -1,4 +1,7 @@
-import { cierraTrimestre,
+import {
+  cierraTrimestre,
+  PlanCandidato,
+  seleccionarPlanesComisionables,
   elegirTarifaRA,
   fraccionComisionable,
   mesesAnteriores,
@@ -144,5 +147,74 @@ describe('cierre de trimestre', () => {
       { anio: 2026, mes: 2 },
       { anio: 2026, mes: 1 },
     ]);
+  });
+});
+
+describe('selección de planes comisionables', () => {
+  /** Los 5 paquetes de Zuany en diciembre, con sus bases reales. */
+  const zuany: PlanCandidato[] = [
+    { id: 'bronce-1800', base: 1800.9, comisionaPlan: null },
+    { id: 'bronce-2102', base: 2102.79, comisionaPlan: null },
+    { id: 'gold-2579', base: 2579.34, comisionaPlan: null },
+    { id: 'gold-3001-a', base: 3001.5, comisionaPlan: null },
+    { id: 'gold-3001-b', base: 3001.5, comisionaPlan: null },
+  ];
+
+  it('sin decisión manual elige los de base más baja, como hizo la planilla', () => {
+    const { elegidos, cupo } = seleccionarPlanesComisionables(zuany, 4);
+    expect(cupo).toBe(1);
+    expect([...elegidos]).toEqual(['bronce-1800']);
+  });
+
+  it('respeta lo que administración marcó, aunque no sea el más barato', () => {
+    const conMarca = zuany.map(p =>
+      p.id === 'gold-3001-a' ? { ...p, comisionaPlan: true } : p,
+    );
+    const { elegidos } = seleccionarPlanesComisionables(conMarca, 4);
+    expect([...elegidos]).toEqual(['gold-3001-a']);
+  });
+
+  it('nunca elige uno descartado a mano', () => {
+    const conDescarte = zuany.map(p =>
+      p.id === 'bronce-1800' ? { ...p, comisionaPlan: false } : p,
+    );
+    const { elegidos } = seleccionarPlanesComisionables(conDescarte, 4);
+    expect([...elegidos]).toEqual(['bronce-2102']);
+  });
+
+  it('completa el cupo con automáticos cuando la marca manual no alcanza', () => {
+    const conMarca = zuany.map(p =>
+      p.id === 'gold-3001-b' ? { ...p, comisionaPlan: true } : p,
+    );
+    const { elegidos, cupo } = seleccionarPlanesComisionables(conMarca, 2);
+    expect(cupo).toBe(3);
+    expect(elegidos.size).toBe(3);
+    expect(elegidos.has('gold-3001-b')).toBe(true);
+    expect(elegidos.has('bronce-1800')).toBe(true);
+    expect(elegidos.has('bronce-2102')).toBe(true);
+  });
+
+  it('no paga de más si marcaron más de los que el objetivo permite', () => {
+    const exceso = zuany.map(p => ({ ...p, comisionaPlan: true }));
+    const { elegidos, cupo, descartadosPorCupo } = seleccionarPlanesComisionables(exceso, 4);
+    expect(cupo).toBe(1);
+    expect(elegidos.size).toBe(1);
+    expect(descartadosPorCupo).toHaveLength(4);
+  });
+
+  it('igualar el objetivo no comisiona ninguno', () => {
+    expect(seleccionarPlanesComisionables(zuany, 5).elegidos.size).toBe(0);
+    expect(seleccionarPlanesComisionables(zuany, 9).cupo).toBe(0);
+  });
+
+  it('es determinista: dos corridas eligen lo mismo con bases empatadas', () => {
+    const empate: PlanCandidato[] = [
+      { id: 'b', base: 1000, comisionaPlan: null },
+      { id: 'a', base: 1000, comisionaPlan: null },
+      { id: 'c', base: 1000, comisionaPlan: null },
+    ];
+    const uno = [...seleccionarPlanesComisionables(empate, 2).elegidos];
+    const dos = [...seleccionarPlanesComisionables([...empate].reverse(), 2).elegidos];
+    expect(uno).toEqual(dos);
   });
 });

@@ -152,3 +152,74 @@ export function sumaBonos(registro: {
 export function cierraTrimestre(mes: number): boolean {
   return mes % 3 === 0;
 }
+
+/** Un plan candidato a comisionar, con lo mínimo que la selección necesita. */
+export interface PlanCandidato {
+  id: string;
+  /** Base de cálculo del plan, ya sin impuestos. */
+  base: number;
+  /**
+   * Decisión de administración. `null` = todavía no la tomó y decide el
+   * sistema; `true` = este plan comisiona sí o sí; `false` = este no.
+   */
+  comisionaPlan: boolean | null;
+}
+
+export interface SeleccionPlanes {
+  /** Ids que comisionan. */
+  readonly elegidos: ReadonlySet<string>;
+  /** Cuántos podían comisionar: vendidos − objetivo. */
+  readonly cupo: number;
+  /** Marcados a mano que no entraron porque el cupo ya estaba lleno. */
+  readonly descartadosPorCupo: readonly string[];
+}
+
+/**
+ * Qué planes concretos comisionan cuando alguien supera su objetivo.
+ *
+ * En la planilla de la clínica esto **no era una fórmula**: la columna
+ * `PLANPAG COMISIONABLE` de la hoja `Ejecutivas` se escribe a mano — en
+ * diciembre solo la fila 143 decía "COMISIONA" — y la de al lado paga
+ * `% × base` del plan marcado, su base completa y con la tarifa de su propio
+ * nivel. No se reparte nada entre los demás.
+ *
+ * Por eso aquí no se inventa una regla: se respeta lo que administración marcó
+ * y solo se rellena el resto. El criterio automático es **la base más baja
+ * primero**, que es lo que hicieron en diciembre (con 5 paquetes y objetivo 4
+ * comisionó un Bronce de 2.102,79, no uno de los Gold de 3.001,50).
+ *
+ * El cupo es un tope duro: si marcaron más planes de los que el objetivo
+ * permite, los sobrantes se devuelven en `descartadosPorCupo` para que la
+ * pantalla lo muestre, en vez de pagar de más en silencio.
+ */
+export function seleccionarPlanesComisionables(
+  planes: readonly PlanCandidato[],
+  objetivo: number,
+): SeleccionPlanes {
+  const cupo = planesComisionables(planes.length, objetivo);
+  if (cupo <= 0) {
+    return { elegidos: new Set(), cupo: 0, descartadosPorCupo: [] };
+  }
+
+  // Base ascendente, y a igualdad de base un orden estable por id: dos cálculos
+  // del mismo periodo tienen que dar exactamente lo mismo.
+  const porBaseAscendente = [...planes].sort((a, b) => a.base - b.base || a.id.localeCompare(b.id));
+
+  const elegidos = new Set<string>();
+  const descartadosPorCupo: string[] = [];
+
+  // 1. Lo que administración marcó manda, hasta llenar el cupo.
+  for (const plan of porBaseAscendente) {
+    if (plan.comisionaPlan !== true) continue;
+    if (elegidos.size < cupo) elegidos.add(plan.id);
+    else descartadosPorCupo.push(plan.id);
+  }
+
+  // 2. El resto del cupo se completa solo, sin tocar los descartados a mano.
+  for (const plan of porBaseAscendente) {
+    if (elegidos.size >= cupo) break;
+    if (plan.comisionaPlan === null && !elegidos.has(plan.id)) elegidos.add(plan.id);
+  }
+
+  return { elegidos, cupo, descartadosPorCupo };
+}

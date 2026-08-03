@@ -15,7 +15,8 @@ import { normalizar, redondear } from './clasificador';
 import {
   cierraTrimestre,
   elegirTarifaRA,
-  fraccionComisionable,
+  PlanCandidato,
+  seleccionarPlanesComisionables,
   mesesAnteriores,
   planesComisionables,
   resolverNivelCirugia,
@@ -29,6 +30,9 @@ import { PARAM } from './configuracion-por-defecto';
 
 /** Una fila del periodo, con lo mínimo que el cálculo necesita. */
 interface FilaCalculo {
+  id: string;
+  /** Decisión manual de administración sobre si este plan comisiona. */
+  comisionaPlan: boolean | null;
   vendedoraId: string;
   canal: CanalVenta;
   clasif: ClasifComision;
@@ -64,6 +68,13 @@ export interface LineaDesglose {
  * Todo esto es configurable desde `ParametroComision` salvo el sentido de la
  * conversión, que es el del propio reporte final (Comisión USD → × TC → BOB).
  */
+/** Los planes de una clasificación, en el formato que espera la regla pura. */
+function candidatos(filas: readonly FilaCalculo[], clasif: ClasifComision): PlanCandidato[] {
+  return filas
+    .filter(f => f.clasif === clasif)
+    .map(f => ({ id: f.id, base: f.ingresoNeto, comisionaPlan: f.comisionaPlan }));
+}
+
 @Injectable()
 export class CalculoComisionesService {
   private readonly logger = new Logger(CalculoComisionesService.name);
@@ -93,6 +104,8 @@ export class CalculoComisionesService {
       this.prisma.ventaImportada.findMany({
         where: { periodoId, comisionable: true, vendedoraId: { not: null } },
         select: {
+          id: true,
+          comisionaPlan: true,
           vendedoraId: true,
           canal: true,
           clasif: true,
@@ -107,6 +120,8 @@ export class CalculoComisionesService {
     ]);
 
     const filas: FilaCalculo[] = filasCrudas.map(f => ({
+      id: f.id,
+      comisionaPlan: f.comisionaPlan,
       vendedoraId: f.vendedoraId as string,
       canal: f.canal,
       clasif: f.clasif,
@@ -190,22 +205,21 @@ export class CalculoComisionesService {
     const cumpleObjetivoPlanes = planpaqComisionables > 0 || planninComisionables > 0;
 
     /*
-     * Qué parte de la base de un grupo llega a comisionar. Los planes de una
-     * misma clasificación se reparten en varios grupos (por nivel y por canal),
-     * así que el excedente se prorratea entre ellos en proporción a la cantidad.
-     *
-     * PENDIENTE DE ADMINISTRACIÓN: la planilla no dice QUÉ planes concretos son
-     * los que comisionan cuando alguien supera el objetivo (¿los más caros?,
-     * ¿los últimos del mes?). El prorrateo es la interpretación neutral y
-     * reproduce exacto el caso de PLANNIN de diciembre 2024
-     * (2 vendidos, objetivo 1, base 1747,48 → (1747,48/2) × 1 × 3% = 26,21).
-     * Con planes de distinto nivel el total puede diferir de la planilla: si
-     * administración define la regla, se cambia solo esta función.
+     * Qué planes CONCRETOS comisionan. No se prorratea: en la planilla se marca
+     * el plan elegido y se le paga su base completa con la tarifa de su nivel
+     * (hoja `Ejecutivas`, columna AR: `=SI(AQ="COMISIONA"; % × base; 0)`).
+     * `seleccionarPlanesComisionables` respeta lo que administración marcó y
+     * completa el resto con el criterio automático.
      */
-    const fraccionDe = (clasif: ClasifComision): number =>
-      clasif === ClasifComision.PLANPAQ
-        ? fraccionComisionable(planpaqVendidos, objetivo?.planpaqMinimos ?? 0)
-        : fraccionComisionable(planninVendidos, objetivo?.planninMinimos ?? 0);
+    const seleccionPlanpaq = seleccionarPlanesComisionables(
+      candidatos(filas, ClasifComision.PLANPAQ),
+      objetivo?.planpaqMinimos ?? 0,
+    );
+    const seleccionPlannin = seleccionarPlanesComisionables(
+      candidatos(filas, ClasifComision.PLANNIN),
+      objetivo?.planninMinimos ?? 0,
+    );
+    const planesElegidos = new Set([...seleccionPlanpaq.elegidos, ...seleccionPlannin.elegidos]);
 
     // Nivel Tipo B: se fija con el acumulado de cirugías de TODO el mes.
     const acumuladoCirugias = filas
@@ -234,9 +248,11 @@ export class CalculoComisionesService {
       if (primera.clasif === ClasifComision.PLANPAQ || primera.clasif === ClasifComision.PLANNIN) {
         tipo = 'A';
         porcentaje = this.porcentajeTipoA(primera, config);
-        // La tarifa es la de la tabla; lo que se acota es la BASE, porque solo
-        // comisionan los planes por encima del objetivo.
-        comisionBob = (baseGrupo * fraccionDe(primera.clasif) * porcentaje) / 100;
+        // Solo los planes elegidos comisionan, y lo hacen por su base completa.
+        const baseElegida = grupo
+          .filter(f => planesElegidos.has(f.id))
+          .reduce((s, f) => s + f.ingresoNeto, 0);
+        comisionBob = (baseElegida * porcentaje) / 100;
         comisionUsd = comisionBob / tipoCambio;
         comisionA += comisionUsd;
       } else if (primera.clasif === ClasifComision.CIRUGIA) {

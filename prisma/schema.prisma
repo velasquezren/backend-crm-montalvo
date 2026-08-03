@@ -505,6 +505,15 @@ model VentaImportada {
   /// true = un admin corrigió la clasificación a mano; no se pisa al recalcular.
   ajustadaManual  Boolean @default(false)
 
+  /// Solo para planes (PLANPAQ/PLANNIN). Decide si ESTE plan concreto comisiona
+  /// cuando la vendedora superó su objetivo — porque solo comisionan los que lo
+  /// superan, y hay que saber cuáles.
+  ///
+  /// `null` = lo elige el sistema (base más baja primero, que es lo que hizo
+  /// administración); `true`/`false` = decisión manual, y esa manda. En la
+  /// planilla era la columna `PLANPAG COMISIONABLE`, escrita a mano fila por fila.
+  comisionaPlan   Boolean?
+
   vendedora   VendedoraComision? @relation(fields: [vendedoraId], references: [id])
   vendedoraId String?
 
