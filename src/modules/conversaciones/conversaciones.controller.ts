@@ -8,6 +8,7 @@ import { AsignarAgenteDto } from './dto/asignar-agente.dto';
 import { EnviarMensajeDto } from './dto/enviar-mensaje.dto';
 import { EnviarPlantillaDto } from './dto/enviar-plantilla.dto';
 import { MarcarLeidoDto } from './dto/marcar-leido.dto';
+import { QueryMensajesAnterioresDto } from './dto/query-mensajes-anteriores.dto';
 
 @Controller('conversaciones')
 export class ConversacionesController {
@@ -28,12 +29,16 @@ export class ConversacionesController {
   @Get(':id/mensajes-anteriores')
   obtenerMensajesAnteriores(
     @Param('id') id: string,
-    @Query('antesDe') antesDe: string,
+    @Query() query: QueryMensajesAnterioresDto,
     @CurrentUser() usuario: UsuarioJwt,
-    @Query('limit') limit?: string,
   ) {
     const soloAgenteId = alcanceAgente(usuario);
-    return this.conversacionesService.obtenerMensajesAnteriores(id, antesDe, Number(limit) || 50, soloAgenteId);
+    return this.conversacionesService.obtenerMensajesAnteriores(
+      id,
+      query.antesDe,
+      query.limit ?? 50,
+      soloAgenteId,
+    );
   }
 
   @Post(':id/mensajes')
@@ -80,12 +85,19 @@ export class ConversacionesController {
   asignarAgente(
     @Param('id') id: string,
     @Body() dto: AsignarAgenteDto,
+    @CurrentUser() usuario: UsuarioJwt,
   ) {
-    return this.conversacionesService.asignarAgente(id, dto.agenteId);
+    /* `usuario.sub` va para el AuditLog: reasignar mueve al cliente y a sus
+       leads, y tiene que quedar constancia de quién lo hizo. */
+    return this.conversacionesService.asignarAgente(id, dto.agenteId, usuario.sub);
   }
 
-  /** Lista de agentes activos — para el dropdown de asignación del admin. */
+  /** Lista de agentes activos — para el dropdown de asignación del admin.
+   *  `@Roles('ADMIN')` porque es lo único que la consume (el frontend solo la
+   *  pide `if (isAdmin())`): sin esto, cualquier AGENTE listaba a toda la
+   *  plantilla activa con su rol. */
   @Get('meta/agentes')
+  @Roles('ADMIN')
   findAgentes() {
     return this.conversacionesService.findAgentes();
   }

@@ -21,9 +21,15 @@ export class CreateClienteDto {
   @IsEnum(CategoriaCliente)
   categoria?: CategoriaCliente;
 
+  /**
+   * `null` admitido a propósito: desasignar es una operación real (devolver el
+   * cliente al pool) y hay que poder distinguirla de `undefined`, que en el
+   * update significa "no tocar este campo". `@IsOptional()` salta la validación
+   * con ambos, y el service decide por `!== undefined`.
+   */
   @IsOptional()
   @IsString()
-  agenteId?: string;
+  agenteId?: string | null;
 
   @IsOptional()
   @IsString()

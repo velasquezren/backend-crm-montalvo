@@ -1,0 +1,441 @@
+import { NotFoundException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+
+import { AuditService } from '../../common/audit/audit.service';
+import { R2Service } from '../../common/storage/r2.service';
+import { PrismaService } from '../../prisma/prisma.service';
+import { ClientesService } from '../clientes/clientes.service';
+import { ConversacionesGateway } from './conversaciones.gateway';
+import { ConversacionesService } from './conversaciones.service';
+
+/**
+ * Pruebas contra un PostgreSQL DE VERDAD (`crm_test` en el :5433 local), con
+ * Prisma real y SQL real. Nada de dobles para la base.
+ *
+ * El motivo es concreto: lo que hay que demostrar aquí lo decide Postgres, no
+ * nuestro código. Que `updateMany ... where agenteId IS NULL` no le quite el
+ * chat a nadie, que el `OR` de visibilidad devuelva las filas correctas, y que
+ * dos webhooks simultáneos del mismo número creen UN cliente y no dos, son
+ * cosas que solo se ven ejecutándolas. Una base falsa aceptaría igual una
+ * consulta mal escrita.
+ *
+ * Lo único que sigue siendo un doble es lo que vive FUERA de este proceso y de
+ * la base: Cloudflare R2 (red) y el emisor WebSocket. No hay forma de tenerlos
+ * de verdad en una prueba, y no son lo que se está probando.
+ *
+ * Se ejecutan con `npm run test:integracion` (necesitan el Postgres arriba);
+ * `npm test` las salta a propósito para que la suite rápida no dependa de una
+ * base.
+ */
+
+const URL_TEST = 'postgresql://crm_app:crm_dev_local@localhost:5433/crm_test?schema=public';
+
+/* Cerrojo: esta suite BORRA tablas enteras entre pruebas. Si alguna vez apunta
+   a otra base que no sea la de pruebas, se niega a arrancar antes de tocar
+   nada. Un test mal apuntado contra `crm` se lleva por delante 15.000 pacientes. */
+if (!URL_TEST.includes('/crm_test')) {
+  throw new Error('La suite de integración solo puede correr contra la base crm_test');
+}
+
+const prisma = new PrismaService({ datasources: { db: { url: URL_TEST } } });
+
+/** Registra lo que se emitiría por WebSocket; no hay servidor de sockets aquí. */
+class GatewayEspia {
+  readonly emitidos: string[] = [];
+  emitirActividad(conversacionId: string): void {
+    this.emitidos.push(conversacionId);
+  }
+}
+
+/** R2 es Cloudflare por red; se registra lo que se subiría. */
+class R2Espia {
+  readonly subidos: Array<{ key: string; mime: string; bytes: number }> = [];
+  habilitado = true;
+  async subir(key: string, cuerpo: ArrayBuffer, mime: string): Promise<void> {
+    this.subidos.push({ key, mime, bytes: cuerpo.byteLength });
+  }
+  async urlFirmada(key: string): Promise<string | null> {
+    return `https://r2.local/${key}`;
+  }
+}
+
+let service: ConversacionesService;
+let clientesService: ClientesService;
+let gateway: GatewayEspia;
+let r2: R2Espia;
+
+beforeAll(async () => {
+  await prisma.$connect();
+});
+
+afterAll(async () => {
+  await prisma.$disconnect();
+});
+
+beforeEach(async () => {
+  /* Orden inverso a las dependencias. `Conversacion` y `Lead` caen en cascada
+     con `Cliente`, pero se borran explícitamente para no depender de eso. */
+  await prisma.auditLog.deleteMany();
+  await prisma.mensaje.deleteMany();
+  await prisma.conversacion.deleteMany();
+  await prisma.lead.deleteMany();
+  await prisma.cliente.deleteMany();
+  await prisma.usuario.deleteMany();
+
+  gateway = new GatewayEspia();
+  r2 = new R2Espia();
+  /* ConfigService real y vacío: sin credenciales de Meta, los envíos a la Cloud
+     API cortan antes del fetch. Es el comportamiento real documentado. */
+  const config = new ConfigService({});
+  clientesService = new ClientesService(prisma, new AuditService(prisma));
+  service = new ConversacionesService(
+    prisma,
+    clientesService,
+    config,
+    gateway as unknown as ConversacionesGateway,
+    r2 as unknown as R2Service,
+  );
+  jest.spyOn(service['logger'], 'warn').mockImplementation(() => undefined);
+  jest.spyOn(service['logger'], 'error').mockImplementation(() => undefined);
+  jest.spyOn(service['logger'], 'log').mockImplementation(() => undefined);
+});
+
+async function crearAgente(nombre: string, rol: 'AGENTE' | 'ADMIN' = 'AGENTE') {
+  return prisma.usuario.create({
+    data: { nombre, email: `${nombre}@test.local`, passwordHash: 'x', rol, activo: true },
+  });
+}
+
+async function crearChat(opciones: {
+  telefono: string;
+  agenteConversacion?: string | null;
+  agenteCliente?: string | null;
+}) {
+  const cliente = await prisma.cliente.create({
+    data: {
+      nombre: `Paciente ${opciones.telefono}`,
+      telefono: opciones.telefono,
+      agenteId: opciones.agenteCliente ?? null,
+    },
+  });
+  const conversacion = await prisma.conversacion.create({
+    data: { clienteId: cliente.id, agenteId: opciones.agenteConversacion ?? null },
+  });
+  return { cliente, conversacion };
+}
+
+describe('Conversaciones contra Postgres real', () => {
+  describe('visibilidad por rol', () => {
+    it('el AGENTE ve las suyas, las del pool y las de sus clientes — y ninguna más', async () => {
+      const a = await crearAgente('agente-a');
+      const b = await crearAgente('agente-b');
+
+      const suya = await crearChat({ telefono: '+59171000001', agenteConversacion: a.id });
+      const pool = await crearChat({ telefono: '+59171000002' });
+      const suCliente = await crearChat({
+        telefono: '+59171000003',
+        agenteConversacion: b.id,
+        agenteCliente: a.id,
+      });
+      const ajena = await crearChat({
+        telefono: '+59171000004',
+        agenteConversacion: b.id,
+        agenteCliente: b.id,
+      });
+
+      const visibles = (await service.findAll(a.id)).map(c => c.id).sort();
+
+      expect(visibles).toEqual([suya.conversacion.id, pool.conversacion.id, suCliente.conversacion.id].sort());
+      expect(visibles).not.toContain(ajena.conversacion.id);
+    });
+
+    it('el ADMIN las ve todas', async () => {
+      const b = await crearAgente('agente-b');
+      await crearChat({ telefono: '+59171000001', agenteConversacion: b.id, agenteCliente: b.id });
+      await crearChat({ telefono: '+59171000002' });
+
+      expect(await service.findAll(undefined)).toHaveLength(2);
+    });
+
+    /* Este es el desajuste que había: lo que el listado devuelve, el detalle
+       tiene que dejarlo abrir. Se comprueba fila por fila, no de palabra. */
+    it('todo lo que aparece en el listado se puede abrir sin 404', async () => {
+      const a = await crearAgente('agente-a');
+      const b = await crearAgente('agente-b');
+      await crearChat({ telefono: '+59171000001', agenteConversacion: a.id });
+      await crearChat({ telefono: '+59171000002' });
+      await crearChat({ telefono: '+59171000003', agenteConversacion: b.id, agenteCliente: a.id });
+
+      for (const c of await service.findAll(a.id)) {
+        await expect(service.findOne(c.id, a.id)).resolves.toBeDefined();
+      }
+    });
+
+    it('abrir por ID una conversación ajena da 404', async () => {
+      const a = await crearAgente('agente-a');
+      const b = await crearAgente('agente-b');
+      const { conversacion } = await crearChat({
+        telefono: '+59171000004',
+        agenteConversacion: b.id,
+        agenteCliente: b.id,
+      });
+
+      await expect(service.findOne(conversacion.id, a.id)).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  describe('responder no roba la conversación', () => {
+    it('un ADMIN que contesta un chat ajeno NO se lo queda', async () => {
+      const b = await crearAgente('agente-b');
+      const admin = await crearAgente('jefa', 'ADMIN');
+      const { conversacion } = await crearChat({ telefono: '+59171000005', agenteConversacion: b.id });
+
+      await service.enviarMensaje(conversacion.id, 'Reviso este caso', admin.id, undefined);
+
+      const despues = await prisma.conversacion.findUniqueOrThrow({ where: { id: conversacion.id } });
+      expect(despues.agenteId).toBe(b.id);
+    });
+
+    it('un chat del pool sí se asigna al que responde primero', async () => {
+      const a = await crearAgente('agente-a');
+      const { conversacion } = await crearChat({ telefono: '+59171000006' });
+
+      await service.enviarMensaje(conversacion.id, 'Hola, le atiendo', a.id, a.id);
+
+      const despues = await prisma.conversacion.findUniqueOrThrow({ where: { id: conversacion.id } });
+      expect(despues.agenteId).toBe(a.id);
+    });
+
+    /* Esto es lo que una base falsa no puede probar: el desempate lo hace
+       Postgres, no nosotros. */
+    it('si dos agentes contestan a la vez el mismo chat del pool, se lo lleva exactamente uno', async () => {
+      const a = await crearAgente('agente-a');
+      const b = await crearAgente('agente-b');
+      const { conversacion } = await crearChat({ telefono: '+59171000007' });
+
+      await Promise.all([
+        service.enviarMensaje(conversacion.id, 'yo lo tomo', a.id, a.id),
+        service.enviarMensaje(conversacion.id, 'yo lo tomo', b.id, b.id),
+      ]);
+
+      const despues = await prisma.conversacion.findUniqueOrThrow({ where: { id: conversacion.id } });
+      expect([a.id, b.id]).toContain(despues.agenteId);
+      expect(await prisma.mensaje.count({ where: { conversacionId: conversacion.id } })).toBe(2);
+    });
+
+    it('el mensaje sube el chat al tope del inbox (updatedAt)', async () => {
+      const a = await crearAgente('agente-a');
+      const { conversacion } = await crearChat({ telefono: '+59171000008', agenteConversacion: a.id });
+      const antes = conversacion.updatedAt;
+
+      await new Promise(r => setTimeout(r, 5));
+      await service.enviarMensaje(conversacion.id, 'hola', a.id, a.id);
+
+      const despues = await prisma.conversacion.findUniqueOrThrow({ where: { id: conversacion.id } });
+      expect(despues.updatedAt.getTime()).toBeGreaterThan(antes.getTime());
+    });
+  });
+
+  describe('asignarAgente arrastra cliente y leads, y queda auditado', () => {
+    it('reasigna en cascada sin que este módulo escriba en tablas ajenas', async () => {
+      const a = await crearAgente('agente-a');
+      const b = await crearAgente('agente-b');
+      const { cliente, conversacion } = await crearChat({
+        telefono: '+59171000009',
+        agenteConversacion: a.id,
+        agenteCliente: a.id,
+      });
+      await prisma.lead.create({
+        data: { clienteId: cliente.id, origen: 'WHATSAPP_DIRECTO', estado: 'NUEVO', agenteId: a.id },
+      });
+
+      await service.asignarAgente(conversacion.id, b.id, 'usuario-admin');
+
+      expect((await prisma.conversacion.findUniqueOrThrow({ where: { id: conversacion.id } })).agenteId).toBe(b.id);
+      expect((await prisma.cliente.findUniqueOrThrow({ where: { id: cliente.id } })).agenteId).toBe(b.id);
+      expect(await prisma.lead.count({ where: { clienteId: cliente.id, agenteId: b.id } })).toBe(1);
+    });
+
+    it('deja rastro en AuditLog de quién reasignó', async () => {
+      const a = await crearAgente('agente-a');
+      const { cliente, conversacion } = await crearChat({ telefono: '+59171000010', agenteCliente: a.id });
+
+      await service.asignarAgente(conversacion.id, null, 'usuario-admin');
+
+      const registros = await prisma.auditLog.findMany({ where: { entidadId: cliente.id } });
+      expect(registros).toHaveLength(1);
+      expect(registros[0].usuarioId).toBe('usuario-admin');
+    });
+
+    it('desasignar devuelve cliente y chat al pool', async () => {
+      const a = await crearAgente('agente-a');
+      const { cliente, conversacion } = await crearChat({
+        telefono: '+59171000011',
+        agenteConversacion: a.id,
+        agenteCliente: a.id,
+      });
+
+      await service.asignarAgente(conversacion.id, null, 'usuario-admin');
+
+      expect((await prisma.conversacion.findUniqueOrThrow({ where: { id: conversacion.id } })).agenteId).toBeNull();
+      expect((await prisma.cliente.findUniqueOrThrow({ where: { id: cliente.id } })).agenteId).toBeNull();
+    });
+  });
+
+  describe('webhook entrante: alta automática e idempotencia', () => {
+    it('un mensaje de un número nuevo crea cliente, conversación y lead', async () => {
+      await service.procesarEntrante('+59172000001', 'Hola, quiero información', 'wamid.a1', 'Ana Pérez');
+
+      const cliente = await prisma.cliente.findUniqueOrThrow({ where: { telefono: '+59172000001' } });
+      expect(cliente.nombre).toBe('Ana Pérez');
+      expect(await prisma.conversacion.count({ where: { clienteId: cliente.id } })).toBe(1);
+      expect(await prisma.lead.count({ where: { clienteId: cliente.id } })).toBe(1);
+    });
+
+    it('el mismo whatsappMsgId dos veces guarda UN mensaje (Meta reintenta)', async () => {
+      await service.procesarEntrante('+59172000002', 'Hola', 'wamid.b1');
+      await service.procesarEntrante('+59172000002', 'Hola', 'wamid.b1');
+
+      expect(await prisma.mensaje.count({ where: { whatsappMsgId: 'wamid.b1' } })).toBe(1);
+    });
+
+    /* La prueba que pide el propio manual del proyecto: N webhooks en paralelo
+       del mismo número deben dar 1 cliente / 1 conversación / N mensajes / 1 lead.
+       Con `findFirst → create` esto creaba duplicados o reventaba con P2002. */
+    it('5 webhooks simultáneos del mismo número nuevo: 1 cliente, 1 conversación, 5 mensajes, 1 lead', async () => {
+      await Promise.all(
+        [1, 2, 3, 4, 5].map(n =>
+          service.procesarEntrante('+59172000003', `mensaje ${n}`, `wamid.c${n}`, 'Paciente Nuevo'),
+        ),
+      );
+
+      const cliente = await prisma.cliente.findUniqueOrThrow({ where: { telefono: '+59172000003' } });
+      expect(await prisma.cliente.count({ where: { telefono: '+59172000003' } })).toBe(1);
+      expect(await prisma.conversacion.count({ where: { clienteId: cliente.id } })).toBe(1);
+      expect(await prisma.mensaje.count()).toBe(5);
+      expect(await prisma.lead.count({ where: { clienteId: cliente.id } })).toBe(1);
+    });
+
+    it('un entrante sube el chat al tope del inbox', async () => {
+      await service.procesarEntrante('+59172000004', 'primero', 'wamid.d1');
+      const conv = await prisma.conversacion.findFirstOrThrow();
+      const antes = conv.updatedAt;
+
+      await new Promise(r => setTimeout(r, 5));
+      await service.procesarEntrante('+59172000004', 'segundo', 'wamid.d2');
+
+      const despues = await prisma.conversacion.findUniqueOrThrow({ where: { id: conv.id } });
+      expect(despues.updatedAt.getTime()).toBeGreaterThan(antes.getTime());
+    });
+
+    it('sin nombre de perfil, el alta usa el marcador con el teléfono', async () => {
+      await service.procesarEntrante('+59172000005', 'Hola', 'wamid.e1');
+      const cliente = await prisma.cliente.findUniqueOrThrow({ where: { telefono: '+59172000005' } });
+      expect(cliente.nombre).toBe('WhatsApp +59172000005');
+    });
+  });
+
+  describe('estados de entrega (ticks)', () => {
+    async function mensajeSaliente(estado: 'ENVIADO' | 'ENTREGADO' | 'LEIDO') {
+      const a = await crearAgente('agente-a');
+      const { conversacion } = await crearChat({ telefono: '+59173000001', agenteConversacion: a.id });
+      return prisma.mensaje.create({
+        data: {
+          conversacionId: conversacion.id,
+          direccion: 'SALIENTE',
+          contenido: 'hola',
+          estadoEnvio: estado,
+          whatsappMsgId: 'wamid.out.1',
+        },
+      });
+    }
+
+    it('sent → delivered → read avanza', async () => {
+      const m = await mensajeSaliente('ENVIADO');
+      await service.procesarEstadoMensaje('wamid.out.1', 'delivered');
+      expect((await prisma.mensaje.findUniqueOrThrow({ where: { id: m.id } })).estadoEnvio).toBe('ENTREGADO');
+
+      await service.procesarEstadoMensaje('wamid.out.1', 'read');
+      expect((await prisma.mensaje.findUniqueOrThrow({ where: { id: m.id } })).estadoEnvio).toBe('LEIDO');
+    });
+
+    it('un delivered que llega tarde NO pisa un read anterior', async () => {
+      const m = await mensajeSaliente('LEIDO');
+      await service.procesarEstadoMensaje('wamid.out.1', 'delivered');
+      expect((await prisma.mensaje.findUniqueOrThrow({ where: { id: m.id } })).estadoEnvio).toBe('LEIDO');
+    });
+
+    it('un status de un mensaje desconocido no revienta', async () => {
+      await expect(service.procesarEstadoMensaje('wamid.inexistente', 'read')).resolves.toBeUndefined();
+    });
+  });
+
+  describe('marcar leído', () => {
+    it('pone leidoEn a los entrantes sin leer y vacía el contador del inbox', async () => {
+      const a = await crearAgente('agente-a');
+      await service.procesarEntrante('+59174000001', 'uno', 'wamid.f1');
+      await service.procesarEntrante('+59174000001', 'dos', 'wamid.f2');
+      const conv = await prisma.conversacion.findFirstOrThrow();
+      await prisma.conversacion.update({ where: { id: conv.id }, data: { agenteId: a.id } });
+
+      expect((await service.findAll(a.id))[0].noLeidosCount).toBe(2);
+
+      await service.marcarLeido(conv.id, a.id, false);
+
+      expect(await prisma.mensaje.count({ where: { direccion: 'ENTRANTE', leidoEn: null } })).toBe(0);
+      expect((await service.findAll(a.id))[0].noLeidosCount).toBe(0);
+    });
+
+    it('no marca nada si la conversación es de otro agente', async () => {
+      const a = await crearAgente('agente-a');
+      const b = await crearAgente('agente-b');
+      await service.procesarEntrante('+59174000002', 'uno', 'wamid.g1');
+      const conv = await prisma.conversacion.findFirstOrThrow();
+      await prisma.conversacion.update({ where: { id: conv.id }, data: { agenteId: b.id } });
+      await prisma.cliente.updateMany({ data: { agenteId: b.id } });
+
+      expect(await service.marcarLeido(conv.id, a.id, false)).toEqual({ ok: false });
+      expect(await prisma.mensaje.count({ where: { direccion: 'ENTRANTE', leidoEn: null } })).toBe(1);
+    });
+  });
+
+  describe('mensajes anteriores (scroll hacia arriba)', () => {
+    it('devuelve solo los previos al cursor, en orden ascendente', async () => {
+      const a = await crearAgente('agente-a');
+      const { conversacion } = await crearChat({ telefono: '+59175000001', agenteConversacion: a.id });
+      for (let i = 1; i <= 5; i++) {
+        await prisma.mensaje.create({
+          data: {
+            conversacionId: conversacion.id,
+            direccion: 'ENTRANTE',
+            contenido: `msg ${i}`,
+            createdAt: new Date(`2026-08-0${i}T10:00:00.000Z`),
+          },
+        });
+      }
+
+      const previos = await service.obtenerMensajesAnteriores(
+        conversacion.id,
+        '2026-08-04T00:00:00.000Z',
+        50,
+        a.id,
+      );
+
+      expect(previos.map(m => m.contenido)).toEqual(['msg 1', 'msg 2', 'msg 3']);
+    });
+
+    it('exige poder ver la conversación', async () => {
+      const a = await crearAgente('agente-a');
+      const b = await crearAgente('agente-b');
+      const { conversacion } = await crearChat({
+        telefono: '+59175000002',
+        agenteConversacion: b.id,
+        agenteCliente: b.id,
+      });
+
+      await expect(
+        service.obtenerMensajesAnteriores(conversacion.id, '2026-08-04T00:00:00.000Z', 50, a.id),
+      ).rejects.toThrow(NotFoundException);
+    });
+  });
+});

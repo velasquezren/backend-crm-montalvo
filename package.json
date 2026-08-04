@@ -11,7 +11,9 @@
     "prisma:migrate": "prisma migrate dev",
     "prisma:studio": "prisma studio",
     "test": "jest",
-    "test:watch": "jest --watch"
+    "test:watch": "jest --watch",
+    "test:integracion:preparar": "psql -h localhost -p 5433 -U crm_app -d postgres -c \"DROP DATABASE IF EXISTS crm_test;\" -c \"CREATE DATABASE crm_test;\" && DATABASE_URL=\"postgresql://crm_app:crm_dev_local@localhost:5433/crm_test?schema=public\" prisma migrate deploy",
+    "test:integracion": "jest --runInBand --testPathIgnorePatterns '/node_modules/' --testPathPattern '\\.integracion\\.spec\\.ts$'"
   },
   "dependencies": {
     "@nestjs/common": "^10.4.0",
@@ -61,6 +63,10 @@
     ],
     "rootDir": "src",
     "testRegex": ".*\\.spec\\.ts$",
+    "testPathIgnorePatterns": [
+      "/node_modules/",
+      "\\.integracion\\.spec\\.ts$"
+    ],
     "transform": {
       "^.+\\.ts$": [
         "ts-jest",

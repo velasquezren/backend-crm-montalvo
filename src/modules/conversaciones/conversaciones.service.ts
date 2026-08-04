@@ -19,6 +19,14 @@ export interface MediaEntrante {
  *  Se acota a 50 para máxima velocidad inicial; los anteriores se cargan por cursor al hacer scroll. */
 const LIMITE_MENSAJES_DETALLE = 50;
 
+/**
+ * Tope de la media entrante que se baja a memoria. WhatsApp acepta documentos
+ * de hasta 100 MB, y `arrayBuffer()` los carga enteros: dos o tres a la vez
+ * tumban un VPS de 1,7 GB donde además viven otras dos apps. 25 MB cubre de
+ * sobra fotos, audios y PDFs de estudios, que es lo que manda un paciente.
+ */
+const MAX_BYTES_MEDIA = 25 * 1024 * 1024;
+
 /** Forma cruda de una plantilla en la respuesta de Meta (solo lo que usamos). */
 interface PlantillaMeta {
   name: string;
@@ -48,6 +56,43 @@ export interface AgenteResumen {
   nombre: string;
 }
 
+/**
+ * Visibilidad por rol de una conversación, en UN solo sitio.
+ *
+ * Un AGENTE ve: las suyas, las de sus clientes, y las que no tiene nadie (pool).
+ * De ADMIN para arriba `soloAgenteId` llega `undefined` y se ve todo.
+ *
+ * Están las dos formas —consulta y chequeo en memoria— juntas a propósito: el
+ * listado filtraba también por `cliente.agenteId` pero el detalle solo miraba
+ * `conversacion.agenteId`, así que había chats que el agente veía en la lista y
+ * daban 404 al abrirlos. Es la misma lección que `alcanceAgente()`: dos copias
+ * de la misma regla en sitios distintos terminan divergiendo. Si cambias una,
+ * cambias la otra — están pegadas para que se note.
+ */
+function whereVisibilidad(soloAgenteId?: string): Prisma.ConversacionWhereInput | undefined {
+  if (!soloAgenteId) return undefined;
+  return {
+    OR: [
+      { agenteId: soloAgenteId },
+      { agenteId: null },
+      { cliente: { agenteId: soloAgenteId } },
+    ],
+  };
+}
+
+/** Contraparte en memoria de `whereVisibilidad`, para las lecturas por ID. */
+function puedeVerConversacion(
+  conversacion: { agenteId: string | null; cliente?: { agenteId?: string | null } | null },
+  soloAgenteId?: string,
+): boolean {
+  if (!soloAgenteId) return true;
+  return (
+    conversacion.agenteId === soloAgenteId ||
+    conversacion.agenteId === null ||
+    conversacion.cliente?.agenteId === soloAgenteId
+  );
+}
+
 @Injectable()
 export class ConversacionesService {
   private readonly logger = new Logger(ConversacionesService.name);
@@ -66,15 +111,7 @@ export class ConversacionesService {
   /** Visibilidad por rol: AGENTE ve sus conversaciones + las sin asignar; ADMIN todo. */
   async findAll(soloAgenteId?: string) {
     const conversaciones = await this.prisma.conversacion.findMany({
-      where: soloAgenteId
-        ? {
-            OR: [
-              { agenteId: soloAgenteId },
-              { agenteId: null },
-              { cliente: { agenteId: soloAgenteId } },
-            ],
-          }
-        : undefined,
+      where: whereVisibilidad(soloAgenteId),
       orderBy: { updatedAt: 'desc' },
       select: {
         id: true,
@@ -135,6 +172,9 @@ export class ConversacionesService {
             empresaTrabajo: true,
             ciLugar: true,
             datosExtra: true,
+            /* Lo consume `puedeVerConversacion`: sin esto el detalle no puede
+               aplicar la misma regla de visibilidad que el listado. */
+            agenteId: true,
             agente: { select: { id: true, nombre: true } },
           },
         },
@@ -145,10 +185,7 @@ export class ConversacionesService {
         mensajes: { orderBy: { createdAt: 'desc' }, take: LIMITE_MENSAJES_DETALLE },
       },
     });
-    if (
-      !conversacion ||
-      (soloAgenteId && conversacion.agenteId && conversacion.agenteId !== soloAgenteId)
-    ) {
+    if (!conversacion || !puedeVerConversacion(conversacion, soloAgenteId)) {
       throw new NotFoundException(`Conversación ${id} no encontrada`);
     }
     conversacion.mensajes.reverse();
@@ -201,20 +238,30 @@ export class ConversacionesService {
   private async obtenerConversacionPropia(id: string, soloAgenteId?: string) {
     const conversacion = await this.prisma.conversacion.findUnique({
       where: { id },
-      select: { id: true, agenteId: true, cliente: { select: { telefono: true } } },
+      select: {
+        id: true,
+        agenteId: true,
+        clienteId: true,
+        cliente: { select: { telefono: true, agenteId: true } },
+      },
     });
-    if (
-      !conversacion ||
-      (soloAgenteId && conversacion.agenteId && conversacion.agenteId !== soloAgenteId)
-    ) {
+    if (!conversacion || !puedeVerConversacion(conversacion, soloAgenteId)) {
       throw new NotFoundException(`Conversación ${id} no encontrada`);
     }
     return conversacion;
   }
 
-  /** `soloAgenteId` — ver la nota de `findOne`. Si la conversación estaba sin
-   *  asignar, el envío la asigna automáticamente al agente que responde
-   *  primero (comportamiento ya existente, ahora también protegido). */
+  /**
+   * `soloAgenteId` — ver la nota de `findOne`. Si la conversación estaba sin
+   * asignar, el envío la asigna al agente que responde primero.
+   *
+   * "Si estaba sin asignar" es literal: antes el `update` escribía `agenteId`
+   * siempre, así que un ADMIN que contestara un chat ajeno se lo quitaba al
+   * agente que lo tenía — y con la conversación se movía la atribución. Ahora
+   * la condición la evalúa la base (`updateMany` con `agenteId: null` en el
+   * where), que además resuelve el empate si dos agentes contestan a la vez el
+   * mismo chat del pool: exactamente uno se lo lleva.
+   */
   async enviarMensaje(
     conversacionId: string,
     contenido: string,
@@ -232,9 +279,14 @@ export class ConversacionesService {
       this.prisma.mensaje.create({
         data: { conversacionId, direccion: 'SALIENTE', contenido, estadoEnvio: 'ENVIADO' },
       }),
+      /* Solo reclama el chat si está en el pool — ver la nota del método. */
+      this.prisma.conversacion.updateMany({
+        where: { id: conversacionId, agenteId: null },
+        data: { agenteId },
+      }),
       this.prisma.conversacion.update({
         where: { id: conversacionId },
-        data: { agenteId, updatedAt: new Date() },
+        data: { updatedAt: new Date() },
       }),
     ]);
 
@@ -446,9 +498,14 @@ export class ConversacionesService {
       this.prisma.mensaje.create({
         data: { conversacionId, direccion: 'SALIENTE', contenido: dto.contenido, estadoEnvio: 'ENVIADO' },
       }),
+      /* Mismo criterio que `enviarMensaje`: reclamar solo si está en el pool. */
+      this.prisma.conversacion.updateMany({
+        where: { id: conversacionId, agenteId: null },
+        data: { agenteId },
+      }),
       this.prisma.conversacion.update({
         where: { id: conversacionId },
-        data: { agenteId, updatedAt: new Date() },
+        data: { updatedAt: new Date() },
       }),
     ]);
 
@@ -530,9 +587,9 @@ export class ConversacionesService {
   async marcarLeido(conversacionId: string, soloAgenteId?: string, typing = false): Promise<{ ok: boolean }> {
     const conv = await this.prisma.conversacion.findUnique({
       where: { id: conversacionId },
-      select: { id: true, agenteId: true },
+      select: { id: true, agenteId: true, cliente: { select: { agenteId: true } } },
     });
-    if (!conv || (soloAgenteId && conv.agenteId && conv.agenteId !== soloAgenteId)) {
+    if (!conv || !puedeVerConversacion(conv, soloAgenteId)) {
       return { ok: false };
     }
 
@@ -580,10 +637,20 @@ export class ConversacionesService {
     }
   }
 
-  /** Asignar/reasignar un agente a una conversación (solo ADMIN). */
-  async asignarAgente(conversacionId: string, agenteId: string | null) {
+  /**
+   * Asignar/reasignar un agente a una conversación (solo ADMIN).
+   *
+   * Reasignar un chat arrastra al cliente y a sus leads — si no, el inbox diría
+   * una cosa y Oportunidades otra. Pero esas dos tablas son de otros dominios:
+   * antes se escribían aquí con `prisma.cliente.update` y `prisma.lead.updateMany`,
+   * saltándose la regla de oro nº1 y, de paso, la auditoría. `ClientesService.update()`
+   * ya hacía exactamente esta cascada (cliente + leads + conversaciones) y además
+   * registra en `AuditLog`, así que la reasignación es suya y aquí solo se pide.
+   */
+  async asignarAgente(conversacionId: string, agenteId: string | null, usuarioId?: string) {
     const conversacion = await this.prisma.conversacion.findUnique({
       where: { id: conversacionId },
+      select: { id: true, clienteId: true },
     });
     if (!conversacion) {
       throw new NotFoundException(`Conversación ${conversacionId} no encontrada`);
@@ -596,32 +663,25 @@ export class ConversacionesService {
       }
     }
 
-    const [actualizada] = await this.prisma.$transaction([
-      this.prisma.conversacion.update({
-        where: { id: conversacionId },
-        data: { agenteId },
-        include: {
-          cliente: {
-            select: {
-              id: true,
-              nombre: true,
-              telefono: true,
-              categoria: true,
-              agente: { select: { id: true, nombre: true } },
-            },
+    await this.clientesService.update(conversacion.clienteId, { agenteId }, usuarioId);
+
+    /* Se relee para devolver la misma forma de antes: el update vive en Clientes
+       y devuelve un cliente, no la conversación que espera el inbox. */
+    const actualizada = await this.prisma.conversacion.findUniqueOrThrow({
+      where: { id: conversacionId },
+      include: {
+        cliente: {
+          select: {
+            id: true,
+            nombre: true,
+            telefono: true,
+            categoria: true,
+            agente: { select: { id: true, nombre: true } },
           },
-          agente: { select: { id: true, nombre: true } },
         },
-      }),
-      this.prisma.cliente.update({
-        where: { id: conversacion.clienteId },
-        data: { agenteId },
-      }),
-      this.prisma.lead.updateMany({
-        where: { clienteId: conversacion.clienteId },
-        data: { agenteId },
-      }),
-    ]);
+        agente: { select: { id: true, nombre: true } },
+      },
+    });
 
     return {
       ...actualizada,
@@ -798,7 +858,26 @@ export class ConversacionesService {
         this.logger.error(`No se pudo descargar media ${media.mediaId} (${archivo.status})`);
         return;
       }
+
+      /* El corte real lo hace `content-length`, que Meta siempre manda: descarta
+         antes de reservar un solo byte. La comprobación de después es la red de
+         seguridad por si algún día llega sin cabecera — ahí ya se pagó la
+         memoria, pero al menos no se sube a R2 ni se guarda. */
+      const declarado = Number(archivo.headers.get('content-length'));
+      if (Number.isFinite(declarado) && declarado > MAX_BYTES_MEDIA) {
+        this.logger.warn(
+          `Media ${media.mediaId} descartada: ${Math.round(declarado / 1024 / 1024)} MB supera el tope de ${MAX_BYTES_MEDIA / 1024 / 1024} MB`,
+        );
+        return;
+      }
+
       const bytes = await archivo.arrayBuffer();
+      if (bytes.byteLength > MAX_BYTES_MEDIA) {
+        this.logger.warn(
+          `Media ${media.mediaId} descartada tras descargar: ${Math.round(bytes.byteLength / 1024 / 1024)} MB supera el tope`,
+        );
+        return;
+      }
 
       /* 3) Subir a R2 y registrar la clave en el mensaje. */
       const key = `wa/${conversacionId}/${mensajeId}`;
