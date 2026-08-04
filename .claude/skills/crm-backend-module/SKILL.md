@@ -229,6 +229,44 @@ evita que un cliente externo falsifique su IP. Los webhooks de proveedores
 contra el límite —tras varios 429 Meta desactiva la suscripción— y son
 idempotentes de todos modos.
 
+## Un webhook `@Public()` se sostiene con la FIRMA, no con el rate-limit
+
+`@SkipThrottle()` + `@Public()` + escritura en base es la combinación más peligrosa del
+backend, y es exactamente lo que necesita un webhook. Lo único que separa ese endpoint de
+internet es verificar la firma del proveedor. Meta firma cada POST con HMAC-SHA256 del
+cuerpo en `X-Hub-Signature-256`; sin comprobarlo, cualquiera que conociera la URL —pública
+por necesidad— podía dar de alta pacientes y leads sin límite e inyectar mensajes falsos en
+el hilo de cualquier paciente. **`META_VERIFY_TOKEN` no cubre esto**: solo protege el GET
+de alta de la suscripción, no los POST posteriores.
+
+Ver `WhatsappSignatureGuard` (`modules/conversaciones/webhooks/`). Tres cosas que no son
+obvias:
+
+- Se firma el cuerpo **crudo**, no el JSON reserializado — requiere
+  `NestFactory.create(AppModule, { rawBody: true })` en `main.ts` y `RawBodyRequest<Request>`.
+- `timingSafeEqual` **lanza** si los buffers difieren en longitud, y `Buffer.from(hex,'hex')`
+  trunca en silencio ante caracteres inválidos: compara longitudes antes, o una firma
+  malformada es un 500 en vez de un 403.
+- **Falla cerrado**: sin `META_APP_SECRET` se rechaza todo. Un modo "sin secreto, dejar
+  pasar" deja el agujero abierto para siempre. El precio es que la variable es obligatoria
+  para recibir mensajes.
+
+Misma trampa en la verificación GET: `token === esperado` con `esperado` sin configurar
+compara `undefined === undefined` y da por buena cualquier petición. Comprueba que la
+variable exista *antes* de comparar.
+
+## Procesar lotes de un webhook: un try/catch POR ELEMENTO
+
+Un webhook responde 200 antes de procesar (Meta corta a los 3s), así que **lo que se pierda
+procesando no se reintenta nunca**. Con un solo try/catch envolviendo el bucle, una
+excepción en el mensaje 2 de 5 se lleva los 3 restantes y todos los `statuses` de ese
+cambio: mensajes de pacientes desapareciendo sin traza. Cada elemento va en su propio
+try/catch, y el catch registra el id para poder rastrearlo. Ver `procesarWebhook()` en
+`whatsapp-webhook.controller.ts`.
+
+Corolario para probarlo: si el handler dispara el procesamiento con `void`, expón el método
+asíncrono (no `private`) para que la prueba pueda esperar su promesa.
+
 ## Consultas: agregar en SQL, no en JS
 
 Prohibido traer filas para contarlas o sumarlas en memoria:

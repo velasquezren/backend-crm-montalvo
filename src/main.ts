@@ -9,7 +9,13 @@ import helmet from 'helmet';
 import { AppModule } from './app.module';
 
 async function bootstrap(): Promise<void> {
-  const app = await NestFactory.create<NestExpressApplication>(AppModule);
+  /**
+   * `rawBody: true` conserva los bytes exactos del cuerpo además del JSON ya
+   * parseado. Lo necesita `WhatsappSignatureGuard`: Meta firma el cuerpo CRUDO
+   * con HMAC-SHA256, y reserializar el objeto parseado cambiaría espacios y
+   * orden de claves, rompiendo la verificación.
+   */
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, { rawBody: true });
 
   /**
    * Confiar en el proxy SOLO cuando el peer inmediato es loopback (Apache, que
