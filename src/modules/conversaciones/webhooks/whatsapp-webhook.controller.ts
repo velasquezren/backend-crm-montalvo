@@ -3,6 +3,7 @@ import {
   Controller,
   ForbiddenException,
   Get,
+  HttpCode,
   Logger,
   Post,
   Query,
@@ -120,6 +121,11 @@ export class WhatsappWebhookController {
   @Public()
   @UseGuards(MetaSignatureGuard)
   @Post()
+  /* Nest responde 201 a un POST por defecto; Meta documenta que espera **200**.
+     Venía funcionando —los mensajes llegaban— pero depender de que Meta tolere
+     un 2xx que su documentación no promete es apostar gratis: si algún día lo
+     trata como fallo, reintenta y acaba desactivando la suscripción. */
+  @HttpCode(200)
   recibir(@Body() payload: WhatsappWebhookDto): { received: true } {
     /* Meta exige un 200 rápido (< 3s); procesamos el payload de forma asíncrona
        para responder en < 2ms y evitar desactivación por timeouts durante ráfagas. */

@@ -3,6 +3,7 @@ import {
   Controller,
   ForbiddenException,
   Get,
+  HttpCode,
   Logger,
   Post,
   Query,
@@ -64,6 +65,9 @@ export class MetaWebhookController {
   @Public()
   @UseGuards(MetaSignatureGuard)
   @Post()
+  /* 200, no el 201 que Nest da por defecto en POST: es lo que Meta documenta
+     esperar. Ver la nota en el webhook de WhatsApp. */
+  @HttpCode(200)
   recibir(@Body() payload: MetaWebhookDto): { received: true } {
     const leadgenIds =
       payload.entry
