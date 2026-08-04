@@ -239,7 +239,11 @@ por necesidad— podía dar de alta pacientes y leads sin límite e inyectar men
 el hilo de cualquier paciente. **`META_VERIFY_TOKEN` no cubre esto**: solo protege el GET
 de alta de la suscripción, no los POST posteriores.
 
-Ver `WhatsappSignatureGuard` (`modules/conversaciones/webhooks/`). Tres cosas que no son
+Ver `MetaSignatureGuard` (`common/guards/`). Está en `common/` y no en un módulo **porque Meta
+firma todos sus webhooks igual**: WhatsApp Cloud API, Lead Ads, Messenger y los DM de Instagram
+comparten cabecera, algoritmo y App Secret. Todo webhook de Meta que se añada cuelga de este
+guard — un `@UseGuards(MetaSignatureGuard)` sobre el POST y ya. Hoy lo usan
+`webhooks/whatsapp` y `webhooks/meta` (Lead Ads). Tres cosas que no son
 obvias:
 
 - Se firma el cuerpo **crudo**, no el JSON reserializado — requiere

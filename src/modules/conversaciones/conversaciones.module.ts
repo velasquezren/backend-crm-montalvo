@@ -1,17 +1,17 @@
 import { Module } from '@nestjs/common';
 
+import { MetaSignatureGuard } from '../../common/guards/meta-signature.guard';
 import { StorageModule } from '../../common/storage/storage.module';
 import { ClientesModule } from '../clientes/clientes.module';
 import { ConversacionesController } from './conversaciones.controller';
 import { ConversacionesGateway } from './conversaciones.gateway';
 import { ConversacionesService } from './conversaciones.service';
-import { WhatsappSignatureGuard } from './webhooks/whatsapp-signature.guard';
 import { WhatsappWebhookController } from './webhooks/whatsapp-webhook.controller';
 
 @Module({
   imports: [ClientesModule, StorageModule],
   controllers: [ConversacionesController, WhatsappWebhookController],
-  providers: [ConversacionesService, ConversacionesGateway, WhatsappSignatureGuard],
+  providers: [ConversacionesService, ConversacionesGateway, MetaSignatureGuard],
   exports: [ConversacionesService],
 })
 export class ConversacionesModule {}

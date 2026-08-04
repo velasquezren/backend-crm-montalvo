@@ -3,7 +3,7 @@ import { createHmac } from 'node:crypto';
 import { ExecutionContext, ForbiddenException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
-import { WhatsappSignatureGuard } from './whatsapp-signature.guard';
+import { MetaSignatureGuard } from './meta-signature.guard';
 
 /**
  * El webhook de WhatsApp es `@Public()` y `@SkipThrottle()`, y escribe en base:
@@ -27,9 +27,9 @@ function contexto(cuerpo: Buffer | undefined, firma?: string | string[]): Execut
 
 /* Sin valor por defecto a propósito: `guard(undefined)` con un default caería
    en el default y probaría lo contrario de lo que dice el nombre del caso. */
-function guard(secreto: string | undefined): WhatsappSignatureGuard {
+function guard(secreto: string | undefined): MetaSignatureGuard {
   const config = { get: (clave: string) => (clave === 'META_APP_SECRET' ? secreto : undefined) };
-  const instancia = new WhatsappSignatureGuard(config as ConfigService);
+  const instancia = new MetaSignatureGuard(config as ConfigService);
   /* Silencia el logger: estas pruebas provocan rechazos a propósito y el ruido
      tapa el resultado real de la corrida. */
   jest.spyOn(instancia['logger'], 'error').mockImplementation(() => undefined);
@@ -45,7 +45,7 @@ const CUERPO = Buffer.from(
   JSON.stringify({ object: 'whatsapp_business_account', entry: [{ changes: [] }] }),
 );
 
-describe('WhatsappSignatureGuard', () => {
+describe('MetaSignatureGuard', () => {
   it('acepta un payload firmado con el App Secret correcto', () => {
     expect(guard(SECRETO).canActivate(contexto(CUERPO, firmar(CUERPO)))).toBe(true);
   });

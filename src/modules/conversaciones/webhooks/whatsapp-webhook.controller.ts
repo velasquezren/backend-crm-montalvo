@@ -14,13 +14,13 @@ import { SkipThrottle } from '@nestjs/throttler';
 import { TipoMensaje } from '@prisma/client';
 
 import { Public } from '../../../common/decorators/public.decorator';
+import { MetaSignatureGuard } from '../../../common/guards/meta-signature.guard';
 import { ConversacionesService } from '../conversaciones.service';
 import {
   WhatsappContactDto,
   WhatsappMessageDto,
   WhatsappWebhookDto,
 } from './dto/whatsapp-webhook.dto';
-import { WhatsappSignatureGuard } from './whatsapp-signature.guard';
 
 /** Extrae el objeto de media de un mensaje entrante y lo normaliza, o null si no es media soportada. */
 function extraerMedia(
@@ -82,7 +82,7 @@ function extraerRespuestaBoton(mensaje: WhatsappMessageDto): string | null {
  * forma útil (todo llega de los rangos de Meta) y el endpoint ya es idempotente
  * por `whatsappMsgId`, así que reintentos duplicados no hacen daño. Lo que
  * sostiene al endpoint no es el rate-limit sino la firma: ver
- * `WhatsappSignatureGuard` sobre el POST.
+ * `MetaSignatureGuard` sobre el POST.
  */
 @SkipThrottle()
 @Controller('webhooks/whatsapp')
@@ -118,7 +118,7 @@ export class WhatsappWebhookController {
   }
 
   @Public()
-  @UseGuards(WhatsappSignatureGuard)
+  @UseGuards(MetaSignatureGuard)
   @Post()
   recibir(@Body() payload: WhatsappWebhookDto): { received: true } {
     /* Meta exige un 200 rápido (< 3s); procesamos el payload de forma asíncrona

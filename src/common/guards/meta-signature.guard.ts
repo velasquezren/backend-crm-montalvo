@@ -12,8 +12,14 @@ import { ConfigService } from '@nestjs/config';
 import type { Request } from 'express';
 
 /**
- * Verifica la firma `X-Hub-Signature-256` con la que Meta firma cada POST del
+ * Verifica la firma `X-Hub-Signature-256` con la que Meta firma cada POST de
  * webhook (HMAC-SHA256 del cuerpo CRUDO usando el App Secret de la app de Meta).
+ *
+ * **Vive en `common/` y no en un módulo porque Meta firma TODOS sus webhooks
+ * igual**: WhatsApp Cloud API, Lead Ads de Facebook/Instagram, Messenger y los
+ * DM de Instagram comparten cabecera, algoritmo y App Secret. Cualquier webhook
+ * de Meta que se añada al CRM debe colgar de este mismo guard — es un
+ * `@UseGuards(MetaSignatureGuard)` sobre el POST y nada más.
  *
  * Sin esto el endpoint era la puerta más abierta del CRM: `@Public()` (sin JWT),
  * `@SkipThrottle()` (sin rate-limit) y escribiendo en base. Cualquiera que
@@ -34,8 +40,8 @@ import type { Request } from 'express';
  * —cualquier diferencia de espacios o de orden de claves cambiaría el HMAC.
  */
 @Injectable()
-export class WhatsappSignatureGuard implements CanActivate {
-  private readonly logger = new Logger(WhatsappSignatureGuard.name);
+export class MetaSignatureGuard implements CanActivate {
+  private readonly logger = new Logger(MetaSignatureGuard.name);
 
   constructor(private readonly config: ConfigService) {}
 

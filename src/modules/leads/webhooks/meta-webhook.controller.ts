@@ -6,10 +6,13 @@ import {
   Logger,
   Post,
   Query,
+  UseGuards,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { SkipThrottle } from '@nestjs/throttler';
 
 import { Public } from '../../../common/decorators/public.decorator';
+import { MetaSignatureGuard } from '../../../common/guards/meta-signature.guard';
 import { MetaWebhookDto } from './dto/meta-webhook.dto';
 
 /**
@@ -22,7 +25,11 @@ import { MetaWebhookDto } from './dto/meta-webhook.dto';
  * delega a LeadsService.procesarLeadMeta().
  */
 /* Igual que el de WhatsApp: sin forbidNonWhitelisted, el payload de Meta
-   trae campos que no modelamos y rechazarlo desactivaría la suscripción. */
+   trae campos que no modelamos y rechazarlo desactivaría la suscripción.
+   Y por el mismo motivo, `@SkipThrottle()`: las ráfagas de Meta no deben
+   chocar contra el rate-limit global. Lo que sostiene el endpoint es la
+   firma (`MetaSignatureGuard`), no el límite de peticiones. */
+@SkipThrottle()
 @Controller('webhooks/meta')
 export class MetaWebhookController {
   private readonly logger = new Logger(MetaWebhookController.name);
@@ -38,6 +45,16 @@ export class MetaWebhookController {
     @Query('hub.challenge') challenge: string,
   ): string {
     const esperado = this.config.get<string>('META_VERIFY_TOKEN');
+    /* Mismo fallo que tenía el webhook de WhatsApp: sin esta guarda, un
+       META_VERIFY_TOKEN ausente comparaba `undefined === undefined` y daba por
+       buena cualquier petición — cualquiera podía dar de alta su propia
+       suscripción de Lead Ads apuntando a este CRM. */
+    if (!esperado) {
+      this.logger.error(
+        'META_VERIFY_TOKEN no está configurado: se rechaza la verificación del webhook de Meta.',
+      );
+      throw new ForbiddenException('Webhook no configurado');
+    }
     if (mode === 'subscribe' && token === esperado) {
       return challenge;
     }
@@ -45,6 +62,7 @@ export class MetaWebhookController {
   }
 
   @Public()
+  @UseGuards(MetaSignatureGuard)
   @Post()
   recibir(@Body() payload: MetaWebhookDto): { received: true } {
     const leadgenIds =
