@@ -21,7 +21,7 @@
  */
 import { readFileSync, existsSync, readdirSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { dirname, resolve, join } from 'node:path';
+import { dirname, resolve, join, relative, sep } from 'node:path';
 
 const RAIZ = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const SKILLS = resolve(RAIZ, '.claude', 'skills');
@@ -115,6 +115,66 @@ function verificarHelpers(skill, texto) {
   }
 }
 
+// ── 4. Todo webhook público va firmado y responde 200 ─────────────────────────
+// Esta comprobación mira el CÓDIGO, no la documentación, y existe por lo que pasó
+// el 2026-08-04: había DOS webhooks de Meta (`webhooks/whatsapp` y `webhooks/meta`)
+// `@Public()`, sin rate-limit y escribiendo en base, sin verificar la firma. Bastaba
+// conocer la URL —que es pública por necesidad— para dar de alta pacientes e
+// inyectar mensajes en el hilo de cualquiera.
+//
+// Es la clase de agujero que no vuelve a aparecer por un descuido, sino por un
+// webhook NUEVO escrito meses después copiando el patrón de otro. Por eso se
+// comprueba automáticamente en vez de confiar en que alguien recuerde la regla.
+function verificarWebhooks() {
+  const dir = resolve(RAIZ, 'src', 'modules');
+  if (!existsSync(dir)) return;
+
+  const controladores = indexar(dir).filter(
+    r => r.includes(`${sep}webhooks${sep}`) && r.endsWith('.controller.ts'),
+  );
+
+  for (const ruta of controladores) {
+    const codigo = readFileSync(ruta, 'utf8');
+    const rel = relative(RAIZ, ruta);
+
+    /* Solo aplica a los POST: el GET de estas rutas es la verificación de alta de
+       suscripción, que se defiende con META_VERIFY_TOKEN y no lleva cuerpo firmado. */
+    if (!/@Post\(/.test(codigo)) continue;
+
+    if (!/@UseGuards\(\s*MetaSignatureGuard\s*\)/.test(codigo)) {
+      señala(
+        'crm-backend-module',
+        `${rel}: webhook con @Post() sin @UseGuards(MetaSignatureGuard). ` +
+          'Meta firma TODOS sus webhooks igual (WhatsApp, Lead Ads, Messenger, Instagram): ' +
+          'sin la firma el endpoint queda abierto a internet.',
+      );
+    }
+
+    if (!/@HttpCode\(200\)/.test(codigo)) {
+      señala(
+        'crm-backend-module',
+        `${rel}: webhook sin @HttpCode(200). Nest responde 201 a un POST por defecto y ` +
+          'Meta documenta que espera 200; si lo trata como fallo, reintenta y acaba ' +
+          'desactivando la suscripción.',
+      );
+    }
+  }
+
+  /* El guard falla cerrado: sin la variable, ningún mensaje entra. Que esté
+     documentada en el .env.example es lo único que separa un despliegue nuevo
+     de un inbox mudo sin explicación. */
+  const ejemplo = resolve(RAIZ, '.env.example');
+  if (controladores.length > 0 && existsSync(ejemplo)) {
+    if (!/^META_APP_SECRET=/m.test(readFileSync(ejemplo, 'utf8'))) {
+      señala(
+        'crm-backend-module',
+        '.env.example no documenta META_APP_SECRET, y sin esa variable el guard ' +
+          'rechaza todos los webhooks (falla cerrado a propósito).',
+      );
+    }
+  }
+}
+
 // ── Ejecución ─────────────────────────────────────────────────────────────────
 if (!existsSync(SKILLS)) {
   console.log('· No hay .claude/skills/ — nada que verificar.');
@@ -134,6 +194,9 @@ for (const nombre of readdirSync(SKILLS)) {
   verificarRoles(nombre, texto);
   verificarHelpers(nombre, texto);
 }
+
+/* Global, no por skill: mira el código, no la documentación. */
+verificarWebhooks();
 
 if (problemas.length === 0) {
   console.log('✓ Los skills coinciden con el código.');

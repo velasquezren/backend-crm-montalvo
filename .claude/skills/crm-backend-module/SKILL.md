@@ -259,6 +259,13 @@ Misma trampa en la verificación GET: `token === esperado` con `esperado` sin co
 compara `undefined === undefined` y da por buena cualquier petición. Comprueba que la
 variable exista *antes* de comparar.
 
+**Esto ya no depende de que alguien se acuerde.** `npm run check:skills` recorre todos los
+controladores bajo `webhooks/` y falla el build si un `@Post()` no lleva
+`@UseGuards(MetaSignatureGuard)` o no responde `@HttpCode(200)`, y si `.env.example` deja de
+documentar `META_APP_SECRET`. Se automatizó porque este agujero no reaparece por descuido, sino
+por un webhook **nuevo** escrito meses después copiando el patrón de otro: cuando había dos
+(`webhooks/whatsapp` y `webhooks/meta`), los dos estaban abiertos.
+
 ## Procesar lotes de un webhook: un try/catch POR ELEMENTO
 
 Un webhook responde 200 antes de procesar (Meta corta a los 3s), así que **lo que se pierda
