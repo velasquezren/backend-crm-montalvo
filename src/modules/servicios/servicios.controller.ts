@@ -44,4 +44,10 @@ export class ServiciosController {
   medicos(@Query() query: QueryMedicosDto) {
     return this.servicios.medicos(query);
   }
+
+  /** Perfil de un médico: espejo del historial del paciente. */
+  @Get('medicos/:codigo')
+  perfilMedico(@Param('codigo') codigo: string) {
+    return this.servicios.perfilMedico(codigo);
+  }
 }

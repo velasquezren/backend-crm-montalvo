@@ -316,6 +316,119 @@ export class ServiciosService {
     return paginar(datos, Number(total[0]?.total ?? 0), query);
   }
 
+  /**
+   * Perfil de un médico: qué hace, a quién atiende y cuánto factura.
+   *
+   * Es el espejo de `historialPaciente`. El listado de médicos era un callejón
+   * sin salida —se veía el total de cada uno y no se podía entrar—, así que la
+   * pregunta natural de administración ("¿de qué se compone lo de este médico?")
+   * no tenía respuesta en el CRM.
+   *
+   * Todo sale agregado de la base: ninguna de estas cifras se calcula trayendo
+   * filas a memoria, porque `VentaImportada` crece un Excel por mes.
+   */
+  async perfilMedico(codigo: string) {
+    const medicoPk = codigo.trim();
+    /* El código de FileMaker es corto; un valor absurdo no es un médico, es
+       ruido. Se corta aquí en vez de mandar a la base una consulta imposible. */
+    if (!medicoPk || medicoPk.length > 40) {
+      throw new NotFoundException(`No hay servicios del médico ${codigo}`);
+    }
+
+    const where: Prisma.VentaImportadaWhereInput = { medicoPk };
+
+    const [totales, distintosYFechas, porModulo, topServicios, porMes, topPacientes] =
+      await Promise.all([
+        this.prisma.ventaImportada.aggregate({
+          where,
+          _count: true,
+          _sum: { precio: true },
+          _avg: { precio: true },
+          _max: { fecha: true, medico: true },
+          _min: { fecha: true },
+        }),
+        this.prisma.$queryRaw<Array<{ pacientes: bigint }>>`
+          SELECT count(DISTINCT v."pac") AS pacientes
+          FROM "VentaImportada" v WHERE v."medicoPk" = ${medicoPk}
+        `,
+        this.prisma.ventaImportada.groupBy({
+          by: ['modulo'],
+          where,
+          _count: true,
+          _sum: { precio: true },
+        }),
+        this.prisma.ventaImportada.groupBy({
+          by: ['detalle'],
+          where,
+          _count: true,
+          _sum: { precio: true },
+          orderBy: { _count: { detalle: 'desc' } },
+          take: 12,
+        }),
+        this.serviciosPorMes(where),
+        /* Sus pacientes más frecuentes, con el enlace a la ficha del CRM cuando
+           existe — el mismo LEFT JOIN por `pac` que usa el listado general. */
+        this.prisma.$queryRaw<
+          Array<{
+            pac: string | null;
+            paciente: string | null;
+            servicios: bigint;
+            gastado: Prisma.Decimal | null;
+            clienteId: string | null;
+          }>
+        >`
+          SELECT v."pac", max(v."paciente") AS paciente, count(*) AS servicios,
+                 sum(v."precio") AS gastado, max(c."id") AS "clienteId"
+          FROM "VentaImportada" v
+          LEFT JOIN "Cliente" c ON c."pac" = v."pac"
+          WHERE v."medicoPk" = ${medicoPk} AND v."pac" IS NOT NULL
+          GROUP BY v."pac"
+          ORDER BY count(*) DESC, sum(v."precio") DESC
+          LIMIT 10
+        `,
+      ]);
+
+    if (totales._count === 0) {
+      throw new NotFoundException(`No hay servicios del médico ${codigo}`);
+    }
+
+    return {
+      codigo: medicoPk,
+      /* El nombre viaja repetido en cada fila del Excel; se toma el mayor por
+         quedarnos con uno determinista sin una consulta aparte. */
+      nombre: totales._max.medico ?? SIN_DATO,
+      resumen: {
+        servicios: totales._count,
+        pacientes: Number(distintosYFechas[0]?.pacientes ?? 0),
+        ingreso: Number(totales._sum.precio ?? 0),
+        ticketPromedio: Number(totales._avg.precio ?? 0),
+        primeraAtencion: totales._min.fecha,
+        ultimaAtencion: totales._max.fecha,
+      },
+      porModulo: porModulo
+        .map(m => ({
+          etiqueta: m.modulo ?? SIN_DATO,
+          total: m._count,
+          ingreso: Number(m._sum.precio ?? 0),
+        }))
+        .sort((a, b) => b.total - a.total),
+      topServicios: topServicios.map(s => ({
+        etiqueta: s.detalle,
+        total: s._count,
+        ingreso: Number(s._sum.precio ?? 0),
+      })),
+      porMes,
+      topPacientes: topPacientes.map(p => ({
+        pac: p.pac,
+        paciente: p.paciente,
+        servicios: Number(p.servicios),
+        gastado: Number(p.gastado ?? 0),
+        /** null = ese paciente aún no tiene ficha en el CRM. */
+        clienteId: p.clienteId,
+      })),
+    };
+  }
+
   /* ── Ayudas privadas ────────────────────────────────────────────────── */
 
   private filtroServicios(query: QueryServiciosDto): Prisma.VentaImportadaWhereInput {
