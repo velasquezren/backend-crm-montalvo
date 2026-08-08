@@ -220,4 +220,88 @@ describe('ServiciosService.perfilMedico contra Postgres real', () => {
       expect(perfil.topPacientes).toEqual([]);
     });
   });
+
+describe('Listados agregados: orden por columna', () => {
+  /** Tres pacientes con perfiles distintos para que cada orden dé algo diferente. */
+  async function escenario() {
+    /* Ana: muchas visitas, poco gasto, la más antigua. */
+    await venta({ pac: 'P1', paciente: 'Ana', precio: 10, fecha: '2026-03-01', medicoPk: 'M1', medico: 'Dra. Rojas' });
+    await venta({ pac: 'P1', paciente: 'Ana', precio: 10, fecha: '2026-03-02', medicoPk: 'M1', medico: 'Dra. Rojas' });
+    await venta({ pac: 'P1', paciente: 'Ana', precio: 10, fecha: '2026-03-03', medicoPk: 'M1', medico: 'Dra. Rojas' });
+    /* Zoe: una visita cara y reciente. */
+    await venta({ pac: 'P2', paciente: 'Zoe', precio: 900, fecha: '2026-03-20', medicoPk: 'M2', medico: 'Dr. Vera' });
+  }
+
+  it('pacientes: por gasto, por número de visitas y por última visita', async () => {
+    await escenario();
+
+    const porGasto = await service.pacientes({ orden: 'gastado', direccion: 'desc' });
+    expect(porGasto.datos[0].paciente).toBe('Zoe');
+
+    const porVisitas = await service.pacientes({ orden: 'servicios', direccion: 'desc' });
+    expect(porVisitas.datos[0].paciente).toBe('Ana');
+
+    const porUltima = await service.pacientes({ orden: 'ultima', direccion: 'asc' });
+    expect(porUltima.datos[0].paciente).toBe('Ana');
+  });
+
+  it('pacientes: por nombre en ambos sentidos', async () => {
+    await escenario();
+
+    const asc = await service.pacientes({ orden: 'paciente', direccion: 'asc' });
+    expect(asc.datos.map(p => p.paciente)).toEqual(['Ana', 'Zoe']);
+
+    const desc = await service.pacientes({ orden: 'paciente', direccion: 'desc' });
+    expect(desc.datos.map(p => p.paciente)).toEqual(['Zoe', 'Ana']);
+  });
+
+  it('médicos: por pacientes distintos y por ingreso', async () => {
+    await escenario();
+    /* Un tercer servicio de la Dra. Rojas, con OTRO paciente. */
+    await venta({ pac: 'P3', paciente: 'Bea', precio: 5, medicoPk: 'M1', medico: 'Dra. Rojas' });
+
+    const porPacientes = await service.medicos({ orden: 'pacientes', direccion: 'desc' });
+    expect(porPacientes.datos[0].nombre).toBe('Dra. Rojas');
+
+    const porIngreso = await service.medicos({ orden: 'ingreso', direccion: 'desc' });
+    expect(porIngreso.datos[0].nombre).toBe('Dr. Vera');
+  });
+
+  it('sin orden explícito mantiene el de siempre', async () => {
+    await escenario();
+
+    const pacientes = await service.pacientes({});
+    expect(pacientes.datos[0].paciente).toBe('Zoe'); // última visita más reciente
+
+    const medicos = await service.medicos({});
+    expect(medicos.datos[0].nombre).toBe('Dra. Rojas'); // más servicios
+  });
+
+  /* Las filas incompletas del Excel no deben encabezar un orden ascendente:
+     una fecha vacía no es "la más antigua", es un dato que falta. */
+  it('las filas sin dato quedan al final, no al principio', async () => {
+    await venta({ pac: 'P1', paciente: 'Con fecha', fecha: '2026-03-10' });
+    await venta({ pac: 'P2', paciente: 'Sin fecha', fecha: undefined });
+
+    const { datos } = await service.pacientes({ orden: 'ultima', direccion: 'asc' });
+
+    expect(datos[0].paciente).toBe('Con fecha');
+    expect(datos[1].paciente).toBe('Sin fecha');
+  });
+
+  /* El nombre de columna NUNCA se interpola: lo que viaja es una clave de un
+     diccionario. Aunque algo saltara la validación del DTO, aquí no hay dónde
+     inyectar. */
+  it('una clave de orden desconocida cae al orden por defecto, no rompe la consulta', async () => {
+    await escenario();
+
+    const { datos } = await service.pacientes({
+      orden: 'v"; DROP TABLE "Cliente"; --' as never,
+    });
+
+    expect(datos[0].paciente).toBe('Zoe');
+    expect(await prisma.cliente.count()).toBe(0); // la tabla sigue existiendo
+  });
+});
+
 });

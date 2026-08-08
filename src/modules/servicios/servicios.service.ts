@@ -21,6 +21,51 @@ import { QueryMedicosDto, QueryPacientesDto, QueryServiciosDto } from './dto/que
  */
 const LIMITE_HISTORIAL = 500;
 
+/**
+ * Traducción de la clave que manda el cliente a la expresión SQL real.
+ *
+ * Los dos listados son `$queryRaw` con `GROUP BY`, así que el criterio de orden
+ * acaba dentro de la consulta. **Nunca se interpola lo que llega por la URL**:
+ * el DTO acota a estas claves con `@IsIn` y aquí se cambian por una expresión
+ * escrita a mano. Un `ORDER BY ${req.query.orden}` es inyección SQL de manual, y
+ * en estos endpoints no la salvaría ni Prisma, porque `$queryRaw` solo
+ * parametriza VALORES, no fragmentos de consulta.
+ */
+const ORDEN_SQL_PACIENTES: Record<string, Prisma.Sql> = {
+  paciente: Prisma.sql`max(v."paciente")`,
+  servicios: Prisma.sql`count(*)`,
+  gastado: Prisma.sql`sum(v."precio")`,
+  ultima: Prisma.sql`max(v."fecha")`,
+};
+
+const ORDEN_SQL_MEDICOS: Record<string, Prisma.Sql> = {
+  nombre: Prisma.sql`max(v."medico")`,
+  servicios: Prisma.sql`count(*)`,
+  pacientes: Prisma.sql`count(DISTINCT v."pac")`,
+  ingreso: Prisma.sql`sum(v."precio")`,
+  ultima: Prisma.sql`max(v."fecha")`,
+};
+
+/**
+ * Arma el `ORDER BY` a partir de una clave ya validada.
+ *
+ * `NULLS LAST` siempre: una fila sin fecha o sin importe no es "la más pequeña",
+ * es una fila incompleta del Excel, y ponerla arriba al ordenar ascendente
+ * enterraría los datos reales bajo el ruido de la importación.
+ */
+function ordenSql(
+  mapa: Record<string, Prisma.Sql>,
+  clave: string | undefined,
+  direccion: 'asc' | 'desc' | undefined,
+  porDefecto: Prisma.Sql,
+): Prisma.Sql {
+  const expresion = clave ? mapa[clave] : undefined;
+  if (!expresion) return porDefecto;
+  return direccion === 'asc'
+    ? Prisma.sql`${expresion} ASC NULLS LAST`
+    : Prisma.sql`${expresion} DESC NULLS LAST`;
+}
+
 /** Fila de conteo por valor crudo, tal como la devuelve un GROUP BY. */
 interface ConteoCrudo {
   valor: string | null;
@@ -189,7 +234,7 @@ export class ServiciosService {
         LEFT JOIN "Cliente" c ON c."pac" = v."pac"
         WHERE v."pac" IS NOT NULL ${filtro}
         GROUP BY v."pac"
-        ORDER BY max(v."fecha") DESC NULLS LAST
+        ORDER BY ${ordenSql(ORDEN_SQL_PACIENTES, query.orden, query.direccion, Prisma.sql`max(v."fecha") DESC NULLS LAST`)}
         LIMIT ${take} OFFSET ${skip}
       `,
       this.prisma.$queryRaw<Array<{ total: bigint }>>`
@@ -295,7 +340,7 @@ export class ServiciosService {
         FROM "VentaImportada" v
         WHERE v."medicoPk" IS NOT NULL ${filtro}
         GROUP BY v."medicoPk"
-        ORDER BY count(*) DESC
+        ORDER BY ${ordenSql(ORDEN_SQL_MEDICOS, query.orden, query.direccion, Prisma.sql`count(*) DESC`)}
         LIMIT ${take} OFFSET ${skip}
       `,
       this.prisma.$queryRaw<Array<{ total: bigint }>>`
