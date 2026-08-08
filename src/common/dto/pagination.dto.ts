@@ -27,6 +27,29 @@ export class PaginationDto {
   limite?: number;
 }
 
+export const DIRECCIONES_ORDEN = ['asc', 'desc'] as const;
+export type DireccionOrden = (typeof DIRECCIONES_ORDEN)[number];
+
+/**
+ * Traduce `{orden, direccion}` al `orderBy` de Prisma.
+ *
+ * **El campo NUNCA llega aquí sin filtrar.** Cada DTO de dominio declara su
+ * lista cerrada con `@IsIn([...])`, así que lo que entra ya es una columna
+ * conocida: pasar a `orderBy` un nombre venido del cliente sin acotar es un 500
+ * al primer parámetro inventado, y a la larga una vía para sondear el esquema.
+ *
+ * Regla al ampliar esa lista: **solo columnas indexadas**. Ordenar 15.000+
+ * clientes por una columna sin índice obliga a Postgres a ordenarlas todas en
+ * cada página.
+ */
+export function construirOrden(
+  campo: string | undefined,
+  direccion: DireccionOrden | undefined,
+  porDefecto: Record<string, DireccionOrden>,
+): Record<string, DireccionOrden> {
+  return campo ? { [campo]: direccion ?? 'asc' } : porDefecto;
+}
+
 /** Sobre de respuesta de todo listado paginado. */
 export interface RespuestaPaginada<T> {
   datos: T[];

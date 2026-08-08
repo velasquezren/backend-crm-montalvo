@@ -2,7 +2,7 @@ import { ConflictException, Injectable, NotFoundException } from '@nestjs/common
 import { CategoriaCliente, Prisma } from '@prisma/client';
 
 import { AuditService } from '../../common/audit/audit.service';
-import { calcularPaginacion, paginar } from '../../common/dto/pagination.dto';
+import { calcularPaginacion, construirOrden, paginar } from '../../common/dto/pagination.dto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateClienteDto } from './dto/create-cliente.dto';
 import { CreateInteresDto } from './dto/create-interes.dto';
@@ -112,7 +112,9 @@ export class ClientesService {
     const [datos, total] = await this.prisma.$transaction([
       this.prisma.cliente.findMany({
         where,
-        orderBy: { updatedAt: 'desc' },
+        /* Por defecto lo recién tocado primero; el usuario puede cambiarlo
+           por una de las columnas de ORDEN_CLIENTE. */
+        orderBy: construirOrden(query.orden, query.direccion, { updatedAt: 'desc' }),
         // `select` explícito y no `include`: así el listado NUNCA arrastra
         // `datosExtra`, que son 19 claves de FileMaker por fila que nadie lee.
         // La ficha del paciente sí viaja —son escalares cortos— para que el
