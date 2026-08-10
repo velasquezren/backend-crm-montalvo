@@ -15,8 +15,11 @@ export class ConversacionesController {
   constructor(private readonly conversacionesService: ConversacionesService) {}
 
   @Get()
-  findAll(@CurrentUser() usuario: UsuarioJwt) {
-    const soloAgenteId = alcanceAgente(usuario);
+  findAll(
+    @CurrentUser() usuario: UsuarioJwt,
+    @Query('soloMios') soloMios?: string,
+  ) {
+    const soloAgenteId = soloMios === 'true' ? usuario.sub : alcanceAgente(usuario);
     return this.conversacionesService.findAll(soloAgenteId);
   }
 
