@@ -5,6 +5,7 @@ import { AuditService } from '../../common/audit/audit.service';
 import { R2Service } from '../../common/storage/r2.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ClientesService } from '../clientes/clientes.service';
+import { WhatsappCloudService } from '../../common/whatsapp/whatsapp-cloud.service';
 import { ConversacionesGateway } from './conversaciones.gateway';
 import { ConversacionesService } from './conversaciones.service';
 
@@ -94,6 +95,8 @@ beforeEach(async () => {
     config,
     gateway as unknown as ConversacionesGateway,
     r2 as unknown as R2Service,
+    /* Sin credenciales queda deshabilitado: no sale ni una petición a Meta. */
+    new WhatsappCloudService(config),
   );
   jest.spyOn(service['logger'], 'warn').mockImplementation(() => undefined);
   jest.spyOn(service['logger'], 'error').mockImplementation(() => undefined);
@@ -462,6 +465,8 @@ describe('Acuse automático fuera de horario', () => {
       config,
       gateway as unknown as ConversacionesGateway,
       r2 as unknown as R2Service,
+      /* Sin credenciales queda deshabilitado: no sale ni una petición a Meta. */
+      new WhatsappCloudService(config),
     );
     /* Se sustituye el reloj en vez de congelar los temporizadores: los fake
        timers de Jest paran también los que Prisma usa por dentro. */

@@ -3,6 +3,10 @@ import { ConfigService } from '@nestjs/config';
 import { Prisma, TipoMensaje } from '@prisma/client';
 
 import { R2Service } from '../../common/storage/r2.service';
+import {
+  ContenidoMensaje,
+  WhatsappCloudService,
+} from '../../common/whatsapp/whatsapp-cloud.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ClientesService } from '../clientes/clientes.service';
 import { ConversacionesGateway } from './conversaciones.gateway';
@@ -103,6 +107,26 @@ export function leerBotones(texto: string | undefined): string[] | null {
   return botones;
 }
 
+/**
+ * Decide cómo mandar un texto del agente.
+ *
+ * Si pega una URL de imagen o de PDF, WhatsApp lo enseña como adjunto en vez de
+ * como un enlace azul — que es lo que el agente espera al pegar el link de un
+ * estudio. Cualquier otra cosa va como texto.
+ */
+function contenidoSegunTexto(contenido: string): ContenidoMensaje {
+  const limpio = contenido.trim();
+  const esUrl = limpio.startsWith('http://') || limpio.startsWith('https://');
+
+  if (esUrl && /\.(png|jpe?g|webp|gif)(\?.*)?$/i.test(limpio)) {
+    return { type: 'image', image: { link: limpio } };
+  }
+  if (esUrl && /\.pdf(\?.*)?$/i.test(limpio)) {
+    return { type: 'document', document: { link: limpio, filename: 'Documento.pdf' } };
+  }
+  return { type: 'text', text: { body: contenido } };
+}
+
 /** Contraparte en memoria de `whereVisibilidad`, para las lecturas por ID. */
 function puedeVerConversacion(
   conversacion: { agenteId: string | null; cliente?: { agenteId?: string | null } | null },
@@ -126,6 +150,7 @@ export class ConversacionesService {
     private readonly config: ConfigService,
     private readonly gateway: ConversacionesGateway,
     private readonly r2: R2Service,
+    private readonly whatsapp: WhatsappCloudService,
   ) {}
 
   /**
@@ -371,56 +396,31 @@ export class ConversacionesService {
     texto: string,
     botones: string[],
   ): Promise<void> {
-    const token = this.config.get<string>('WHATSAPP_TOKEN') || this.config.get<string>('WHATSAPP_ACCESS_TOKEN');
-    const phoneId = this.config.get<string>('WHATSAPP_PHONE_ID') || this.config.get<string>('WHATSAPP_PHONE_NUMBER_ID');
-    if (!token || !phoneId) return;
+    const metaMsgId = await this.whatsapp.enviar(telefono, {
+      type: 'interactive',
+      interactive: {
+        type: 'button',
+        body: { text: texto },
+        action: {
+          /* El `id` vuelve en el webhook junto al título; se numera para no
+             depender del texto, que la clínica puede reescribir. */
+          buttons: botones.map((titulo, i) => ({
+            type: 'reply',
+            reply: { id: `acuse_${i + 1}`, title: titulo },
+          })),
+        },
+      },
+    });
 
-    try {
-      const destino = telefono.replace(/\+/g, '').trim();
-      const response = await fetch(`https://graph.facebook.com/v25.0/${phoneId}/messages`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          messaging_product: 'whatsapp',
-          recipient_type: 'individual',
-          to: destino,
-          type: 'interactive',
-          interactive: {
-            type: 'button',
-            body: { text: texto },
-            action: {
-              /* El `id` vuelve en el webhook junto al título; se numera para no
-                 depender del texto, que la clínica puede reescribir. */
-              buttons: botones.map((titulo, i) => ({
-                type: 'reply',
-                reply: { id: `acuse_${i + 1}`, title: titulo },
-              })),
-            },
-          },
-        }),
-      });
-
-      if (!response.ok) {
-        this.logger.error(
-          `Meta rechazó el acuse con botones (${response.status}): ${await response.text()} — se reintenta como texto`,
-        );
-        await this.enviarPorWhatsApp(mensajeId, conversacionId, telefono, texto);
-        return;
-      }
-
-      const data = await response.json();
-      const metaMsgId: string | undefined = data.messages?.[0]?.id;
-      if (metaMsgId) {
-        await this.prisma.mensaje.update({
-          where: { id: mensajeId },
-          data: { whatsappMsgId: metaMsgId },
-        });
-      }
-      this.gateway.emitirActividad(conversacionId);
-    } catch (error) {
-      this.logger.error('Excepción enviando el acuse con botones; se reintenta como texto', error);
-      await this.enviarPorWhatsApp(mensajeId, conversacionId, telefono, texto);
+    if (metaMsgId) {
+      await this.registrarResultadoEnvio(mensajeId, conversacionId, metaMsgId);
+      return;
     }
+
+    /* Meta rechaza un interactivo malformado ENTERO. Antes de dejar al paciente
+       sin nada, se reintenta como texto plano: un acuse feo es mejor que ninguno. */
+    this.logger.warn('El acuse con botones no salió; se reintenta como texto plano');
+    await this.enviarPorWhatsApp(mensajeId, conversacionId, telefono, texto);
   }
 
   /** Ver comentario en `enviarMensaje`: se dispara sin await a propósito. */
@@ -430,88 +430,28 @@ export class ConversacionesService {
     telefono: string,
     contenido: string,
   ): Promise<void> {
-    const token = this.config.get<string>('WHATSAPP_TOKEN') || this.config.get<string>('WHATSAPP_ACCESS_TOKEN');
-    const phoneId = this.config.get<string>('WHATSAPP_PHONE_ID') || this.config.get<string>('WHATSAPP_PHONE_NUMBER_ID');
-    if (!token || !phoneId) {
-      return; // sin credenciales configuradas: el mensaje queda ENVIADO (solo local), comportamiento previo intacto
-    }
+    const metaMsgId = await this.whatsapp.enviar(telefono, contenidoSegunTexto(contenido));
+    await this.registrarResultadoEnvio(mensajeId, conversacionId, metaMsgId);
+  }
 
-    try {
-      const destino = telefono.replace(/\+/g, '').trim();
-
-      /* Detectar si el contenido es una URL de imagen o documento PDF */
-      const esUrl = contenido.trim().startsWith('http://') || contenido.trim().startsWith('https://');
-      const esImagen = esUrl && /\.(png|jpe?g|webp|gif)(\?.*)?$/i.test(contenido.trim());
-      const esPdf = esUrl && /\.pdf(\?.*)?$/i.test(contenido.trim());
-
-      let metaPayload: Record<string, unknown>;
-
-      if (esImagen) {
-        metaPayload = {
-          messaging_product: 'whatsapp',
-          recipient_type: 'individual',
-          to: destino,
-          type: 'image',
-          image: { link: contenido.trim() },
-        };
-      } else if (esPdf) {
-        metaPayload = {
-          messaging_product: 'whatsapp',
-          recipient_type: 'individual',
-          to: destino,
-          type: 'document',
-          document: { link: contenido.trim(), filename: 'Documento.pdf' },
-        };
-      } else {
-        metaPayload = {
-          messaging_product: 'whatsapp',
-          recipient_type: 'individual',
-          to: destino,
-          type: 'text',
-          text: { body: contenido },
-        };
-      }
-
-      const response = await fetch(`https://graph.facebook.com/v25.0/${phoneId}/messages`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(metaPayload),
-      });
-
-      if (!response.ok) {
-        const errBody = await response.text();
-        this.logger.error(`Error enviando WhatsApp a Meta (${response.status}): ${errBody}`);
-        await this.prisma.mensaje.update({
-          where: { id: mensajeId },
-          data: { estadoEnvio: 'FALLIDO' },
-        });
-      } else {
-        const data = await response.json();
-        const metaMsgId: string | undefined = data.messages?.[0]?.id;
-        this.logger.log(`Mensaje WhatsApp enviado a +${destino}. Meta ID: ${metaMsgId}`);
-        /* Guarda el id que asignó Meta — así el webhook de `statuses`
-           (entregado/leído) puede correlacionar de vuelta con este mensaje. */
-        if (metaMsgId) {
-          await this.prisma.mensaje.update({
-            where: { id: mensajeId },
-            data: { whatsappMsgId: metaMsgId },
-          });
-        }
-      }
-    } catch (error) {
-      this.logger.error('Excepción al conectar con Meta Graph API', error);
-      await this.prisma.mensaje.update({
-        where: { id: mensajeId },
-        data: { estadoEnvio: 'FALLIDO' },
-      });
-    }
-
-    /* Avisa de nuevo: el primer aviso (arriba en enviarMensaje) ya hizo que el
-       agente viera la burbuja; este es para que el tick se actualice sin
-       esperar un reload manual. */
+  /**
+   * Anota en el mensaje lo que contestó Meta.
+   *
+   * Lo comparten los tres caminos de envío (texto, plantilla y botones): sin el
+   * id no hubo entrega, así que el tick pasa a FALLIDO; con id se guarda para
+   * que el webhook de `statuses` pueda correlacionar entregado/leído de vuelta.
+   * En ambos casos se avisa por WebSocket, para que el tick cambie en pantalla
+   * sin que el agente recargue.
+   */
+  private async registrarResultadoEnvio(
+    mensajeId: string,
+    conversacionId: string,
+    metaMsgId: string | null,
+  ): Promise<void> {
+    await this.prisma.mensaje.update({
+      where: { id: mensajeId },
+      data: metaMsgId ? { whatsappMsgId: metaMsgId } : { estadoEnvio: 'FALLIDO' },
+    });
     this.gateway.emitirActividad(conversacionId);
   }
 
@@ -561,21 +501,14 @@ export class ConversacionesService {
       return this.plantillasCache.data;
     }
 
-    const token = this.config.get<string>('WHATSAPP_TOKEN') || this.config.get<string>('WHATSAPP_ACCESS_TOKEN');
-    const wabaId = this.config.get<string>('WHATSAPP_WABA_ID');
-    if (!token || !wabaId) {
-      this.logger.warn('WHATSAPP_WABA_ID o token no configurados; no se pueden listar plantillas');
-      return [];
-    }
-
     try {
-      const url = `https://graph.facebook.com/v25.0/${wabaId}/message_templates?fields=name,status,category,language,components&limit=100`;
-      const response = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
-      if (!response.ok) {
-        this.logger.error(`Error listando plantillas (${response.status}): ${await response.text()}`);
-        return this.plantillasCache?.data ?? [];
-      }
-      const data = (await response.json()) as { data?: PlantillaMeta[] };
+      const crudas = await this.whatsapp.listarPlantillas();
+      /* null = no se pudieron pedir. Se devuelve lo último bueno que hubiera en
+         caché antes que una lista vacía: un selector vacío parece "no tienes
+         plantillas", que es otra cosa. */
+      if (!crudas) return this.plantillasCache?.data ?? [];
+
+      const data = { data: crudas as PlantillaMeta[] };
       const resultado = (data.data ?? [])
         .filter(p => p.status === 'APPROVED')
         .map(p => {
@@ -648,12 +581,6 @@ export class ConversacionesService {
     telefono: string,
     dto: { plantilla: string; idioma: string; parametros?: string[] },
   ): Promise<void> {
-    const token = this.config.get<string>('WHATSAPP_TOKEN') || this.config.get<string>('WHATSAPP_ACCESS_TOKEN');
-    const phoneId = this.config.get<string>('WHATSAPP_PHONE_ID') || this.config.get<string>('WHATSAPP_PHONE_NUMBER_ID');
-    if (!token || !phoneId) {
-      return;
-    }
-
     /* El cuerpo solo se incluye si la plantilla tiene variables; una plantilla
        sin variables con un `components` vacío es rechazada por Meta. */
     const componentes =
@@ -661,41 +588,16 @@ export class ConversacionesService {
         ? [{ type: 'body', parameters: dto.parametros.map(text => ({ type: 'text', text })) }]
         : undefined;
 
-    try {
-      const destino = telefono.replace(/\+/g, '').trim();
-      const response = await fetch(`https://graph.facebook.com/v25.0/${phoneId}/messages`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          messaging_product: 'whatsapp',
-          recipient_type: 'individual',
-          to: destino,
-          type: 'template',
-          template: {
-            name: dto.plantilla,
-            language: { code: dto.idioma },
-            ...(componentes ? { components: componentes } : {}),
-          },
-        }),
-      });
+    const metaMsgId = await this.whatsapp.enviar(telefono, {
+      type: 'template',
+      template: {
+        name: dto.plantilla,
+        language: { code: dto.idioma },
+        ...(componentes ? { components: componentes } : {}),
+      },
+    });
 
-      if (!response.ok) {
-        this.logger.error(`Error enviando plantilla a Meta (${response.status}): ${await response.text()}`);
-        await this.prisma.mensaje.update({ where: { id: mensajeId }, data: { estadoEnvio: 'FALLIDO' } });
-      } else {
-        const data = await response.json();
-        const metaMsgId: string | undefined = data.messages?.[0]?.id;
-        this.logger.log(`Plantilla "${dto.plantilla}" enviada a +${destino}. Meta ID: ${metaMsgId}`);
-        if (metaMsgId) {
-          await this.prisma.mensaje.update({ where: { id: mensajeId }, data: { whatsappMsgId: metaMsgId } });
-        }
-      }
-    } catch (error) {
-      this.logger.error('Excepción al enviar plantilla por Meta Graph API', error);
-      await this.prisma.mensaje.update({ where: { id: mensajeId }, data: { estadoEnvio: 'FALLIDO' } });
-    }
-
-    this.gateway.emitirActividad(conversacionId);
+    await this.registrarResultadoEnvio(mensajeId, conversacionId, metaMsgId);
   }
 
   /**
@@ -733,28 +635,7 @@ export class ConversacionesService {
 
   /** Ver `marcarLeido`: se dispara sin await a propósito. */
   private async enviarEstadoLectura(whatsappMsgId: string, typing: boolean): Promise<void> {
-    const token = this.config.get<string>('WHATSAPP_TOKEN') || this.config.get<string>('WHATSAPP_ACCESS_TOKEN');
-    const phoneId = this.config.get<string>('WHATSAPP_PHONE_ID') || this.config.get<string>('WHATSAPP_PHONE_NUMBER_ID');
-    if (!token || !phoneId) {
-      return;
-    }
-    try {
-      const response = await fetch(`https://graph.facebook.com/v25.0/${phoneId}/messages`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          messaging_product: 'whatsapp',
-          status: 'read',
-          message_id: whatsappMsgId,
-          ...(typing ? { typing_indicator: { type: 'text' } } : {}),
-        }),
-      });
-      if (!response.ok) {
-        this.logger.warn(`No se pudo marcar leído (${response.status}): ${await response.text()}`);
-      }
-    } catch (error) {
-      this.logger.error('Excepción al marcar leído en Meta Graph API', error);
-    }
+    await this.whatsapp.marcarLeido(whatsappMsgId, typing);
   }
 
   /**
@@ -1033,25 +914,15 @@ export class ConversacionesService {
     conversacionId: string,
     media: MediaEntrante,
   ): Promise<void> {
-    const token = this.config.get<string>('WHATSAPP_TOKEN') || this.config.get<string>('WHATSAPP_ACCESS_TOKEN');
-    if (!token) return;
-
     try {
       /* 1) media_id → URL temporal (válida 5 min). */
-      const metaResp = await fetch(`https://graph.facebook.com/v25.0/${media.mediaId}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!metaResp.ok) {
-        this.logger.error(`No se pudo obtener URL de media ${media.mediaId} (${metaResp.status})`);
-        return;
-      }
-      const { url } = (await metaResp.json()) as { url?: string };
+      const url = await this.whatsapp.urlDeMedia(media.mediaId);
       if (!url) return;
 
-      /* 2) Descargar los bytes (requiere el token también en el CDN de Meta). */
-      const archivo = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
-      if (!archivo.ok) {
-        this.logger.error(`No se pudo descargar media ${media.mediaId} (${archivo.status})`);
+      /* 2) Descargar los bytes (el CDN de Meta también pide el token). */
+      const archivo = await this.whatsapp.descargarMedia(url);
+      if (!archivo) {
+        this.logger.error(`No se pudo descargar media ${media.mediaId}`);
         return;
       }
 
