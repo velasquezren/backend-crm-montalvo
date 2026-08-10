@@ -241,6 +241,15 @@ model Mensaje {
   estadoEnvio    EstadoMensaje?
   entregadoEn    DateTime?
   leidoEn        DateTime?
+  /// true = lo mandó el sistema (acuse fuera de horario), no una persona.
+  ///
+  /// Existe por el inbox, no por trazabilidad: la pestaña "Sin responder" detecta
+  /// que nadie contestó mirando si el último mensaje es del paciente. Sin esta
+  /// marca, un acuse automático convertiría el último mensaje en saliente y la
+  /// conversación DESAPARECERÍA de esa pestaña — el lunes nadie sabría quién
+  /// escribió el fin de semana. La automatización habría empeorado, en silencio,
+  /// justo el problema que venía a resolver.
+  automatico     Boolean          @default(false)
   createdAt      DateTime         @default(now())
 
   @@index([conversacionId, createdAt])

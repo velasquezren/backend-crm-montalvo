@@ -438,4 +438,126 @@ describe('Conversaciones contra Postgres real', () => {
       ).rejects.toThrow(NotFoundException);
     });
   });
+
+describe('Acuse automático fuera de horario', () => {
+  /** Domingo: la clínica abre L-V y sábado por la mañana. */
+  const DOMINGO = new Date('2026-08-09T18:00:00Z');
+  /** Martes 10:00 en Bolivia. */
+  const MARTES = new Date('2026-08-11T14:00:00Z');
+
+  function conConfig(extra: Record<string, string> = {}) {
+    const valores: Record<string, string> = {
+      AUTORESPUESTA_TEXTO: 'Mensaje automático. Urgencias: 700-00000.',
+      AUTORESPUESTA_HORARIO: 'L-V:08:00-18:00,S:08:00-12:00',
+      AUTORESPUESTA_ZONA: 'America/La_Paz',
+      ...extra,
+    };
+    return new ConfigService(valores);
+  }
+
+  function servicioCon(config: ConfigService, ahora: Date) {
+    const s = new ConversacionesService(
+      prisma,
+      clientesService,
+      config,
+      gateway as unknown as ConversacionesGateway,
+      r2 as unknown as R2Service,
+    );
+    /* Se sustituye el reloj en vez de congelar los temporizadores: los fake
+       timers de Jest paran también los que Prisma usa por dentro. */
+    jest.spyOn(s as unknown as { ahora(): Date }, 'ahora').mockReturnValue(ahora);
+    jest.spyOn(s['logger'], 'error').mockImplementation(() => undefined);
+    return s;
+  }
+
+  /**
+   * El acuse se dispara con `void` —el webhook debe responder en milisegundos—,
+   * así que `procesarEntrante` vuelve antes de que exista el mensaje. Se espera
+   * a que aparezca en vez de hacer awaitable el método: así la prueba recorre
+   * el mismo camino que producción, fire-and-forget incluido.
+   */
+  async function esperarSalientes(cuantos: number, msMax = 2000): Promise<number> {
+    const limite = Date.now() + msMax;
+    let total = 0;
+    while (Date.now() < limite) {
+      total = await prisma.mensaje.count({ where: { direccion: 'SALIENTE' } });
+      if (total >= cuantos) return total;
+      await new Promise(r => setTimeout(r, 25));
+    }
+    return total;
+  }
+
+  it('un domingo responde una vez y la marca como automática', async () => {
+    const s = servicioCon(conConfig(), DOMINGO);
+    await s.procesarEntrante('+59176000001', 'Hola, quiero una cita', 'wamid.d1');
+    await esperarSalientes(1);
+
+    const enviados = await prisma.mensaje.findMany({ where: { direccion: 'SALIENTE' } });
+    expect(enviados).toHaveLength(1);
+    expect(enviados[0].automatico).toBe(true);
+    expect(enviados[0].contenido).toContain('Urgencias');
+  });
+
+  it('en horario de atención no responde nada', async () => {
+    const s = servicioCon(conConfig(), MARTES);
+    await s.procesarEntrante('+59176000002', 'Hola', 'wamid.m1');
+
+    expect(await prisma.mensaje.count({ where: { direccion: 'SALIENTE' } })).toBe(0);
+  });
+
+  /* Cinco mensajes seguidos no pueden dar cinco acuses: se lee como un sistema
+     roto y molesta a quien ya está esperando. */
+  it('varios mensajes seguidos reciben UN solo acuse', async () => {
+    const s = servicioCon(conConfig(), DOMINGO);
+    for (const n of [1, 2, 3, 4, 5]) {
+      await s.procesarEntrante('+59176000003', `mensaje ${n}`, `wamid.r${n}`);
+    }
+    await esperarSalientes(1);
+
+    expect(await prisma.mensaje.count({ where: { direccion: 'ENTRANTE' } })).toBe(5);
+    expect(await prisma.mensaje.count({ where: { direccion: 'SALIENTE' } })).toBe(1);
+  });
+
+  /**
+   * La razón de ser del campo `automatico`. El inbox marca "sin responder"
+   * mirando el ÚLTIMO mensaje: si el acuse contara como respuesta, todas las
+   * conversaciones del fin de semana desaparecerían de esa pestaña y el lunes
+   * nadie sabría quién escribió.
+   */
+  it('el acuse no hace que la conversación parezca contestada', async () => {
+    const s = servicioCon(conConfig(), DOMINGO);
+    await s.procesarEntrante('+59176000004', 'Hola', 'wamid.s1');
+    await esperarSalientes(1);
+
+    const [conv] = await s.findAll(undefined);
+    const ultimo = conv.mensajes[0];
+
+    expect(ultimo.direccion).toBe('SALIENTE');
+    expect(ultimo.automatico).toBe(true); // el frontend lo usa para no darla por atendida
+  });
+
+  it('sin texto configurado no envía nada, aunque esté cerrado', async () => {
+    const s = servicioCon(conConfig({ AUTORESPUESTA_TEXTO: '' }), DOMINGO);
+    await s.procesarEntrante('+59176000005', 'Hola', 'wamid.v1');
+
+    expect(await prisma.mensaje.count({ where: { direccion: 'SALIENTE' } })).toBe(0);
+  });
+
+  /* Un horario mal escrito debe callar, no contestar "estamos cerrados" a
+     cualquier hora. */
+  it('con el horario mal escrito no envía nada', async () => {
+    const s = servicioCon(conConfig({ AUTORESPUESTA_HORARIO: 'esto no es un horario' }), DOMINGO);
+    await s.procesarEntrante('+59176000006', 'Hola', 'wamid.w1');
+
+    expect(await prisma.mensaje.count({ where: { direccion: 'SALIENTE' } })).toBe(0);
+  });
+
+  it('el mensaje del paciente se guarda aunque el acuse falle', async () => {
+    const s = servicioCon(conConfig({ AUTORESPUESTA_ESPERA_HORAS: 'x' }), DOMINGO);
+    await s.procesarEntrante('+59176000007', 'Hola', 'wamid.x1');
+
+    expect(await prisma.mensaje.count({ where: { whatsappMsgId: 'wamid.x1' } })).toBe(1);
+  });
+});
+
 });

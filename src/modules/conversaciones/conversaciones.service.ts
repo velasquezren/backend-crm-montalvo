@@ -6,6 +6,7 @@ import { R2Service } from '../../common/storage/r2.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ClientesService } from '../clientes/clientes.service';
 import { ConversacionesGateway } from './conversaciones.gateway';
+import { estaAtendiendo, parsearHorario, ZONA_POR_DEFECTO } from './horario-atencion';
 
 /** Media entrante ya normalizada por el webhook (ver extraerMedia). */
 export interface MediaEntrante {
@@ -105,6 +106,19 @@ export class ConversacionesService {
     private readonly r2: R2Service,
   ) {}
 
+  /**
+   * El reloj, como método y no como `new Date()` suelto.
+   *
+   * Es la costura que permite probar "un domingo a las 18:00" sin congelar los
+   * temporizadores del proceso: los fake timers de Jest también paran los que
+   * Prisma usa por dentro, y la consulta no vuelve nunca. Una función que se
+   * puede sustituir sale más barata que pelear con eso, y deja escrito que el
+   * tiempo es una ENTRADA de esta lógica, no un detalle ambiental.
+   */
+  protected ahora(): Date {
+    return new Date();
+  }
+
   private agentesCache: { data: AgenteResumen[]; expiresAt: number } | null = null;
   private plantillasCache: { data: PlantillaResumen[]; expiresAt: number } | null = null;
 
@@ -127,7 +141,19 @@ export class ConversacionesService {
         },
         agente: { select: { id: true, nombre: true } },
         mensajes: {
-          select: { id: true, contenido: true, direccion: true, estadoEnvio: true, tipo: true, createdAt: true },
+          /* `automatico` viaja aunque el listado no lo pinte: es lo que permite
+             al inbox distinguir "ya le contestó alguien" de "solo salió el
+             acuse fuera de horario". Sin él, la pestaña "Sin responder" daría
+             por atendido todo lo que llegó un fin de semana. */
+          select: {
+            id: true,
+            contenido: true,
+            direccion: true,
+            estadoEnvio: true,
+            tipo: true,
+            automatico: true,
+            createdAt: true,
+          },
           orderBy: { createdAt: 'desc' },
           take: 1,
         },
@@ -823,7 +849,73 @@ export class ConversacionesService {
        en segundos en vez de esperar el próximo poll. */
     this.gateway.emitirActividad(conversacion.id);
 
+    /* Acuse fuera de horario. Sin `await`, como todo lo que habla con Meta: el
+       webhook tiene que responder en milisegundos. */
+    void this.responderFueraDeHorario(conversacion.id, cliente.telefono);
+
     return mensaje;
+  }
+
+  /**
+   * Contesta al paciente que escribe cuando no hay nadie atendiendo.
+   *
+   * Cabe en la ventana de 24h que abre su propio mensaje, así que va como texto
+   * libre: no necesita plantilla aprobada y desde julio de 2025 no cuesta nada.
+   *
+   * **Apagado mientras no exista `AUTORESPUESTA_TEXTO`.** El mensaje lo escribe
+   * la clínica —incluye su teléfono de urgencias— y no hay texto por defecto a
+   * propósito: un acuse inventado que mande a un paciente con una urgencia a un
+   * número equivocado es peor que no contestar.
+   */
+  private async responderFueraDeHorario(conversacionId: string, telefono: string): Promise<void> {
+    const texto = this.config.get<string>('AUTORESPUESTA_TEXTO')?.trim();
+    if (!texto) return;
+
+    const horario = parsearHorario(
+      this.config.get<string>('AUTORESPUESTA_HORARIO'),
+      this.config.get<string>('AUTORESPUESTA_ZONA') || ZONA_POR_DEFECTO,
+    );
+    /* Horario ausente o mal escrito: no se contesta. Callar es reversible;
+       decirle "estamos cerrados" a quien escribe un martes a las diez, no. */
+    if (!horario || estaAtendiendo(this.ahora(), horario)) return;
+
+    try {
+      /* Una sola vez por conversación mientras siga cerrado. Un paciente que
+         manda cinco mensajes seguidos no puede recibir cinco acuses idénticos:
+         se lee como un sistema roto y molesta a quien ya está esperando. */
+      const horas = Number(this.config.get<string>('AUTORESPUESTA_ESPERA_HORAS')) || 12;
+      const desde = new Date(this.ahora().getTime() - horas * 60 * 60 * 1000);
+      const yaAvisado = await this.prisma.mensaje.findFirst({
+        where: { conversacionId, automatico: true, createdAt: { gte: desde } },
+        select: { id: true },
+      });
+      if (yaAvisado) return;
+
+      const [mensaje] = await this.prisma.$transaction([
+        this.prisma.mensaje.create({
+          data: {
+            conversacionId,
+            direccion: 'SALIENTE',
+            contenido: texto,
+            estadoEnvio: 'ENVIADO',
+            /* La marca que impide que el acuse tape la conversación en el
+               inbox — ver el comentario del campo en schema.prisma. */
+            automatico: true,
+          },
+        }),
+        this.prisma.conversacion.update({
+          where: { id: conversacionId },
+          data: { updatedAt: new Date() },
+        }),
+      ]);
+
+      this.gateway.emitirActividad(conversacionId);
+      await this.enviarPorWhatsApp(mensaje.id, conversacionId, telefono, texto);
+    } catch (error) {
+      /* Nunca puede tumbar la entrada del mensaje del paciente: lo importante
+         ya está guardado, el acuse es un extra. */
+      this.logger.error('No se pudo enviar el acuse fuera de horario', error);
+    }
   }
 
   /**
