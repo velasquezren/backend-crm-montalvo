@@ -48,7 +48,11 @@ export class ConversacionesController {
     @CurrentUser() usuario: UsuarioJwt,
   ) {
     const soloAgenteId = alcanceAgente(usuario);
-    return this.conversacionesService.enviarMensaje(id, dto.contenido, usuario.sub, soloAgenteId);
+    return this.conversacionesService.enviarMensaje(id, dto.contenido, usuario.sub, soloAgenteId, {
+      mediaKey: dto.mediaKey,
+      mediaMime: dto.mediaMime,
+      mediaNombre: dto.mediaNombre,
+    });
   }
 
   /** Marca como leído (tildes azules) el último mensaje entrante; `typing` muestra "escribiendo…". */

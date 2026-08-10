@@ -127,6 +127,15 @@ function contenidoSegunTexto(contenido: string): ContenidoMensaje {
   return { type: 'text', text: { body: contenido } };
 }
 
+/** Tipo de mensaje a partir del MIME del archivo subido por el agente. */
+function tipoSegunMime(mime: string | undefined): TipoMensaje {
+  if (!mime) return 'DOCUMENTO';
+  if (mime.startsWith('image/')) return 'IMAGEN';
+  if (mime.startsWith('video/')) return 'VIDEO';
+  if (mime.startsWith('audio/')) return 'AUDIO';
+  return 'DOCUMENTO';
+}
+
 /** Contraparte en memoria de `whereVisibilidad`, para las lecturas por ID. */
 function puedeVerConversacion(
   conversacion: { agenteId: string | null; cliente?: { agenteId?: string | null } | null },
@@ -340,6 +349,7 @@ export class ConversacionesService {
     contenido: string,
     agenteId: string,
     soloAgenteId?: string,
+    adjunto?: { mediaKey?: string; mediaMime?: string; mediaNombre?: string },
   ) {
     const conversacion = await this.obtenerConversacionPropia(conversacionId, soloAgenteId);
 
@@ -350,7 +360,23 @@ export class ConversacionesService {
        WhatsApp/Messenger — se corrige a FALLIDO si el envío real rebota. */
     const [mensaje] = await this.prisma.$transaction([
       this.prisma.mensaje.create({
-        data: { conversacionId, direccion: 'SALIENTE', contenido, estadoEnvio: 'ENVIADO' },
+        data: {
+          conversacionId,
+          direccion: 'SALIENTE',
+          contenido,
+          estadoEnvio: 'ENVIADO',
+          /* Se guarda la CLAVE, no la URL: el detalle firma una nueva en cada
+             carga y la burbuja no caduca. Ver el comentario de `mediaKey` en
+             EnviarMensajeDto. */
+          ...(adjunto?.mediaKey
+            ? {
+                mediaKey: adjunto.mediaKey,
+                mediaMime: adjunto.mediaMime ?? null,
+                mediaNombre: adjunto.mediaNombre ?? null,
+                tipo: tipoSegunMime(adjunto.mediaMime),
+              }
+            : {}),
+        },
       }),
       /* Solo reclama el chat si está en el pool — ver la nota del método. */
       this.prisma.conversacion.updateMany({
@@ -371,7 +397,13 @@ export class ConversacionesService {
        más) para ver su mensaje como enviado. El resultado (Meta ID o FALLIDO)
        se corrige en segundo plano y empuja un segundo aviso por WebSocket
        para actualizar el tick sin que el agente tenga que refrescar. */
-    void this.enviarPorWhatsApp(mensaje.id, conversacionId, conversacion.cliente.telefono, contenido);
+    void this.enviarPorWhatsApp(
+      mensaje.id,
+      conversacionId,
+      conversacion.cliente.telefono,
+      contenido,
+      adjunto?.mediaKey,
+    );
 
     return { ...mensaje, clienteTelefono: conversacion.cliente.telefono };
   }
@@ -429,9 +461,37 @@ export class ConversacionesService {
     conversacionId: string,
     telefono: string,
     contenido: string,
+    mediaKey?: string,
   ): Promise<void> {
-    const metaMsgId = await this.whatsapp.enviar(telefono, contenidoSegunTexto(contenido));
+    /* Con adjunto se firma una URL NUEVA aquí mismo. Reutilizar la que devolvió
+       la subida sería jugársela: si el mensaje se reintenta pasados 15 minutos,
+       Meta descargaría un enlace ya caducado y el paciente no recibiría nada. */
+    const contenidoMeta = mediaKey
+      ? await this.contenidoDesdeMedia(mediaKey, contenido)
+      : contenidoSegunTexto(contenido);
+
+    if (!contenidoMeta) {
+      await this.registrarResultadoEnvio(mensajeId, conversacionId, null);
+      return;
+    }
+
+    const metaMsgId = await this.whatsapp.enviar(telefono, contenidoMeta);
     await this.registrarResultadoEnvio(mensajeId, conversacionId, metaMsgId);
+  }
+
+  /** Arma el adjunto para Meta a partir de la clave de R2, firmando al vuelo. */
+  private async contenidoDesdeMedia(
+    mediaKey: string,
+    caption: string,
+  ): Promise<ContenidoMensaje | null> {
+    const url = await this.r2.urlFirmada(mediaKey);
+    if (!url) {
+      this.logger.error(`No se pudo firmar la media ${mediaKey}; el mensaje queda FALLIDO`);
+      return null;
+    }
+    return /\.pdf(\?.*)?$/i.test(mediaKey)
+      ? { type: 'document', document: { link: url, filename: caption || 'Documento.pdf' } }
+      : { type: 'image', image: { link: url } };
   }
 
   /**
