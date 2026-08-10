@@ -81,6 +81,28 @@ function whereVisibilidad(soloAgenteId?: string): Prisma.ConversacionWhereInput 
   };
 }
 
+/**
+ * Botones del acuse, leídos de `AUTORESPUESTA_BOTONES` ("Agendar cita|Resultados").
+ *
+ * Meta acepta **como mucho 3 botones de 20 caracteres**. Si algo no encaja se
+ * devuelve `null` y el acuse sale como texto plano: un `interactive` malformado
+ * lo rechaza Meta ENTERO, así que el paciente no recibiría nada — peor que no
+ * tener botones. Ante la duda, degradar en vez de fallar.
+ */
+export function leerBotones(texto: string | undefined): string[] | null {
+  const botones = (texto ?? '')
+    .split('|')
+    .map(b => b.trim())
+    .filter(Boolean);
+
+  if (botones.length === 0 || botones.length > 3) return null;
+  if (botones.some(b => b.length > 20)) return null;
+  /* Meta rechaza dos botones con el mismo título. */
+  if (new Set(botones).size !== botones.length) return null;
+
+  return botones;
+}
+
 /** Contraparte en memoria de `whereVisibilidad`, para las lecturas por ID. */
 function puedeVerConversacion(
   conversacion: { agenteId: string | null; cliente?: { agenteId?: string | null } | null },
@@ -327,6 +349,78 @@ export class ConversacionesService {
     void this.enviarPorWhatsApp(mensaje.id, conversacionId, conversacion.cliente.telefono, contenido);
 
     return { ...mensaje, clienteTelefono: conversacion.cliente.telefono };
+  }
+
+  /**
+   * Manda el acuse como mensaje interactivo con botones de respuesta rápida.
+   *
+   * El paciente toca uno y su elección vuelve por el webhook como un mensaje
+   * normal: `extraerRespuestaBoton` ya sabe leer `interactive.button_reply.title`
+   * —se arregló al tapar el aislamiento del lote— así que no hace falta tocar
+   * nada del lado entrante. El valor no es automatizar la gestión, que sigue
+   * necesitando una persona: es que el lunes el hilo diga "Agendar una cita" en
+   * lugar de "hola".
+   *
+   * Si Meta rechaza el interactivo se reintenta como texto plano. Un acuse feo
+   * es mejor que ninguno.
+   */
+  private async enviarBotonesPorWhatsApp(
+    mensajeId: string,
+    conversacionId: string,
+    telefono: string,
+    texto: string,
+    botones: string[],
+  ): Promise<void> {
+    const token = this.config.get<string>('WHATSAPP_TOKEN') || this.config.get<string>('WHATSAPP_ACCESS_TOKEN');
+    const phoneId = this.config.get<string>('WHATSAPP_PHONE_ID') || this.config.get<string>('WHATSAPP_PHONE_NUMBER_ID');
+    if (!token || !phoneId) return;
+
+    try {
+      const destino = telefono.replace(/\+/g, '').trim();
+      const response = await fetch(`https://graph.facebook.com/v25.0/${phoneId}/messages`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messaging_product: 'whatsapp',
+          recipient_type: 'individual',
+          to: destino,
+          type: 'interactive',
+          interactive: {
+            type: 'button',
+            body: { text: texto },
+            action: {
+              /* El `id` vuelve en el webhook junto al título; se numera para no
+                 depender del texto, que la clínica puede reescribir. */
+              buttons: botones.map((titulo, i) => ({
+                type: 'reply',
+                reply: { id: `acuse_${i + 1}`, title: titulo },
+              })),
+            },
+          },
+        }),
+      });
+
+      if (!response.ok) {
+        this.logger.error(
+          `Meta rechazó el acuse con botones (${response.status}): ${await response.text()} — se reintenta como texto`,
+        );
+        await this.enviarPorWhatsApp(mensajeId, conversacionId, telefono, texto);
+        return;
+      }
+
+      const data = await response.json();
+      const metaMsgId: string | undefined = data.messages?.[0]?.id;
+      if (metaMsgId) {
+        await this.prisma.mensaje.update({
+          where: { id: mensajeId },
+          data: { whatsappMsgId: metaMsgId },
+        });
+      }
+      this.gateway.emitirActividad(conversacionId);
+    } catch (error) {
+      this.logger.error('Excepción enviando el acuse con botones; se reintenta como texto', error);
+      await this.enviarPorWhatsApp(mensajeId, conversacionId, telefono, texto);
+    }
   }
 
   /** Ver comentario en `enviarMensaje`: se dispara sin await a propósito. */
@@ -910,7 +1004,17 @@ export class ConversacionesService {
       ]);
 
       this.gateway.emitirActividad(conversacionId);
-      await this.enviarPorWhatsApp(mensaje.id, conversacionId, telefono, texto);
+
+      /* Con botones si están configurados; si no, texto plano. La respuesta del
+         paciente vuelve por el webhook como un mensaje normal con el título del
+         botón, así que el lunes el agente ve "Agendar una cita" en el hilo en
+         vez de un "hola" sin contexto. */
+      const botones = leerBotones(this.config.get<string>('AUTORESPUESTA_BOTONES'));
+      if (botones) {
+        await this.enviarBotonesPorWhatsApp(mensaje.id, conversacionId, telefono, texto, botones);
+      } else {
+        await this.enviarPorWhatsApp(mensaje.id, conversacionId, telefono, texto);
+      }
     } catch (error) {
       /* Nunca puede tumbar la entrada del mensaje del paciente: lo importante
          ya está guardado, el acuse es un extra. */
