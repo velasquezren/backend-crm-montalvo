@@ -3,34 +3,20 @@ import { ConfigService } from '@nestjs/config';
 import { Prisma, TipoMensaje } from '@prisma/client';
 
 import { R2Service } from '../../common/storage/r2.service';
-import {
-  ContenidoMensaje,
-  WhatsappCloudService,
-} from '../../common/whatsapp/whatsapp-cloud.service';
+import { WhatsappCloudService } from '../../common/whatsapp/whatsapp-cloud.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ClientesService } from '../clientes/clientes.service';
 import { ConversacionesGateway } from './conversaciones.gateway';
-import { estaAtendiendo, parsearHorario, ZONA_POR_DEFECTO } from './horario-atencion';
+import { AcuseAutomaticoService } from './acuse-automatico.service';
+import { DespachadorSalienteService } from './despachador-saliente.service';
+import { MediaEntranteService, MediaEntrante } from './media-entrante.service';
 
-/** Media entrante ya normalizada por el webhook (ver extraerMedia). */
-export interface MediaEntrante {
-  tipo: TipoMensaje;
-  mediaId: string;
-  mime: string;
-  nombre?: string;
-}
+/* Re-exportar para que quienes importaban MediaEntrante de aquí sigan funcionando. */
+export type { MediaEntrante };
 
 /** Mensajes que trae el detalle inicial de una conversación (más recientes primero, luego se reordenan).
  *  Se acota a 50 para máxima velocidad inicial; los anteriores se cargan por cursor al hacer scroll. */
 const LIMITE_MENSAJES_DETALLE = 50;
-
-/**
- * Tope de la media entrante que se baja a memoria. WhatsApp acepta documentos
- * de hasta 100 MB, y `arrayBuffer()` los carga enteros: dos o tres a la vez
- * tumban un VPS de 1,7 GB donde además viven otras dos apps. 25 MB cubre de
- * sobra fotos, audios y PDFs de estudios, que es lo que manda un paciente.
- */
-const MAX_BYTES_MEDIA = 25 * 1024 * 1024;
 
 /** Forma cruda de una plantilla en la respuesta de Meta (solo lo que usamos). */
 interface PlantillaMeta {
@@ -85,47 +71,7 @@ function whereVisibilidad(soloAgenteId?: string): Prisma.ConversacionWhereInput 
   };
 }
 
-/**
- * Botones del acuse, leídos de `AUTORESPUESTA_BOTONES` ("Agendar cita|Resultados").
- *
- * Meta acepta **como mucho 3 botones de 20 caracteres**. Si algo no encaja se
- * devuelve `null` y el acuse sale como texto plano: un `interactive` malformado
- * lo rechaza Meta ENTERO, así que el paciente no recibiría nada — peor que no
- * tener botones. Ante la duda, degradar en vez de fallar.
- */
-export function leerBotones(texto: string | undefined): string[] | null {
-  const botones = (texto ?? '')
-    .split('|')
-    .map(b => b.trim())
-    .filter(Boolean);
 
-  if (botones.length === 0 || botones.length > 3) return null;
-  if (botones.some(b => b.length > 20)) return null;
-  /* Meta rechaza dos botones con el mismo título. */
-  if (new Set(botones).size !== botones.length) return null;
-
-  return botones;
-}
-
-/**
- * Decide cómo mandar un texto del agente.
- *
- * Si pega una URL de imagen o de PDF, WhatsApp lo enseña como adjunto en vez de
- * como un enlace azul — que es lo que el agente espera al pegar el link de un
- * estudio. Cualquier otra cosa va como texto.
- */
-function contenidoSegunTexto(contenido: string): ContenidoMensaje {
-  const limpio = contenido.trim();
-  const esUrl = limpio.startsWith('http://') || limpio.startsWith('https://');
-
-  if (esUrl && /\.(png|jpe?g|webp|gif)(\?.*)?$/i.test(limpio)) {
-    return { type: 'image', image: { link: limpio } };
-  }
-  if (esUrl && /\.pdf(\?.*)?$/i.test(limpio)) {
-    return { type: 'document', document: { link: limpio, filename: 'Documento.pdf' } };
-  }
-  return { type: 'text', text: { body: contenido } };
-}
 
 /** Tipo de mensaje a partir del MIME del archivo subido por el agente. */
 function tipoSegunMime(mime: string | undefined): TipoMensaje {
@@ -160,6 +106,9 @@ export class ConversacionesService {
     private readonly gateway: ConversacionesGateway,
     private readonly r2: R2Service,
     private readonly whatsapp: WhatsappCloudService,
+    private readonly acuse: AcuseAutomaticoService,
+    private readonly despachador: DespachadorSalienteService,
+    private readonly mediaEntrante: MediaEntranteService,
   ) {}
 
   /**
@@ -397,10 +346,8 @@ export class ConversacionesService {
        más) para ver su mensaje como enviado. El resultado (Meta ID o FALLIDO)
        se corrige en segundo plano y empuja un segundo aviso por WebSocket
        para actualizar el tick sin que el agente tenga que refrescar. */
-    void this.enviarPorWhatsApp(
-      mensaje.id,
-      conversacionId,
-      conversacion.cliente.telefono,
+    void this.despachador.texto(
+      { mensajeId: mensaje.id, conversacionId, telefono: conversacion.cliente.telefono },
       contenido,
       adjunto?.mediaKey,
     );
@@ -421,99 +368,6 @@ export class ConversacionesService {
    * Si Meta rechaza el interactivo se reintenta como texto plano. Un acuse feo
    * es mejor que ninguno.
    */
-  private async enviarBotonesPorWhatsApp(
-    mensajeId: string,
-    conversacionId: string,
-    telefono: string,
-    texto: string,
-    botones: string[],
-  ): Promise<void> {
-    const metaMsgId = await this.whatsapp.enviar(telefono, {
-      type: 'interactive',
-      interactive: {
-        type: 'button',
-        body: { text: texto },
-        action: {
-          /* El `id` vuelve en el webhook junto al título; se numera para no
-             depender del texto, que la clínica puede reescribir. */
-          buttons: botones.map((titulo, i) => ({
-            type: 'reply',
-            reply: { id: `acuse_${i + 1}`, title: titulo },
-          })),
-        },
-      },
-    });
-
-    if (metaMsgId) {
-      await this.registrarResultadoEnvio(mensajeId, conversacionId, metaMsgId);
-      return;
-    }
-
-    /* Meta rechaza un interactivo malformado ENTERO. Antes de dejar al paciente
-       sin nada, se reintenta como texto plano: un acuse feo es mejor que ninguno. */
-    this.logger.warn('El acuse con botones no salió; se reintenta como texto plano');
-    await this.enviarPorWhatsApp(mensajeId, conversacionId, telefono, texto);
-  }
-
-  /** Ver comentario en `enviarMensaje`: se dispara sin await a propósito. */
-  private async enviarPorWhatsApp(
-    mensajeId: string,
-    conversacionId: string,
-    telefono: string,
-    contenido: string,
-    mediaKey?: string,
-  ): Promise<void> {
-    /* Con adjunto se firma una URL NUEVA aquí mismo. Reutilizar la que devolvió
-       la subida sería jugársela: si el mensaje se reintenta pasados 15 minutos,
-       Meta descargaría un enlace ya caducado y el paciente no recibiría nada. */
-    const contenidoMeta = mediaKey
-      ? await this.contenidoDesdeMedia(mediaKey, contenido)
-      : contenidoSegunTexto(contenido);
-
-    if (!contenidoMeta) {
-      await this.registrarResultadoEnvio(mensajeId, conversacionId, null);
-      return;
-    }
-
-    const metaMsgId = await this.whatsapp.enviar(telefono, contenidoMeta);
-    await this.registrarResultadoEnvio(mensajeId, conversacionId, metaMsgId);
-  }
-
-  /** Arma el adjunto para Meta a partir de la clave de R2, firmando al vuelo. */
-  private async contenidoDesdeMedia(
-    mediaKey: string,
-    caption: string,
-  ): Promise<ContenidoMensaje | null> {
-    const url = await this.r2.urlFirmada(mediaKey);
-    if (!url) {
-      this.logger.error(`No se pudo firmar la media ${mediaKey}; el mensaje queda FALLIDO`);
-      return null;
-    }
-    return /\.pdf(\?.*)?$/i.test(mediaKey)
-      ? { type: 'document', document: { link: url, filename: caption || 'Documento.pdf' } }
-      : { type: 'image', image: { link: url } };
-  }
-
-  /**
-   * Anota en el mensaje lo que contestó Meta.
-   *
-   * Lo comparten los tres caminos de envío (texto, plantilla y botones): sin el
-   * id no hubo entrega, así que el tick pasa a FALLIDO; con id se guarda para
-   * que el webhook de `statuses` pueda correlacionar entregado/leído de vuelta.
-   * En ambos casos se avisa por WebSocket, para que el tick cambie en pantalla
-   * sin que el agente recargue.
-   */
-  private async registrarResultadoEnvio(
-    mensajeId: string,
-    conversacionId: string,
-    metaMsgId: string | null,
-  ): Promise<void> {
-    await this.prisma.mensaje.update({
-      where: { id: mensajeId },
-      data: metaMsgId ? { whatsappMsgId: metaMsgId } : { estadoEnvio: 'FALLIDO' },
-    });
-    this.gateway.emitirActividad(conversacionId);
-  }
 
   /**
    * Confirmaciones de entrega/lectura del webhook de WhatsApp (`statuses`).
@@ -624,41 +478,14 @@ export class ConversacionesService {
 
     this.gateway.emitirActividad(conversacionId);
 
-    void this.enviarPlantillaPorWhatsApp(
-      mensaje.id,
-      conversacionId,
-      conversacion.cliente.telefono,
+    void this.despachador.plantilla(
+      { mensajeId: mensaje.id, conversacionId, telefono: conversacion.cliente.telefono },
       dto,
     );
 
     return { ...mensaje, clienteTelefono: conversacion.cliente.telefono };
   }
 
-  /** Ver `enviarPlantilla`: se dispara sin await a propósito. */
-  private async enviarPlantillaPorWhatsApp(
-    mensajeId: string,
-    conversacionId: string,
-    telefono: string,
-    dto: { plantilla: string; idioma: string; parametros?: string[] },
-  ): Promise<void> {
-    /* El cuerpo solo se incluye si la plantilla tiene variables; una plantilla
-       sin variables con un `components` vacío es rechazada por Meta. */
-    const componentes =
-      dto.parametros && dto.parametros.length > 0
-        ? [{ type: 'body', parameters: dto.parametros.map(text => ({ type: 'text', text })) }]
-        : undefined;
-
-    const metaMsgId = await this.whatsapp.enviar(telefono, {
-      type: 'template',
-      template: {
-        name: dto.plantilla,
-        language: { code: dto.idioma },
-        ...(componentes ? { components: componentes } : {}),
-      },
-    });
-
-    await this.registrarResultadoEnvio(mensajeId, conversacionId, metaMsgId);
-  }
 
   /**
    * Marca el último mensaje entrante como leído (tildes azules para el
@@ -859,8 +686,8 @@ export class ConversacionesService {
        responder 200 rápido (si tarda, Meta reintenta y termina desactivando la
        suscripción). Al terminar, se actualiza mediaKey y se avisa por WebSocket
        para que el chat muestre la foto sin recargar. */
-    if (media && this.r2.habilitado) {
-      void this.descargarYSubirMedia(mensaje.id, conversacion.id, media);
+    if (media && this.mediaEntrante.habilitado) {
+      void this.mediaEntrante.traer(mensaje.id, conversacion.id, media);
     }
 
     /* Auto-crear el Lead de Oportunidades SOLO en el primer contacto: se ata a
@@ -903,23 +730,17 @@ export class ConversacionesService {
    * número equivocado es peor que no contestar.
    */
   private async responderFueraDeHorario(conversacionId: string, telefono: string): Promise<void> {
-    const texto = this.config.get<string>('AUTORESPUESTA_TEXTO')?.trim();
-    if (!texto) return;
-
-    const horario = parsearHorario(
-      this.config.get<string>('AUTORESPUESTA_HORARIO'),
-      this.config.get<string>('AUTORESPUESTA_ZONA') || ZONA_POR_DEFECTO,
-    );
-    /* Horario ausente o mal escrito: no se contesta. Callar es reversible;
-       decirle "estamos cerrados" a quien escribe un martes a las diez, no. */
-    if (!horario || estaAtendiendo(this.ahora(), horario)) return;
+    /* La decisión —configuración, horario y validación de los botones— vive en
+       `AcuseAutomaticoService`, que no toca base ni red y por eso se prueba en
+       milisegundos. Aquí solo queda el efecto. */
+    const acuse = this.acuse.decidir(this.ahora());
+    if (!acuse) return;
 
     try {
       /* Una sola vez por conversación mientras siga cerrado. Un paciente que
          manda cinco mensajes seguidos no puede recibir cinco acuses idénticos:
          se lee como un sistema roto y molesta a quien ya está esperando. */
-      const horas = Number(this.config.get<string>('AUTORESPUESTA_ESPERA_HORAS')) || 12;
-      const desde = new Date(this.ahora().getTime() - horas * 60 * 60 * 1000);
+      const desde = new Date(this.ahora().getTime() - this.acuse.esperaHoras * 60 * 60 * 1000);
       const yaAvisado = await this.prisma.mensaje.findFirst({
         where: { conversacionId, automatico: true, createdAt: { gte: desde } },
         select: { id: true },
@@ -931,7 +752,7 @@ export class ConversacionesService {
           data: {
             conversacionId,
             direccion: 'SALIENTE',
-            contenido: texto,
+            contenido: acuse.texto,
             estadoEnvio: 'ENVIADO',
             /* La marca que impide que el acuse tape la conversación en el
                inbox — ver el comentario del campo en schema.prisma. */
@@ -946,15 +767,11 @@ export class ConversacionesService {
 
       this.gateway.emitirActividad(conversacionId);
 
-      /* Con botones si están configurados; si no, texto plano. La respuesta del
-         paciente vuelve por el webhook como un mensaje normal con el título del
-         botón, así que el lunes el agente ve "Agendar una cita" en el hilo en
-         vez de un "hola" sin contexto. */
-      const botones = leerBotones(this.config.get<string>('AUTORESPUESTA_BOTONES'));
-      if (botones) {
-        await this.enviarBotonesPorWhatsApp(mensaje.id, conversacionId, telefono, texto, botones);
+      const destino = { mensajeId: mensaje.id, conversacionId, telefono };
+      if (acuse.botones) {
+        await this.despachador.botones(destino, acuse.texto, acuse.botones);
       } else {
-        await this.enviarPorWhatsApp(mensaje.id, conversacionId, telefono, texto);
+        await this.despachador.texto(destino, acuse.texto);
       }
     } catch (error) {
       /* Nunca puede tumbar la entrada del mensaje del paciente: lo importante
@@ -963,57 +780,4 @@ export class ConversacionesService {
     }
   }
 
-  /**
-   * Descarga la media de Meta y la sube a R2 (fire-and-forget, ver
-   * `procesarEntrante`). Flujo: media_id → URL temporal de Meta → bytes →
-   * PUT en R2 con clave `wa/<conversacionId>/<mensajeId>`. Al terminar,
-   * guarda `mediaKey` y avisa por WebSocket para que la foto aparezca sola.
-   */
-  private async descargarYSubirMedia(
-    mensajeId: string,
-    conversacionId: string,
-    media: MediaEntrante,
-  ): Promise<void> {
-    try {
-      /* 1) media_id → URL temporal (válida 5 min). */
-      const url = await this.whatsapp.urlDeMedia(media.mediaId);
-      if (!url) return;
-
-      /* 2) Descargar los bytes (el CDN de Meta también pide el token). */
-      const archivo = await this.whatsapp.descargarMedia(url);
-      if (!archivo) {
-        this.logger.error(`No se pudo descargar media ${media.mediaId}`);
-        return;
-      }
-
-      /* El corte real lo hace `content-length`, que Meta siempre manda: descarta
-         antes de reservar un solo byte. La comprobación de después es la red de
-         seguridad por si algún día llega sin cabecera — ahí ya se pagó la
-         memoria, pero al menos no se sube a R2 ni se guarda. */
-      const declarado = Number(archivo.headers.get('content-length'));
-      if (Number.isFinite(declarado) && declarado > MAX_BYTES_MEDIA) {
-        this.logger.warn(
-          `Media ${media.mediaId} descartada: ${Math.round(declarado / 1024 / 1024)} MB supera el tope de ${MAX_BYTES_MEDIA / 1024 / 1024} MB`,
-        );
-        return;
-      }
-
-      const bytes = await archivo.arrayBuffer();
-      if (bytes.byteLength > MAX_BYTES_MEDIA) {
-        this.logger.warn(
-          `Media ${media.mediaId} descartada tras descargar: ${Math.round(bytes.byteLength / 1024 / 1024)} MB supera el tope`,
-        );
-        return;
-      }
-
-      /* 3) Subir a R2 y registrar la clave en el mensaje. */
-      const key = `wa/${conversacionId}/${mensajeId}`;
-      await this.r2.subir(key, bytes, media.mime);
-      await this.prisma.mensaje.update({ where: { id: mensajeId }, data: { mediaKey: key } });
-
-      this.gateway.emitirActividad(conversacionId);
-    } catch (error) {
-      this.logger.error(`Excepción bajando/subiendo media ${media.mediaId}`, error);
-    }
-  }
 }

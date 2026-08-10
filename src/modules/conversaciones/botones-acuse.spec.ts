@@ -1,4 +1,4 @@
-import { leerBotones } from './conversaciones.service';
+import { leerBotones } from './acuse-automatico.service';
 
 /**
  * Meta rechaza un mensaje interactivo malformado ENTERO: si los botones no

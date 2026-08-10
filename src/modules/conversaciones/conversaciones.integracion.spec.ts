@@ -7,7 +7,10 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { ClientesService } from '../clientes/clientes.service';
 import { WhatsappCloudService } from '../../common/whatsapp/whatsapp-cloud.service';
 import { ConversacionesGateway } from './conversaciones.gateway';
+import { AcuseAutomaticoService } from './acuse-automatico.service';
+import { DespachadorSalienteService } from './despachador-saliente.service';
 import { ConversacionesService } from './conversaciones.service';
+import { MediaEntranteService } from './media-entrante.service';
 
 /**
  * Pruebas contra un PostgreSQL DE VERDAD (`crm_test` en el :5433 local), con
@@ -89,6 +92,7 @@ beforeEach(async () => {
      API cortan antes del fetch. Es el comportamiento real documentado. */
   const config = new ConfigService({});
   clientesService = new ClientesService(prisma, new AuditService(prisma));
+  const whatsappService = new WhatsappCloudService(config);
   service = new ConversacionesService(
     prisma,
     clientesService,
@@ -96,7 +100,20 @@ beforeEach(async () => {
     gateway as unknown as ConversacionesGateway,
     r2 as unknown as R2Service,
     /* Sin credenciales queda deshabilitado: no sale ni una petición a Meta. */
-    new WhatsappCloudService(config),
+    whatsappService,
+    new AcuseAutomaticoService(config),
+    new DespachadorSalienteService(
+      prisma,
+      gateway as unknown as ConversacionesGateway,
+      r2 as unknown as R2Service,
+      whatsappService,
+    ),
+    new MediaEntranteService(
+      prisma,
+      gateway as unknown as ConversacionesGateway,
+      r2 as unknown as R2Service,
+      whatsappService,
+    ),
   );
   jest.spyOn(service['logger'], 'warn').mockImplementation(() => undefined);
   jest.spyOn(service['logger'], 'error').mockImplementation(() => undefined);
@@ -459,6 +476,7 @@ describe('Acuse automático fuera de horario', () => {
   }
 
   function servicioCon(config: ConfigService, ahora: Date) {
+    const whatsapp = new WhatsappCloudService(config);
     const s = new ConversacionesService(
       prisma,
       clientesService,
@@ -466,7 +484,20 @@ describe('Acuse automático fuera de horario', () => {
       gateway as unknown as ConversacionesGateway,
       r2 as unknown as R2Service,
       /* Sin credenciales queda deshabilitado: no sale ni una petición a Meta. */
-      new WhatsappCloudService(config),
+      whatsapp,
+      new AcuseAutomaticoService(config),
+      new DespachadorSalienteService(
+        prisma,
+        gateway as unknown as ConversacionesGateway,
+        r2 as unknown as R2Service,
+        whatsapp,
+      ),
+      new MediaEntranteService(
+        prisma,
+        gateway as unknown as ConversacionesGateway,
+        r2 as unknown as R2Service,
+        whatsapp,
+      ),
     );
     /* Se sustituye el reloj en vez de congelar los temporizadores: los fake
        timers de Jest paran también los que Prisma usa por dentro. */
