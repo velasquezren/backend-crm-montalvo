@@ -102,12 +102,13 @@ export class PushService implements OnModuleInit {
             },
             dataString,
           );
-        } catch (err: any) {
+        } catch (err: unknown) {
+          const error = err as { statusCode?: number; message?: string };
           // Si la suscripción expiró o ya no es válida (404/410), se elimina de la BD
-          if (err?.statusCode === 404 || err?.statusCode === 410) {
+          if (error.statusCode === 404 || error.statusCode === 410) {
             await this.eliminarSuscripcion(sub.endpoint);
           } else {
-            this.logger.warn(`Error al enviar push notification a ${sub.endpoint}: ${err?.message}`);
+            this.logger.warn(`Error al enviar push notification a ${sub.endpoint}: ${error.message ?? String(err)}`);
           }
         }
       }),
@@ -130,8 +131,9 @@ export class PushService implements OnModuleInit {
             },
             dataString,
           );
-        } catch (err: any) {
-          if (err?.statusCode === 404 || err?.statusCode === 410) {
+        } catch (err: unknown) {
+          const error = err as { statusCode?: number; message?: string };
+          if (error.statusCode === 404 || error.statusCode === 410) {
             await this.eliminarSuscripcion(sub.endpoint);
           }
         }
