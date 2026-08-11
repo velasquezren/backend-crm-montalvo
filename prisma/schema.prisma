@@ -82,6 +82,7 @@ model Usuario {
   comisiones     Comision[]
   plantillas     PlantillaAgente[]
   recursosMemoria RecursoMemoriaAgente[]
+  pushSubscriptions PushSubscription[]
   createdAt      DateTime          @default(now())
   updatedAt      DateTime          @updatedAt
 }
@@ -787,6 +788,18 @@ model ResultadoComision {
 
   @@unique([periodoId, vendedoraId])
   @@index([periodoId])
+}
+
+model PushSubscription {
+  id        String   @id @default(uuid())
+  usuario   Usuario  @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  usuarioId String
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  createdAt DateTime @default(now())
+
+  @@index([usuarioId])
 }
 
 

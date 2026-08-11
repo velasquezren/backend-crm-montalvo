@@ -66,7 +66,6 @@ function whereVisibilidad(soloAgenteId?: string): Prisma.ConversacionWhereInput 
     OR: [
       { agenteId: soloAgenteId },
       { agenteId: null },
-      { cliente: { agenteId: soloAgenteId } },
     ],
   };
 }
@@ -90,8 +89,7 @@ function puedeVerConversacion(
   if (!soloAgenteId) return true;
   return (
     conversacion.agenteId === soloAgenteId ||
-    conversacion.agenteId === null ||
-    conversacion.cliente?.agenteId === soloAgenteId
+    conversacion.agenteId === null
   );
 }
 

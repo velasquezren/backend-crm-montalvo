@@ -8,24 +8,8 @@ import {
   WebSocketServer,
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
+import { PushService } from '../../common/push/push.service';
 
-/**
- * ConversacionesGateway — RF-09/RF-10, empuje en tiempo real.
- *
- * Antes, el inbox solo se refrescaba por polling cada 15s (ver
- * `conversaciones.page.ts`): un mensaje nuevo tardaba hasta 15s en aparecer.
- * Este gateway avisa a los clientes conectados en cuanto se crea un mensaje
- * (entrante por webhook o saliente por un agente), para que disparen un
- * reload dirigido en vez de esperar el próximo tick del polling.
- *
- * El payload es deliberadamente mínimo — solo `conversacionId` — nunca datos
- * del paciente: el contenido real se sigue trayendo por REST, que es donde
- * se aplica el escopado por rol. El socket es únicamente la señal de "algo
- * cambió", no un canal de datos.
- */
-/* Mismo origen permitido que la API REST (ver main.ts). Se lee de `process.env`
-   directo, no por ConfigService: los argumentos del decorador se evalúan al
-   cargar el módulo, antes de que exista el contenedor de DI. */
 const ORIGENES_PERMITIDOS = (process.env.CORS_ORIGINS ?? 'http://localhost:4200')
   .split(',')
   .map(o => o.trim())
@@ -44,6 +28,7 @@ export class ConversacionesGateway implements OnGatewayConnection, OnGatewayDisc
   constructor(
     private readonly jwtService: JwtService,
     private readonly config: ConfigService,
+    private readonly pushService: PushService,
   ) {}
 
   /** Mismo JWT que la API REST — el token viaja en el handshake, no en la URL. */
@@ -65,16 +50,34 @@ export class ConversacionesGateway implements OnGatewayConnection, OnGatewayDisc
   }
 
   /**
-   * Notifica a todos los agentes conectados. No se segmenta por agente/rol
-   * porque el payload no lleva datos — cada cliente decide, con el
-   * `conversacionId`, si le importa (chat abierto o lista visible) y en tal
-   * caso dispara su propio reload autenticado, que sí aplica el escopado.
+   * Notifica a todos los agentes conectados por WebSocket + dispara Web Push
+   * Notification (VAPID) en segundo plano por si el navegador o PWA está cerrado.
    */
-  emitirActividad(conversacionId: string): void {
-    if (!this.server) {
-      this.logger.warn('Gateway sin server adjunto todavía; se omite el push');
-      return;
+  emitirActividad(
+    conversacionId: string,
+    info?: { clienteNombre?: string; texto?: string; agenteId?: string | null },
+  ): void {
+    if (this.server) {
+      this.server.emit('conversacion:actividad', { conversacionId });
     }
-    this.server.emit('conversacion:actividad', { conversacionId });
+
+    const titulo = info?.clienteNombre ? `WhatsApp: ${info.clienteNombre}` : 'Mensaje de WhatsApp';
+    const mensaje = info?.texto ? (info.texto.length > 80 ? `${info.texto.substring(0, 80)}…` : info.texto) : 'Tienes una actualización en el CRM';
+
+    if (info?.agenteId) {
+      void this.pushService.enviarAUsuario(info.agenteId, {
+        titulo,
+        mensaje,
+        url: `/conversaciones?id=${conversacionId}`,
+        tag: `chat-${conversacionId}`,
+      });
+    } else {
+      void this.pushService.enviarATodosLosAgentes({
+        titulo,
+        mensaje,
+        url: `/conversaciones?id=${conversacionId}`,
+        tag: `chat-${conversacionId}`,
+      });
+    }
   }
 }

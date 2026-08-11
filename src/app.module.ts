@@ -13,6 +13,7 @@ import { ConversacionesModule } from './modules/conversaciones/conversaciones.mo
 import { KpisModule } from './modules/kpis/kpis.module';
 import { LeadsModule } from './modules/leads/leads.module';
 import { MemoriaAgenteModule } from './modules/memoria-agente/memoria-agente.module';
+import { PushModule } from './common/push/push.module';
 import { PlanillaComisionesModule } from './modules/planilla-comisiones/planilla-comisiones.module';
 import { PlantillasAgenteModule } from './modules/plantillas-agente/plantillas-agente.module';
 import { UsuariosModule } from './modules/usuarios/usuarios.module';
@@ -28,6 +29,7 @@ import { PrismaModule } from './prisma/prisma.module';
     ThrottlerModule.forRoot([{ name: 'general', ttl: 60_000, limit: 120 }]),
     PrismaModule,
     AuditModule,
+    PushModule,
     AuthModule,
     UsuariosModule,
     ClientesModule,
