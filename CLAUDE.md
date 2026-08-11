@@ -54,6 +54,26 @@ la base local.
   `cubreRol()` de `common/auth/roles.ts`. La jerarquía es `AGENTE < ADMIN < SUPER_ADMIN`.
 - **Si tocas `schema.prisma`, la migración se genera y se commitea.** Sin eso, quien
   clone el repo queda con la base desincronizada.
+- **Todo campo de un DTO lleva su decorador de `class-validator`.** El
+  `ValidationPipe` global corre con `whitelist: true`: un DTO sin decoradores no
+  llega incompleto, llega `{}` —siempre, sin lanzar y sin log—. `check:skills` lo
+  rechaza.
+- **Permiso y preferencia de vista son parámetros distintos.** El alcance por rol
+  sale de `alcanceAgente()`; un filtro de la interfaz (`?soloMios=true`) se combina
+  con AND y nunca lo sustituye. Fundirlos ya recortó en silencio lo que ven las
+  agentes.
+
+## Notificaciones
+
+`emitirActividad()` refresca las pestañas abiertas y lo llama todo. **Solo
+`notificarEntrante()` manda push al teléfono, y solo lo llama `procesarEntrante`** —
+el único punto donde ha escrito una paciente. Si haces que otro sitio notifique,
+las agentes recibirán avisos por sus propios envíos y por cada tilde de entrega de
+Meta; eso termina con la notificación desactivada y con la que sí importa perdida.
+
+Sin `VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY` la función queda apagada, igual que R2 y
+WhatsApp. **No generes llaves al vuelo**: cambian en cada reinicio e invalidan todas
+las suscripciones sin avisar.
 
 ## Caché
 

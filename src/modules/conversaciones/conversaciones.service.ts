@@ -72,8 +72,40 @@ function whereVisibilidad(soloAgenteId?: string): Prisma.ConversacionWhereInput 
     OR: [
       { agenteId: soloAgenteId },
       { agenteId: null },
+      /* Sus pacientes, aunque otra agente haya contestado el chat.
+         `enviarMensaje` reclama la conversación del pool para quien responde,
+         pero NO mueve `Cliente.agenteId`: sin esta rama, que una compañera
+         conteste una vez le quita a la dueña de la paciente el chat de su
+         propia paciente — y con él el seguimiento y la comisión. */
+      { cliente: { agenteId: soloAgenteId } },
     ],
   };
+}
+
+/**
+ * Filtro "Solo míos" del inbox: asignadas a mí o sin dueño.
+ *
+ * **Es una preferencia de vista, no un permiso**, y por eso vive aparte de
+ * `whereVisibilidad`. Los dos se combinan con AND: el permiso acota lo que el
+ * usuario PUEDE ver y este acota lo que QUIERE ver ahora.
+ *
+ * Estaban fundidos en un solo parámetro y salió caro: para que el interruptor
+ * del admin dijera "míos o del pool" se le quitó a `whereVisibilidad` la rama
+ * de `cliente.agenteId`, y eso le recortó en silencio lo que ve toda agente
+ * normal. Un cambio de UI no puede poder cambiar quién ve los datos de qué
+ * paciente; separados, no vuelve a pasar.
+ */
+function whereSoloMios(usuarioId: string): Prisma.ConversacionWhereInput {
+  return { OR: [{ agenteId: usuarioId }, { agenteId: null }] };
+}
+
+/** Combina filtros opcionales con AND; `undefined` si no hay ninguno. */
+function combinar(
+  ...filtros: (Prisma.ConversacionWhereInput | undefined)[]
+): Prisma.ConversacionWhereInput | undefined {
+  const activos = filtros.filter((f): f is Prisma.ConversacionWhereInput => f !== undefined);
+  if (activos.length === 0) return undefined;
+  return activos.length === 1 ? activos[0] : { AND: activos };
 }
 
 
@@ -95,7 +127,8 @@ function puedeVerConversacion(
   if (!soloAgenteId) return true;
   return (
     conversacion.agenteId === soloAgenteId ||
-    conversacion.agenteId === null
+    conversacion.agenteId === null ||
+    conversacion.cliente?.agenteId === soloAgenteId
   );
 }
 
@@ -145,9 +178,17 @@ export class ConversacionesService {
   });
 
   /** Visibilidad por rol: AGENTE ve sus conversaciones + las sin asignar; ADMIN todo. */
-  async findAll(soloAgenteId?: string) {
+  /**
+   * @param soloAgenteId Permiso: a qué agente se acota. `undefined` = ve todo.
+   * @param soloMiosDe   Vista: id del usuario que pidió "solo míos". Se combina
+   *                     con el permiso, nunca lo amplía.
+   */
+  async findAll(soloAgenteId?: string, soloMiosDe?: string) {
     const conversaciones = await this.prisma.conversacion.findMany({
-      where: whereVisibilidad(soloAgenteId),
+      where: combinar(
+        whereVisibilidad(soloAgenteId),
+        soloMiosDe ? whereSoloMios(soloMiosDe) : undefined,
+      ),
       orderBy: { updatedAt: 'desc' },
       select: {
         id: true,
@@ -608,7 +649,7 @@ export class ConversacionesService {
    */
   private async obtenerOCrearConversacion(
     clienteId: string,
-  ): Promise<{ conversacion: { id: string }; esNueva: boolean }> {
+  ): Promise<{ conversacion: { id: string; agenteId: string | null }; esNueva: boolean }> {
     const existente = await this.prisma.conversacion.findUnique({ where: { clienteId } });
     if (existente) {
       return { conversacion: existente, esNueva: false };
@@ -720,9 +761,16 @@ export class ConversacionesService {
       });
     }
 
-    /* Empuja el refresco a los agentes conectados — así el mensaje aparece
-       en segundos en vez de esperar el próximo poll. */
-    this.gateway.emitirActividad(conversacion.id);
+    /* Refresca el inbox de quien lo tenga abierto y avisa al teléfono de quien
+       no. **Es el único sitio del módulo que manda notificación push**: aquí y
+       solo aquí ha escrito una paciente. La dueña sale del cliente y no de la
+       conversación: si el chat está en el pool, `agenteId` es null y el aviso
+       va a todo el equipo. */
+    this.gateway.notificarEntrante(conversacion.id, {
+      clienteNombre: cliente.nombre,
+      texto: contenido,
+      agenteId: conversacion.agenteId ?? cliente.agenteId,
+    });
 
     /* Acuse fuera de horario. Sin `await`, como todo lo que habla con Meta: el
        webhook tiene que responder en milisegundos. */

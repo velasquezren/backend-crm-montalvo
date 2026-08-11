@@ -339,6 +339,13 @@ Con datos reales en la base, revisa siempre el SQL antes de aplicarlo (`--create
   se probó y se quitó a propósito, porque rechaza con 400 los webhooks de Meta (traen decenas de
   campos que no modelamos) y tras varios 400 Meta desactiva la suscripción. `whitelist` solo ya
   protege contra que un cliente cuele campos inesperados; no lo reactives sin filtrar antes por ruta.
+
+  **Consecuencia que muerde:** `whitelist` descarta toda propiedad **sin decorador de
+  `class-validator`**. Un DTO declarado sin decoradores no llega incompleto al service —
+  llega `{}`, siempre, sin excepción y sin una línea en el log. Pasó con `SuscribirPushDto`
+  (2026-08-10): el endpoint devolvía 200, guardaba cero y las notificaciones jamás
+  funcionaron. En objetos anidados hacen falta además `@ValidateNested()` + `@Type(() => Clase)`,
+  o el hijo se vacía igual. `check:skills` falla si encuentra un DTO sin ningún decorador.
 - Rate limit 120/min general; **login 5/min** contra fuerza bruta — **por IP real**
   gracias a `trust proxy` (ver sección de rate-limit arriba); el webhook de WhatsApp
   va con `@SkipThrottle()`

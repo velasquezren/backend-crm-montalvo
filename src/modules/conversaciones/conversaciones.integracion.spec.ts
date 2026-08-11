@@ -46,8 +46,19 @@ const prisma = new PrismaService({ datasources: { db: { url: URL_TEST } } });
 /** Registra lo que se emitiría por WebSocket; no hay servidor de sockets aquí. */
 class GatewayEspia {
   readonly emitidos: string[] = [];
+  /** Solo lo que dispara notificación al teléfono — ver `notificarEntrante`. */
+  readonly notificados: Array<{ conversacionId: string; agenteId?: string | null }> = [];
+
   emitirActividad(conversacionId: string): void {
     this.emitidos.push(conversacionId);
+  }
+
+  notificarEntrante(
+    conversacionId: string,
+    info: { clienteNombre?: string; texto?: string; agenteId?: string | null },
+  ): void {
+    this.emitirActividad(conversacionId);
+    this.notificados.push({ conversacionId, agenteId: info.agenteId });
   }
 }
 
@@ -167,6 +178,50 @@ describe('Conversaciones contra Postgres real', () => {
 
       expect(visibles).toEqual([suya.conversacion.id, pool.conversacion.id, suCliente.conversacion.id].sort());
       expect(visibles).not.toContain(ajena.conversacion.id);
+    });
+
+    /**
+     * El interruptor "Solo míos" es una preferencia de vista y el alcance por
+     * rol es un permiso. Cuando compartían parámetro, hacer que el interruptor
+     * del admin dijera "míos o del pool" le quitó a las agentes los chats de sus
+     * propias pacientes. Estas dos pruebas son las que impiden volver a fundirlos.
+     */
+    describe('filtro "solo míos"', () => {
+      it('acota la vista del ADMIN sin dejarle de mostrar el pool', async () => {
+        const admin = await crearAgente('admin-a', 'ADMIN');
+        const b = await crearAgente('agente-b');
+
+        const suyo = await crearChat({ telefono: '+59171000011', agenteConversacion: admin.id });
+        const pool = await crearChat({ telefono: '+59171000012' });
+        const ajeno = await crearChat({
+          telefono: '+59171000013',
+          agenteConversacion: b.id,
+          agenteCliente: b.id,
+        });
+
+        /* Un ADMIN no lleva alcance (ve todo); solo pide "míos". */
+        const visibles = (await service.findAll(undefined, admin.id)).map(c => c.id).sort();
+
+        expect(visibles).toEqual([suyo.conversacion.id, pool.conversacion.id].sort());
+        expect(visibles).not.toContain(ajeno.conversacion.id);
+      });
+
+      it('nunca amplía lo que un AGENTE puede ver', async () => {
+        const a = await crearAgente('agente-a');
+        const b = await crearAgente('agente-b');
+
+        const ajena = await crearChat({
+          telefono: '+59171000014',
+          agenteConversacion: b.id,
+          agenteCliente: b.id,
+        });
+
+        /* Pedir "solo míos" con el id de otra no puede servir de puerta trasera:
+           el permiso va por AND y sigue mandando. */
+        const visibles = (await service.findAll(a.id, b.id)).map(c => c.id);
+
+        expect(visibles).not.toContain(ajena.conversacion.id);
+      });
     });
 
     it('el ADMIN las ve todas', async () => {
@@ -352,6 +407,68 @@ describe('Conversaciones contra Postgres real', () => {
       await service.procesarEntrante('+59172000005', 'Hola', 'wamid.e1');
       const cliente = await prisma.cliente.findUniqueOrThrow({ where: { telefono: '+59172000005' } });
       expect(cliente.nombre).toBe('WhatsApp +59172000005');
+    });
+  });
+
+  /**
+   * El refresco por WebSocket es barato y lo dispara todo; la notificación al
+   * teléfono es intrusiva y solo la dispara un mensaje de la paciente.
+   *
+   * Estaban unidos, y como los ocho puntos que refrescan el inbox pasaban por
+   * el mismo método, cada tilde de entrega de Meta y cada envío de la propia
+   * agente sonaban en todos los teléfonos — incluido el acuse automático de
+   * madrugada. Una notificación que suena sin motivo se desactiva, y entonces
+   * tampoco suena la que importa.
+   */
+  describe('a quién se le avisa al teléfono', () => {
+    it('un mensaje de la paciente notifica una sola vez', async () => {
+      await service.procesarEntrante('+59172000010', 'Hola, quiero una cita', 'wamid.n1');
+
+      expect(gateway.notificados).toHaveLength(1);
+    });
+
+    it('el chat sin dueña notifica al equipo entero', async () => {
+      await service.procesarEntrante('+59172000011', 'Hola', 'wamid.n2');
+
+      expect(gateway.notificados[0].agenteId).toBeNull();
+    });
+
+    it('con dueña, el aviso lleva su id', async () => {
+      const a = await crearAgente('agente-a');
+      await crearChat({ telefono: '+59172000012', agenteCliente: a.id });
+
+      await service.procesarEntrante('+59172000012', 'Hola', 'wamid.n3');
+
+      expect(gateway.notificados[0].agenteId).toBe(a.id);
+    });
+
+    it('que responda la agente refresca el inbox pero NO notifica a nadie', async () => {
+      const a = await crearAgente('agente-a');
+      const chat = await crearChat({ telefono: '+59172000013', agenteConversacion: a.id });
+
+      await service.enviarMensaje(chat.conversacion.id, 'Buenas tardes', a.id);
+
+      expect(gateway.emitidos).toContain(chat.conversacion.id);
+      expect(gateway.notificados).toHaveLength(0);
+    });
+
+    it('una tilde de entrega de Meta no notifica a nadie', async () => {
+      const a = await crearAgente('agente-a');
+      const chat = await crearChat({ telefono: '+59172000014', agenteConversacion: a.id });
+      await prisma.mensaje.create({
+        data: {
+          conversacionId: chat.conversacion.id,
+          direccion: 'SALIENTE',
+          contenido: 'Hola',
+          estadoEnvio: 'ENVIADO',
+          whatsappMsgId: 'wamid.tick1',
+        },
+      });
+
+      await service.procesarEstadoMensaje('wamid.tick1', 'read');
+
+      expect(gateway.emitidos).toContain(chat.conversacion.id);
+      expect(gateway.notificados).toHaveLength(0);
     });
   });
 

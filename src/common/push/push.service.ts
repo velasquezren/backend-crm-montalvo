@@ -1,7 +1,10 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { PushSubscription } from '@prisma/client';
 import * as webpush from 'web-push';
+
 import { PrismaService } from '../../prisma/prisma.service';
+import { SuscribirPushDto } from './dto/suscribir-push.dto';
 
 export interface PushNotificationPayload {
   titulo: string;
@@ -11,11 +14,20 @@ export interface PushNotificationPayload {
   count?: number;
 }
 
+/**
+ * Notificaciones Web Push (VAPID) al teléfono de las agentes.
+ *
+ * Sin `VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY` en el `.env` la función queda
+ * **apagada**, igual que R2 y que WhatsApp Cloud. Antes se generaba un par de
+ * llaves en memoria al arrancar, y eso es peor que no funcionar: las llaves
+ * cambian en cada `systemctl restart`, y una suscripción creada con las
+ * anteriores deja de servir sin que nadie se entere. Las agentes verían el
+ * permiso concedido en el navegador y no volverían a recibir nada.
+ */
 @Injectable()
 export class PushService implements OnModuleInit {
   private readonly logger = new Logger(PushService.name);
   private publicKey = '';
-  private privateKey = '';
 
   constructor(
     private readonly prisma: PrismaService,
@@ -23,40 +35,43 @@ export class PushService implements OnModuleInit {
   ) {}
 
   onModuleInit(): void {
-    const envPublic = this.config.get<string>('VAPID_PUBLIC_KEY');
-    const envPrivate = this.config.get<string>('VAPID_PRIVATE_KEY');
-    const subject = this.config.get<string>('VAPID_SUBJECT') ?? 'mailto:soporte@clinicamontalvo.com';
+    const publica = this.config.get<string>('VAPID_PUBLIC_KEY')?.trim();
+    const privada = this.config.get<string>('VAPID_PRIVATE_KEY')?.trim();
+    const subject =
+      this.config.get<string>('VAPID_SUBJECT')?.trim() || 'mailto:soporte@clinicamontalvo.com';
 
-    if (envPublic && envPrivate) {
-      this.publicKey = envPublic;
-      this.privateKey = envPrivate;
-    } else {
-      // Si no están configuradas en .env, genera llaves VAPID en memoria para inicio directo
-      const keys = webpush.generateVAPIDKeys();
-      this.publicKey = keys.publicKey;
-      this.privateKey = keys.privateKey;
-      this.logger.log('Llaves VAPID generadas automáticamente para Web Push.');
+    if (!publica || !privada) {
+      this.logger.warn(
+        'VAPID_PUBLIC_KEY/VAPID_PRIVATE_KEY ausentes: las notificaciones push quedan desactivadas. ' +
+          'Genera un par con `npx web-push generate-vapid-keys` y añádelas al .env.',
+      );
+      return;
     }
 
     try {
-      webpush.setVapidDetails(subject, this.publicKey, this.privateKey);
+      webpush.setVapidDetails(subject, publica, privada);
+      this.publicKey = publica;
     } catch (error) {
-      this.logger.error('Error al inicializar VAPID Web Push', error);
+      /* Llaves con formato inválido. Se deja apagado en vez de arrancar a
+         medias: `sendNotification` fallaría en cada mensaje entrante. */
+      this.logger.error('Llaves VAPID inválidas: las notificaciones push quedan desactivadas', error);
     }
   }
 
+  /** `false` mientras no haya llaves válidas configuradas. */
+  get habilitado(): boolean {
+    return this.publicKey !== '';
+  }
+
+  /** Clave pública para `PushManager.subscribe()`. Vacía = función apagada. */
   getPublicKey(): { publicKey: string } {
     return { publicKey: this.publicKey };
   }
 
-  async guardarSuscripcion(
-    usuarioId: string,
-    sub: { endpoint: string; keys: { p256dh: string; auth: string } },
-  ): Promise<{ ok: boolean }> {
-    if (!sub?.endpoint || !sub?.keys?.p256dh || !sub?.keys?.auth) {
-      return { ok: false };
-    }
-
+  async guardarSuscripcion(usuarioId: string, sub: SuscribirPushDto): Promise<{ ok: boolean }> {
+    /* Una suscripción puede cambiar de dueña: el navegador la reutiliza y en un
+       equipo compartido de recepción entra otra agente. `endpoint` es único, así
+       que el upsert la reasigna en vez de reventar contra el índice. */
     await this.prisma.pushSubscription.upsert({
       where: { endpoint: sub.endpoint },
       create: {
@@ -75,67 +90,65 @@ export class PushService implements OnModuleInit {
     return { ok: true };
   }
 
-  async eliminarSuscripcion(endpoint: string): Promise<void> {
-    try {
-      await this.prisma.pushSubscription.delete({ where: { endpoint } });
-    } catch {
-      // Ignorar si no existe
-    }
+  /** Baja pedida por la usuaria: solo puede borrar las suyas. */
+  async eliminarSuscripcionPropia(usuarioId: string, endpoint: string): Promise<{ ok: boolean }> {
+    const { count } = await this.prisma.pushSubscription.deleteMany({
+      where: { endpoint, usuarioId },
+    });
+    return { ok: count > 0 };
   }
 
   async enviarAUsuario(usuarioId: string, payload: PushNotificationPayload): Promise<void> {
-    const subs = await this.prisma.pushSubscription.findMany({
-      where: { usuarioId },
-    });
-
-    if (subs.length === 0) return;
-
-    const dataString = JSON.stringify(payload);
-
-    await Promise.all(
-      subs.map(async (sub) => {
-        try {
-          await webpush.sendNotification(
-            {
-              endpoint: sub.endpoint,
-              keys: { p256dh: sub.p256dh, auth: sub.auth },
-            },
-            dataString,
-          );
-        } catch (err: unknown) {
-          const error = err as { statusCode?: number; message?: string };
-          // Si la suscripción expiró o ya no es válida (404/410), se elimina de la BD
-          if (error.statusCode === 404 || error.statusCode === 410) {
-            await this.eliminarSuscripcion(sub.endpoint);
-          } else {
-            this.logger.warn(`Error al enviar push notification a ${sub.endpoint}: ${error.message ?? String(err)}`);
-          }
-        }
-      }),
+    if (!this.habilitado) return;
+    await this.despachar(
+      await this.prisma.pushSubscription.findMany({ where: { usuarioId } }),
+      payload,
     );
   }
 
+  /** Para las conversaciones del pool: le toca a quien la agarre primero. */
   async enviarATodosLosAgentes(payload: PushNotificationPayload): Promise<void> {
-    const subs = await this.prisma.pushSubscription.findMany({});
-    if (subs.length === 0) return;
+    if (!this.habilitado) return;
+    await this.despachar(await this.prisma.pushSubscription.findMany(), payload);
+  }
 
-    const dataString = JSON.stringify(payload);
+  /**
+   * Manda el aviso a cada dispositivo y limpia los que ya no existen.
+   *
+   * Un 404/410 del servicio de push significa que la suscripción murió —el
+   * navegador se desinstaló, la PWA se borró, el permiso se revocó—: se elimina
+   * ahí mismo, o la tabla se llena de destinos muertos que se reintentan para
+   * siempre. Cualquier otro error se registra y no se toca nada: puede ser un
+   * corte transitorio y borrar por eso dejaría a la agente sin notificaciones.
+   *
+   * Nada de aquí lanza: esto corre en segundo plano detrás de un webhook que ya
+   * respondió, y un fallo notificando no puede perder el mensaje de la paciente.
+   */
+  private async despachar(
+    subs: PushSubscription[],
+    payload: PushNotificationPayload,
+  ): Promise<void> {
+    if (subs.length === 0) return;
+    const cuerpo = JSON.stringify(payload);
 
     await Promise.all(
-      subs.map(async (sub) => {
+      subs.map(async sub => {
         try {
           await webpush.sendNotification(
-            {
-              endpoint: sub.endpoint,
-              keys: { p256dh: sub.p256dh, auth: sub.auth },
-            },
-            dataString,
+            { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
+            cuerpo,
           );
         } catch (err: unknown) {
           const error = err as { statusCode?: number; message?: string };
           if (error.statusCode === 404 || error.statusCode === 410) {
-            await this.eliminarSuscripcion(sub.endpoint);
+            await this.prisma.pushSubscription
+              .deleteMany({ where: { endpoint: sub.endpoint } })
+              .catch(() => undefined);
+            return;
           }
+          this.logger.warn(
+            `No se pudo notificar a ${sub.endpoint}: ${error.message ?? String(err)}`,
+          );
         }
       }),
     );

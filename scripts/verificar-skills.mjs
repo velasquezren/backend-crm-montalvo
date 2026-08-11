@@ -175,6 +175,41 @@ function verificarWebhooks() {
   }
 }
 
+// ── 5. Ningún DTO sin decoradores de validación ───────────────────────────────
+// El `ValidationPipe` global corre con `whitelist: true`, que **descarta toda
+// propiedad sin decorador de class-validator**. Un DTO sin decoradores por tanto
+// no llega a medias al service: llega VACÍO, siempre, sin lanzar ni registrar nada.
+//
+// Pasó con `SuscribirPushDto` el 2026-08-10: el endpoint aceptaba la suscripción,
+// devolvía 200 y guardaba cero. Las notificaciones nunca funcionaron y no había
+// un solo error en el log que lo insinuara. Es un fallo mudo, y los fallos mudos
+// son justo los que no encuentra una revisión a ojo — por eso se comprueba aquí.
+function verificarDtos() {
+  const dtos = indexar(resolve(RAIZ, 'src')).filter(r => r.endsWith('.dto.ts'));
+
+  for (const ruta of dtos) {
+    const codigo = readFileSync(ruta, 'utf8');
+    const rel = relative(RAIZ, ruta);
+
+    for (const [, nombre, cuerpo] of codigo.matchAll(
+      /export class (\w+)\s*{([\s\S]*?)\n}/g,
+    )) {
+      /* Propiedades declaradas: `nombre!: tipo` o `nombre?: tipo`. */
+      const propiedades = [...cuerpo.matchAll(/^\s{2}(\w+)[!?]?:\s/gm)].map(m => m[1]);
+      if (propiedades.length === 0) continue;
+
+      if (!/@Is[A-Z]\w*\(|@ValidateNested\(|@Allow\(/.test(cuerpo)) {
+        señala(
+          'crm-backend-module',
+          `${rel}: la clase ${nombre} no tiene ni un decorador de class-validator. ` +
+            'Con `whitelist: true` el ValidationPipe vacía el objeto entero y el ' +
+            'endpoint recibe {} sin avisar. Pon @IsString()/@IsInt()/… en cada campo.',
+        );
+      }
+    }
+  }
+}
+
 // ── Ejecución ─────────────────────────────────────────────────────────────────
 if (!existsSync(SKILLS)) {
   console.log('· No hay .claude/skills/ — nada que verificar.');
@@ -197,6 +232,7 @@ for (const nombre of readdirSync(SKILLS)) {
 
 /* Global, no por skill: mira el código, no la documentación. */
 verificarWebhooks();
+verificarDtos();
 
 if (problemas.length === 0) {
   console.log('✓ Los skills coinciden con el código.');

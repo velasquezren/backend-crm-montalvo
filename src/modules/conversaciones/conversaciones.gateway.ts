@@ -50,34 +50,53 @@ export class ConversacionesGateway implements OnGatewayConnection, OnGatewayDisc
   }
 
   /**
-   * Notifica a todos los agentes conectados por WebSocket + dispara Web Push
-   * Notification (VAPID) en segundo plano por si el navegador o PWA está cerrado.
+   * Algo cambió en esta conversación: que las pestañas abiertas se refresquen.
+   *
+   * Es barato y silencioso, así que lo llama TODO —el agente que envía, el
+   * acuse de entrega de Meta, la media que termina de subir—. Por eso **no
+   * manda notificación push**: ver `notificarEntrante`.
    */
-  emitirActividad(
-    conversacionId: string,
-    info?: { clienteNombre?: string; texto?: string; agenteId?: string | null },
-  ): void {
-    if (this.server) {
-      this.server.emit('conversacion:actividad', { conversacionId });
-    }
-
-    const titulo = info?.clienteNombre ? `WhatsApp: ${info.clienteNombre}` : 'Mensaje de WhatsApp';
-    const mensaje = info?.texto ? (info.texto.length > 80 ? `${info.texto.substring(0, 80)}…` : info.texto) : 'Tienes una actualización en el CRM';
-
-    if (info?.agenteId) {
-      void this.pushService.enviarAUsuario(info.agenteId, {
-        titulo,
-        mensaje,
-        url: `/conversaciones?id=${conversacionId}`,
-        tag: `chat-${conversacionId}`,
-      });
-    } else {
-      void this.pushService.enviarATodosLosAgentes({
-        titulo,
-        mensaje,
-        url: `/conversaciones?id=${conversacionId}`,
-        tag: `chat-${conversacionId}`,
-      });
-    }
+  emitirActividad(conversacionId: string): void {
+    this.server?.emit('conversacion:actividad', { conversacionId });
   }
+
+  /**
+   * Llegó un mensaje **del paciente**: refresca y además avisa al teléfono.
+   *
+   * Separado de `emitirActividad` a propósito. Estaban fundidos, y como los
+   * ocho puntos que refrescan el inbox pasaban por ahí, cada tilde de entrega
+   * de Meta, cada envío de la propia agente y hasta el acuse automático de
+   * madrugada disparaban un push a todos los dispositivos suscritos. Una
+   * notificación que suena cuando no ha pasado nada se desactiva en una semana,
+   * y entonces tampoco suena la que sí importaba.
+   *
+   * Con dueña, solo a ella; sin dueña, la conversación está en el pool y le
+   * toca a quien la agarre primero.
+   */
+  notificarEntrante(
+    conversacionId: string,
+    info: { clienteNombre?: string; texto?: string; agenteId?: string | null },
+  ): void {
+    this.emitirActividad(conversacionId);
+
+    const aviso = {
+      titulo: info.clienteNombre ? `WhatsApp: ${info.clienteNombre}` : 'Mensaje de WhatsApp',
+      mensaje: resumir(info.texto) ?? 'Tienes un mensaje nuevo',
+      url: `/conversaciones?id=${conversacionId}`,
+      /* Mismo `tag` por conversación: cinco mensajes seguidos reemplazan la
+         notificación anterior en vez de apilar cinco en la pantalla. */
+      tag: `chat-${conversacionId}`,
+    };
+
+    void (info.agenteId
+      ? this.pushService.enviarAUsuario(info.agenteId, aviso)
+      : this.pushService.enviarATodosLosAgentes(aviso));
+  }
+}
+
+/** Primera línea del mensaje, acotada a lo que cabe en una notificación. */
+function resumir(texto: string | undefined): string | undefined {
+  const limpio = texto?.trim();
+  if (!limpio) return undefined;
+  return limpio.length > 80 ? `${limpio.slice(0, 80)}…` : limpio;
 }

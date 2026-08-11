@@ -8,19 +8,26 @@ import { AsignarAgenteDto } from './dto/asignar-agente.dto';
 import { EnviarMensajeDto } from './dto/enviar-mensaje.dto';
 import { EnviarPlantillaDto } from './dto/enviar-plantilla.dto';
 import { MarcarLeidoDto } from './dto/marcar-leido.dto';
+import { QueryConversacionesDto } from './dto/query-conversaciones.dto';
 import { QueryMensajesAnterioresDto } from './dto/query-mensajes-anteriores.dto';
 
 @Controller('conversaciones')
 export class ConversacionesController {
   constructor(private readonly conversacionesService: ConversacionesService) {}
 
+  /**
+   * El alcance por rol y el interruptor "solo míos" van por parámetros
+   * distintos a propósito: el primero es permiso y el segundo preferencia de
+   * vista. Pasar el interruptor como si fuera el alcance —que es como estaba—
+   * hace que un cambio de la interfaz redefina quién ve los datos de qué
+   * paciente.
+   */
   @Get()
-  findAll(
-    @CurrentUser() usuario: UsuarioJwt,
-    @Query('soloMios') soloMios?: string,
-  ) {
-    const soloAgenteId = soloMios === 'true' ? usuario.sub : alcanceAgente(usuario);
-    return this.conversacionesService.findAll(soloAgenteId);
+  findAll(@CurrentUser() usuario: UsuarioJwt, @Query() query: QueryConversacionesDto) {
+    return this.conversacionesService.findAll(
+      alcanceAgente(usuario),
+      query.soloMios ? usuario.sub : undefined,
+    );
   }
 
   @Get(':id')
