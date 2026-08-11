@@ -1,11 +1,7 @@
 import { Injectable } from '@nestjs/common';
 
+import { CacheMemoria } from '../../common/cache/cache-memoria';
 import { PrismaService } from '../../prisma/prisma.service';
-
-interface CacheItem<T> {
-  data: T;
-  expiresAt: number;
-}
 
 /**
  * Módulo KPIs — RF-16/RF-17/RF-18.
@@ -13,24 +9,35 @@ interface CacheItem<T> {
  */
 @Injectable()
 export class KpisService {
-  private cache = new Map<string, CacheItem<unknown>>();
-  private readonly CACHE_TTL_MS = 15000; // 15 segundos de caché ultra-rápida en memoria
+  /**
+   * 15 s: el dashboard se recarga al navegar y ocho consultas agregadas por
+   * visita es caro para un dato que nadie mira al segundo.
+   *
+   * El tope de entradas **no es decorativo**: la clave incluye `desde`/`hasta`,
+   * que llegan libres por query param, así que sin él cada rango que alguien
+   * eligiera en el calendario se quedaba en memoria para siempre. Era una fuga.
+   */
+  private readonly cache = new CacheMemoria<Awaited<ReturnType<KpisService['calcular']>>>({
+    ttlMs: 15_000,
+    maxEntradas: 50,
+  });
 
   constructor(private readonly prisma: PrismaService) {}
 
   /**
    * Alcance por rol: para un AGENTE, ventas y comisiones se limitan a las suyas
    * (soloAgenteId); los agregados de leads/clientes son globales para ambos roles.
+   *
+   * El `soloAgenteId` va en la clave de caché a propósito: sin él, el resumen
+   * de un agente se serviría a otro durante 15 s — el mismo agujero de escopado
+   * que el `resumen()` tenía en las consultas.
    */
   async resumen(desde?: string, hasta?: string, soloAgenteId?: string) {
-    const cacheKey = `${desde ?? ''}_${hasta ?? ''}_${soloAgenteId ?? 'ALL'}`;
-    const ahora = Date.now();
-    const cached = this.cache.get(cacheKey);
+    const clave = `${desde ?? ''}_${hasta ?? ''}_${soloAgenteId ?? 'ALL'}`;
+    return this.cache.resolver(clave, () => this.calcular(desde, hasta, soloAgenteId));
+  }
 
-    if (cached && cached.expiresAt > ahora) {
-      return cached.data;
-    }
-
+  private async calcular(desde?: string, hasta?: string, soloAgenteId?: string) {
     const rango = {
       gte: desde ? new Date(desde) : undefined,
       lte: hasta ? new Date(hasta) : undefined,
@@ -100,7 +107,7 @@ export class KpisService {
     });
     const nombrePorId = new Map(agentes.map(a => [a.id, a.nombre]));
 
-    const resultado = {
+    return {
       ventas: {
         total: Number(ventasGanadas._sum.monto ?? 0),
         cantidad: ventasGanadas._count,
@@ -137,8 +144,5 @@ export class KpisService {
         leadsContactados: leadsContactados,
       },
     };
-
-    this.cache.set(cacheKey, { data: resultado, expiresAt: ahora + this.CACHE_TTL_MS });
-    return resultado;
   }
 }

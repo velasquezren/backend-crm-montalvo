@@ -2,6 +2,7 @@ import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Prisma, TipoMensaje } from '@prisma/client';
 
+import { CacheMemoria } from '../../common/cache/cache-memoria';
 import { R2Service } from '../../common/storage/r2.service';
 import { WhatsappCloudService } from '../../common/whatsapp/whatsapp-cloud.service';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -17,6 +18,11 @@ export type { MediaEntrante };
 /** Mensajes que trae el detalle inicial de una conversación (más recientes primero, luego se reordenan).
  *  Se acota a 50 para máxima velocidad inicial; los anteriores se cargan por cursor al hacer scroll. */
 const LIMITE_MENSAJES_DETALLE = 50;
+
+/* Estas dos cachés guardan un único valor cada una, así que la clave es
+   simbólica: existe porque `CacheMemoria` está pensada para varias entradas. */
+const CLAVE_AGENTES = 'activos';
+const CLAVE_PLANTILLAS = 'aprobadas';
 
 /** Forma cruda de una plantilla en la respuesta de Meta (solo lo que usamos). */
 interface PlantillaMeta {
@@ -122,8 +128,21 @@ export class ConversacionesService {
     return new Date();
   }
 
-  private agentesCache: { data: AgenteResumen[]; expiresAt: number } | null = null;
-  private plantillasCache: { data: PlantillaResumen[]; expiresAt: number } | null = null;
+  /** Dropdown de asignación del admin: cambia solo al dar de alta o baja a alguien. */
+  private readonly cacheAgentes = new CacheMemoria<AgenteResumen[]>({
+    ttlMs: 30_000,
+    maxEntradas: 1,
+  });
+
+  /**
+   * Plantillas aprobadas de la WABA. 10 min porque el dato vive en Meta —
+   * aprobar una plantilla es un trámite de horas, no de segundos— y cada
+   * consulta es un round-trip de 300-900 ms contra su API.
+   */
+  private readonly cachePlantillas = new CacheMemoria<PlantillaResumen[]>({
+    ttlMs: 600_000,
+    maxEntradas: 1,
+  });
 
   /** Visibilidad por rol: AGENTE ve sus conversaciones + las sin asignar; ADMIN todo. */
   async findAll(soloAgenteId?: string) {
@@ -408,17 +427,18 @@ export class ConversacionesService {
    * campos mínimos que la UI necesita para previsualizar y contar variables.
    */
   async listarPlantillas(forceRefresh = false): Promise<PlantillaResumen[]> {
-    const ahora = Date.now();
-    if (!forceRefresh && this.plantillasCache && ahora < this.plantillasCache.expiresAt) {
-      return this.plantillasCache.data;
+    if (!forceRefresh) {
+      const cacheado = this.cachePlantillas.obtener(CLAVE_PLANTILLAS);
+      if (cacheado) return cacheado;
     }
 
     try {
       const crudas = await this.whatsapp.listarPlantillas();
       /* null = no se pudieron pedir. Se devuelve lo último bueno que hubiera en
          caché antes que una lista vacía: un selector vacío parece "no tienes
-         plantillas", que es otra cosa. */
-      if (!crudas) return this.plantillasCache?.data ?? [];
+         plantillas", que es otra cosa. Por eso se pide "aunque haya vencido":
+         justo cuando Meta no responde es cuando la entrada suele estar caducada. */
+      if (!crudas) return this.cachePlantillas.obtenerAunqueVencido(CLAVE_PLANTILLAS) ?? [];
 
       const data = { data: crudas as PlantillaMeta[] };
       const resultado = (data.data ?? [])
@@ -436,12 +456,11 @@ export class ConversacionesService {
           };
         });
 
-      // Guardar en cache por 10 minutos (600.000 ms)
-      this.plantillasCache = { data: resultado, expiresAt: ahora + 600000 };
+      this.cachePlantillas.guardar(CLAVE_PLANTILLAS, resultado);
       return resultado;
     } catch (error) {
       this.logger.error('Excepción al listar plantillas de Meta', error);
-      return this.plantillasCache?.data ?? [];
+      return this.cachePlantillas.obtenerAunqueVencido(CLAVE_PLANTILLAS) ?? [];
     }
   }
 
@@ -610,17 +629,13 @@ export class ConversacionesService {
 
   /** Lista de agentes activos — para el dropdown de asignación del admin (cacheada 30s). */
   async findAgentes() {
-    const ahora = Date.now();
-    if (this.agentesCache && this.agentesCache.expiresAt > ahora) {
-      return this.agentesCache.data;
-    }
-    const agentes = await this.prisma.usuario.findMany({
-      where: { activo: true },
-      select: { id: true, nombre: true, rol: true },
-      orderBy: { nombre: 'asc' },
-    });
-    this.agentesCache = { data: agentes, expiresAt: ahora + 30000 };
-    return agentes;
+    return this.cacheAgentes.resolver(CLAVE_AGENTES, () =>
+      this.prisma.usuario.findMany({
+        where: { activo: true },
+        select: { id: true, nombre: true, rol: true },
+        orderBy: { nombre: 'asc' },
+      }),
+    );
   }
 
   /**
