@@ -1,6 +1,7 @@
 import { ForbiddenException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
+import { AlertasWhatsappService } from '../../../common/whatsapp/alertas-whatsapp.service';
 import { ConversacionesService } from '../conversaciones.service';
 import { WhatsappWebhookDto } from './dto/whatsapp-webhook.dto';
 import { WhatsappWebhookController } from './whatsapp-webhook.controller';
@@ -18,18 +19,28 @@ interface Servicio {
   procesarEstadoMensaje: jest.Mock;
 }
 
+/** Registra los avisos de plataforma sin tocar push ni base. */
+class AlertasEspia {
+  readonly recibidos: Array<{ field?: string; value: unknown }> = [];
+  async procesar(field: string | undefined, value: unknown): Promise<void> {
+    this.recibidos.push({ field, value });
+  }
+}
+
 function montar(config: Record<string, string> = {}) {
   const servicio: Servicio = {
     procesarEntrante: jest.fn().mockResolvedValue({ id: 'msg' }),
     procesarEstadoMensaje: jest.fn().mockResolvedValue(undefined),
   };
+  const alertas = new AlertasEspia();
   const controller = new WhatsappWebhookController(
     { get: (clave: string) => config[clave] } as ConfigService,
     servicio as unknown as ConversacionesService,
+    alertas as unknown as AlertasWhatsappService,
   );
   jest.spyOn(controller['logger'], 'error').mockImplementation(() => undefined);
   jest.spyOn(controller['logger'], 'log').mockImplementation(() => undefined);
-  return { controller, servicio };
+  return { controller, servicio, alertas };
 }
 
 /** Envuelve mensajes y estados en la estructura anidada real de Meta. */
@@ -355,6 +366,59 @@ describe('WhatsappWebhookController', () => {
 
       expect(log).toHaveBeenCalledWith(expect.stringContaining('131047: Re-engagement message'));
       expect(servicio.procesarEstadoMensaje).toHaveBeenCalledWith('wamid.out.1', 'failed');
+    });
+  });
+
+  describe('avisos de plataforma', () => {
+    /** Los avisos van en `change.field`, no dentro de `value` como los mensajes. */
+    function conCampo(field: string, value: Record<string, unknown>): WhatsappWebhookDto {
+      return { object: 'whatsapp_business_account', entry: [{ changes: [{ field, value }] }] };
+    }
+
+    it('una restricción de la cuenta llega al servicio de alertas', async () => {
+      const { controller, alertas } = montar();
+
+      await controller.procesarWebhook(
+        conCampo('account_update', {
+          event: 'ACCOUNT_RESTRICTION',
+          restriction_info: [{ restriction_type: 'RESTRICTED_BIZ_INITIATED_MESSAGING' }],
+        }),
+      );
+
+      expect(alertas.recibidos).toHaveLength(1);
+      expect(alertas.recibidos[0].field).toBe('account_update');
+    });
+
+    it('un aviso que revienta no se lleva el resto del lote', async () => {
+      /* Mismo criterio que los mensajes: ya se respondió 200, así que lo que se
+         pierda aquí Meta no lo reintenta. */
+      const { controller, alertas, servicio } = montar();
+      jest.spyOn(alertas, 'procesar').mockRejectedValueOnce(new Error('boom'));
+
+      await controller.procesarWebhook({
+        object: 'whatsapp_business_account',
+        entry: [
+          {
+            changes: [
+              { field: 'account_update', value: { event: 'ACCOUNT_VIOLATION' } },
+              { field: 'messages', value: { messages: [texto('wamid.tras.aviso')] } },
+            ],
+          },
+        ],
+      });
+
+      expect(servicio.procesarEntrante).toHaveBeenCalledTimes(1);
+    });
+
+    it('un cambio de `messages` NO se desvía a alertas', async () => {
+      const { controller, alertas, servicio } = montar();
+
+      await controller.procesarWebhook(
+        conCampo('messages', { messages: [texto('wamid.normal')] }),
+      );
+
+      expect(alertas.recibidos).toHaveLength(0);
+      expect(servicio.procesarEntrante).toHaveBeenCalledTimes(1);
     });
   });
 });

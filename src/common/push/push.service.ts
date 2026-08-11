@@ -1,6 +1,6 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { PushSubscription } from '@prisma/client';
+import { PushSubscription, Rol } from '@prisma/client';
 import * as webpush from 'web-push';
 
 import { PrismaService } from '../../prisma/prisma.service';
@@ -110,6 +110,26 @@ export class PushService implements OnModuleInit {
   async enviarATodosLosAgentes(payload: PushNotificationPayload): Promise<void> {
     if (!this.habilitado) return;
     await this.despachar(await this.prisma.pushSubscription.findMany(), payload);
+  }
+
+  /**
+   * Solo a quien puede hacer algo al respecto.
+   *
+   * Para avisos de plataforma —una restricción de Meta, una plantilla
+   * rechazada—: despertar a toda la recepción con algo que solo un admin puede
+   * resolver es la vía rápida a que se apaguen las notificaciones.
+   *
+   * El filtro va por la relación desde `pushSubscription`, así que este servicio
+   * sigue consultando su propia tabla y no la de otro dominio.
+   */
+  async enviarAAdmins(payload: PushNotificationPayload): Promise<void> {
+    if (!this.habilitado) return;
+    await this.despachar(
+      await this.prisma.pushSubscription.findMany({
+        where: { usuario: { rol: { in: [Rol.ADMIN, Rol.SUPER_ADMIN] }, activo: true } },
+      }),
+      payload,
+    );
   }
 
   /**

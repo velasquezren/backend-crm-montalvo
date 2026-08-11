@@ -201,12 +201,95 @@ export class WhatsappStatusDto {
   errors?: WhatsappStatusErrorDto[];
 }
 
+/** Restricción concreta que Meta impuso a la cuenta (`ACCOUNT_RESTRICTION`). */
+export class WhatsappRestriccionDto {
+  /** p. ej. `RESTRICTED_BIZ_INITIATED_MESSAGING` — no se pueden iniciar conversaciones. */
+  @IsOptional()
+  @IsString()
+  restriction_type?: string;
+
+  /** Unix timestamp en el que caduca la restricción. */
+  @IsOptional()
+  @IsNumber()
+  expiration?: number;
+}
+
+/** Motivo de la violación de políticas (`ACCOUNT_VIOLATION`). */
+export class WhatsappViolacionDto {
+  @IsOptional()
+  @IsString()
+  violation_type?: string;
+}
+
+/** Estado del baneo de la cuenta (`DISABLED_UPDATE`). */
+export class WhatsappBanDto {
+  @IsOptional()
+  @IsString()
+  waba_ban_state?: string;
+
+  @IsOptional()
+  @IsString()
+  waba_ban_date?: string;
+}
+
 export class WhatsappValueDto {
   @IsOptional()
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => WhatsappContactDto)
   contacts?: WhatsappContactDto[];
+
+  /* ── Campos de los avisos de plataforma ────────────────────────────────────
+     Los comparten `account_update`, `phone_number_quality_update` y
+     `message_template_status_update`; cuál viene relleno lo dice `change.field`.
+
+     Van declarados porque el ValidationPipe global corre con `whitelist: true`:
+     un campo sin decorador NO llega a medias, se descarta entero (ver la regla
+     en el skill crm-backend-module). */
+
+  /** ACCOUNT_RESTRICTION | ACCOUNT_VIOLATION | DISABLED_UPDATE | APPROVED | REJECTED | … */
+  @IsOptional()
+  @IsString()
+  event?: string;
+
+  @IsOptional()
+  @IsString()
+  display_phone_number?: string;
+
+  /** Nivel de throughput/límite tras el cambio (TIER_250, TIER_2K…). */
+  @IsOptional()
+  @IsString()
+  current_limit?: string;
+
+  @IsOptional()
+  @IsString()
+  max_daily_conversations_per_business?: string;
+
+  /** Nombre de la plantilla en `message_template_status_update`. */
+  @IsOptional()
+  @IsString()
+  message_template_name?: string;
+
+  /** Motivo del rechazo de una plantilla. */
+  @IsOptional()
+  @IsString()
+  reason?: string;
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => WhatsappRestriccionDto)
+  restriction_info?: WhatsappRestriccionDto[];
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => WhatsappViolacionDto)
+  violation_info?: WhatsappViolacionDto;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => WhatsappBanDto)
+  ban_info?: WhatsappBanDto;
 
   @IsOptional()
   @IsArray()

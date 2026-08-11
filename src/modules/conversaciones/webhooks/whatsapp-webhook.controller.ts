@@ -16,6 +16,7 @@ import { TipoMensaje } from '@prisma/client';
 
 import { Public } from '../../../common/decorators/public.decorator';
 import { MetaSignatureGuard } from '../../../common/guards/meta-signature.guard';
+import { AlertasWhatsappService } from '../../../common/whatsapp/alertas-whatsapp.service';
 import { ConversacionesService } from '../conversaciones.service';
 import {
   WhatsappContactDto,
@@ -93,6 +94,7 @@ export class WhatsappWebhookController {
   constructor(
     private readonly config: ConfigService,
     private readonly conversacionesService: ConversacionesService,
+    private readonly alertas: AlertasWhatsappService,
   ) {}
 
   @Public()
@@ -148,6 +150,19 @@ export class WhatsappWebhookController {
     const cambios = payload.entry?.flatMap(e => e.changes ?? []) ?? [];
 
     for (const cambio of cambios) {
+      /* Avisos de plataforma (restricciones, baneos, estado de plantillas).
+         Llegaban por estar suscritos y se descartaban sin leerlos. Van en su
+         propio try/catch por el mismo motivo que los mensajes: un aviso que
+         reviente no puede llevarse el resto del lote. */
+      if (AlertasWhatsappService.atiende(cambio.field)) {
+        try {
+          await this.alertas.procesar(cambio.field, cambio.value ?? {});
+        } catch (error) {
+          this.logger.error(`Error procesando el aviso "${cambio.field}" de WhatsApp`, error);
+        }
+        continue;
+      }
+
       let procesados = 0;
       for (const mensaje of cambio.value?.messages ?? []) {
         try {

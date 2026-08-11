@@ -442,11 +442,32 @@ describe('Conversaciones contra Postgres real', () => {
       expect(gateway.notificados[0].agenteId).toBe(a.id);
     });
 
+    /**
+     * `enviarMensaje` despacha a Meta con `void` —la agente no espera el viaje
+     * de red—, así que vuelve antes de que el envío termine. Si la prueba acaba
+     * ahí, el `beforeEach` borra los mensajes y el despacho en vuelo intenta
+     * actualizar una fila que ya no existe: la prueba SIGUIENTE revienta con un
+     * error que no tiene nada que ver con ella.
+     *
+     * Sin credenciales de Meta el envío corta antes del fetch y el mensaje queda
+     * FALLIDO; esperar a ese estado es esperar a que el trabajo en segundo plano
+     * haya terminado de verdad.
+     */
+    async function esperarDespacho(mensajeId: string, msMax = 2000): Promise<void> {
+      const limite = Date.now() + msMax;
+      while (Date.now() < limite) {
+        const m = await prisma.mensaje.findUnique({ where: { id: mensajeId } });
+        if (m?.estadoEnvio === 'FALLIDO') return;
+        await new Promise(r => setTimeout(r, 25));
+      }
+    }
+
     it('que responda la agente refresca el inbox pero NO notifica a nadie', async () => {
       const a = await crearAgente('agente-a');
       const chat = await crearChat({ telefono: '+59172000013', agenteConversacion: a.id });
 
-      await service.enviarMensaje(chat.conversacion.id, 'Buenas tardes', a.id);
+      const enviado = await service.enviarMensaje(chat.conversacion.id, 'Buenas tardes', a.id);
+      await esperarDespacho(enviado.id);
 
       expect(gateway.emitidos).toContain(chat.conversacion.id);
       expect(gateway.notificados).toHaveLength(0);
