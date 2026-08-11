@@ -19,6 +19,27 @@ export type { MediaEntrante };
  *  Se acota a 50 para máxima velocidad inicial; los anteriores se cargan por cursor al hacer scroll. */
 const LIMITE_MENSAJES_DETALLE = 50;
 
+/**
+ * Techo de conversaciones que devuelve el inbox.
+ *
+ * **No es paginación, es un corte**, y por eso importa el número. El frontend
+ * resuelve las pestañas, el filtro por agente y el buscador **en memoria sobre
+ * lo que recibe**: una conversación fuera de este tope no está "en la página
+ * siguiente", simplemente no existe para la interfaz — tampoco al buscar a esa
+ * paciente por nombre.
+ *
+ * Estaba en 100 desde el primer commit y se cruzó ese umbral en agosto de 2026:
+ * siete chats habían desaparecido del inbox sin que nada lo dijera. Subirlo a
+ * 500 no cuesta nada —la consulta va por índice en 0,2 ms y cada conversación
+ * pesa unos 155 bytes— y da margen de años al ritmo actual.
+ *
+ * La solución de verdad es paginar por cursor, pero exige mover las pestañas y
+ * la búsqueda al servidor: hoy filtrar en memoria es lo que hace que cambiar de
+ * pestaña sea instantáneo. Mientras tanto, alcanzar el tope deja un WARN en el
+ * log en vez de esconder chats en silencio.
+ */
+const LIMITE_INBOX = 500;
+
 /* Estas dos cachés guardan un único valor cada una, así que la clave es
    simbólica: existe porque `CacheMemoria` está pensada para varias entradas. */
 const CLAVE_AGENTES = 'activos';
@@ -228,8 +249,18 @@ export class ConversacionesService {
           },
         },
       },
-      take: 100,
+      take: LIMITE_INBOX,
     });
+
+    /* Si se alcanza el tope, hay conversaciones que el inbox NO está mostrando
+       y nadie se entera: el frontend filtra las pestañas y busca sobre lo que
+       recibió, así que una conversación fuera de este corte es invisible
+       también para el buscador. Pasó de verdad al cruzar las 100. */
+    if (conversaciones.length === LIMITE_INBOX) {
+      this.logger.warn(
+        `El inbox alcanzó el tope de ${LIMITE_INBOX} conversaciones: hay chats antiguos que no se están mostrando. Toca paginar de verdad.`,
+      );
+    }
 
     return conversaciones.map(c => ({
       ...c,
