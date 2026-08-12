@@ -56,8 +56,20 @@ export class R2Service {
     }
   }
 
-  /** URL de descarga firmada, válida `ttlSegundos` (default 15 min). */
-  async urlFirmada(key: string, ttlSegundos = 900): Promise<string | null> {
+  /**
+   * URL de descarga firmada, válida `ttlSegundos` (por defecto 1 hora).
+   *
+   * Estaba en 15 minutos y era demasiado corto para algo que se queda pintado
+   * en pantalla: al bloquear el teléfono, el navegador congela los temporizadores
+   * de la pestaña, así que el refresco de 60 s del inbox no corre. Al volver, las
+   * `<img>` ya renderizadas llevaban URLs caducadas y salía el icono de imagen
+   * rota — sin que faltara ni un archivo en R2, comprobado uno por uno.
+   *
+   * Una hora reduce mucho esa ventana sin regalar gran cosa: la URL solo existe
+   * dentro del navegador de la agente autenticada, y quien la copie tendrá una
+   * foto de paciente accesible durante ese rato. Por eso no se sube más.
+   */
+  async urlFirmada(key: string, ttlSegundos = 3600): Promise<string | null> {
     if (!this.client) return null;
     try {
       const signed = await this.client.sign(`${this.baseUrl}/${key}?X-Amz-Expires=${ttlSegundos}`, {
