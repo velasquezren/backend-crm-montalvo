@@ -1,4 +1,5 @@
 import {
+  AreaVendedora,
   CanalVenta,
   ClasifComision,
   NivelPlan,
@@ -228,3 +229,63 @@ export const CAPTACION_POR_DEFECTO: ReadonlyArray<{ valor: string; canal: CanalV
   { valor: 'EXPO BEBE', canal: CanalVenta.EMPRESA },
 ];
 
+
+/**
+ * El equipo comercial oficial, tal como lo declara la hoja `PARAMETROS` de la
+ * planilla de administración (columnas VENDEDORA / TIPO DE VENDEDOR / AREA DE
+ * VENTA, filas 2-11 del archivo de diciembre 2025).
+ *
+ * Existe porque las vendedoras se dan de alta SOLAS al importar el Excel, con
+ * los valores por defecto del modelo: VENDEDORA / EJECUTIVA. Eso dejaba a
+ * Viviana con objetivo de 4 planes y 12.000 cuando es JEFA y le tocan 6 y
+ * 15.000, y hacía que el bono de jefatura no encontrara a quién pagarle.
+ *
+ * Los códigos son los `vendedora_pk` reales que aparecen en los export de
+ * octubre, noviembre y diciembre de 2025.
+ *
+ * **Quien no está aquí no comisiona hasta que administración lo revise.** No es
+ * un descarte silencioso: se da de alta igual, queda con `configurada: false` y
+ * el cálculo avisa por log. El caso real es Gizelle Praciano — vendió 5.825 USD
+ * de internaciones en noviembre y diciembre y no aparece en ninguna planilla de
+ * pago.
+ */
+export const EQUIPO_OFICIAL: ReadonlyArray<{
+  codigo: string;
+  nombre: string;
+  tipo: TipoVendedora;
+  area: AreaVendedora;
+}> = [
+  {
+    codigo: 'Pe1342',
+    nombre: 'Guzman Flores Viviana',
+    tipo: TipoVendedora.JEFA,
+    area: AreaVendedora.EJECUTIVA,
+  },
+  {
+    codigo: 'Pe1535',
+    nombre: 'López Rodriguez Zuany Cecilia',
+    tipo: TipoVendedora.VENDEDORA,
+    area: AreaVendedora.EJECUTIVA,
+  },
+  {
+    codigo: 'Pe2455',
+    nombre: 'Canedo Villamor Claudia Marcela',
+    tipo: TipoVendedora.VENDEDORA,
+    area: AreaVendedora.EJECUTIVA,
+  },
+  {
+    codigo: 'Pe2456',
+    nombre: 'Ojeda Cocha Yelca',
+    tipo: TipoVendedora.VENDEDORA,
+    area: AreaVendedora.EJECUTIVA,
+  },
+  /* Coordinadoras de RA. Liquidan por tarifa fija de procedimiento, no como
+     ejecutivas, y tienen su propio bono trimestral en la planilla. Maricela es
+     la única que aparece vendiendo en los meses analizados. */
+  {
+    codigo: 'Dr1970',
+    nombre: 'Cabezas Roman Maricela',
+    tipo: TipoVendedora.VENDEDORA,
+    area: AreaVendedora.RA,
+  },
+];

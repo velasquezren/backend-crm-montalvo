@@ -157,10 +157,32 @@ export class CalculoComisionesService {
       else porVendedora.set(fila.vendedoraId, [fila]);
     }
 
+    /*
+     * Solo liquida quien está en el equipo oficial (`configurada`). Las demás se
+     * dan de alta solas al importar y quedan a la espera de que administración
+     * les asigne tipo y área.
+     *
+     * Es lo que hace la planilla: Gizelle Praciano vendió 16.189,80 en noviembre
+     * y 6.695,84 en diciembre, y no aparece en ninguna hoja de pago. Pagarle
+     * porque su nombre salió en el Excel sería inventar una comisión.
+     *
+     * No es un descarte silencioso — cada una deja su aviso con lo que vendió,
+     * para que se vea y se decida.
+     */
     const resultados = [];
     for (const vendedora of vendedoras) {
       const suyas = porVendedora.get(vendedora.id) ?? [];
       if (suyas.length === 0) continue;
+
+      if (!vendedora.configurada) {
+        const vendido = redondear(suyas.reduce((s, f) => s + f.precio, 0));
+        this.logger.warn(
+          `"${vendedora.nombre}" (${vendedora.codigo}) tiene ${suyas.length} venta(s) por ` +
+            `${vendido} USD y NO se liquida: falta que administración le asigne tipo y área.`,
+        );
+        continue;
+      }
+
       resultados.push(this.liquidarVendedora(vendedora, suyas, config, tipoCambio));
     }
 

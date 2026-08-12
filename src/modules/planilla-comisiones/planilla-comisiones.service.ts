@@ -6,6 +6,7 @@ import { calcularPaginacion, paginar } from '../../common/dto/pagination.dto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { clasificarFila, determinarTipo, FilaExcel, normalizar } from './clasificador';
 import { ConfiguracionComisionesService } from './configuracion-comisiones.service';
+import { EQUIPO_OFICIAL } from './configuracion-por-defecto';
 import { ActualizarVendedoraDto } from './dto/configuracion.dto';
 import { AjustarVentaDto, ImportarExcelDto, QueryPeriodosDto, QueryVentasImportadasDto } from './dto/planilla.dto';
 import { deducirPeriodo, leerExcel } from './excel-parser';
@@ -294,11 +295,40 @@ export class PlanillaComisionesService {
 
     if (detectadas.size === 0) return new Map();
 
+    /*
+     * Quien está en el equipo oficial entra ya con su tipo y su área —Viviana
+     * es JEFA, Maricela coordinadora de RA— y marcada como revisada. El resto
+     * entra con los valores por defecto y `configurada: false`, que es lo que
+     * el cálculo usa para no pagarle sin que administración lo mire.
+     */
+    const oficiales = new Map(EQUIPO_OFICIAL.map(v => [v.codigo, v]));
+
     // createMany + skipDuplicates: alta masiva sin chocar contra el único de `codigo`.
     await this.prisma.vendedoraComision.createMany({
-      data: Array.from(detectadas, ([codigo, nombre]) => ({ codigo, nombre: nombre.slice(0, 200) })),
+      data: Array.from(detectadas, ([codigo, nombre]) => {
+        const oficial = oficiales.get(codigo);
+        return oficial
+          ? {
+              codigo,
+              nombre: oficial.nombre.slice(0, 200),
+              tipo: oficial.tipo,
+              area: oficial.area,
+              configurada: true,
+            }
+          : { codigo, nombre: nombre.slice(0, 200) };
+      }),
       skipDuplicates: true,
     });
+
+    /* `skipDuplicates` no actualiza las que ya existían de importaciones
+       anteriores, cuando aún no había lista oficial: se corrigen aquí. */
+    for (const oficial of EQUIPO_OFICIAL) {
+      if (!detectadas.has(oficial.codigo)) continue;
+      await this.prisma.vendedoraComision.updateMany({
+        where: { codigo: oficial.codigo, configurada: false },
+        data: { tipo: oficial.tipo, area: oficial.area, configurada: true },
+      });
+    }
 
     const vendedoras = await this.prisma.vendedoraComision.findMany({
       where: { codigo: { in: Array.from(detectadas.keys()) } },
