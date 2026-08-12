@@ -266,11 +266,35 @@ export function determinarClasifHeuristica(
     return ClasifComision.LAB;
   }
 
+  /**
+   * Una internación es una CIRUGÍA, no un "otro servicio".
+   *
+   * Verificado contra `CALCULO COMISION DICIEMBRE 2025.xlsx`: la comisión de
+   * Tipo B (cirugías) de cada vendedora coincide **al céntimo** con el neto de
+   * sus filas de INTERNACION — Zuany 4.631,35, Yelca 2.643,86, Claudia 948,40.
+   * Pagaba como OTROSS (Tipo C, 4,5 %) cuando debe pagar por la tabla de
+   * niveles de cirugía, que es otra escala entera.
+   */
   if (modulo === 'INTERNACION') {
-    return ClasifComision.OTROSS;
+    return ClasifComision.CIRUGIA;
   }
 
   if (modulo === 'PLANES') {
+    /**
+     * Un plan que NO es de maternidad tampoco es un plan a efectos de comisión.
+     *
+     * El caso real que lo demuestra: el "Paquete Bariatrica" de Viviana (neto
+     * 2.184,37) sale de sus planes y entra en su cirugía. Por eso la planilla
+     * le cuenta **3 planes y no 4** para el objetivo, y su base de cirugía sube
+     * de 11.548,94 a 13.733,31. Manda la clasificación, no el módulo.
+     */
+    if (unidadNegocio !== UnidadNegocio.MATERNIDAD) {
+      const clasificacion = normalizar(fila.clasificacionPlan);
+      if (clasificacion.includes('BARIATRIC') || clasificacion.includes('CIRUG')) {
+        return ClasifComision.CIRUGIA;
+      }
+    }
+
     return unidadNegocio === UnidadNegocio.MATERNIDAD
       ? ClasifComision.PLANPAQ
       : ClasifComision.PLANNIN;

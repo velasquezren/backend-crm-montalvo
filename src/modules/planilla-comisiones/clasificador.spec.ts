@@ -138,7 +138,11 @@ describe('clasificación por catálogo real', () => {
     ['Laparoscopia + Histeroscopia', 'CONSULTA', ClasifComision.CIRUGIA],
     ['Hemograma Completo', 'LABORATORIO', ClasifComision.LAB],
     ['Toxoplasmosis IgG', 'LABORATORIO', ClasifComision.LAB],
-    ['Internación', 'INTERNACION', ClasifComision.OTROSS],
+    /* Una internación es cirugía, no "otro servicio". Verificado contra
+       CALCULO COMISION DICIEMBRE 2025: el Tipo B de cada vendedora es
+       exactamente el neto de sus INTERNACION (Zuany 4.631,35 · Yelca
+       2.643,86 · Claudia 948,40). */
+    ['Internación', 'INTERNACION', ClasifComision.CIRUGIA],
   ];
 
   it.each(casos)('"%s" [%s] → %s', (detalle, modulo, esperado) => {
@@ -166,9 +170,15 @@ describe('planes (pasos 3, 4 y 6)', () => {
     expect(r.nivel).toBe(NivelPlan.SILVER);
   });
 
-  it('un paquete que no es de maternidad es PLANNIN y no lleva nivel', () => {
+  /**
+   * Caso real de la planilla de diciembre 2025: el "Paquete Bariatrica" de
+   * Viviana (neto 2.184,37) NO cuenta como plan. Sale de su objetivo de planes
+   * —la planilla le cuenta 3 y no 4— y entra en su base de cirugía, que sube de
+   * 11.548,94 a 13.733,31. Manda la clasificación, no el módulo.
+   */
+  it('un paquete bariátrico comisiona como CIRUGIA, no como plan', () => {
     const r = plan('Paquete Bariatrica Premium', 'Paquete Bariatrica');
-    expect(r.clasif).toBe(ClasifComision.PLANNIN);
+    expect(r.clasif).toBe(ClasifComision.CIRUGIA);
     expect(r.nivel).toBeNull();
   });
 
