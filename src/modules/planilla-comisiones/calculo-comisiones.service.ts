@@ -4,6 +4,7 @@ import {
   CanalVenta,
   ClasifComision,
   EstadoPeriodo,
+  TipoVendedora,
   UnidadNegocio,
   VendedoraComision,
 } from '@prisma/client';
@@ -12,6 +13,8 @@ import { AuditService } from '../../common/audit/audit.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { redondear } from './clasificador';
 import {
+  aporteAlPoteJefatura,
+  bonoTrimestralUsd,
   cierraTrimestre,
   elegirTarifaRA,
   PlanCandidato,
@@ -482,27 +485,66 @@ export class CalculoComisionesService {
        * Dividir antes entre el TC hacía el umbral siete veces más exigente: con
        * los meses reales nadie lo alcanzaba nunca y el bono salía siempre en cero.
        */
-      if (registro.montoVendido > Number(objetivo.montoMensualUsd)) {
-        pote += registro.baseCalculo * factorJefatura;
-      }
+      pote += aporteAlPoteJefatura(
+        registro.montoVendido,
+        Number(objetivo.montoMensualUsd),
+        factorJefatura,
+      );
 
       /*
-       * El promedio del trimestre es solo el requisito; lo que se paga es el
-       * 0,5 % del MES que se liquida. En el consolidado de la planilla Viviana
-       * cobró 181,43 = 36.285,54 × 0,005 (su diciembre), no el promedio.
+       * Se paga el 0,5 % del PROMEDIO del trimestre, no del mes que se liquida.
+       *
+       * Verificado contra la planilla de diciembre 2025, hoja "CALCULO BONOS"
+       * filas 71-74, reproducido desde los tres export de FileMaker:
+       *   Viviana  (31.908,22+33.025,19+26.641,39)/3 = 30.524,93 × 0,5% = 152,62 → 1.063,76 Bs
+       *   Claudia  27.610,24 × 0,5% = 138,05 → 962,21 Bs
+       *   Zuany    17.541,34 × 0,5% =  87,71 →  611,34 Bs
+       *   Yelca    16.529,95 × 0,5% =  82,65 →  576,07 Bs
+       * Los cuatro coinciden con la planilla salvo ±0,03 Bs de redondeo.
+       *
+       * Antes se pagaba `montoVendido × 0,5 %` (el mes suelto) leyendo la
+       * planilla de 2024. Con los datos de 2025 eso da 928 Bs a Viviana en vez
+       * de 1.063,76: el promedio no es solo el requisito, es la base.
        */
       const promedio = promedios.get(vendedora.id) ?? 0;
-      if (cierraTrimestre(mes) && promedio > Number(objetivo.montoTrimestralUsd)) {
-        registro.bonoTrimestral = redondear(registro.montoVendido * factorTrimestral);
+      if (cierraTrimestre(mes)) {
+        registro.bonoTrimestral = redondear(
+          bonoTrimestralUsd(promedio, Number(objetivo.montoTrimestralUsd), factorTrimestral),
+        );
       }
     }
 
-    /* El pote completo va a publicidad, en partes iguales. */
-    const publicidad = resultados.filter(r => r.vendedora.area === AreaVendedora.PUBLICIDAD);
-    if (publicidad.length > 0 && pote > 0) {
-      const porPersona = redondear(pote / publicidad.length);
-      for (const { registro } of publicidad) {
-        registro.bonoPublicidad = porPersona;
+    /*
+     * El pote se paga DOS veces: íntegro a la jefatura, y otro tanto igual
+     * repartido entre publicidad.
+     *
+     * Planilla de diciembre 2025, hoja "CALCULO BONOS": el pote que generan las
+     * cuatro vendedoras con su excedente suma 66,69 USD —Viviana 23,28, Yelca
+     * 17,52, Zuany 13,69, Claudia 12,20— y aparece dos veces en el pago:
+     *   fila 23  JEFA Guzman Flores Viviana ......... 66,69 USD = 464,83 Bs
+     *   filas 48-51  EQUIPO DE PUBLICIDAD ........... 33,34 + 33,34 = 66,69
+     * En el resumen final Viviana cobra 464,83 de bono y Cristel y Araceli
+     * 232,41 cada una. Las vendedoras que lo generan cobran CERO: por eso en la
+     * planilla su columna de bonos está vacía.
+     *
+     * Antes el pote iba entero a publicidad y la jefa no cobraba nada, leyendo
+     * la planilla de 2024 donde las dos jefas figuraban en cero.
+     */
+    if (pote > 0) {
+      const jefas = resultados.filter(r => r.vendedora.tipo === TipoVendedora.JEFA);
+      if (jefas.length > 0) {
+        const porJefa = redondear(pote / jefas.length);
+        for (const { registro } of jefas) {
+          registro.bonoJefatura = porJefa;
+        }
+      }
+
+      const publicidad = resultados.filter(r => r.vendedora.area === AreaVendedora.PUBLICIDAD);
+      if (publicidad.length > 0) {
+        const porPersona = redondear(pote / publicidad.length);
+        for (const { registro } of publicidad) {
+          registro.bonoPublicidad = porPersona;
+        }
       }
     }
 

@@ -210,3 +210,40 @@ export function seleccionarPlanesComisionables(
 
   return { elegidos, cupo, descartadosPorCupo };
 }
+
+/**
+ * Bono trimestral: 0,5 % del PROMEDIO de facturación del trimestre.
+ *
+ * El promedio no es solo el requisito para cobrarlo — es la base sobre la que
+ * se paga. Se compara en bruto (antes de impuestos) y en dólares, y el umbral
+ * es el mismo para todas: 15.000, incluso para quien tiene objetivo mensual de
+ * 12.000.
+ *
+ * Verificado contra `CALCULO COMISION DICIEMBRE 2025.xlsx` (hoja CALCULO BONOS,
+ * filas 71-74) reproduciendo los tres meses desde los export de FileMaker.
+ */
+export function bonoTrimestralUsd(
+  promedioTrimestreUsd: number,
+  objetivoTrimestralUsd: number,
+  factor: number,
+): number {
+  if (promedioTrimestreUsd <= objetivoTrimestralUsd) return 0;
+  return promedioTrimestreUsd * factor;
+}
+
+/**
+ * Lo que cada vendedora aporta al pote de jefatura: 0,2 % de su EXCEDENTE
+ * sobre el objetivo mensual, no de su facturación entera.
+ *
+ * Quien no llega al objetivo no aporta nada. El pote resultante se paga dos
+ * veces —íntegro a la jefatura y otro tanto repartido entre publicidad—, y
+ * quien lo genera no cobra nada de él.
+ */
+export function aporteAlPoteJefatura(
+  montoVendidoUsd: number,
+  objetivoMensualUsd: number,
+  factor: number,
+): number {
+  if (montoVendidoUsd <= objetivoMensualUsd) return 0;
+  return (montoVendidoUsd - objetivoMensualUsd) * factor;
+}

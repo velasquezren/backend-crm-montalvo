@@ -1,11 +1,13 @@
 import {
-  cierraTrimestre,
   PlanCandidato,
-  seleccionarPlanesComisionables,
+  aporteAlPoteJefatura,
+  bonoTrimestralUsd,
+  cierraTrimestre,
   elegirTarifaRA,
   mesesAnteriores,
   planesComisionables,
   resolverNivelCirugia,
+  seleccionarPlanesComisionables,
 } from './reglas-calculo';
 import { NIVELES_CIRUGIA_POR_DEFECTO, TARIFAS_RA_POR_DEFECTO } from './configuracion-por-defecto';
 
@@ -273,5 +275,74 @@ describe('moneda: el cálculo va en dólares y el TC se aplica al final', () => 
   it('el aporte al pote de jefatura es el neto × factor, sin convertir', () => {
     // Hoja `CALCULO BONOS`, fila 15: Viviana 31.568,42 × 0,2 % = 63,14.
     expect(redondear2(31568.4198 * 0.002)).toBe(63.14);
+  });
+});
+
+/**
+ * Cifras reales de la planilla de administración de diciembre 2025, cruzadas
+ * con los tres export de FileMaker (octubre, noviembre y diciembre). Los doce
+ * montos vendidos se reprodujeron exactos desde el export antes de escribir
+ * esto, así que si alguna de estas pruebas cae, el que cambió fue el cálculo.
+ */
+describe('bonos, contra la planilla de diciembre 2025', () => {
+  const FACTOR_TRIMESTRAL = 0.005;
+  const FACTOR_JEFATURA = 0.002;
+  const TC = 6.97;
+
+  describe('bono trimestral — 0,5 % del promedio del trimestre', () => {
+    const casos: Array<[string, number, number, number]> = [
+      // nombre, promedio oct-nov-dic, objetivo, bono esperado en Bs
+      ['Viviana (jefa)', 30524.93, 15000, 1063.76],
+      ['Claudia', 27610.24, 15000, 962.21],
+      ['Zuany', 17541.34, 15000, 611.34],
+      ['Yelca', 16529.95, 15000, 576.07],
+    ];
+
+    it.each(casos)('%s: promedio %d → %d Bs', (_n, promedio, objetivo, esperadoBob) => {
+      const bob = bonoTrimestralUsd(promedio, objetivo, FACTOR_TRIMESTRAL) * TC;
+      /* ±0,05 Bs: la planilla redondea en un paso distinto. */
+      expect(bob).toBeCloseTo(esperadoBob, 1);
+    });
+
+    it('quien no supera el promedio de 15.000 no cobra', () => {
+      /* Gizelle: 0 + 16.189,80 + 6.695,84 → promedio 7.628,54. No aparece en
+         la planilla de pago, y así es como se explica. */
+      expect(bonoTrimestralUsd(7628.54, 15000, FACTOR_TRIMESTRAL)).toBe(0);
+    });
+
+    it('el umbral es 15.000 también para quien tiene objetivo mensual de 12.000', () => {
+      expect(bonoTrimestralUsd(14999, 15000, FACTOR_TRIMESTRAL)).toBe(0);
+    });
+  });
+
+  describe('pote de jefatura — 0,2 % del EXCEDENTE, no de la venta entera', () => {
+    const casos: Array<[string, number, number, number]> = [
+      // nombre, monto vendido en diciembre, objetivo mensual, aporte USD
+      ['Viviana', 26641.39, 15000, 23.28],
+      ['Yelca', 20759.43, 12000, 17.52],
+      ['Zuany', 18843.4, 12000, 13.69],
+      ['Claudia', 18098.82, 12000, 12.2],
+    ];
+
+    it.each(casos)('%s aporta %d USD', (_n, vendido, objetivo, esperado) => {
+      expect(aporteAlPoteJefatura(vendido, objetivo, FACTOR_JEFATURA)).toBeCloseTo(esperado, 2);
+    });
+
+    it('el pote suma 66,69 USD y es lo que cobra la jefatura', () => {
+      const pote =
+        aporteAlPoteJefatura(26641.39, 15000, FACTOR_JEFATURA) +
+        aporteAlPoteJefatura(20759.43, 12000, FACTOR_JEFATURA) +
+        aporteAlPoteJefatura(18843.4, 12000, FACTOR_JEFATURA) +
+        aporteAlPoteJefatura(18098.82, 12000, FACTOR_JEFATURA);
+
+      expect(pote).toBeCloseTo(66.69, 2);
+      expect(pote * TC).toBeCloseTo(464.83, 1);
+      /* Y otro tanto igual se reparte entre las dos de publicidad. */
+      expect((pote / 2) * TC).toBeCloseTo(232.41, 1);
+    });
+
+    it('quien no llega a su objetivo no aporta', () => {
+      expect(aporteAlPoteJefatura(11999, 12000, FACTOR_JEFATURA)).toBe(0);
+    });
   });
 });
