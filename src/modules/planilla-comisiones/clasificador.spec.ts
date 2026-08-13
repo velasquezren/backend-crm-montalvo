@@ -1,5 +1,5 @@
 import { CAPTACION_POR_DEFECTO } from './configuracion-por-defecto';
-import { ClasifComision, NivelPlan } from '@prisma/client';
+import { ClasifComision, NivelPlan, UnidadNegocio } from '@prisma/client';
 
 import {
   calcularIngresoNeto,
@@ -33,6 +33,7 @@ function fila(campos: Partial<FilaExcel> = {}): FilaExcel {
     paciente: 'Paciente',
     medicoPk: null,
     medico: null,
+    area: null,
     vendedoraPk: 'Pe2455',
     vendedoraNombre: 'Canedo Villamor Claudia Marcela',
     captacion: null,
@@ -308,5 +309,45 @@ describe('servicios desconocidos', () => {
     expect(
       clasificarFila(fila({ detalle: 'Consulta (Externa)', modulo: 'CONSULTA' }), []).requiereRevision,
     ).toBe(false);
+  });
+});
+
+/**
+ * El área clínica es lo ÚNICO que distingue una venta de Reproducción Asistida.
+ *
+ * Comprobado sobre la planilla real de diciembre 2025: las 159 filas con
+ * `AREA = RA` son exactamente las 159 con `UNIDAD DE NEGOCIO = RA`. Y no se
+ * puede deducir de nada más — el mismo servicio, del mismo médico y de la misma
+ * paciente, aparece unas veces como RA y otras como Ginecología.
+ */
+describe('área clínica → unidad de negocio', () => {
+  it('AREA = RA manda, aunque el servicio parezca una consulta cualquiera', () => {
+    const r = clasificarFila(
+      fila({ detalle: 'Consulta medica Dr. Montalvo', modulo: 'CONSULTA', area: 'RA' }),
+      [],
+    );
+    expect(r.unidadNegocio).toBe(UnidadNegocio.RA);
+  });
+
+  it('el mismo servicio SIN área es VARIOS', () => {
+    const r = clasificarFila(
+      fila({ detalle: 'Consulta medica Dr. Montalvo', modulo: 'CONSULTA', area: null }),
+      [],
+    );
+    expect(r.unidadNegocio).toBe(UnidadNegocio.VARIOS);
+  });
+
+  it('tolera minúsculas y espacios, que es como llega de FileMaker', () => {
+    expect(clasificarFila(fila({ detalle: 'Creatinina', modulo: 'LABORATORIO', area: ' ra ' }), []).unidadNegocio).toBe(
+      UnidadNegocio.RA,
+    );
+  });
+
+  it('otras áreas no se confunden con RA', () => {
+    for (const area of ['Ginecologia', 'Maternidad', 'Cardiologia', 'Bariatrica']) {
+      expect(clasificarFila(fila({ detalle: 'Creatinina', modulo: 'LABORATORIO', area }), []).unidadNegocio).not.toBe(
+        UnidadNegocio.RA,
+      );
+    }
   });
 });

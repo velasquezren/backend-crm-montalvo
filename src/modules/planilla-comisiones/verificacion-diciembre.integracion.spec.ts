@@ -22,9 +22,9 @@ import { PlanillaComisionesService } from './planilla-comisiones.service';
 const CARPETA = '/Users/macmini2024/Documents/CARPETA RENE/Excels';
 
 const MESES = [
-  { archivo: 'octubre-filemaker.xlsx', anio: 2025, mes: 10 },
-  { archivo: 'noviembre-filemaker.xlsx', anio: 2025, mes: 11 },
-  { archivo: 'Diciembre 2025 filemaker.xlsx', anio: 2025, mes: 12 },
+  { archivo: 'octubre.xlsx', anio: 2025, mes: 10 },
+  { archivo: 'noviembre.xlsx', anio: 2025, mes: 11 },
+  { archivo: 'diciembre.xlsx', anio: 2025, mes: 12 },
 ];
 
 /** Lo que administración pagó en diciembre 2025 (hoja "GRAL COM", filas 7-13). */
@@ -56,9 +56,12 @@ beforeAll(async () => {
   calculo = new CalculoComisionesService(prisma, config, audit);
   planilla = new PlanillaComisionesService(prisma, config, audit);
 
-  for (const s of [planilla, calculo]) {
-    jest.spyOn(s['logger'], 'log').mockImplementation(() => undefined);
-    jest.spyOn(s['logger'], 'warn').mockImplementation(() => undefined);
+  /* Silencia los avisos del importador y del cálculo: esta prueba mueve 1.600
+     filas reales y el log tapaba el resultado. */
+  for (const servicio of [planilla, calculo]) {
+    const conLogger = servicio as unknown as { logger: { log: () => void; warn: () => void } };
+    jest.spyOn(conLogger.logger, 'log').mockImplementation(() => undefined);
+    jest.spyOn(conLogger.logger, 'warn').mockImplementation(() => undefined);
   }
 }, 60000);
 

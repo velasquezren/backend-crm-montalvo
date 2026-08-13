@@ -28,6 +28,19 @@ export interface FilaExcel {
   paciente: string | null;
   medicoPk: string | null;
   medico: string | null;
+  /**
+   * Área clínica de la venta (RA, Maternidad, Ginecologia…).
+   *
+   * **Es lo único que distingue una venta de Reproducción Asistida**, y no se
+   * puede deducir de nada más: en la planilla real el mismo servicio, del mismo
+   * médico y hasta de la misma paciente aparece unas veces como RA y otras como
+   * Ginecología. Lo decide el tratamiento en el que está la paciente.
+   *
+   * Hoy el export de FileMaker NO trae esta columna —administración la añade a
+   * mano en su hoja `BDEjecutivas`—, así que llega null y las ventas de RA se
+   * liquidan como Tipo C. Si algún día el export la incluye, esto funciona solo.
+   */
+  area: string | null;
   vendedoraPk: string | null;
   vendedoraNombre: string | null;
   captacion: string | null;
@@ -231,6 +244,25 @@ export function determinarUnidadNegocio(
 ): UnidadNegocio {
   if (regla?.unidadNegocio) {
     return regla.unidadNegocio;
+  }
+
+  /**
+   * El área clínica manda sobre todo lo demás cuando viene informada.
+   *
+   * Es la única forma de saber que una venta es de Reproducción Asistida, y en
+   * la planilla de administración la correspondencia es perfecta: las 159 filas
+   * con `AREA = RA` son exactamente las 159 con `UNIDAD DE NEGOCIO = RA`.
+   *
+   * Se comprobó que NO se puede deducir de nada más. El mismo servicio
+   * ("Creatinina", "Cultivo Vaginal", "Internación"), del mismo médico
+   * (Dr. Montalvo) y hasta de la misma paciente aparece unas veces como RA y
+   * otras como Ginecología: 11 de 23 médicos y 18 de 114 pacientes tienen más
+   * de un área. Lo decide el tratamiento en el que está la paciente, y eso solo
+   * lo sabe FileMaker.
+   */
+  const area = normalizar(fila.area);
+  if (area === 'RA') {
+    return UnidadNegocio.RA;
   }
 
   if (normalizar(fila.modulo) === 'PLANES') {
