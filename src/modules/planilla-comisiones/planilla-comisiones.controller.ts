@@ -23,6 +23,7 @@ import { Roles } from '../../common/decorators/roles.decorator';
 import { AnaliticaComisionesService } from './analitica-comisiones.service';
 import { CalculoComisionesService } from './calculo-comisiones.service';
 import { ConfiguracionComisionesService } from './configuracion-comisiones.service';
+import { ResumenAnualService } from './resumen-anual.service';
 import { ExportacionComisionesService } from './exportacion-comisiones.service';
 import {
   ActualizarNivelCirugiaDto,
@@ -35,6 +36,7 @@ import {
   ActualizarVendedoraDto,
   CrearReglaDto,
 } from './dto/configuracion.dto';
+import { QueryAnualDto } from './dto/query-anual.dto';
 import {
   AjustarVentaDto,
   ImportarExcelDto,
@@ -80,6 +82,7 @@ export class PlanillaComisionesController {
     private readonly configuracion: ConfiguracionComisionesService,
     private readonly analitica: AnaliticaComisionesService,
     private readonly exportacion: ExportacionComisionesService,
+    private readonly resumenAnual: ResumenAnualService,
   ) {}
 
   /* ── Importación y periodos ─────────────────────────────────────────── */
@@ -159,6 +162,18 @@ export class PlanillaComisionesController {
   @Post('periodos/:id/calcular')
   calcular(@Param('id') id: string, @CurrentUser() usuario: UsuarioJwt) {
     return this.calculo.calcular(id, usuario.sub);
+  }
+
+  /**
+   * Vista de un año entero: cada vendedora con sus doce meses y sus cuatro
+   * trimestres. Es lo único del módulo que cruza periodos.
+   *
+   * Va antes de las rutas `periodos/:id` a propósito: `anual` no es un id.
+   */
+  @Get('anual')
+  @Roles('ADMIN')
+  verResumenAnual(@Query() query: QueryAnualDto) {
+    return this.resumenAnual.porAnio(query.anio ?? new Date().getFullYear());
   }
 
   /** Informe completo del mes: categorías, canales, servicios y evolución diaria. */
