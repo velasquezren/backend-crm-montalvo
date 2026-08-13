@@ -714,6 +714,7 @@ export class ConversacionesService {
    * a los adjuntos.
    */
   async puedeDescargarMedia(mediaKey: string, soloAgenteId?: string): Promise<boolean> {
+    // 1. Mensaje de WhatsApp
     const visibilidad = whereVisibilidad(soloAgenteId);
     const mensaje = await this.prisma.mensaje.findFirst({
       where: {
@@ -722,7 +723,19 @@ export class ConversacionesService {
       },
       select: { id: true },
     });
-    return mensaje !== null;
+    if (mensaje !== null) return true;
+
+    // 2. Recurso de Memoria del Agente
+    const recurso = await this.prisma.recursoMemoriaAgente.findFirst({
+      where: {
+        mediaKey,
+        ...(soloAgenteId ? { usuarioId: soloAgenteId } : {}),
+      },
+      select: { id: true },
+    });
+    if (recurso !== null) return true;
+
+    return false;
   }
 
   /** Lista de agentes activos — para el dropdown de asignación del admin (cacheada 30s). */
