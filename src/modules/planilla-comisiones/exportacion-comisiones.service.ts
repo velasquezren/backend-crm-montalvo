@@ -117,7 +117,7 @@ export class ExportacionComisionesService {
     this.seccion(hoja, 'Facturación', 3);
     this.dato(hoja, 'Ventas comisionables', resumen.filasComisionables, FORMATO.entero);
     this.dato(hoja, 'Ventas excluidas del cálculo', resumen.filasExcluidas, FORMATO.entero);
-    this.dato(hoja, 'Monto facturado', resumen.montoVendido, FORMATO.bob);
+    this.dato(hoja, 'Monto facturado', resumen.montoVendido, FORMATO.usd);
     this.dato(hoja, 'Impuestos descontados', resumen.impuestosDescontados, FORMATO.bob);
     this.dato(hoja, 'Base de cálculo', resumen.baseCalculo, FORMATO.bob);
     this.dato(hoja, 'Ticket promedio', resumen.ticketPromedio, FORMATO.bob);
@@ -156,11 +156,11 @@ export class ExportacionComisionesService {
       { titulo: 'Código', clave: 'codigo', ancho: 10 },
       { titulo: 'Tipo', clave: 'tipo', ancho: 12 },
       { titulo: 'Área', clave: 'area', ancho: 14 },
-      { titulo: 'Facturado (Bs)', clave: 'montoVendido', ancho: 16, formato: FORMATO.bob },
+      { titulo: 'Facturado (USD)', clave: 'montoVendido', ancho: 16, formato: FORMATO.usd },
       { titulo: 'Base de cálculo (Bs)', clave: 'baseCalculo', ancho: 18, formato: FORMATO.bob },
       { titulo: 'Planes', clave: 'planesVendidos', ancho: 9, formato: FORMATO.entero },
       { titulo: 'Cumple objetivo', clave: 'cumpleObjetivo', ancho: 15 },
-      { titulo: 'Cirugías acum. (Bs)', clave: 'acumuladoCirugias', ancho: 18, formato: FORMATO.bob },
+      { titulo: 'Cirugías acum. (USD)', clave: 'acumuladoCirugias', ancho: 18, formato: FORMATO.usd },
       { titulo: 'Nivel', clave: 'nivelCirugia', ancho: 8 },
       { titulo: 'Tipo A ($)', clave: 'comisionA', ancho: 12, formato: FORMATO.usd },
       { titulo: 'Tipo B ($)', clave: 'comisionB', ancho: 12, formato: FORMATO.usd },
@@ -206,7 +206,7 @@ export class ExportacionComisionesService {
       { titulo: 'Agrupación', clave: 'grupo', ancho: 22 },
       { titulo: 'Concepto', clave: 'etiqueta', ancho: 36 },
       { titulo: 'Ventas', clave: 'cantidad', ancho: 10, formato: FORMATO.entero },
-      { titulo: 'Facturado (Bs)', clave: 'montoVendido', ancho: 17, formato: FORMATO.bob },
+      { titulo: 'Facturado (USD)', clave: 'montoVendido', ancho: 17, formato: FORMATO.usd },
       { titulo: 'Base de cálculo (Bs)', clave: 'baseCalculo', ancho: 19, formato: FORMATO.bob },
       { titulo: '% del mes', clave: 'pctMonto', ancho: 11, formato: FORMATO.pct },
     ];
@@ -235,7 +235,7 @@ export class ExportacionComisionesService {
       { titulo: 'Ranking', clave: 'grupo', ancho: 22 },
       { titulo: 'Concepto', clave: 'etiqueta', ancho: 48 },
       { titulo: 'Cantidad', clave: 'cantidad', ancho: 11, formato: FORMATO.entero },
-      { titulo: 'Facturado (Bs)', clave: 'montoVendido', ancho: 17, formato: FORMATO.bob },
+      { titulo: 'Facturado (USD)', clave: 'montoVendido', ancho: 17, formato: FORMATO.usd },
       { titulo: '% del mes', clave: 'pctMonto', ancho: 11, formato: FORMATO.pct },
     ];
 
