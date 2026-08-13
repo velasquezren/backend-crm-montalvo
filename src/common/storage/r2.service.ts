@@ -87,4 +87,28 @@ export class R2Service {
     if (!this.client) return;
     await this.client.fetch(`${this.baseUrl}/${key}`, { method: 'DELETE' });
   }
+
+  /**
+   * Descarga los bytes del archivo directamente desde R2 (servidor a servidor).
+   *
+   * Lo usa el endpoint proxy de descarga: el navegador no puede hacer `fetch`
+   * a las URLs firmadas de R2 por CORS, así que el backend baja los bytes con
+   * sus credenciales y los reenvía con `Content-Disposition: attachment`.
+   */
+  async descargar(key: string): Promise<{ buffer: ArrayBuffer; contentType: string } | null> {
+    if (!this.client) return null;
+    try {
+      const resp = await this.client.fetch(`${this.baseUrl}/${key}`, { method: 'GET' });
+      if (!resp.ok) {
+        this.logger.error(`R2 GET ${resp.status} para key=${key}`);
+        return null;
+      }
+      const buffer = await resp.arrayBuffer();
+      const contentType = resp.headers.get('content-type') ?? 'application/octet-stream';
+      return { buffer, contentType };
+    } catch (error) {
+      this.logger.error(`No se pudo descargar ${key} de R2`, error);
+      return null;
+    }
+  }
 }
