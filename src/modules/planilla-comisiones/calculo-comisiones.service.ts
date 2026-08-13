@@ -678,6 +678,10 @@ export class CalculoComisionesService {
         comisionB: acc.comisionB + Number(r.comisionB),
         comisionC: acc.comisionC + Number(r.comisionC),
         bonos: acc.bonos + sumaBonos(r),
+        /* Aparte del total de bonos: es el que administración cuadra contra su
+           tabla de promedios trimestrales, y sumado a los otros dos no se puede
+           cotejar. */
+        bonoTrimestral: acc.bonoTrimestral + Number(r.bonoTrimestral),
         totalUsd: acc.totalUsd + Number(r.totalUsd),
         totalBob: acc.totalBob + Number(r.totalBob),
         totalGanado: acc.totalGanado + Number(r.totalGanado),
@@ -689,6 +693,7 @@ export class CalculoComisionesService {
         comisionB: 0,
         comisionC: 0,
         bonos: 0,
+        bonoTrimestral: 0,
         totalUsd: 0,
         totalBob: 0,
         totalGanado: 0,
