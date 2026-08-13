@@ -734,4 +734,53 @@ describe('Acuse automático fuera de horario', () => {
   });
 });
 
+  /**
+   * El endpoint de descarga recibe una clave de R2 suelta. Lo que autoriza no es
+   * la clave —cualquiera puede escribir uno— sino que pertenezca a una
+   * conversación que ese usuario pueda ver.
+   */
+  describe('descarga de media: la clave no autoriza, la conversación sí', () => {
+    async function chatConAdjunto(telefono: string, agenteConv: string | null, mediaKey: string) {
+      const chat = await crearChat({ telefono, agenteConversacion: agenteConv, agenteCliente: agenteConv });
+      await prisma.mensaje.create({
+        data: {
+          conversacionId: chat.conversacion.id,
+          direccion: 'ENTRANTE',
+          contenido: '',
+          tipo: 'IMAGEN',
+          mediaKey,
+        },
+      });
+      return chat;
+    }
+
+    it('el agente puede bajar la media de su propio chat', async () => {
+      const a = await crearAgente('agente-a');
+      await chatConAdjunto('+59173000001', a.id, 'wa/propia/foto');
+
+      expect(await service.puedeDescargarMedia('wa/propia/foto', a.id)).toBe(true);
+    });
+
+    it('NO puede bajar la media del chat de otra agente', async () => {
+      const a = await crearAgente('agente-a');
+      const b = await crearAgente('agente-b');
+      await chatConAdjunto('+59173000002', b.id, 'wa/ajena/foto');
+
+      expect(await service.puedeDescargarMedia('wa/ajena/foto', a.id)).toBe(false);
+    });
+
+    it('el admin puede bajar cualquiera', async () => {
+      const b = await crearAgente('agente-b');
+      await chatConAdjunto('+59173000003', b.id, 'wa/ajena/foto2');
+
+      /* Sin `soloAgenteId` = alcance global. */
+      expect(await service.puedeDescargarMedia('wa/ajena/foto2', undefined)).toBe(true);
+    });
+
+    it('una clave que no está en ningún mensaje no se descarga', async () => {
+      const a = await crearAgente('agente-a');
+      expect(await service.puedeDescargarMedia('memoria/inventada/xyz', a.id)).toBe(false);
+      expect(await service.puedeDescargarMedia('memoria/inventada/xyz', undefined)).toBe(false);
+    });
+  });
 });

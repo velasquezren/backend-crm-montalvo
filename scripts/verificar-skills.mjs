@@ -198,7 +198,15 @@ function verificarDtos() {
       const propiedades = [...cuerpo.matchAll(/^\s{2}(\w+)[!?]?:\s/gm)].map(m => m[1]);
       if (propiedades.length === 0) continue;
 
-      if (!/@Is[A-Z]\w*\(|@ValidateNested\(|@Allow\(/.test(cuerpo)) {
+      /* La familia entera de class-validator, no solo `@IsAlgo`: `@Matches`,
+         `@MaxLength`, `@Min`… también registran metadatos y por tanto también
+         salvan a la propiedad del `whitelist`. Con el patrón anterior un DTO
+         validado solo con `@Matches` se marcaba como sin validar — pasó con
+         `DescargarMediaDto`. */
+      const DECORADORES_VALIDOS =
+        /@(Is[A-Z]\w*|Matches|Length|MaxLength|MinLength|Min|Max|Contains|NotContains|Equals|NotEquals|ArrayNotEmpty|ArrayMinSize|ArrayMaxSize|ValidateNested|ValidateIf|Allow)\s*\(/;
+
+      if (!DECORADORES_VALIDOS.test(cuerpo)) {
         señala(
           'crm-backend-module',
           `${rel}: la clase ${nombre} no tiene ni un decorador de class-validator. ` +

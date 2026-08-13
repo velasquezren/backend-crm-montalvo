@@ -8,6 +8,7 @@ import { ConversacionesService } from './conversaciones.service';
 import { AsignarAgenteDto } from './dto/asignar-agente.dto';
 import { EnviarMensajeDto } from './dto/enviar-mensaje.dto';
 import { EnviarPlantillaDto } from './dto/enviar-plantilla.dto';
+import { DescargarMediaDto } from './dto/descargar-media.dto';
 import { MarcarLeidoDto } from './dto/marcar-leido.dto';
 import { QueryConversacionesDto } from './dto/query-conversaciones.dto';
 import { QueryMensajesAnterioresDto } from './dto/query-mensajes-anteriores.dto';
@@ -49,10 +50,18 @@ export class ConversacionesController {
    */
   @Get('media/descargar')
   async descargarMedia(
-    @Query('key') key: string,
+    @Query() query: DescargarMediaDto,
+    @CurrentUser() usuario: UsuarioJwt,
     @Res() res: Response,
   ): Promise<void> {
-    if (!key) throw new NotFoundException('Falta el parámetro key');
+    const { key } = query;
+
+    /* La clave sola no autoriza nada: tiene que pertenecer a un mensaje de una
+       conversación que este usuario pueda ver. 404 y no 403, igual que en
+       `findOne`, para no confirmar que el archivo existe. */
+    if (!(await this.conversacionesService.puedeDescargarMedia(key, alcanceAgente(usuario)))) {
+      throw new NotFoundException('Archivo no encontrado');
+    }
 
     const archivo = await this.r2.descargar(key);
     if (!archivo) throw new NotFoundException('Archivo no encontrado en R2');
