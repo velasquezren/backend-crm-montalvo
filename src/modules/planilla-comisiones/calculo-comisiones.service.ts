@@ -630,20 +630,47 @@ export class CalculoComisionesService {
       });
 
       if (periodos.length > 0) {
-        const previos = await this.prisma.resultadoComision.findMany({
+        /*
+         * Se suma lo IMPORTADO, no lo liquidado.
+         *
+         * Antes se leía `ResultadoComision`, que solo existe si ese mes se
+         * calculó además de importarse. Quien subía los tres meses y procesaba
+         * solo el último obtenía un "promedio" de un mes: a Viviana le salían
+         * 133,21 (su diciembre × 0,5 %) en vez de 152,62 (el promedio de
+         * octubre, noviembre y diciembre). Y en silencio.
+         *
+         * El monto vendido está en las ventas desde que se importan, con el
+         * mismo filtro que usa la liquidación, así que el promedio sale igual
+         * se haya calculado el mes o no.
+         */
+        const previos = await this.prisma.ventaImportada.groupBy({
+          by: ['periodoId', 'vendedoraId'],
           where: {
             periodoId: { in: periodos.map(p => p.id) },
+            comisionable: true,
             vendedoraId: { in: [...acumulado.keys()] },
           },
-          select: { vendedoraId: true, montoVendido: true },
+          _sum: { precio: true },
         });
 
         for (const fila of previos) {
-          const actual = acumulado.get(fila.vendedoraId);
+          const actual = fila.vendedoraId ? acumulado.get(fila.vendedoraId) : undefined;
           if (!actual) continue;
-          actual.total += Number(fila.montoVendido);
+          actual.total += Number(fila._sum.precio ?? 0);
           actual.meses += 1;
         }
+      }
+    }
+
+    /* Un trimestre incompleto no es un error —puede ser una vendedora nueva—,
+       pero sí algo que conviene ver: el bono sale más bajo de lo esperado. */
+    for (const [id, { meses: n }] of acumulado) {
+      if (n < meses) {
+        const quien = resultados.find(r => r.vendedora.id === id)?.vendedora.nombre ?? id;
+        this.logger.warn(
+          `Bono trimestral de "${quien}": solo hay ${n} de ${meses} meses importados en la ventana. ` +
+            'El promedio —y por tanto el bono— sale sobre lo que haya.',
+        );
       }
     }
 

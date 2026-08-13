@@ -189,7 +189,7 @@ export const REGLAS_POR_DEFECTO: ReadonlyArray<{
   { patron: 'Papanicolau', exacto: false, modulo: null, clasif: ClasifComision.OTROSS, nivel: null, unidadNegocio: null, prioridad: 100, notas: 'Variante sin la o' },
   { patron: 'RX Histerosalpingografia', exacto: false, modulo: null, clasif: ClasifComision.OTROSS, nivel: null, unidadNegocio: null, prioridad: 100, notas: null },
   { patron: 'Electrocardiograma', exacto: false, modulo: null, clasif: ClasifComision.OTROSS, nivel: null, unidadNegocio: null, prioridad: 100, notas: null },
-  { patron: 'Internación', exacto: false, modulo: null, clasif: ClasifComision.OTROSS, nivel: null, unidadNegocio: null, prioridad: 100, notas: 'Se agrupa con otros servicios' },
+  { patron: 'Internación', exacto: false, modulo: null, clasif: ClasifComision.CIRUGIA, nivel: null, unidadNegocio: null, prioridad: 100, notas: 'Cirugía: verificado contra la planilla de diciembre 2025 — el Tipo B de cada vendedora es exactamente el neto de sus internaciones' },
   { patron: 'Valoración Cardiológica', exacto: false, modulo: null, clasif: ClasifComision.CONSULTA, nivel: null, unidadNegocio: null, prioridad: 100, notas: null },
   /* Los paquetes bariátricos son cirugía y van por Tipo B: en la planilla de
      administración «Manga Gastrica» y «By Pass Gastrico» están clasificados
