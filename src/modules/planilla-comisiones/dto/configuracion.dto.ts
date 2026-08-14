@@ -154,7 +154,25 @@ export class ActualizarVendedoraDto {
   @IsEnum(AreaVendedora)
   area?: AreaVendedora;
 
+  /**
+   * `@Type` no es opcional aquí, y costó caro descubrirlo.
+   *
+   * `sueldoBase` es un `Decimal` en Prisma, y un Decimal se serializa a JSON
+   * como TEXTO: el mismo objeto que el frontend recibe (`"2750"`) es el que
+   * devuelve al guardar. El `ValidationPipe` global corre con
+   * `enableImplicitConversion: false`, así que ese texto no se convierte solo,
+   * `@IsNumber()` lo rechaza y el PATCH responde 400.
+   *
+   * El fallo era invisible desde la interfaz: el input conserva lo tecleado
+   * porque Angular solo reescribe el DOM cuando la expresión enlazada cambia
+   * —y seguía valiendo 0—, así que la pantalla mostraba el sueldo y la base
+   * tenía cero. Se descubrió porque toda la columna "Sueldo" de la planilla
+   * salía en Bs 0,00 con las liquidaciones ya calculadas.
+   *
+   * Cualquier campo `Decimal` que vuelva por un DTO necesita esta línea.
+   */
   @IsOptional()
+  @Type(() => Number)
   @IsNumber()
   @Min(0)
   sueldoBase?: number;
