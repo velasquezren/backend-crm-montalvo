@@ -350,6 +350,46 @@ export class ConversacionesService {
     );
   }
 
+  /**
+   * Búsqueda histórica de mensajes en el servidor con paginación e insensibilidad a mayúsculas/minúsculas.
+   */
+  async buscarMensajes(
+    id: string,
+    termino: string,
+    limit = 20,
+    skip = 0,
+    soloAgenteId?: string,
+  ) {
+    await this.obtenerConversacionPropia(id, soloAgenteId);
+    const busqueda = (termino || '').trim();
+    if (!busqueda) return { total: 0, items: [] };
+
+    const where = {
+      conversacionId: id,
+      contenido: { contains: busqueda, mode: 'insensitive' as const },
+    };
+
+    const [total, items] = await Promise.all([
+      this.prisma.mensaje.count({ where }),
+      this.prisma.mensaje.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        take: Math.min(Math.max(Number(limit) || 20, 1), 50),
+        skip: Math.max(Number(skip) || 0, 0),
+        select: {
+          id: true,
+          contenido: true,
+          direccion: true,
+          createdAt: true,
+          tipo: true,
+          estadoEnvio: true,
+        },
+      }),
+    ]);
+
+    return { total, items };
+  }
+
   /** Versión liviana del chequeo de propiedad de `findOne`, sin traer mensajes:
    *  la usan `enviarMensaje`/`asignarAgente`, que solo necesitan confirmar
    *  dueño + el teléfono del cliente, no el historial completo del chat. */

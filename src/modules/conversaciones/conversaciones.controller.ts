@@ -10,17 +10,12 @@ import { MarcarLeidoDto } from './dto/marcar-leido.dto';
 import { QueryConversacionesDto } from './dto/query-conversaciones.dto';
 import { QueryMensajesAnterioresDto } from './dto/query-mensajes-anteriores.dto';
 
+import { QueryBuscarMensajesDto } from './dto/query-buscar-mensajes.dto';
+
 @Controller('conversaciones')
 export class ConversacionesController {
   constructor(private readonly conversacionesService: ConversacionesService) {}
 
-  /**
-   * El alcance por rol y el interruptor "solo míos" van por parámetros
-   * distintos a propósito: el primero es permiso y el segundo preferencia de
-   * vista. Pasar el interruptor como si fuera el alcance —que es como estaba—
-   * hace que un cambio de la interfaz redefina quién ve los datos de qué
-   * paciente.
-   */
   @Get()
   findAll(@CurrentUser() usuario: UsuarioJwt, @Query() query: QueryConversacionesDto) {
     return this.conversacionesService.findAll(
@@ -29,17 +24,12 @@ export class ConversacionesController {
     );
   }
 
-
   /** Plantillas aprobadas de la WABA — para el selector al escribir fuera de la ventana de 24h. */
   @Get('meta/plantillas')
   listarPlantillas(@Query('refresh') refresh?: string) {
     return this.conversacionesService.listarPlantillas(refresh === 'true');
   }
 
-  /** Lista de agentes activos — para el dropdown de asignación del admin.
-   *  `@Roles('ADMIN')` porque es lo único que la consume (el frontend solo la
-   *  pide `if (isAdmin())`): sin esto, cualquier AGENTE listaba a toda la
-   *  plantilla activa con su rol. */
   @Get('meta/agentes')
   @Roles('ADMIN')
   findAgentes() {
@@ -63,6 +53,22 @@ export class ConversacionesController {
       id,
       query.antesDe,
       query.limit ?? 50,
+      soloAgenteId,
+    );
+  }
+
+  @Get(':id/buscar-mensajes')
+  buscarMensajes(
+    @Param('id') id: string,
+    @Query() query: QueryBuscarMensajesDto,
+    @CurrentUser() usuario: UsuarioJwt,
+  ) {
+    const soloAgenteId = alcanceAgente(usuario);
+    return this.conversacionesService.buscarMensajes(
+      id,
+      query.query,
+      query.limit ?? 20,
+      query.skip ?? 0,
       soloAgenteId,
     );
   }
