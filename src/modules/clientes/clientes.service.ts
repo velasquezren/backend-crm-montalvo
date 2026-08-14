@@ -1,5 +1,5 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import { CategoriaCliente, Prisma } from '@prisma/client';
+import { CategoriaCliente, EstadoLead, Prisma } from '@prisma/client';
 
 import { AuditService } from '../../common/audit/audit.service';
 import { calcularPaginacion, construirOrden, paginar } from '../../common/dto/pagination.dto';
@@ -19,10 +19,18 @@ import { UpdateClienteDto } from './dto/update-cliente.dto';
 /**
  * Campos que se devuelven de un cliente, en el listado y en la ficha.
  *
- * Se declara una vez y se usa en ambos sitios para que no puedan divergir: la
- * ficha del paciente son columnas propias y viajan siempre, mientras que
- * `datosExtra` (el residuo del volcado de FileMaker) queda deliberadamente
- * fuera — se conserva en la base por trazabilidad, no para transportarlo.
+ * Se declara una vez y se usa en ambos sitios para que no puedan divergir.
+ *
+ * `datosExtra` —el volcado de FileMaker— estuvo fuera a propósito, por no
+ * arrastrar un JSON opaco en cada fila. Ahora entra, y con motivo: los tags e
+ * intereses del paciente viven ahí dentro y el listado los pinta
+ * (`clientes.page.ts`, `listaExtra(...'tags','intereses')`). Sin él, la columna
+ * salía vacía para los 15.302 pacientes que tienen algo escrito.
+ *
+ * Medido antes de dejarlo: 412 bytes de media, 712 el mayor, unos 20 KB extra
+ * por página de 50. Es asumible para lo que muestra, pero es el campo que hay
+ * que mirar primero si el listado se vuelve lento — y la razón por la que no
+ * debe crecer con datos nuevos: lo que haga falta de verdad va a su columna.
  */
 const CAMPOS_CLIENTE = {
   id: true,
@@ -278,6 +286,61 @@ export class ClientesService {
 
     await this.audit.registrar('Cliente', id, 'ACTUALIZADO', usuarioId, { ...dto });
     return actualizado;
+  }
+
+  /**
+   * Reclama al paciente y a sus leads ABIERTOS para un agente, pero **solo si
+   * no tienen dueña**.
+   *
+   * Existe porque contestar un chat del pool y reasignar a mano son dos cosas
+   * distintas y no pueden compartir código:
+   *
+   * - `update({ agenteId })` es una reasignación explícita de un admin y pisa
+   *   lo que haya, que es justo lo que se le pide.
+   * - Esto lo dispara `enviarMensaje` sola, sin que nadie lo decida. Si pisara
+   *   al dueño anterior, que una compañera conteste una vez le quitaría la
+   *   paciente a la suya —y con ella el seguimiento y la comisión—. De ahí que
+   *   cada `where` lleve `agenteId: null`: reparte lo que no es de nadie y no
+   *   toca lo demás.
+   *
+   * Los leads se filtran por estado a propósito. Sin ese filtro, responderle
+   * hoy a una paciente le pondría dueña a un lead que se cerró como PERDIDO
+   * hace ocho meses, reescribiendo el histórico por el que se miden las
+   * agentes.
+   *
+   * Devuelve si cambió algo, para no auditar los envíos que no reclaman nada
+   * —que son casi todos, porque a la segunda respuesta ya tiene dueña—.
+   */
+  async reclamarSiNoTieneDuena(
+    clienteId: string,
+    agenteId: string,
+    usuarioId?: string,
+  ): Promise<boolean> {
+    const [cliente, leads] = await this.prisma.$transaction([
+      this.prisma.cliente.updateMany({
+        where: { id: clienteId, agenteId: null },
+        data: { agenteId },
+      }),
+      this.prisma.lead.updateMany({
+        where: {
+          clienteId,
+          agenteId: null,
+          estado: { in: [EstadoLead.NUEVO, EstadoLead.CONTACTADO] },
+        },
+        data: { agenteId },
+      }),
+    ]);
+
+    if (cliente.count === 0 && leads.count === 0) return false;
+
+    /* Cambia quién cobra la comisión de esta paciente, así que queda constancia
+       igual que en una reasignación hecha a mano. */
+    await this.audit.registrar('Cliente', clienteId, 'AGENTE_RECLAMADO', usuarioId, {
+      agenteId,
+      clienteReclamado: cliente.count > 0,
+      leadsReclamados: leads.count,
+    });
+    return true;
   }
 
   /** RF-23 — registra una consulta que no derivó en venta, sin exponer la tabla a otros módulos. */

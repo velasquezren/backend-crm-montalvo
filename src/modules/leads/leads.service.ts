@@ -7,6 +7,34 @@ import { CreateLeadPresencialDto } from './dto/create-lead-presencial.dto';
 import { QueryLeadDto } from './dto/query-lead.dto';
 import { calcularPaginacion, paginar } from '../../common/dto/pagination.dto';
 
+/** Lo mínimo para resolver el agente que se muestra en una tarjeta de lead. */
+interface LeadConAgente {
+  agente?: { id: string; nombre: string } | null;
+  cliente?: {
+    agente?: { id: string; nombre: string } | null;
+    conversaciones?: Array<{ agente?: { id: string; nombre: string } | null }>;
+  } | null;
+}
+
+/**
+ * Quién sale como responsable de un lead, en tres escalones.
+ *
+ * El lead propio manda; si no tiene, la dueña de la paciente; y si tampoco,
+ * quien lleva su conversación de WhatsApp.
+ *
+ * El tercer escalón faltaba y era el que importaba: `enviarMensaje` reclama la
+ * CONVERSACIÓN para quien contesta, pero durante meses no tocó `Cliente`, así
+ * que la cadena se cortaba en el segundo escalón. En producción eso dejaba 150
+ * leads sin agente visible mientras la agente estaba conversando con la
+ * paciente — el tablero decía "sin asignar" de gente perfectamente atendida.
+ *
+ * Es un respaldo de LECTURA: no escribe. Quién es la dueña de verdad se decide
+ * al contestar (`reclamarSiNoTieneDuena`) o al reasignar a mano.
+ */
+function agenteEfectivo(lead: LeadConAgente) {
+  return lead.agente ?? lead.cliente?.agente ?? lead.cliente?.conversaciones?.[0]?.agente ?? null;
+}
+
 /**
  * Módulo Leads — fuentes de entrada del negocio (Meta + presencial).
  * La entidad Cliente pertenece al módulo clientes: aquí solo se consume
@@ -59,6 +87,12 @@ export class LeadsService {
               telefono: true,
               categoria: true,
               agente: { select: { id: true, nombre: true } },
+              /* Tercer escalón del respaldo — ver `agenteEfectivo`. */
+              conversaciones: {
+                select: { agente: { select: { id: true, nombre: true } } },
+                take: 1,
+                orderBy: { updatedAt: 'desc' },
+              },
             },
           },
           agente: { select: { id: true, nombre: true } },
@@ -69,10 +103,7 @@ export class LeadsService {
       this.prisma.lead.count({ where }),
     ]);
 
-    const datosMapeados = datos.map(lead => ({
-      ...lead,
-      agente: lead.agente ?? lead.cliente?.agente ?? null,
-    }));
+    const datosMapeados = datos.map(lead => ({ ...lead, agente: agenteEfectivo(lead) }));
 
     return paginar(datosMapeados, total, query);
   }
@@ -157,7 +188,7 @@ export class LeadsService {
 
     return {
       ...lead,
-      agente: lead.agente ?? lead.cliente?.agente ?? null,
+      agente: agenteEfectivo(lead),
     };
   }
 
@@ -189,7 +220,7 @@ export class LeadsService {
     if (existente) {
       return {
         ...existente,
-        agente: existente.agente ?? existente.cliente?.agente ?? null,
+        agente: agenteEfectivo(existente),
       };
     }
 
@@ -224,7 +255,7 @@ export class LeadsService {
 
     return {
       ...nuevoLead,
-      agente: nuevoLead.agente ?? nuevoLead.cliente?.agente ?? null,
+      agente: agenteEfectivo(nuevoLead),
     };
   }
 
@@ -253,7 +284,7 @@ export class LeadsService {
 
     return {
       ...lead,
-      agente: lead.agente ?? lead.cliente?.agente ?? null,
+      agente: agenteEfectivo(lead),
     };
   }
 
@@ -299,7 +330,7 @@ export class LeadsService {
 
     return {
       ...lead,
-      agente: lead.agente ?? lead.cliente?.agente ?? null,
+      agente: agenteEfectivo(lead),
     };
   }
 }

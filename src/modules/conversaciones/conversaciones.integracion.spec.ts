@@ -298,6 +298,82 @@ describe('Conversaciones contra Postgres real', () => {
       expect(await prisma.mensaje.count({ where: { conversacionId: conversacion.id } })).toBe(2);
     });
 
+    /* Contestar reparte lo que no es de nadie, y NADA más. Esto decide de quién
+       es la paciente, o sea quién cobra su comisión: si alguna de estas cuatro
+       se pone roja, hay dinero cambiando de manos sin que nadie lo pida. */
+    describe('contestar reclama a la paciente, pero solo si no tiene dueña', () => {
+      it('un chat del pool: la paciente y sus leads abiertos pasan a quien contesta', async () => {
+        const a = await crearAgente('agente-a');
+        const { cliente, conversacion } = await crearChat({ telefono: '+59178000001' });
+        const lead = await prisma.lead.create({
+          data: { clienteId: cliente.id, origen: 'PRESENCIAL', estado: 'NUEVO' },
+        });
+
+        await service.enviarMensaje(conversacion.id, 'le atiendo', a.id, a.id);
+
+        expect((await prisma.cliente.findUniqueOrThrow({ where: { id: cliente.id } })).agenteId).toBe(a.id);
+        expect((await prisma.lead.findUniqueOrThrow({ where: { id: lead.id } })).agenteId).toBe(a.id);
+      });
+
+      it('NO le quita la paciente a quien ya la tenía', async () => {
+        const a = await crearAgente('agente-a');
+        const b = await crearAgente('agente-b');
+        const { cliente, conversacion } = await crearChat({
+          telefono: '+59178000002',
+          agenteCliente: b.id,
+        });
+
+        await service.enviarMensaje(conversacion.id, 'contesto yo', a.id, a.id);
+
+        expect((await prisma.cliente.findUniqueOrThrow({ where: { id: cliente.id } })).agenteId).toBe(b.id);
+      });
+
+      /* Un lead cerrado es histórico: por él se mide a la agente que lo trabajó
+         en su momento, y contestar hoy no puede reescribirlo. */
+      it('no toca los leads ya cerrados (CONVERTIDO / PERDIDO)', async () => {
+        const a = await crearAgente('agente-a');
+        const { cliente, conversacion } = await crearChat({ telefono: '+59178000003' });
+        const perdido = await prisma.lead.create({
+          data: { clienteId: cliente.id, origen: 'PRESENCIAL', estado: 'PERDIDO' },
+        });
+        const convertido = await prisma.lead.create({
+          data: { clienteId: cliente.id, origen: 'PRESENCIAL', estado: 'CONVERTIDO' },
+        });
+
+        await service.enviarMensaje(conversacion.id, 'hola', a.id, a.id);
+
+        expect((await prisma.lead.findUniqueOrThrow({ where: { id: perdido.id } })).agenteId).toBeNull();
+        expect((await prisma.lead.findUniqueOrThrow({ where: { id: convertido.id } })).agenteId).toBeNull();
+      });
+
+      it('queda auditado, porque cambia quién cobra', async () => {
+        const a = await crearAgente('agente-a');
+        const { cliente, conversacion } = await crearChat({ telefono: '+59178000004' });
+
+        await service.enviarMensaje(conversacion.id, 'hola', a.id, a.id);
+
+        expect(
+          await prisma.auditLog.count({
+            where: { entidad: 'Cliente', entidadId: cliente.id, accion: 'AGENTE_RECLAMADO' },
+          }),
+        ).toBe(1);
+      });
+
+      it('contestar por segunda vez no vuelve a auditar', async () => {
+        const a = await crearAgente('agente-a');
+        const { cliente, conversacion } = await crearChat({ telefono: '+59178000005' });
+
+        await service.enviarMensaje(conversacion.id, 'uno', a.id, a.id);
+        await service.enviarMensaje(conversacion.id, 'dos', a.id, a.id);
+
+        expect(
+          await prisma.auditLog.count({
+            where: { entidad: 'Cliente', entidadId: cliente.id, accion: 'AGENTE_RECLAMADO' },
+          }),
+        ).toBe(1);
+      });
+    });
+
     it('el mensaje sube el chat al tope del inbox (updatedAt)', async () => {
       const a = await crearAgente('agente-a');
       const { conversacion } = await crearChat({ telefono: '+59171000008', agenteConversacion: a.id });

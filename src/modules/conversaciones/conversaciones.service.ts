@@ -482,17 +482,9 @@ export class ConversacionesService {
             : {}),
         },
       }),
-      /* Solo reclama el chat si está en el pool — sincroniza cliente y leads abiertos. */
+      /* Solo reclama el chat si está en el pool — ver la nota del método. */
       this.prisma.conversacion.updateMany({
         where: { id: conversacionId, agenteId: null },
-        data: { agenteId },
-      }),
-      this.prisma.cliente.updateMany({
-        where: { id: conversacion.clienteId, agenteId: null },
-        data: { agenteId },
-      }),
-      this.prisma.lead.updateMany({
-        where: { clienteId: conversacion.clienteId, agenteId: null },
         data: { agenteId },
       }),
       this.prisma.conversacion.update({
@@ -500,6 +492,15 @@ export class ConversacionesService {
         data: { updatedAt: new Date() },
       }),
     ]);
+
+    /* La misma reclamación, para la paciente y sus leads abiertos.
+       Va por `clientesService` y no con un `updateMany` aquí porque `Cliente` y
+       `Lead` son de otro dominio: escribirlas desde este módulo deja la regla
+       —qué se reclama, qué se respeta, qué se audita— en dos sitios que se
+       separan al primer cambio. Fuera de la transacción a propósito: que la
+       paciente quede sin dueña no puede tumbar el envío de un mensaje que ya
+       salió hacia Meta. */
+    await this.clientesService.reclamarSiNoTieneDuena(conversacion.clienteId, agenteId, agenteId);
 
     /* Empuja el refresco a los demás clientes conectados (ver ConversacionesGateway). */
     this.gateway.emitirActividad(conversacionId);
