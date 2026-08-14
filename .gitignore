@@ -1,6 +1,18 @@
 node_modules/
 dist/
-.env
+# Cualquier variante, no solo `.env`. En el VPS había cinco copias
+# (.env.bak.20260810…, .env.bak.predespliegue…, .env.bak.acuse…) hechas antes de
+# tocar la configuración: quedaban sin trackear pero SIN ignorar, así que un
+# `git add -A` en el servidor habría subido a GitHub el JWT_SECRET, el
+# META_APP_SECRET, el token de WhatsApp, la VAPID privada y la contraseña de la
+# base. La excepción de abajo mantiene visible la plantilla.
+.env*
+!.env.example
+# Copias del build que se dejan en el VPS antes de desplegar, por si hay que
+# volver atrás. La vuelta atrás de verdad es `git reset --hard <commit>` + build
+# —así se hizo el 14/08—, así que esto es un resto: que no acabe en el repo.
+dist.anterior/
+dist.bak*/
 .pgdata/
 .pgdata.log
 *.log
