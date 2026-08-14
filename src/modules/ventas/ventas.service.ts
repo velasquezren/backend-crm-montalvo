@@ -13,6 +13,38 @@ import { CreateVentaDto } from './dto/create-venta.dto';
 import { QueryVentaDto } from './dto/query-venta.dto';
 import { calcularPaginacion, paginar } from '../../common/dto/pagination.dto';
 
+/** Carpeta de R2 donde vive TODO comprobante, y solo eso. */
+const PREFIJO_COMPROBANTES = 'comprobantes/';
+
+/** Lo que puede ser el respaldo de un pago: una foto del QR o un PDF. */
+const MIME_COMPROBANTE = [
+  'image/jpeg',
+  'image/jpg',
+  'image/png',
+  'image/webp',
+  'image/heic',
+  'application/pdf',
+];
+
+/**
+ * La clave de R2 la manda el navegador, así que es entrada de usuario, no un
+ * dato de confianza aunque venga de nuestro propio endpoint de subida.
+ *
+ * Sin esta comprobación, registrar una venta con
+ * `comprobanteKey: "memoria/<otra-agente>/…"` hacía que el detalle devolviera
+ * una URL firmada de ESE objeto: el bucket entero —fotos de pacientes de otros
+ * chats, recursos de la memoria de otra agente— legible desde un formulario de
+ * ventas. Es el mismo agujero que ya cerramos en el proxy de descarga, entrando
+ * por otra puerta.
+ *
+ * Se exige la carpeta del agente, no solo `comprobantes/`: el endpoint de subida
+ * siempre escribe `comprobantes/<usuarioId>/…`, así que cualquier flujo legítimo
+ * pasa, y una clave ajena no.
+ */
+function esComprobantePropio(clave: string, agenteId: string): boolean {
+  return clave.startsWith(`${PREFIJO_COMPROBANTES}${agenteId}/`);
+}
+
 /**
  * Módulo Ventas — RF-11/RF-12.
  * Una venta GANADA dispara (vía services de otros módulos, nunca su BD):
@@ -35,6 +67,12 @@ export class VentasService {
   async create(dto: CreateVentaDto, agenteId: string) {
     /* valida que el cliente exista (lanza 404 si no) */
     await this.clientesService.findOne(dto.clienteId);
+
+    if (dto.comprobanteKey && !esComprobantePropio(dto.comprobanteKey, agenteId)) {
+      throw new BadRequestException(
+        'El comprobante no corresponde a un archivo subido por esta agente.',
+      );
+    }
 
     const venta = await this.prisma.venta.create({
       data: {
@@ -74,16 +112,40 @@ export class VentasService {
       await this.leadsService.marcarConvertidos(venta.clienteId);
     }
 
-    const comprobanteUrl = venta.comprobanteKey ? await this.r2.urlFirmada(venta.comprobanteKey) : null;
+    const comprobanteUrl = venta.comprobanteKey ? await this.firmarComprobante(venta.comprobanteKey) : null;
     return { ...venta, comprobanteUrl };
+  }
+
+  /**
+   * Firma para leer, pero solo dentro de la carpeta de comprobantes.
+   *
+   * Segunda barrera, por si una clave de otro sitio llegara a estar guardada:
+   * la primera es `esComprobantePropio` al crear. Ninguna fila existente puede
+   * usar este módulo para leer fuera de lo suyo.
+   */
+  private async firmarComprobante(clave: string): Promise<string | null> {
+    if (!clave.startsWith(PREFIJO_COMPROBANTES)) return null;
+    return this.r2.urlFirmada(clave);
   }
 
   async subirComprobante(file: ArchivoSubido, usuarioId: string) {
     if (!this.r2.habilitado) {
       throw new BadRequestException('El almacenamiento de comprobantes no está disponible');
     }
+    /* Sin esto, una petición sin adjunto reventaba con un 500 al leer
+       `file.size` de undefined en vez de decir qué faltaba. */
+    if (!file) {
+      throw new BadRequestException('Se requiere adjuntar el archivo del comprobante');
+    }
     if (file.size > 8 * 1024 * 1024) {
       throw new BadRequestException('El comprobante supera el límite de 8 MB');
+    }
+    /* Un comprobante es una foto del QR o un PDF. Sin lista blanca se podía
+       subir un .html y servirlo firmado desde el dominio de R2. */
+    if (!MIME_COMPROBANTE.includes(file.mimetype.split(';')[0].trim().toLowerCase())) {
+      throw new BadRequestException(
+        `Tipo de archivo no permitido (${file.mimetype}). El comprobante debe ser una imagen o un PDF.`,
+      );
     }
 
     const idTemp = randomUUID();
@@ -134,7 +196,7 @@ export class VentasService {
     const datosConUrl = await Promise.all(
       datos.map(async v => ({
         ...v,
-        comprobanteUrl: v.comprobanteKey ? await this.r2.urlFirmada(v.comprobanteKey) : null,
+        comprobanteUrl: v.comprobanteKey ? await this.firmarComprobante(v.comprobanteKey) : null,
       })),
     );
 
@@ -160,7 +222,7 @@ export class VentasService {
       await this.leadsService.marcarConvertidos(actualizada.clienteId);
     }
 
-    const comprobanteUrl = actualizada.comprobanteKey ? await this.r2.urlFirmada(actualizada.comprobanteKey) : null;
+    const comprobanteUrl = actualizada.comprobanteKey ? await this.firmarComprobante(actualizada.comprobanteKey) : null;
     return { ...actualizada, comprobanteUrl };
   }
 }
