@@ -19,7 +19,27 @@ const MIME_WHITELIST = [
   'image/gif',
   'application/pdf',
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  /* Notas de voz del chat. Este endpoint es también el que sube los adjuntos de
+     Conversaciones, y `MediaRecorder` no entrega el mismo contenedor en todas
+     partes: ogg/opus en Chrome y Firefox, webm/opus donde no hay ogg, y mp4 en
+     Safari —que es el navegador de las agentes con iPhone—. Sin los cuatro, la
+     grabadora sube y el servidor la rechaza. */
+  'audio/ogg',
+  'audio/webm',
+  'audio/mp4',
+  'audio/mpeg',
 ];
+
+/**
+ * `audio/ogg;codecs=opus` y `audio/ogg` son el mismo tipo.
+ *
+ * `MediaRecorder` añade el parámetro del códec al MIME y multer lo repite tal
+ * cual, así que comparar la cadena entera contra la lista blanca deja fuera
+ * toda nota de voz aunque su tipo esté permitido.
+ */
+function tipoBase(mime: string): string {
+  return mime.split(';')[0].trim().toLowerCase();
+}
 
 @Injectable()
 export class MemoriaAgenteService {
@@ -133,8 +153,10 @@ export class MemoriaAgenteService {
       throw new BadRequestException('El archivo excede el tamaño máximo permitido por recurso (5 MB).');
     }
 
-    if (!MIME_WHITELIST.includes(file.mimetype)) {
-      throw new BadRequestException(`Tipo de archivo no permitido (${file.mimetype}). Solo se aceptan imágenes y PDFs.`);
+    if (!MIME_WHITELIST.includes(tipoBase(file.mimetype))) {
+      throw new BadRequestException(
+        `Tipo de archivo no permitido (${file.mimetype}). Se aceptan imágenes, PDF, Word y notas de voz.`,
+      );
     }
 
     /* Validar cuota acumulada del agente antes de guardar */

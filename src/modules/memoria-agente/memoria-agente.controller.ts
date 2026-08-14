@@ -37,8 +37,21 @@ export class MemoriaAgenteController {
     return this.service.create(usuario.sub, dto);
   }
 
+  /**
+   * El límite va aquí, no solo en el service.
+   *
+   * `FileInterceptor` sin `limits` deja que multer lea el archivo COMPLETO en
+   * memoria y solo después el service comprueba `file.size`: para cuando se
+   * rechaza un vídeo de 400 MB, ya está entero en la RAM de un VPS que tiene
+   * 1,7 GB y un núcleo, compartidos con el webhook de WhatsApp. Con `limits`,
+   * multer corta el flujo al pasarse y nunca llega a reservar esa memoria.
+   *
+   * El tope de aquí es deliberadamente mayor que el del service (5 MB): este
+   * corta la sangría, y el service sigue siendo el que define la regla de
+   * negocio y devuelve el mensaje que lee la agente.
+   */
   @Post('upload')
-  @UseInterceptors(FileInterceptor('file'))
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 8 * 1024 * 1024, files: 1 } }))
   subirBinario(
     @Body() dto: CreateRecursoMemoriaDto,
     @UploadedFile() file: ArchivoSubido,
