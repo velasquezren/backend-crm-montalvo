@@ -1,10 +1,22 @@
-import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Query,
+  UploadedFile,
+  UseInterceptors,
+} from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { EstadoVenta } from '@prisma/client';
 import { IsEnum } from 'class-validator';
 
 import { alcanceAgente } from '../../common/auth/roles';
 import { CurrentUser, UsuarioJwt } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { ArchivoSubido } from './archivo-subido';
 import { CreateVentaDto } from './dto/create-venta.dto';
 import { QueryVentaDto } from './dto/query-venta.dto';
 import { VentasService } from './ventas.service';
@@ -21,6 +33,15 @@ export class VentasController {
   @Post()
   create(@Body() dto: CreateVentaDto, @CurrentUser() usuario: UsuarioJwt) {
     return this.ventasService.create(dto, usuario.sub);
+  }
+
+  @Post('comprobante')
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 8 * 1024 * 1024, files: 1 } }))
+  subirComprobante(
+    @UploadedFile() file: ArchivoSubido,
+    @CurrentUser() usuario: UsuarioJwt,
+  ) {
+    return this.ventasService.subirComprobante(file, usuario.sub);
   }
 
   /** Un agente ve solo sus ventas; un admin ve todas (visibilidad por rol). */

@@ -18,4 +18,36 @@ export class CreateVentaDto {
   @IsOptional()
   @IsEnum(EstadoVenta)
   estado?: EstadoVenta;
+
+  @IsOptional()
+  @IsString()
+  metodoPago?: string;
+
+  @IsOptional()
+  @IsString()
+  comprobante?: string;
+
+  @IsOptional()
+  @IsString()
+  comprobanteKey?: string;
+
+  @IsOptional()
+  @IsString()
+  comprobanteMime?: string;
+
+  @IsOptional()
+  @IsString()
+  comprobanteNombre?: string;
+
+  @IsOptional()
+  @IsString()
+  medico?: string;
+
+  @IsOptional()
+  @IsString()
+  modulo?: string;
+
+  @IsOptional()
+  @IsString()
+  notas?: string;
 }

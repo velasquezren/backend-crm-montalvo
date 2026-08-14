@@ -273,17 +273,25 @@ enum EstadoMensaje {
 }
 
 model Venta {
-  id        String      @id @default(uuid())
-  cliente   Cliente     @relation(fields: [clienteId], references: [id])
-  clienteId String
-  agente    Usuario     @relation(fields: [agenteId], references: [id])
-  agenteId  String
-  producto  String
+  id                String      @id @default(uuid())
+  cliente           Cliente     @relation(fields: [clienteId], references: [id])
+  clienteId         String
+  agente            Usuario     @relation(fields: [agenteId], references: [id])
+  agenteId          String
+  producto          String
   /// Montos en bolivianos (Bs) — moneda única del sistema, ver shared/pipes/moneda.pipe.ts en el frontend.
-  monto     Decimal     @db.Decimal(12, 2)
-  estado    EstadoVenta @default(GANADA)
-  comision  Comision?
-  createdAt DateTime    @default(now())
+  monto             Decimal     @db.Decimal(12, 2)
+  estado            EstadoVenta @default(GANADA)
+  metodoPago        String?     @db.VarChar(50)
+  comprobante       String?     @db.VarChar(100)
+  comprobanteKey    String?     @db.VarChar(255)
+  comprobanteMime   String?     @db.VarChar(100)
+  comprobanteNombre String?     @db.VarChar(255)
+  medico            String?     @db.VarChar(120)
+  modulo            String?     @db.VarChar(60)
+  notas             String?     @db.Text
+  comision          Comision?
+  createdAt         DateTime    @default(now())
 
   @@index([clienteId])
   @@index([agenteId])

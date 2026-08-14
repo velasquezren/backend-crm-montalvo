@@ -1,11 +1,14 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { EstadoVenta, Prisma } from '@prisma/client';
+import { randomUUID } from 'crypto';
 
 import { AuditService } from '../../common/audit/audit.service';
+import { R2Service } from '../../common/storage/r2.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ClientesService } from '../clientes/clientes.service';
 import { ComisionesService } from '../comisiones/comisiones.service';
 import { LeadsService } from '../leads/leads.service';
+import { ArchivoSubido } from './archivo-subido';
 import { CreateVentaDto } from './dto/create-venta.dto';
 import { QueryVentaDto } from './dto/query-venta.dto';
 import { calcularPaginacion, paginar } from '../../common/dto/pagination.dto';
@@ -15,6 +18,7 @@ import { calcularPaginacion, paginar } from '../../common/dto/pagination.dto';
  * Una venta GANADA dispara (vía services de otros módulos, nunca su BD):
  *   1. ComisionesService.generarParaVenta()  → comisión automática (RF-13)
  *   2. ClientesService.actualizarCategoria() → recategorización (RF-21)
+ *   3. LeadsService.marcarConvertidos()      → cierre automático de oportunidades
  * El agente que cierra queda fijado desde el JWT y no existe endpoint para cambiarlo.
  */
 @Injectable()
@@ -25,6 +29,7 @@ export class VentasService {
     private readonly comisionesService: ComisionesService,
     private readonly leadsService: LeadsService,
     private readonly audit: AuditService,
+    private readonly r2: R2Service,
   ) {}
 
   async create(dto: CreateVentaDto, agenteId: string) {
@@ -37,7 +42,19 @@ export class VentasService {
         agenteId,
         producto: dto.producto,
         monto: dto.monto,
-        estado: dto.estado,
+        estado: dto.estado ?? 'GANADA',
+        metodoPago: dto.metodoPago ?? null,
+        comprobante: dto.comprobante ?? null,
+        comprobanteKey: dto.comprobanteKey ?? null,
+        comprobanteMime: dto.comprobanteMime ?? null,
+        comprobanteNombre: dto.comprobanteNombre ?? null,
+        medico: dto.medico ?? null,
+        modulo: dto.modulo ?? null,
+        notas: dto.notas ?? null,
+      },
+      include: {
+        cliente: { select: { id: true, nombre: true, telefono: true } },
+        agente: { select: { id: true, nombre: true } },
       },
     });
 
@@ -45,6 +62,10 @@ export class VentasService {
       producto: venta.producto,
       monto: Number(venta.monto),
       estado: venta.estado,
+      metodoPago: venta.metodoPago,
+      comprobante: venta.comprobante,
+      modulo: venta.modulo,
+      medico: venta.medico,
     });
 
     if (venta.estado === 'GANADA') {
@@ -53,7 +74,35 @@ export class VentasService {
       await this.leadsService.marcarConvertidos(venta.clienteId);
     }
 
-    return venta;
+    const comprobanteUrl = venta.comprobanteKey ? await this.r2.urlFirmada(venta.comprobanteKey) : null;
+    return { ...venta, comprobanteUrl };
+  }
+
+  async subirComprobante(file: ArchivoSubido, usuarioId: string) {
+    if (!this.r2.habilitado) {
+      throw new BadRequestException('El almacenamiento de comprobantes no está disponible');
+    }
+    if (file.size > 8 * 1024 * 1024) {
+      throw new BadRequestException('El comprobante supera el límite de 8 MB');
+    }
+
+    const idTemp = randomUUID();
+    const extension = file.originalname.split('.').pop() || 'bin';
+    const comprobanteKey = `comprobantes/${usuarioId}/${idTemp}.${extension}`;
+    const ab = file.buffer.buffer.slice(
+      file.buffer.byteOffset,
+      file.buffer.byteOffset + file.buffer.byteLength,
+    ) as ArrayBuffer;
+
+    await this.r2.subir(comprobanteKey, ab, file.mimetype);
+    const comprobanteUrl = await this.r2.urlFirmada(comprobanteKey);
+
+    return {
+      comprobanteKey,
+      comprobanteMime: file.mimetype,
+      comprobanteNombre: file.originalname,
+      comprobanteUrl,
+    };
   }
 
   async findAll(query: QueryVentaDto) {
@@ -72,7 +121,7 @@ export class VentasService {
         where,
         orderBy: { createdAt: 'desc' },
         include: {
-          cliente: { select: { id: true, nombre: true, telefono: true } },
+          cliente: { select: { id: true, nombre: true, telefono: true, pac: true } },
           agente: { select: { id: true, nombre: true } },
           comision: { select: { id: true, monto: true, estado: true } },
         },
@@ -82,7 +131,14 @@ export class VentasService {
       this.prisma.venta.count({ where }),
     ]);
 
-    return paginar(datos, total, query);
+    const datosConUrl = await Promise.all(
+      datos.map(async v => ({
+        ...v,
+        comprobanteUrl: v.comprobanteKey ? await this.r2.urlFirmada(v.comprobanteKey) : null,
+      })),
+    );
+
+    return paginar(datosConUrl, total, query);
   }
 
   /** Cambio de estado (solo ADMIN, garantizado en el controller) — RF-12: el agente no se toca. */
@@ -104,6 +160,7 @@ export class VentasService {
       await this.leadsService.marcarConvertidos(actualizada.clienteId);
     }
 
-    return actualizada;
+    const comprobanteUrl = actualizada.comprobanteKey ? await this.r2.urlFirmada(actualizada.comprobanteKey) : null;
+    return { ...actualizada, comprobanteUrl };
   }
 }

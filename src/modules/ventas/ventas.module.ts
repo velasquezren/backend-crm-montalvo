@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 
+import { StorageModule } from '../../common/storage/storage.module';
 import { ClientesModule } from '../clientes/clientes.module';
 import { ComisionesModule } from '../comisiones/comisiones.module';
 import { LeadsModule } from '../leads/leads.module';
@@ -7,7 +8,7 @@ import { VentasController } from './ventas.controller';
 import { VentasService } from './ventas.service';
 
 @Module({
-  imports: [ClientesModule, ComisionesModule, LeadsModule],
+  imports: [ClientesModule, ComisionesModule, LeadsModule, StorageModule],
   controllers: [VentasController],
   providers: [VentasService],
   exports: [VentasService],
