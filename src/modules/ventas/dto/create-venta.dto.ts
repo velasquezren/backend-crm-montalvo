@@ -23,24 +23,16 @@ import {
  */
 export const METODOS_PAGO = ['QR', 'TRANSFERENCIA', 'TARJETA', 'EFECTIVO'] as const;
 
-/**
- * Especialidades de Montalvo. Misma razón que arriba para cerrarla.
- *
- * Los identificadores son EXACTAMENTE los de `MODULOS_MONTALVO` en
- * `ventas.page.ts`, que es quien los emite. Si aquí se pusieran los nombres
- * "bonitos" —CIRUGIA_PLASTICA en vez de CIRUGIA— el formulario dejaría de
- * guardar sin decir por qué.
- */
-export const MODULOS_CLINICA = [
-  'CIRUGIA',
-  'ESTETICA',
-  'DERMATOLOGIA',
-  'MATERNIDAD',
-  'GINECOLOGIA',
-  'CONSULTA',
-  'LABORATORIO',
-  'OTRO',
-] as const;
+/* `modulo` ya no lo teclea ni lo elige nadie: viene del catálogo
+   (`GET /ventas/catalogo`), que lo lee de `VentaImportada`. O sea que sus
+   valores son los de FileMaker —hoy LABORATORIO, CONSULTA, PLANES,
+   INTERNACION— y no una lista nuestra.
+
+   Por eso aquí NO va un `@IsIn`: el día que la clínica abra un módulo nuevo en
+   FileMaker, el catálogo lo ofrecería y esta lista lo rechazaría, dejando a la
+   agente sin poder registrar esa venta y sin entender por qué. La consistencia
+   la garantiza que el catálogo sea la única fuente, no un segundo listado aquí
+   que hay que acordarse de actualizar. */
 
 /** RF-11 — el agente sale del JWT en el servidor, nunca del body (RF-12). */
 export class CreateVentaDto {
@@ -95,7 +87,8 @@ export class CreateVentaDto {
   medico?: string;
 
   @IsOptional()
-  @IsIn(MODULOS_CLINICA)
+  @IsString()
+  @MaxLength(60)
   modulo?: string;
 
   @IsOptional()
