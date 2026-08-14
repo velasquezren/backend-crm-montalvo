@@ -307,6 +307,7 @@ export class ConversacionesService {
             empresaTrabajo: true,
             ciLugar: true,
             datosExtra: true,
+            intereses: { select: { id: true, descripcion: true } },
             /* Lo consume `puedeVerConversacion`: sin esto el detalle no puede
                aplicar la misma regla de visibilidad que el listado. */
             agenteId: true,

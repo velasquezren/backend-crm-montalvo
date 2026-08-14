@@ -49,6 +49,7 @@ const CAMPOS_CLIENTE = {
   telefonoRef: true,
   telefonoOficina: true,
   visitasPrevias: true,
+  datosExtra: true,
   createdAt: true,
   updatedAt: true,
 } as const;
