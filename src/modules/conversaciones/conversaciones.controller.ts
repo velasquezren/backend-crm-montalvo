@@ -36,12 +36,8 @@ export class ConversacionesController {
     return this.conversacionesService.listarPlantillas(refresh === 'true');
   }
 
-  /** Lista de agentes activos — para el dropdown de asignación del admin.
-   *  `@Roles('ADMIN')` porque es lo único que la consume (el frontend solo la
-   *  pide `if (isAdmin())`): sin esto, cualquier AGENTE listaba a toda la
-   *  plantilla activa con su rol. */
+  /** Agentes activos — alimenta los desplegables y lectura de agente asignado en CRM. */
   @Get('meta/agentes')
-  @Roles('ADMIN')
   findAgentes() {
     return this.conversacionesService.findAgentes();
   }
