@@ -32,6 +32,11 @@ const CAMPOS_CLIENTE = {
   categoria: true,
   agenteId: true,
   agente: { select: { id: true, nombre: true } },
+  conversaciones: {
+    select: { agenteId: true, agente: { select: { id: true, nombre: true } } },
+    take: 1,
+    orderBy: { updatedAt: 'desc' },
+  },
   pac: true,
   fechaNacimiento: true,
   sexo: true,
@@ -127,7 +132,17 @@ export class ClientesService {
       this.prisma.cliente.count({ where }),
     ]);
 
-    return paginar(datos, total, query);
+    const datosMapeados = datos.map(cli => {
+      const agenteEfectivo = cli.agente ?? cli.conversaciones?.[0]?.agente ?? null;
+      const agenteIdEfectivo = cli.agenteId ?? cli.conversaciones?.[0]?.agenteId ?? null;
+      return {
+        ...cli,
+        agente: agenteEfectivo,
+        agenteId: agenteIdEfectivo,
+      };
+    });
+
+    return paginar(datosMapeados, total, query);
   }
 
   /**
@@ -152,11 +167,22 @@ export class ClientesService {
       },
     });
 
-    if (!cliente || (soloAgenteId && cliente.agenteId && cliente.agenteId !== soloAgenteId)) {
+    if (!cliente) {
       throw new NotFoundException(`Cliente ${id} no encontrado`);
     }
 
-    return cliente;
+    const agenteEfectivo = cliente.agente ?? cliente.conversaciones?.[0]?.agente ?? null;
+    const agenteIdEfectivo = cliente.agenteId ?? cliente.conversaciones?.[0]?.agenteId ?? null;
+
+    if (soloAgenteId && agenteIdEfectivo && agenteIdEfectivo !== soloAgenteId) {
+      throw new NotFoundException(`Cliente ${id} no encontrado`);
+    }
+
+    return {
+      ...cliente,
+      agente: agenteEfectivo,
+      agenteId: agenteIdEfectivo,
+    };
   }
 
   async findByTelefono(telefono: string) {

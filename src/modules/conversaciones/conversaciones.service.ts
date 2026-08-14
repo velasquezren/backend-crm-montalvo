@@ -482,9 +482,17 @@ export class ConversacionesService {
             : {}),
         },
       }),
-      /* Solo reclama el chat si está en el pool — ver la nota del método. */
+      /* Solo reclama el chat si está en el pool — sincroniza cliente y leads abiertos. */
       this.prisma.conversacion.updateMany({
         where: { id: conversacionId, agenteId: null },
+        data: { agenteId },
+      }),
+      this.prisma.cliente.updateMany({
+        where: { id: conversacion.clienteId, agenteId: null },
+        data: { agenteId },
+      }),
+      this.prisma.lead.updateMany({
+        where: { clienteId: conversacion.clienteId, agenteId: null },
         data: { agenteId },
       }),
       this.prisma.conversacion.update({
