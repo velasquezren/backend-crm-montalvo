@@ -1,24 +1,18 @@
-import { Body, Controller, Get, NotFoundException, Param, Patch, Post, Query, Res } from '@nestjs/common';
-import type { Response } from 'express';
+import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
 import { alcanceAgente } from '../../common/auth/roles';
 import { CurrentUser, UsuarioJwt } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
-import { R2Service } from '../../common/storage/r2.service';
 import { ConversacionesService } from './conversaciones.service';
 import { AsignarAgenteDto } from './dto/asignar-agente.dto';
 import { EnviarMensajeDto } from './dto/enviar-mensaje.dto';
 import { EnviarPlantillaDto } from './dto/enviar-plantilla.dto';
-import { DescargarMediaDto } from './dto/descargar-media.dto';
 import { MarcarLeidoDto } from './dto/marcar-leido.dto';
 import { QueryConversacionesDto } from './dto/query-conversaciones.dto';
 import { QueryMensajesAnterioresDto } from './dto/query-mensajes-anteriores.dto';
 
 @Controller('conversaciones')
 export class ConversacionesController {
-  constructor(
-    private readonly conversacionesService: ConversacionesService,
-    private readonly r2: R2Service,
-  ) {}
+  constructor(private readonly conversacionesService: ConversacionesService) {}
 
   /**
    * El alcance por rol y el interruptor "solo míos" van por parámetros
@@ -35,46 +29,6 @@ export class ConversacionesController {
     );
   }
 
-  /**
-   * Proxy de descarga de media almacenada en R2.
-   *
-   * El navegador NO puede hacer `fetch` ni `<a download>` a las URLs firmadas
-   * de Cloudflare R2 porque R2 no incluye cabeceras CORS (`Access-Control-
-   * Allow-Origin`) en las respuestas a presigned URLs. La descarga se resuelve
-   * aquí servidor ↔ servidor (sin restricciones de origen) y se reenvía al
-   * navegador con `Content-Disposition: attachment` para forzar el guardado
-   * del archivo.
-   *
-   * IMPORTANTE: va ANTES de `@Get(':id')` para que NestJS no lo confunda con
-   * un parámetro de ruta `:id`.
-   */
-  @Get('media/descargar')
-  async descargarMedia(
-    @Query() query: DescargarMediaDto,
-    @CurrentUser() usuario: UsuarioJwt,
-    @Res() res: Response,
-  ): Promise<void> {
-    const { key } = query;
-
-    /* La clave sola no autoriza nada: tiene que pertenecer a un mensaje de una
-       conversación que este usuario pueda ver. 404 y no 403, igual que en
-       `findOne`, para no confirmar que el archivo existe. */
-    if (!(await this.conversacionesService.puedeDescargarMedia(key, alcanceAgente(usuario)))) {
-      throw new NotFoundException('Archivo no encontrado');
-    }
-
-    const archivo = await this.r2.descargar(key);
-    if (!archivo) throw new NotFoundException('Archivo no encontrado en R2');
-
-    const nombre = key.substring(key.lastIndexOf('/') + 1) || 'archivo';
-    res.set({
-      'Content-Type': archivo.contentType,
-      'Content-Disposition': `attachment; filename="${nombre}"`,
-      'Content-Length': String(archivo.buffer.byteLength),
-      'Cache-Control': 'private, max-age=300',
-    });
-    res.end(Buffer.from(archivo.buffer));
-  }
 
   /** Plantillas aprobadas de la WABA — para el selector al escribir fuera de la ventana de 24h. */
   @Get('meta/plantillas')

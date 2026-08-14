@@ -129,8 +129,6 @@ function combinar(
   return activos.length === 1 ? activos[0] : { AND: activos };
 }
 
-
-
 /** Tipo de mensaje a partir del MIME del archivo subido por el agente. */
 function tipoSegunMime(mime: string | undefined): TipoMensaje {
   if (!mime) return 'DOCUMENTO';
@@ -575,7 +573,6 @@ export class ConversacionesService {
     return { ...mensaje, clienteTelefono: conversacion.cliente.telefono };
   }
 
-
   /**
    * Marca el último mensaje entrante como leído (tildes azules para el
    * paciente) y, si `typing`, muestra "escribiendo…". Se llama al abrir el
@@ -697,45 +694,6 @@ export class ConversacionesService {
       }
       throw error;
     }
-  }
-
-  /**
-   * ¿Puede este usuario bajarse el archivo con esta clave de R2?
-   *
-   * La respuesta no depende de la clave sino de la CONVERSACIÓN donde se envió:
-   * se busca un mensaje que la referencie y se le aplica la misma regla de
-   * visibilidad que a la lista y al detalle. Un archivo que nunca se mandó a un
-   * chat no se descarga por aquí.
-   *
-   * Sin esto, cualquier usuario autenticado podía pedir cualquier clave y
-   * recibir el archivo: las fotos de las pacientes de otra agente, o los
-   * recursos privados de la biblioteca de otra persona. Es el mismo agujero que
-   * ya se cerró en `findOne` —escopar solo el listado no basta— aplicado ahora
-   * a los adjuntos.
-   */
-  async puedeDescargarMedia(mediaKey: string, soloAgenteId?: string): Promise<boolean> {
-    // 1. Mensaje de WhatsApp
-    const visibilidad = whereVisibilidad(soloAgenteId);
-    const mensaje = await this.prisma.mensaje.findFirst({
-      where: {
-        mediaKey,
-        ...(visibilidad ? { conversacion: visibilidad } : {}),
-      },
-      select: { id: true },
-    });
-    if (mensaje !== null) return true;
-
-    // 2. Recurso de Memoria del Agente
-    const recurso = await this.prisma.recursoMemoriaAgente.findFirst({
-      where: {
-        mediaKey,
-        ...(soloAgenteId ? { usuarioId: soloAgenteId } : {}),
-      },
-      select: { id: true },
-    });
-    if (recurso !== null) return true;
-
-    return false;
   }
 
   /** Lista de agentes activos — para el dropdown de asignación del admin (cacheada 30s). */
