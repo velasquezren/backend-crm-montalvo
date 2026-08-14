@@ -734,4 +734,118 @@ describe('Acuse automático fuera de horario', () => {
   });
 });
 
+describe('búsqueda histórica de mensajes', () => {
+  /** Deja un chat de `duena` con tres mensajes, dos de los cuales dicen "botox". */
+  async function chatConHistorial(duena: string, telefono: string) {
+    const { conversacion } = await crearChat({
+      telefono,
+      agenteConversacion: duena,
+      agenteCliente: duena,
+    });
+    for (const [i, contenido] of ['Quiero BOTOX', 'precio del botox?', 'gracias'].entries()) {
+      await prisma.mensaje.create({
+        data: {
+          conversacionId: conversacion.id,
+          direccion: 'ENTRANTE',
+          contenido,
+          whatsappMsgId: `wamid.busca.${telefono}.${i}`,
+        },
+      });
+    }
+    return conversacion;
+  }
+
+  it('encuentra sin importar mayúsculas y no trae lo que no coincide', async () => {
+    const a = await crearAgente('agente-a');
+    const conversacion = await chatConHistorial(a.id, '+59177000001');
+
+    const { total, items } = await service.buscarMensajes(conversacion.id, 'botox', 20, 0, a.id);
+
+    expect(total).toBe(2);
+    expect(items.map(m => m.contenido).sort()).toEqual(['Quiero BOTOX', 'precio del botox?']);
+  });
+
+  /* La razón de ser del escopado: el id de una conversación viaja en la URL, así
+     que sin el filtro por agente el buscador es una puerta lateral para leer el
+     historial de la paciente de otra — justo lo que `findOne` ya impide. */
+  it('buscar en una conversación ajena da 404 en vez de resultados', async () => {
+    const a = await crearAgente('agente-a');
+    const b = await crearAgente('agente-b');
+    const conversacion = await chatConHistorial(b.id, '+59177000002');
+
+    await expect(service.buscarMensajes(conversacion.id, 'botox', 20, 0, a.id)).rejects.toThrow(
+      NotFoundException,
+    );
+  });
+
+  it('el ADMIN sí busca en cualquier chat', async () => {
+    const b = await crearAgente('agente-b');
+    const conversacion = await chatConHistorial(b.id, '+59177000003');
+
+    expect((await service.buscarMensajes(conversacion.id, 'botox', 20, 0)).total).toBe(2);
+  });
+
+  it('pagina: el total es del historial completo, no de la página', async () => {
+    const a = await crearAgente('agente-a');
+    const conversacion = await chatConHistorial(a.id, '+59177000004');
+
+    const primera = await service.buscarMensajes(conversacion.id, 'botox', 1, 0, a.id);
+    const segunda = await service.buscarMensajes(conversacion.id, 'botox', 1, 1, a.id);
+
+    expect(primera.total).toBe(2);
+    expect(primera.items).toHaveLength(1);
+    expect(segunda.items[0].id).not.toBe(primera.items[0].id);
+  });
+
+  it('un término en blanco no devuelve el historial entero', async () => {
+    const a = await crearAgente('agente-a');
+    const conversacion = await chatConHistorial(a.id, '+59177000005');
+
+    expect(await service.buscarMensajes(conversacion.id, '   ', 20, 0, a.id)).toEqual({
+      total: 0,
+      items: [],
+    });
+  });
+
+  /* Prisma NO escapa los comodines de LIKE: sin `escaparComodinesLike`, buscar
+     "%" devolvía el hilo entero. Aquí se comprobó, no se supuso. */
+  it('un % no actúa como comodín', async () => {
+    const a = await crearAgente('agente-a');
+    const conversacion = await chatConHistorial(a.id, '+59177000006');
+
+    expect((await service.buscarMensajes(conversacion.id, '%', 20, 0, a.id)).total).toBe(0);
+  });
+
+  it('busca un descuento con % literal sin traer de más', async () => {
+    const a = await crearAgente('agente-a');
+    const { conversacion } = await crearChat({
+      telefono: '+59177000007',
+      agenteConversacion: a.id,
+      agenteCliente: a.id,
+    });
+    for (const [i, contenido] of ['tienen 20% de descuento?', 'son 20 sesiones'].entries()) {
+      await prisma.mensaje.create({
+        data: {
+          conversacionId: conversacion.id,
+          direccion: 'ENTRANTE',
+          contenido,
+          whatsappMsgId: `wamid.desc.${i}`,
+        },
+      });
+    }
+
+    const { total, items } = await service.buscarMensajes(conversacion.id, '20%', 20, 0, a.id);
+
+    expect(total).toBe(1);
+    expect(items[0].contenido).toBe('tienen 20% de descuento?');
+  });
+
+  it('el guion bajo tampoco es comodín', async () => {
+    const a = await crearAgente('agente-a');
+    const conversacion = await chatConHistorial(a.id, '+59177000008');
+
+    expect((await service.buscarMensajes(conversacion.id, 'b_tox', 20, 0, a.id)).total).toBe(0);
+  });
+});
+
 });

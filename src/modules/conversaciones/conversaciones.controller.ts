@@ -7,15 +7,21 @@ import { AsignarAgenteDto } from './dto/asignar-agente.dto';
 import { EnviarMensajeDto } from './dto/enviar-mensaje.dto';
 import { EnviarPlantillaDto } from './dto/enviar-plantilla.dto';
 import { MarcarLeidoDto } from './dto/marcar-leido.dto';
+import { QueryBuscarMensajesDto } from './dto/query-buscar-mensajes.dto';
 import { QueryConversacionesDto } from './dto/query-conversaciones.dto';
 import { QueryMensajesAnterioresDto } from './dto/query-mensajes-anteriores.dto';
-
-import { QueryBuscarMensajesDto } from './dto/query-buscar-mensajes.dto';
 
 @Controller('conversaciones')
 export class ConversacionesController {
   constructor(private readonly conversacionesService: ConversacionesService) {}
 
+  /**
+   * El alcance por rol y el interruptor "solo míos" van por parámetros
+   * distintos a propósito: el primero es permiso y el segundo preferencia de
+   * vista. Pasar el interruptor como si fuera el alcance —que es como estaba—
+   * hace que un cambio de la interfaz redefina quién ve los datos de qué
+   * paciente.
+   */
   @Get()
   findAll(@CurrentUser() usuario: UsuarioJwt, @Query() query: QueryConversacionesDto) {
     return this.conversacionesService.findAll(
@@ -30,6 +36,10 @@ export class ConversacionesController {
     return this.conversacionesService.listarPlantillas(refresh === 'true');
   }
 
+  /** Lista de agentes activos — para el dropdown de asignación del admin.
+   *  `@Roles('ADMIN')` porque es lo único que la consume (el frontend solo la
+   *  pide `if (isAdmin())`): sin esto, cualquier AGENTE listaba a toda la
+   *  plantilla activa con su rol. */
   @Get('meta/agentes')
   @Roles('ADMIN')
   findAgentes() {
@@ -57,6 +67,10 @@ export class ConversacionesController {
     );
   }
 
+  /** Busca en el historial completo del chat, no solo en lo que el navegador
+   *  tiene cargado. El `alcanceAgente()` no es opcional: sin él, cualquiera con
+   *  un id de conversación podría leer el historial de la paciente de otra
+   *  agente escribiendo en el buscador. */
   @Get(':id/buscar-mensajes')
   buscarMensajes(
     @Param('id') id: string,

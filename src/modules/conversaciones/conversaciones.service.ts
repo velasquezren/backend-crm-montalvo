@@ -40,6 +40,23 @@ const LIMITE_MENSAJES_DETALLE = 50;
  */
 const LIMITE_INBOX = 500;
 
+/**
+ * Neutraliza los comodines de LIKE en un término de búsqueda escrito por una
+ * persona.
+ *
+ * Prisma traduce `contains` a `LIKE '%término%'` **sin escapar nada**: lo que
+ * teclea la agente llega crudo al patrón. Buscar `%` devolvía el historial
+ * completo del chat, y `20%` —que en esta clínica se escribe todo el día, entre
+ * descuentos y promociones— hacía match con cualquier mensaje que tuviera "20".
+ * `_` es igual de comodín, y comerse una barra invertida rompería el patrón.
+ *
+ * Postgres usa `\` como escape por defecto en LIKE. La barra va primero en la
+ * clase de caracteres a propósito: se escapa a sí misma antes que al resto.
+ */
+function escaparComodinesLike(termino: string): string {
+  return termino.replace(/[\\%_]/g, caracter => `\\${caracter}`);
+}
+
 /* Estas dos cachés guardan un único valor cada una, así que la clave es
    simbólica: existe porque `CacheMemoria` está pensada para varias entradas. */
 const CLAVE_AGENTES = 'activos';
@@ -351,7 +368,17 @@ export class ConversacionesService {
   }
 
   /**
-   * Búsqueda histórica de mensajes en el servidor con paginación e insensibilidad a mayúsculas/minúsculas.
+   * Búsqueda histórica en el chat: mira TODO el hilo en la base, no solo los
+   * mensajes que el navegador tiene cargados. Sin mayúsculas/minúsculas y
+   * paginada.
+   *
+   * El escopado por rol no es decorativo: el id de la conversación viaja en la
+   * URL, así que sin él esto sería una puerta lateral para leer el historial de
+   * la paciente de otra agente. Va por `obtenerConversacionPropia`, igual que
+   * `findOne`.
+   *
+   * Entra por el índice `[conversacionId, createdAt]`, así que el recorrido del
+   * texto queda acotado a un solo chat.
    */
   async buscarMensajes(
     id: string,
@@ -366,7 +393,7 @@ export class ConversacionesService {
 
     const where = {
       conversacionId: id,
-      contenido: { contains: busqueda, mode: 'insensitive' as const },
+      contenido: { contains: escaparComodinesLike(busqueda), mode: 'insensitive' as const },
     };
 
     const [total, items] = await Promise.all([
