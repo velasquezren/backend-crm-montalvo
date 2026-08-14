@@ -5,6 +5,7 @@ import { AuditService } from '../../common/audit/audit.service';
 import { calcularPaginacion, paginar } from '../../common/dto/pagination.dto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { clasificarFila, determinarTipo, FilaExcel, normalizar } from './clasificador';
+import { CatalogoClinicoService } from './catalogo-clinico.service';
 import { ConfiguracionComisionesService } from './configuracion-comisiones.service';
 import { EQUIPO_OFICIAL } from './configuracion-por-defecto';
 import { ActualizarVendedoraDto } from './dto/configuracion.dto';
@@ -28,6 +29,7 @@ export class PlanillaComisionesService {
     private readonly prisma: PrismaService,
     private readonly configuracion: ConfiguracionComisionesService,
     private readonly audit: AuditService,
+    private readonly catalogo: CatalogoClinicoService,
   ) {}
 
   /* ── Importación ────────────────────────────────────────────────────── */
@@ -167,6 +169,11 @@ export class PlanillaComisionesService {
       where: { id: periodo.id },
       data: { filasValidas },
     });
+
+    /* El catálogo del modal de ventas sale de estas filas: si no se invalida,
+       los servicios del mes recién importado tardarían una hora en aparecer
+       como sugerencia. */
+    this.catalogo.invalidar();
 
     await this.audit.registrar('PeriodoComision', periodo.id, 'IMPORTAR', usuarioId, {
       archivo: nombreArchivo,

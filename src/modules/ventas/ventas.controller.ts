@@ -19,6 +19,7 @@ import { Roles } from '../../common/decorators/roles.decorator';
 import { ArchivoSubido } from './archivo-subido';
 import { CreateVentaDto } from './dto/create-venta.dto';
 import { QueryVentaDto } from './dto/query-venta.dto';
+import { CatalogoClinicoService } from '../planilla-comisiones/catalogo-clinico.service';
 import { VentasService } from './ventas.service';
 
 class CambiarEstadoDto {
@@ -28,7 +29,23 @@ class CambiarEstadoDto {
 
 @Controller('ventas')
 export class VentasController {
-  constructor(private readonly ventasService: VentasService) {}
+  constructor(
+    private readonly ventasService: VentasService,
+    private readonly catalogo: CatalogoClinicoService,
+  ) {}
+
+  /**
+   * Servicios y médicos que la clínica ya facturó, para autocompletar el modal.
+   *
+   * Sin rol: lo consume toda agente al registrar una venta. No expone nada de
+   * la planilla —ni importes, ni comisiones, ni pacientes—: solo los nombres de
+   * los servicios, los de los médicos y cuántas veces aparece cada uno, que es
+   * lo que ordena las sugerencias.
+   */
+  @Get('catalogo')
+  obtenerCatalogo() {
+    return this.catalogo.obtener();
+  }
 
   @Post()
   create(@Body() dto: CreateVentaDto, @CurrentUser() usuario: UsuarioJwt) {

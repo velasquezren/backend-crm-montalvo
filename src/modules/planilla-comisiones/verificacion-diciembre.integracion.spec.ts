@@ -6,6 +6,7 @@ import { AuditService } from '../../common/audit/audit.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CalculoComisionesService } from './calculo-comisiones.service';
 import { ConfiguracionComisionesService } from './configuracion-comisiones.service';
+import { CatalogoClinicoService } from './catalogo-clinico.service';
 import { PlanillaComisionesService } from './planilla-comisiones.service';
 import { ResumenAnualService } from './resumen-anual.service';
 
@@ -56,7 +57,7 @@ beforeAll(async () => {
   const config = new ConfiguracionComisionesService(prisma);
   const audit = new AuditService(prisma);
   calculo = new CalculoComisionesService(prisma, config, audit);
-  planilla = new PlanillaComisionesService(prisma, config, audit);
+  planilla = new PlanillaComisionesService(prisma, config, audit, new CatalogoClinicoService(prisma));
   anual = new ResumenAnualService(prisma, config);
 
   /* Silencia los avisos del importador y del cálculo: esta prueba mueve 1.600
