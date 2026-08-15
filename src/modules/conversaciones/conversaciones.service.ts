@@ -1,6 +1,6 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Prisma, TipoMensaje } from '@prisma/client';
+import { OrigenLead, Prisma, TipoMensaje } from '@prisma/client';
 
 import { CacheMemoria } from '../../common/cache/cache-memoria';
 import { R2Service } from '../../common/storage/r2.service';
@@ -11,6 +11,16 @@ import { ConversacionesGateway } from './conversaciones.gateway';
 import { AcuseAutomaticoService } from './acuse-automatico.service';
 import { DespachadorSalienteService } from './despachador-saliente.service';
 import { MediaEntranteService, MediaEntrante } from './media-entrante.service';
+
+/** Contexto de campaña publicitaria / anuncio de Meta (Click-to-WhatsApp Ads). */
+export interface ReferenciaCampana {
+  origenTipo?: string;
+  anuncioId?: string;
+  titular?: string;
+  cuerpo?: string;
+  origenUrl?: string;
+  imagenUrl?: string;
+}
 
 /* Re-exportar para que quienes importaban MediaEntrante de aquí sigan funcionando. */
 export type { MediaEntrante };
@@ -800,6 +810,7 @@ export class ConversacionesService {
     whatsappMsgId?: string,
     nombrePerfil?: string,
     media?: MediaEntrante,
+    referral?: ReferenciaCampana,
   ) {
     if (whatsappMsgId) {
       const yaExiste = await this.prisma.mensaje.findUnique({ where: { whatsappMsgId } });
@@ -817,6 +828,54 @@ export class ConversacionesService {
     );
 
     const { conversacion, esNueva } = await this.obtenerOCrearConversacion(cliente.id);
+
+    /* Contexto de campaña / anuncio de Meta (Click-to-WhatsApp Ads) */
+    const esInstagram = Boolean(
+      referral?.origenUrl?.toLowerCase().includes('instagram') ||
+      referral?.origenTipo?.toLowerCase().includes('instagram'),
+    );
+    const origenLead: OrigenLead = referral
+      ? (esInstagram ? OrigenLead.INSTAGRAM_LEAD_AD : OrigenLead.FACEBOOK_LEAD_AD)
+      : OrigenLead.WHATSAPP_DIRECTO;
+
+    if (referral?.titular || referral?.anuncioId || referral?.cuerpo) {
+      if (referral.titular) {
+        const yaTieneInteres = await this.prisma.interes.findFirst({
+          where: { clienteId: cliente.id, descripcion: referral.titular },
+          select: { id: true },
+        });
+        if (!yaTieneInteres) {
+          await this.prisma.interes.create({
+            data: {
+              clienteId: cliente.id,
+              descripcion: referral.titular,
+              origen: origenLead,
+              agenteId: cliente.agenteId,
+            },
+          });
+        }
+      }
+
+      const datosActuales = (cliente.datosExtra && typeof cliente.datosExtra === 'object'
+        ? cliente.datosExtra
+        : {}) as Record<string, unknown>;
+      await this.prisma.cliente.update({
+        where: { id: cliente.id },
+        data: {
+          datosExtra: {
+            ...datosActuales,
+            campanaOrigen: {
+              titular: referral.titular ?? null,
+              anuncioId: referral.anuncioId ?? null,
+              cuerpo: referral.cuerpo ?? null,
+              origenUrl: referral.origenUrl ?? null,
+              imagenUrl: referral.imagenUrl ?? null,
+              fecha: new Date().toISOString(),
+            },
+          },
+        },
+      });
+    }
 
     /* `conversacion.update` bumpea `updatedAt` — sin esto un mensaje entrante
        no subía el chat al tope del inbox (ordenado por updatedAt desc), y el
@@ -859,8 +918,9 @@ export class ConversacionesService {
       await this.prisma.lead.create({
         data: {
           clienteId: cliente.id,
-          origen: 'WHATSAPP_DIRECTO',
+          origen: origenLead,
           estado: 'NUEVO',
+          metaLeadId: referral?.anuncioId || null,
           agenteId: cliente.agenteId,
         },
       });

@@ -71,6 +71,22 @@ function extraerRespuestaBoton(mensaje: WhatsappMessageDto): string | null {
 }
 
 /**
+ * Extrae la información de la campaña de Meta Ads (Click-to-WhatsApp), si viene
+ * adjunta al mensaje entrante.
+ */
+function extraerReferral(mensaje: WhatsappMessageDto) {
+  if (!mensaje.referral) return undefined;
+  return {
+    origenTipo: mensaje.referral.source_type,
+    anuncioId: mensaje.referral.source_id,
+    titular: mensaje.referral.headline?.trim() || undefined,
+    cuerpo: mensaje.referral.body?.trim() || undefined,
+    origenUrl: mensaje.referral.source_url,
+    imagenUrl: mensaje.referral.image_url,
+  };
+}
+
+/**
  * Webhook de WhatsApp Cloud API — RF-09. Los mensajes de texto entrantes se
  * persisten y crean cliente + conversación si no existían.
  *
@@ -212,27 +228,71 @@ export class WhatsappWebhookController {
     const contacto = contactos?.find(c => c.wa_id === mensaje.from);
     const nombrePerfil = contacto?.profile?.name?.trim() || undefined;
     const telefono = `+${mensaje.from}`;
+    const referral = extraerReferral(mensaje);
 
     if (mensaje.type === 'text' && mensaje.text?.body) {
-      await this.conversacionesService.procesarEntrante(telefono, mensaje.text.body, mensaje.id, nombrePerfil);
+      if (referral) {
+        await this.conversacionesService.procesarEntrante(
+          telefono,
+          mensaje.text.body,
+          mensaje.id,
+          nombrePerfil,
+          undefined,
+          referral,
+        );
+      } else {
+        await this.conversacionesService.procesarEntrante(
+          telefono,
+          mensaje.text.body,
+          mensaje.id,
+          nombrePerfil,
+        );
+      }
       return true;
     }
 
     const respuestaBoton = extraerRespuestaBoton(mensaje);
     if (respuestaBoton) {
-      await this.conversacionesService.procesarEntrante(telefono, respuestaBoton, mensaje.id, nombrePerfil);
+      if (referral) {
+        await this.conversacionesService.procesarEntrante(
+          telefono,
+          respuestaBoton,
+          mensaje.id,
+          nombrePerfil,
+          undefined,
+          referral,
+        );
+      } else {
+        await this.conversacionesService.procesarEntrante(
+          telefono,
+          respuestaBoton,
+          mensaje.id,
+          nombrePerfil,
+        );
+      }
       return true;
     }
 
     const media = extraerMedia(mensaje);
     if (media) {
-      await this.conversacionesService.procesarEntrante(
-        telefono,
-        media.caption ?? '',
-        mensaje.id,
-        nombrePerfil,
-        { tipo: media.tipo, mediaId: media.mediaId, mime: media.mime, nombre: media.nombre },
-      );
+      if (referral) {
+        await this.conversacionesService.procesarEntrante(
+          telefono,
+          media.caption ?? '',
+          mensaje.id,
+          nombrePerfil,
+          { tipo: media.tipo, mediaId: media.mediaId, mime: media.mime, nombre: media.nombre },
+          referral,
+        );
+      } else {
+        await this.conversacionesService.procesarEntrante(
+          telefono,
+          media.caption ?? '',
+          mensaje.id,
+          nombrePerfil,
+          { tipo: media.tipo, mediaId: media.mediaId, mime: media.mime, nombre: media.nombre },
+        );
+      }
       return true;
     }
 

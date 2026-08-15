@@ -91,6 +91,57 @@ export class WhatsappInteractiveDto {
   list_reply?: WhatsappInteractiveReplyDto;
 }
 
+/**
+ * Contexto de campaña publicitaria / anuncio de Meta (Click-to-WhatsApp Ads).
+ * Llega cuando el paciente hace clic en un anuncio de Facebook/Instagram y abre el chat.
+ */
+export class WhatsappReferralDto {
+  @IsOptional()
+  @IsString()
+  source_url?: string;
+
+  /** 'ad' | 'post' */
+  @IsOptional()
+  @IsString()
+  source_type?: string;
+
+  /** ID del anuncio de Meta Ads */
+  @IsOptional()
+  @IsString()
+  source_id?: string;
+
+  /** Titular del anuncio publicitario */
+  @IsOptional()
+  @IsString()
+  headline?: string;
+
+  /** Cuerpo o descripción del anuncio */
+  @IsOptional()
+  @IsString()
+  body?: string;
+
+  /** 'image' | 'video' */
+  @IsOptional()
+  @IsString()
+  media_type?: string;
+
+  @IsOptional()
+  @IsString()
+  image_url?: string;
+
+  @IsOptional()
+  @IsString()
+  video_url?: string;
+
+  @IsOptional()
+  @IsString()
+  thumbnail_url?: string;
+
+  @IsOptional()
+  @IsString()
+  ctwa_clid?: string;
+}
+
 export class WhatsappMessageDto {
   @IsOptional()
   @IsString()
@@ -146,6 +197,12 @@ export class WhatsappMessageDto {
   @ValidateNested()
   @Type(() => WhatsappInteractiveDto)
   interactive?: WhatsappInteractiveDto;
+
+  /** Procedencia del anuncio si el paciente entró desde una campaña de Meta Ads. */
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => WhatsappReferralDto)
+  referral?: WhatsappReferralDto;
 }
 
 /** Perfil del remitente: trae el nombre real con el que se da de alta al cliente. */

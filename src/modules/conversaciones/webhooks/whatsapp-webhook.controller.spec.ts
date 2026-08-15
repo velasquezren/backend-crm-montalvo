@@ -288,6 +288,46 @@ describe('WhatsappWebhookController', () => {
       });
     });
 
+    it('extrae y reenvía el contexto de campaña / anuncio de Meta Ads (referral)', async () => {
+      const { controller, servicio } = montar();
+      await controller.procesarWebhook(
+        payload({
+          messages: [
+            {
+              from: '59170000001',
+              id: 'wamid.ad1',
+              type: 'text',
+              text: { body: 'Hola, quiero info de Rinoplastia' },
+              referral: {
+                source_type: 'ad',
+                source_id: '120215839201920',
+                headline: 'Promoción Rinoplastia Agosto',
+                body: 'Agenda tu cita de valoración con descuento',
+                source_url: 'https://fb.me/ad123',
+                image_url: 'https://facebook.com/ad-img.jpg',
+              },
+            },
+          ],
+        }),
+      );
+
+      expect(servicio.procesarEntrante).toHaveBeenCalledWith(
+        '+59170000001',
+        'Hola, quiero info de Rinoplastia',
+        'wamid.ad1',
+        undefined,
+        undefined,
+        {
+          origenTipo: 'ad',
+          anuncioId: '120215839201920',
+          titular: 'Promoción Rinoplastia Agosto',
+          cuerpo: 'Agenda tu cita de valoración con descuento',
+          origenUrl: 'https://fb.me/ad123',
+          imagenUrl: 'https://facebook.com/ad-img.jpg',
+        },
+      );
+    });
+
     it('ignora mensajes sin `from`, sin cuerpo, o de tipos que el CRM no registra', async () => {
       const { controller, servicio } = montar();
       await controller.procesarWebhook(
