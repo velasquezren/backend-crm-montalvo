@@ -43,6 +43,9 @@ export class KpisService {
       lte: hasta ? new Date(hasta) : undefined,
     };
 
+    const hoyInicio = new Date();
+    hoyInicio.setHours(0, 0, 0, 0);
+
     const [
       ventasGanadas,
       ventasPorAgente,
@@ -52,6 +55,14 @@ export class KpisService {
       comisiones,
       totalConversaciones,
       leadsContactados,
+      // Pulso operativo de hoy / tiempo real
+      leadsHoyCount,
+      ventasHoy,
+      leadsNuevosSinAtender,
+      conversacionesActivas,
+      topServiciosVenta,
+      ultimasVentas,
+      ultimosLeads,
     ] = await Promise.all([
       this.prisma.venta.aggregate({
         where: { estado: 'GANADA', createdAt: rango, agenteId: soloAgenteId },
@@ -83,9 +94,7 @@ export class KpisService {
         where: { createdAt: rango, agenteId: soloAgenteId },
         _sum: { monto: true },
       }),
-      /* Escopadas por soloAgenteId igual que ventas/comisiones arriba: sin esto
-         un AGENTE veía el funnel de TODA la clínica (conversaciones y leads
-         contactados de sus compañeros), no solo el suyo. */
+      /* Escopadas por soloAgenteId igual que ventas/comisiones arriba */
       this.prisma.conversacion.count({
         where: soloAgenteId
           ? { OR: [{ agenteId: soloAgenteId }, { agenteId: null }] }
@@ -98,6 +107,72 @@ export class KpisService {
           ...(soloAgenteId ? { OR: [{ agenteId: soloAgenteId }, { agenteId: null }] } : {}),
         },
       }),
+      // Métricas de hoy
+      this.prisma.lead.count({
+        where: {
+          createdAt: { gte: hoyInicio },
+          origen: { not: 'IMPORTACION' },
+          ...(soloAgenteId ? { OR: [{ agenteId: soloAgenteId }, { agenteId: null }] } : {}),
+        },
+      }),
+      this.prisma.venta.aggregate({
+        where: {
+          estado: 'GANADA',
+          createdAt: { gte: hoyInicio },
+          agenteId: soloAgenteId,
+        },
+        _sum: { monto: true },
+        _count: true,
+      }),
+      this.prisma.lead.count({
+        where: {
+          estado: 'NUEVO',
+          origen: { not: 'IMPORTACION' },
+          ...(soloAgenteId ? { OR: [{ agenteId: soloAgenteId }, { agenteId: null }] } : {}),
+        },
+      }),
+      this.prisma.conversacion.count({
+        where: {
+          updatedAt: { gte: hoyInicio },
+          ...(soloAgenteId ? { OR: [{ agenteId: soloAgenteId }, { agenteId: null }] } : {}),
+        },
+      }),
+      this.prisma.venta.groupBy({
+        by: ['producto'],
+        where: { estado: 'GANADA', createdAt: rango, agenteId: soloAgenteId },
+        _sum: { monto: true },
+        _count: true,
+        orderBy: { _count: { producto: 'desc' } },
+        take: 6,
+      }),
+      this.prisma.venta.findMany({
+        where: { estado: 'GANADA', ...(soloAgenteId ? { agenteId: soloAgenteId } : {}) },
+        select: {
+          id: true,
+          producto: true,
+          monto: true,
+          createdAt: true,
+          cliente: { select: { nombre: true } },
+          agente: { select: { nombre: true } },
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 5,
+      }),
+      this.prisma.lead.findMany({
+        where: {
+          origen: { not: 'IMPORTACION' },
+          ...(soloAgenteId ? { OR: [{ agenteId: soloAgenteId }, { agenteId: null }] } : {}),
+        },
+        select: {
+          id: true,
+          origen: true,
+          estado: true,
+          createdAt: true,
+          cliente: { select: { nombre: true } },
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 5,
+      }),
     ]);
 
     /* Nombres de agentes para el ranking (una sola consulta) */
@@ -107,10 +182,40 @@ export class KpisService {
     });
     const nombrePorId = new Map(agentes.map(a => [a.id, a.nombre]));
 
+    const actividadVentas = ultimasVentas.map(v => ({
+      id: v.id,
+      tipo: 'VENTA' as const,
+      titulo: `Venta cerrada: ${v.producto}`,
+      subtitulo: `${v.cliente.nombre} · Atendido por ${v.agente.nombre}`,
+      monto: Number(v.monto),
+      fecha: v.createdAt.toISOString(),
+    }));
+
+    const actividadLeads = ultimosLeads.map(l => ({
+      id: l.id,
+      tipo: 'LEAD' as const,
+      titulo: `Nuevo prospecto: ${l.cliente.nombre}`,
+      subtitulo: `Canal: ${l.origen.replace(/_/g, ' ')} · Estado: ${l.estado}`,
+      monto: 0,
+      fecha: l.createdAt.toISOString(),
+    }));
+
+    const actividadReciente = [...actividadVentas, ...actividadLeads]
+      .sort((a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime())
+      .slice(0, 7);
+
     return {
+      pulsoHoy: {
+        leadsHoy: leadsHoyCount,
+        ventasHoyMonto: Number(ventasHoy._sum.monto ?? 0),
+        ventasHoyCantidad: ventasHoy._count,
+        leadsNuevosSinAtender,
+        conversacionesActivas,
+      },
       ventas: {
         total: Number(ventasGanadas._sum.monto ?? 0),
         cantidad: ventasGanadas._count,
+        ticketPromedio: ventasGanadas._count > 0 ? Math.round(Number(ventasGanadas._sum.monto ?? 0) / ventasGanadas._count) : 0,
         porAgente: ventasPorAgente
           .map(v => ({
             agenteId: v.agenteId,
@@ -120,6 +225,12 @@ export class KpisService {
           }))
           .sort((a, b) => b.monto - a.monto),
       },
+      topServicios: topServiciosVenta.map(s => ({
+        producto: s.producto,
+        cantidad: s._count,
+        monto: Number(s._sum.monto ?? 0),
+      })),
+      actividadReciente,
       /* RF-17 — tasa de conversión de leads a ventas, por canal de origen */
       leadsPorOrigen: leadsPorOrigen.map(l => {
         const convertidos =
