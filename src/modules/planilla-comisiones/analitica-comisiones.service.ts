@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { ClasifComision, Prisma } from '@prisma/client';
 
 import { PrismaService } from '../../prisma/prisma.service';
+import { CacheMemoria } from '../../common/cache/cache-memoria';
 import { redondear } from './clasificador';
 
 /**
@@ -51,10 +52,28 @@ const ETIQUETA_UNIDAD: Record<string, string> = {
 
 @Injectable()
 export class AnaliticaComisionesService {
+  /**
+   * Caché en memoria de analíticas por periodo (TTL 60s, max 30).
+   * Evita recalcular 10 agregados pesados de SQL en cada recarga de la vista.
+   */
+  private readonly cache = new CacheMemoria<Awaited<ReturnType<AnaliticaComisionesService['calcularAnalitica']>>>({
+    ttlMs: 60_000,
+    maxEntradas: 30,
+  });
+
   constructor(private readonly prisma: PrismaService) {}
+
+  /** Invalida la caché de un periodo cuando se recalcula o importa. */
+  invalidar(periodoId?: string): void {
+    this.cache.invalidar(periodoId);
+  }
 
   /** Informe completo del periodo, listo para pintar en el panel. */
   async analitica(periodoId: string) {
+    return this.cache.resolver(periodoId, () => this.calcularAnalitica(periodoId));
+  }
+
+  private async calcularAnalitica(periodoId: string) {
     const periodo = await this.prisma.periodoComision.findUnique({ where: { id: periodoId } });
     if (!periodo) {
       throw new NotFoundException(`Periodo ${periodoId} no encontrado`);
