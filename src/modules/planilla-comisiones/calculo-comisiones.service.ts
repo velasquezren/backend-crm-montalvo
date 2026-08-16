@@ -711,6 +711,7 @@ export class CalculoComisionesService {
         bonoTrimestral: acc.bonoTrimestral + Number(r.bonoTrimestral),
         totalUsd: acc.totalUsd + Number(r.totalUsd),
         totalBob: acc.totalBob + Number(r.totalBob),
+        sueldoBase: acc.sueldoBase + Number(r.vendedora.sueldoBase),
         totalGanado: acc.totalGanado + Number(r.totalGanado),
       }),
       {
@@ -723,6 +724,7 @@ export class CalculoComisionesService {
         bonoTrimestral: 0,
         totalUsd: 0,
         totalBob: 0,
+        sueldoBase: 0,
         totalGanado: 0,
       },
     );
