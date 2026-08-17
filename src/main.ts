@@ -56,6 +56,22 @@ async function bootstrap(): Promise<void> {
   app.enableCors({
     origin: origenes,
     credentials: true,
+    /**
+     * Cachea el preflight en el navegador. Sin esto, CADA petición va precedida
+     * de un `OPTIONS`: el frontend vive en Vercel y la API en otro dominio, y
+     * todas las llamadas llevan `Authorization`, así que ninguna es una
+     * "petición simple" que el navegador pueda mandar directa.
+     *
+     * Medido en el log de acceso de producción: de 3.555 peticiones, **1.293
+     * eran preflights** —el 36%—. En este proyecto una ida y vuelta cuesta
+     * ~190 ms y es el 97% del tiempo de una navegación, así que el preflight
+     * venía duplicando la latencia de todo.
+     *
+     * 24 h es lo que se pide; Chrome lo recorta a 2 h y Firefox lo respeta. Con
+     * cualquiera de los dos, una agente en su jornada pasa de cientos de
+     * preflights a unos pocos.
+     */
+    maxAge: 86400,
   });
 
   /* Sin esto, Nest no sabe con qué adapter servir los WebSocketGateway
