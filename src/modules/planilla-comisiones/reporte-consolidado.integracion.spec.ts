@@ -260,3 +260,80 @@ describe('reparto por canal dentro del listado de ventas', () => {
     expect(respuesta.canales).toBeNull();
   });
 });
+
+describe('mes completo de una vendedora, para que su buscador no mienta', () => {
+  async function sembrar(vendedoraId: string, n: number) {
+    await prisma.ventaImportada.createMany({
+      data: Array.from({ length: n }, (_, i) => ({
+        periodoId,
+        vendedoraId,
+        detalle: `Servicio ${i}`,
+        precio: 100,
+        canal: 'PROPIO' as const,
+        ingresoNeto: 87,
+        unidadNegocio: 'VARIOS' as const,
+        clasif: 'OTROSS' as const,
+        tipo: 'A' as const,
+        comisionable: true,
+      })),
+    });
+  }
+
+  async function vendedora(codigo: string) {
+    return prisma.vendedoraComision.create({
+      data: { codigo, nombre: `V ${codigo}`, configurada: true },
+    });
+  }
+
+  /* El caso real: 418 ventas en un mes, de las que solo llegaban 100. */
+  it('devuelve las 418 y no las primeras 100', async () => {
+    const v = await vendedora('PeX');
+    await sembrar(v.id, 418);
+
+    const r = await planilla.listarVentas(periodoId, { vendedoraId: v.id, mesCompleto: true });
+
+    expect(r.datos).toHaveLength(418);
+    expect(r.total).toBe(418);
+  });
+
+  /* Lo que hacía invisible el servicio buscado: quedaba fuera de la página. */
+  it('el último servicio del mes viaja, que es el que no se podía buscar', async () => {
+    const v = await vendedora('PeY');
+    await sembrar(v.id, 418);
+
+    const r = await planilla.listarVentas(periodoId, { vendedoraId: v.id, mesCompleto: true });
+
+    expect(r.datos.some(d => d.detalle === 'Servicio 417')).toBe(true);
+  });
+
+  it('sin la bandera sigue paginando de 100 en 100', async () => {
+    const v = await vendedora('PeZ');
+    await sembrar(v.id, 418);
+
+    const r = await planilla.listarVentas(periodoId, { vendedoraId: v.id, limite: 100 });
+
+    expect(r.datos).toHaveLength(100);
+    expect(r.total).toBe(418);
+  });
+
+  /* La bandera no es una puerta trasera para vaciar la tabla entera: sin
+     vendedora no aplica y vuelve la paginación. */
+  it('la bandera sola, sin vendedora, no salta la paginación', async () => {
+    const v = await vendedora('PeW');
+    await sembrar(v.id, 418);
+
+    const r = await planilla.listarVentas(periodoId, { mesCompleto: true });
+
+    expect(r.datos.length).toBeLessThanOrEqual(100);
+  });
+
+  it('el reparto por canal sigue cuadrando con lo que se devuelve', async () => {
+    const v = await vendedora('PeV');
+    await sembrar(v.id, 418);
+
+    const r = await planilla.listarVentas(periodoId, { vendedoraId: v.id, mesCompleto: true });
+
+    expect(canalesDe(r).total).toBe(418);
+    expect(canalesDe(r).total).toBe(r.datos.length);
+  });
+});

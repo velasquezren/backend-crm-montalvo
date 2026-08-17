@@ -63,6 +63,27 @@ export class QueryVentasImportadasDto extends PaginationDto {
   @Transform(aBooleano)
   @IsBoolean()
   soloSinClasificar?: boolean;
+
+  /**
+   * true = trae el mes entero de UNA vendedora, sin paginar.
+   *
+   * No es un capricho de la interfaz: la vista de desempeño busca y filtra en
+   * memoria sobre lo que recibe, así que una venta fuera de la página no está
+   * "en la siguiente" — no existe para el buscador. Con el tope de 100, la
+   * vendedora con 418 ventas tenía 318 invisibles y 9 de sus 61 servicios no se
+   * podían encontrar: el buscador no decía "no encontré", decía "no existe".
+   *
+   * Solo tiene efecto junto a `vendedoraId`, y sigue acotado por
+   * `LIMITE_MES_VENDEDORA`. Se pide por bandera y no subiendo `limite` porque
+   * el tope de `PaginationDto` es duro por una razón —hay listados con 15.000
+   * pacientes detrás— y `class-validator` suma las reglas del padre a las del
+   * hijo, así que un `@Max` mayor aquí chocaría con el de arriba en vez de
+   * reemplazarlo.
+   */
+  @IsOptional()
+  @Transform(aBooleano)
+  @IsBoolean()
+  mesCompleto?: boolean;
 }
 
 /** Corrección manual de la clasificación de una fila. */

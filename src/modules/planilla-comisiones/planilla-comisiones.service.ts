@@ -15,6 +15,24 @@ import { deducirPeriodo, leerExcel } from './excel-parser';
 /** Cuántas filas se insertan por lote (el VPS tiene poca RAM: no cargar todo de golpe). */
 const TAMANO_LOTE = 500;
 
+/**
+ * Techo del mes completo de una vendedora (`?mesCompleto=true`).
+ *
+ * **No es paginación, es un corte**, igual que `LIMITE_INBOX` en Conversaciones
+ * y por el mismo motivo: la vista de desempeño busca y filtra en memoria sobre
+ * lo que recibe, así que una fila fuera del tope no está en la página
+ * siguiente, sencillamente no existe para el buscador.
+ *
+ * 500 sale de los datos, no de la intuición: el mes más cargado de las 67
+ * combinaciones vendedora-mes importadas tiene 423 ventas, y la mediana 117.
+ * Pesa poco —unos 3,8 KB comprimidos por cada 100 filas, o sea ~16 KB el mes
+ * más grande— y a cambio el buscador deja de mentir.
+ *
+ * Si alguna vez se alcanza, queda un WARN en el log en vez de esconder ventas
+ * en silencio.
+ */
+const LIMITE_MES_VENDEDORA = 500;
+
 /** Reparto por canal de una vendedora, o `null` si no se pidió por vendedora. */
 export interface RepartoCanal {
   readonly total: number;
@@ -457,7 +475,12 @@ export class PlanillaComisionesService {
         : {}),
     };
 
-    const { skip, take } = calcularPaginacion(query);
+    /* El mes entero de una vendedora, para que su buscador no mienta. Fuera de
+       ese caso manda la paginación normal. */
+    const mesCompleto = Boolean(query.mesCompleto && query.vendedoraId);
+    const { skip, take } = mesCompleto
+      ? { skip: 0, take: LIMITE_MES_VENDEDORA }
+      : calcularPaginacion(query);
 
     /*
      * El reparto por canal viaja EN LA MISMA transacción que el listado, no en
@@ -501,6 +524,17 @@ export class PlanillaComisionesService {
           ]
         : []),
     ]);
+
+    /* Alcanzar el techo significa que el buscador de esa vista vuelve a estar
+       incompleto. Se avisa en vez de callar, que es lo que lo hizo tardar en
+       descubrirse la primera vez. */
+    if (mesCompleto && datos.length === LIMITE_MES_VENDEDORA) {
+      this.logger.warn(
+        `La vendedora ${query.vendedoraId} alcanzó el tope de ${LIMITE_MES_VENDEDORA} ventas ` +
+          `en el periodo ${periodoId}: su buscador de desempeño no las ve todas. Toca subir ` +
+          'LIMITE_MES_VENDEDORA o mover la búsqueda al servidor.',
+      );
+    }
 
     return { ...paginar(datos, total, query), canales: repartoPorCanal(porCanal) };
   }
