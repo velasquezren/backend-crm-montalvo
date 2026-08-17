@@ -711,7 +711,16 @@ export class CalculoComisionesService {
         bonoTrimestral: acc.bonoTrimestral + Number(r.bonoTrimestral),
         totalUsd: acc.totalUsd + Number(r.totalUsd),
         totalBob: acc.totalBob + Number(r.totalBob),
-        sueldoBase: acc.sueldoBase + Number(r.vendedora.sueldoBase),
+        /* El sueldo CONGELADO en el resultado, no el actual de la vendedora.
+           `ResultadoComision.sueldoBase` es la foto del momento en que se
+           liquidó, y es con esa foto con la que se calculó cada `totalGanado`
+           (ver más arriba: totalBob + sueldoBase). Sumar aquí
+           `vendedora.sueldoBase` —el dato maestro, que administración puede
+           cambiar cualquier día— hace que en cuanto alguien recibe un aumento
+           el pie deje de cuadrar con la suma de las filas y con el total
+           ganado, en un periodo ya cerrado y pagado. Las filas de este mismo
+           reporte usan `r.sueldoBase`. */
+        sueldoBase: acc.sueldoBase + Number(r.sueldoBase),
         totalGanado: acc.totalGanado + Number(r.totalGanado),
       }),
       {

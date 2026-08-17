@@ -68,6 +68,43 @@ export class AnaliticaComisionesService {
     this.cache.invalidar(periodoId);
   }
 
+  /**
+   * Reparto por canal de UNA vendedora en el periodo, resuelto en SQL.
+   *
+   * Existe porque la vista de desempeño lo calculaba en el navegador sobre la
+   * página de ventas que tenía cargada —100 filas—, y eso no es el mes: medido
+   * en producción, 29 de las 67 combinaciones vendedora-mes pasan de 100, con
+   * un promedio de 117 y un máximo de 423. La ejecutiva con 423 ventas veía
+   * "100" como su total y un porcentaje de canal propio sacado del último
+   * tercio del mes, presentado como si fuera su desempeño completo.
+   *
+   * Mismo filtro `comisionable: true` que el resto de la analítica, para que
+   * cuadre con lo que se liquida.
+   */
+  async canalesPorVendedora(periodoId: string, vendedoraId: string) {
+    const porCanal = await this.prisma.ventaImportada.groupBy({
+      by: ['canal'],
+      where: { periodoId, vendedoraId, comisionable: true },
+      _count: { _all: true },
+    });
+
+    const cuenta = (canal: string) =>
+      porCanal.find(f => f.canal === canal)?._count._all ?? 0;
+
+    const total = porCanal.reduce((t, f) => t + f._count._all, 0);
+    const propios = cuenta('PROPIO');
+
+    return {
+      total,
+      propios,
+      /* Todo lo que no es propio: la vista solo contrapone "yo lo traje" contra
+         "me lo dio la clínica", y agrupar el resto evita que un canal nuevo en
+         FileMaker desaparezca de la cuenta. */
+      empresa: total - propios,
+      pctPropio: total > 0 ? Math.round((propios / total) * 100) : 0,
+    };
+  }
+
   /** Informe completo del periodo, listo para pintar en el panel. */
   async analitica(periodoId: string) {
     return this.cache.resolver(periodoId, () => this.calcularAnalitica(periodoId));

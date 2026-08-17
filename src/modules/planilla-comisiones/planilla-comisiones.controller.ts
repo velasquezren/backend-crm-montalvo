@@ -183,6 +183,19 @@ export class PlanillaComisionesController {
   }
 
   /**
+   * Reparto por canal de una vendedora en el mes.
+   *
+   * Va aparte de `analitica` porque esa se cachea por periodo y esto depende
+   * también de la vendedora. Lo pide la vista de desempeño, que antes lo
+   * contaba en el navegador sobre la página de ventas cargada y por tanto
+   * mentía en los meses de más de 100 ventas — que son casi la mitad.
+   */
+  @Get('periodos/:id/canales/:vendedoraId')
+  canalesPorVendedora(@Param('id') id: string, @Param('vendedoraId') vendedoraId: string) {
+    return this.analitica.canalesPorVendedora(id, vendedoraId);
+  }
+
+  /**
    * Descarga el informe del mes en Excel. Se escribe en streaming sobre la
    * respuesta, así que el libro no pasa entero por memoria.
    */
