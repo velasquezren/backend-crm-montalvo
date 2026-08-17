@@ -15,12 +15,41 @@ import { deducirPeriodo, leerExcel } from './excel-parser';
 /** Cuántas filas se insertan por lote (el VPS tiene poca RAM: no cargar todo de golpe). */
 const TAMANO_LOTE = 500;
 
+/** Reparto por canal de una vendedora, o `null` si no se pidió por vendedora. */
+export interface RepartoCanal {
+  readonly total: number;
+  readonly propios: number;
+  readonly empresa: number;
+  readonly pctPropio: number;
+}
+
 /**
  * Planilla de comisiones — importación del Excel de FileMaker y clasificación.
  *
  * Dominio separado del de `Ventas`/`Comisiones` del CRM: aquí no se toca ninguna
  * de esas tablas. El flujo es importar → revisar clasificación → calcular.
  */
+/**
+ * Convierte el `groupBy` por canal en el reparto que pinta la vista.
+ *
+ * Todo lo que no es PROPIO cuenta como de la clínica: la pantalla solo contrapone
+ * "yo la traje" contra "me la dio la clínica", y agrupar el resto evita que un
+ * canal nuevo en FileMaker desaparezca de la cuenta sin avisar.
+ */
+function repartoPorCanal(
+  filas: { canal: string; _count: { _all: number } }[] | undefined,
+): RepartoCanal | null {
+  if (!filas) return null;
+  const total = filas.reduce((t, f) => t + f._count._all, 0);
+  const propios = filas.find(f => f.canal === 'PROPIO')?._count._all ?? 0;
+  return {
+    total,
+    propios,
+    empresa: total - propios,
+    pctPropio: total > 0 ? Math.round((propios / total) * 100) : 0,
+  };
+}
+
 @Injectable()
 export class PlanillaComisionesService {
   private readonly logger = new Logger(PlanillaComisionesService.name);
@@ -430,7 +459,30 @@ export class PlanillaComisionesService {
 
     const { skip, take } = calcularPaginacion(query);
 
-    const [datos, total] = await this.prisma.$transaction([
+    /*
+     * El reparto por canal viaja EN LA MISMA transacción que el listado, no en
+     * una petición aparte.
+     *
+     * La vista de desempeño lo necesita para el mes completo —contarlo sobre la
+     * página daba un porcentaje del último tramo—, y la primera versión lo
+     * resolvía con un endpoint propio. Pero en este proyecto el 97% del tiempo
+     * de una navegación es red (190 ms de ida y vuelta contra 6-27 ms de
+     * consulta): un `groupBy` más aquí es gratis, mientras que una segunda
+     * petición cuesta otro viaje completo cada vez que se cambia de vendedora.
+     *
+     * Lleva su propio `where`, no el del listado: el porcentaje de captación es
+     * del mes de la vendedora, así que no puede depender de los filtros de la
+     * interfaz —si respetara el filtro por canal, siempre daría 100%—. Y filtra
+     * `comisionable: true` para cuadrar con lo que se liquida.
+     */
+    const conCanales = Boolean(query.vendedoraId);
+    const whereCanales: Prisma.VentaImportadaWhereInput = {
+      periodoId,
+      vendedoraId: query.vendedoraId,
+      comisionable: true,
+    };
+
+    const [datos, total, porCanal] = await this.prisma.$transaction([
       this.prisma.ventaImportada.findMany({
         where,
         orderBy: [{ fecha: 'asc' }, { detalle: 'asc' }],
@@ -439,9 +491,18 @@ export class PlanillaComisionesService {
         include: { vendedora: { select: { id: true, nombre: true, codigo: true } } },
       }),
       this.prisma.ventaImportada.count({ where }),
+      ...(conCanales
+        ? [
+            this.prisma.ventaImportada.groupBy({
+              by: ['canal'],
+              where: whereCanales,
+              _count: { _all: true },
+            }),
+          ]
+        : []),
     ]);
 
-    return paginar(datos, total, query);
+    return { ...paginar(datos, total, query), canales: repartoPorCanal(porCanal) };
   }
 
   /** Corrige a mano la clasificación de una fila; queda marcada como ajustada. */

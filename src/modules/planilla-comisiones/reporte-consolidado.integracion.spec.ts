@@ -2,9 +2,10 @@ import { ConfigService } from '@nestjs/config';
 
 import { AuditService } from '../../common/audit/audit.service';
 import { PrismaService } from '../../prisma/prisma.service';
-import { AnaliticaComisionesService } from './analitica-comisiones.service';
 import { CalculoComisionesService } from './calculo-comisiones.service';
+import { CatalogoClinicoService } from './catalogo-clinico.service';
 import { ConfiguracionComisionesService } from './configuracion-comisiones.service';
+import { PlanillaComisionesService } from './planilla-comisiones.service';
 
 /**
  * Pruebas del consolidado contra Postgres real (`crm_test` en el :5433 local).
@@ -29,7 +30,7 @@ if (!URL_TEST.includes('/crm_test')) {
 const prisma = new PrismaService({ datasources: { db: { url: URL_TEST } } });
 
 let calculo: CalculoComisionesService;
-let analitica: AnaliticaComisionesService;
+let planilla: PlanillaComisionesService;
 let periodoId: string;
 
 beforeAll(async () => {
@@ -55,7 +56,12 @@ beforeEach(async () => {
     new ConfiguracionComisionesService(prisma),
     new AuditService(prisma),
   );
-  analitica = new AnaliticaComisionesService(prisma);
+  planilla = new PlanillaComisionesService(
+    prisma,
+    new ConfiguracionComisionesService(prisma),
+    new AuditService(prisma),
+    new CatalogoClinicoService(prisma),
+  );
   jest.spyOn(calculo['logger'], 'warn').mockImplementation(() => undefined);
   jest.spyOn(calculo['logger'], 'log').mockImplementation(() => undefined);
 
@@ -145,7 +151,17 @@ describe('reporteConsolidado contra Postgres real', () => {
   });
 });
 
-describe('canalesPorVendedora contra Postgres real', () => {
+/** El reparto que acompaña al listado; `limite: 1` prueba que no depende de la página. */
+function canalesDe(respuesta: { canales: unknown }) {
+  return respuesta.canales as {
+    total: number;
+    propios: number;
+    empresa: number;
+    pctPropio: number;
+  };
+}
+
+describe('reparto por canal dentro del listado de ventas', () => {
   /** Siembra `n` ventas del canal dado para una vendedora. */
   async function ventas(vendedoraId: string, canal: 'PROPIO' | 'EMPRESA', n: number) {
     await prisma.ventaImportada.createMany({
@@ -165,9 +181,13 @@ describe('canalesPorVendedora contra Postgres real', () => {
   }
 
   /**
-   * La razón de existir del endpoint. La vista contaba la página cargada —100
+   * La razón de ser del agregado. La vista contaba la página cargada —100
    * filas— como si fuera el mes; en producción 29 de 67 combinaciones
    * vendedora-mes la superan, con un máximo de 423.
+   *
+   * Viaja dentro del listado y no en un endpoint aparte: en este proyecto una
+   * petición extra cuesta ~190 ms de red y el `groupBy` cuesta milisegundos
+   * dentro de la transacción que ya se hacía.
    */
   it('cuenta el mes completo, no las primeras 100', async () => {
     const v = await prisma.vendedoraComision.create({
@@ -176,7 +196,7 @@ describe('canalesPorVendedora contra Postgres real', () => {
     await ventas(v.id, 'PROPIO', 90);
     await ventas(v.id, 'EMPRESA', 60);
 
-    const stats = await analitica.canalesPorVendedora(periodoId, v.id);
+    const stats = canalesDe(await planilla.listarVentas(periodoId, { vendedoraId: v.id, limite: 1 }));
 
     expect(stats.total).toBe(150);
     expect(stats.propios).toBe(90);
@@ -194,7 +214,7 @@ describe('canalesPorVendedora contra Postgres real', () => {
     await ventas(a.id, 'PROPIO', 10);
     await ventas(b.id, 'PROPIO', 40);
 
-    expect((await analitica.canalesPorVendedora(periodoId, a.id)).total).toBe(10);
+    expect((canalesDe(await planilla.listarVentas(periodoId, { vendedoraId: a.id, limite: 1 }))).total).toBe(10);
   });
 
   /* Mismo filtro que la liquidación: si contara las excluidas, el porcentaje no
@@ -219,7 +239,7 @@ describe('canalesPorVendedora contra Postgres real', () => {
       },
     });
 
-    expect((await analitica.canalesPorVendedora(periodoId, v.id)).total).toBe(5);
+    expect((canalesDe(await planilla.listarVentas(periodoId, { vendedoraId: v.id, limite: 1 }))).total).toBe(5);
   });
 
   it('sin ventas devuelve ceros y no NaN', async () => {
@@ -227,8 +247,16 @@ describe('canalesPorVendedora contra Postgres real', () => {
       data: { codigo: 'PeD', nombre: 'D', configurada: true },
     });
 
-    const stats = await analitica.canalesPorVendedora(periodoId, v.id);
+    const stats = canalesDe(await planilla.listarVentas(periodoId, { vendedoraId: v.id, limite: 1 }));
 
     expect(stats).toEqual({ total: 0, propios: 0, empresa: 0, pctPropio: 0 });
+  });
+
+  /* Sin vendedora no hay reparto: el porcentaje es de una persona, y calcularlo
+     para el listado completo del mes no significaría nada. */
+  it('no se calcula si no se filtra por vendedora', async () => {
+    const respuesta = await planilla.listarVentas(periodoId, { limite: 1 });
+
+    expect(respuesta.canales).toBeNull();
   });
 });
