@@ -327,6 +327,19 @@ describe('mes completo de una vendedora, para que su buscador no mienta', () => 
     expect(r.datos.length).toBeLessThanOrEqual(100);
   });
 
+  /* Sin esto, el sobre decía "pagina 1 de 17, 25 por pagina" mientras mandaba
+     las 418 filas: un paginador futuro pintaría 16 páginas inexistentes. */
+  it('el sobre describe lo que de verdad se mandó', async () => {
+    const v = await vendedora('PeU');
+    await sembrar(v.id, 418);
+
+    const r = await planilla.listarVentas(periodoId, { vendedoraId: v.id, mesCompleto: true });
+
+    expect(r.totalPaginas).toBe(1);
+    expect(r.pagina).toBe(1);
+    expect(r.datos.length).toBeLessThanOrEqual(r.limite);
+  });
+
   it('el reparto por canal sigue cuadrando con lo que se devuelve', async () => {
     const v = await vendedora('PeV');
     await sembrar(v.id, 418);

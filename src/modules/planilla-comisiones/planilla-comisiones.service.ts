@@ -536,7 +536,16 @@ export class PlanillaComisionesService {
       );
     }
 
-    return { ...paginar(datos, total, query), canales: repartoPorCanal(porCanal) };
+    /* El sobre tiene que describir lo que de verdad se mandó. `paginar()`
+       recalcula el límite desde el DTO, así que con el mes completo diría
+       "página 1 de 17, 25 por página" mientras lleva las 418 filas: hoy no se
+       nota porque esta vista no tiene paginador, pero el día que alguien lo
+       añada vería 17 páginas de las que 16 no existen. */
+    const sobre = mesCompleto
+      ? { datos, total, pagina: 1, limite: LIMITE_MES_VENDEDORA, totalPaginas: 1 }
+      : paginar(datos, total, query);
+
+    return { ...sobre, canales: repartoPorCanal(porCanal) };
   }
 
   /** Corrige a mano la clasificación de una fila; queda marcada como ajustada. */
