@@ -502,12 +502,17 @@ export class PlanillaComisionesService {
     await this.obtenerPeriodo(periodoId);
 
     const buscar = terminoBusqueda(query.buscar);
-    const where: Prisma.VentaImportadaWhereInput = {
+    /* Todos los filtros MENOS el de vendedora.
+       El resumen por agente se calcula sobre esto y no sobre `where`: si
+       respetara el filtro por vendedora, al pulsar a una la respuesta traería
+       solo a ella, el resumen se quedaría con una tarjeta y no habría forma de
+       saltar a otra sin deseleccionar antes. El resumen es el selector, así que
+       no puede depender de lo seleccionado. */
+    const whereSinVendedora: Prisma.VentaImportadaWhereInput = {
       periodoId,
       ...(query.clasif ? { clasif: query.clasif } : {}),
       ...(query.canal ? { canal: query.canal } : {}),
       ...(query.tipo ? { tipo: query.tipo } : {}),
-      ...(query.vendedoraId ? { vendedoraId: query.vendedoraId } : {}),
       ...(query.modulo ? { modulo: query.modulo } : {}),
       ...(query.soloExcluidas ? { comisionable: false } : {}),
       ...(query.soloSinClasificar ? { requiereRevision: true } : {}),
@@ -523,6 +528,11 @@ export class PlanillaComisionesService {
             ],
           }
         : {}),
+    };
+
+    const where: Prisma.VentaImportadaWhereInput = {
+      ...whereSinVendedora,
+      ...(query.vendedoraId ? { vendedoraId: query.vendedoraId } : {}),
     };
 
     /* El mes entero de una vendedora, para que su buscador no mienta. Fuera de
@@ -576,7 +586,7 @@ export class PlanillaComisionesService {
       }),
       this.prisma.ventaImportada.groupBy({
         by: ['vendedoraId'],
-        where,
+        where: whereSinVendedora,
         _count: { _all: true },
         _sum: { precio: true, ingresoNeto: true },
         orderBy: { _sum: { precio: 'desc' } },

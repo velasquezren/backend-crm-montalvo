@@ -484,6 +484,42 @@ describe('totales y subtotales del listado de ventas', () => {
     expect(r.totales.monto).toBeCloseTo(900, 2);
   });
 
+  /* El resumen por agente es el SELECTOR: si respetara el filtro por vendedora,
+     al pulsar una tarjeta la respuesta traería solo a ella y no habría forma de
+     saltar a otra sin deseleccionar antes. */
+  it('el resumen sigue mostrando a todas aunque se filtre por una', async () => {
+    const a = await vendedora('PeS1', 'Ana');
+    const b = await vendedora('PeS2', 'Bea');
+    await vender(a.id, 4, 100);
+    await vender(b.id, 6, 200);
+
+    const r = await planilla.listarVentas(periodoId, { vendedoraId: a.id });
+
+    // La tabla sí se acota a Ana...
+    expect(r.totales.ventas).toBe(4);
+    // ...pero el selector sigue ofreciendo a las dos.
+    expect(r.porVendedora.map(v => v.nombre).sort()).toEqual(['Ana', 'Bea']);
+  });
+
+  /* Los demás filtros SÍ acotan el resumen: es "el total de lo que estoy
+     mirando", y el tipo no es un selector de la propia tarjeta. */
+  it('filtrar por tipo sí acota el resumen', async () => {
+    const a = await vendedora('PeS3', 'Ana');
+    await vender(a.id, 4, 100);
+    await prisma.ventaImportada.create({
+      data: {
+        periodoId, vendedoraId: a.id, detalle: 'Cirugia', precio: 900,
+        canal: 'PROPIO', ingresoNeto: 783, unidadNegocio: 'VARIOS',
+        clasif: 'CIRUGIA', tipo: 'B', comisionable: true,
+      },
+    });
+
+    const r = await planilla.listarVentas(periodoId, { tipo: 'B' });
+
+    expect(r.porVendedora).toHaveLength(1);
+    expect(r.porVendedora[0].ventas).toBe(1);
+  });
+
   it('sin ventas los totales son cero, no NaN', async () => {
     const r = await planilla.listarVentas(periodoId, {});
 
