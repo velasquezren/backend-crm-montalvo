@@ -17,7 +17,6 @@ import {
   aporteAlPoteJefatura,
   bonoTrimestralUsd,
   cierraTrimestre,
-  elegirTarifaRA,
   PlanCandidato,
   seleccionarPlanesComisionables,
   mesesAnteriores,
@@ -91,8 +90,6 @@ function candidatos(filas: readonly FilaCalculo[], clasif: ClasifComision): Plan
  * salían siete veces más bajas y, peor, quedaban en otra unidad que los bonos
  * —que sí se calculaban sin dividir—, así que el total sumaba dólares con
  * bolivianos y luego multiplicaba todo por el TC otra vez.
- *
- * Las tarifas RA fijas ya son USD por procedimiento y por eso nunca se tocan.
  */
 @Injectable()
 export class CalculoComisionesService {
@@ -275,7 +272,6 @@ export class CalculoComisionesService {
       .reduce((s, f) => s + f.ingresoNeto, 0);
     const nivelCirugia = resolverNivelCirugia(acumuladoCirugias, config.nivelesCirugia);
 
-    const esCoordinadoraRA = vendedora.area === AreaVendedora.RA;
     const desglose: LineaDesglose[] = [];
 
     let comisionA = 0;
@@ -303,22 +299,12 @@ export class CalculoComisionesService {
         comisionA += comisionUsd;
       } else if (primera.clasif === ClasifComision.CIRUGIA) {
         tipo = 'B';
-        if (esCoordinadoraRA) {
-          const { montoUnitario, esPorcentaje } = this.tarifaRA(grupo, primera.canal, config);
-          if (esPorcentaje) {
-            porcentaje = montoUnitario;
-            comisionUsd = (baseGrupo * porcentaje) / 100;
-          } else {
-            comisionUsd = montoUnitario * grupo.length;
-          }
-        } else {
-          porcentaje = this.porcentajeTipoB(nivelCirugia, primera.canal, config);
-          comisionUsd = (baseGrupo * porcentaje) / 100;
-        }
+        porcentaje = this.porcentajeTipoB(nivelCirugia, primera.canal, config);
+        comisionUsd = (baseGrupo * porcentaje) / 100;
         comisionB += comisionUsd;
       } else {
         tipo = 'C';
-        porcentaje = this.porcentajeTipoC(primera, config, esCoordinadoraRA);
+        porcentaje = this.porcentajeTipoC(primera, config);
         comisionUsd = (baseGrupo * porcentaje) / 100;
         comisionC += comisionUsd;
       }
@@ -420,11 +406,19 @@ export class CalculoComisionesService {
   private porcentajeTipoC(
     fila: FilaCalculo,
     config: ConfiguracionCompleta,
-    esCoordinadoraRA: boolean,
   ): number {
-    // Las ventas del área RA no comisionan Tipo C para ejecutivas: solo las
-    // coordinadoras RA cobran por esos ítems (regla 5 de casos borde).
-    if (fila.unidadNegocio === UnidadNegocio.RA && !esCoordinadoraRA) {
+    /* El área RA no comisiona, y punto.
+     *
+     * En la planilla de DICIEMBRE 2025, hoja PARAMETROS, las catorce filas del
+     * área RA —RACONSULTA, RALAB, RAECOGRAFIA, RAOTROSS, RAFIV, RACIRUGIA,
+     * RACAMPAÑA, RAPROMOCIÓN— están todas en 0, tanto EMPRESA como PROPIO.
+     *
+     * Antes había una excepción para el rol de coordinadora RA, que cobraba esos
+     * ítems con una tarifa fija por procedimiento. Administración confirmó que
+     * ese rol ya no existe, así que la excepción se retiró: hoy nadie cobra por
+     * el área RA. Lo que hay en esas filas son análisis y consultas que pide la
+     * unidad de reproducción y que FileMaker atribuye a la ejecutiva. */
+    if (fila.unidadNegocio === UnidadNegocio.RA) {
       return config.parametros.get(PARAM.PCT_TIPO_C_RA) ?? 0;
     }
     const tarifa = config.tarifasServicioPorClasif.get(fila.clasif);
@@ -433,28 +427,6 @@ export class CalculoComisionesService {
   }
 
   /** Ubica el acumulado de cirugías del mes en la escala; null si no llega al nivel 1. */
-
-  /** Tarifa RA que corresponde al procedimiento, cruzando por nombre. */
-  private tarifaRA(
-    grupo: readonly FilaCalculo[],
-    canal: CanalVenta,
-    config: ConfiguracionCompleta,
-  ): { montoUnitario: number; esPorcentaje: boolean } {
-    const detalle = grupo[0].detalle;
-
-    // Gana la tarifa que cruce con MÁS texto, no la primera de la lista. Varios
-    // procedimientos comparten palabras ("Histeroscopia" está dentro de
-    // "Laparoscopia + Histeroscopia"), y con `find` el resultado dependía del
-    // orden en que la base devolviera las filas: la misma venta podía pagar
-    // distinto entre dos cálculos.
-    const tarifa = elegirTarifaRA(detalle, config.tarifasRA);
-    if (!tarifa) return { montoUnitario: 0, esPorcentaje: false };
-
-    return {
-      montoUnitario: Number(canal === CanalVenta.PROPIO ? tarifa.montoPropio : tarifa.montoEmpresa),
-      esPorcentaje: tarifa.esPorcentaje,
-    };
-  }
 
   /* ── Bonos ──────────────────────────────────────────────────────────── */
 
