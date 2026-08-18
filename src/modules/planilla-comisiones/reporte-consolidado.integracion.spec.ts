@@ -2,6 +2,7 @@ import { ConfigService } from '@nestjs/config';
 
 import { AuditService } from '../../common/audit/audit.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import { AnaliticaComisionesService } from './analitica-comisiones.service';
 import { CalculoComisionesService } from './calculo-comisiones.service';
 import { CatalogoClinicoService } from './catalogo-clinico.service';
 import { ConfiguracionComisionesService } from './configuracion-comisiones.service';
@@ -55,6 +56,7 @@ beforeEach(async () => {
     prisma,
     new ConfiguracionComisionesService(prisma),
     new AuditService(prisma),
+    new AnaliticaComisionesService(prisma),
   );
   planilla = new PlanillaComisionesService(
     prisma,
