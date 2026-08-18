@@ -463,6 +463,7 @@ export class PlanillaComisionesService {
       periodoId,
       ...(query.clasif ? { clasif: query.clasif } : {}),
       ...(query.canal ? { canal: query.canal } : {}),
+      ...(query.tipo ? { tipo: query.tipo } : {}),
       ...(query.vendedoraId ? { vendedoraId: query.vendedoraId } : {}),
       ...(query.modulo ? { modulo: query.modulo } : {}),
       ...(query.soloExcluidas ? { comisionable: false } : {}),

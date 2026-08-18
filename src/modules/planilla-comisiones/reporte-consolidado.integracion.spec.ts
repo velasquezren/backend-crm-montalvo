@@ -352,3 +352,52 @@ describe('mes completo de una vendedora, para que su buscador no mienta', () => 
     expect(canalesDe(r).total).toBe(r.datos.length);
   });
 });
+
+describe('filtro por tipo de comisión', () => {
+  async function ventaTipo(tipo: 'A' | 'B' | 'C', clasif: 'PLANPAQ' | 'CIRUGIA' | 'CONSULTA') {
+    await prisma.ventaImportada.create({
+      data: {
+        periodoId,
+        detalle: `Servicio ${clasif}`,
+        precio: 100,
+        canal: 'PROPIO',
+        ingresoNeto: 87,
+        unidadNegocio: 'VARIOS',
+        clasif,
+        tipo,
+        comisionable: true,
+      },
+    });
+  }
+
+  /* El tipo agrupa varias clasificaciones, así que no se podía acotar con el
+     filtro que ya había: revisar "todo lo que paga por Tipo B" era imposible. */
+  it('acota a un tipo y deja fuera los demás', async () => {
+    await ventaTipo('A', 'PLANPAQ');
+    await ventaTipo('B', 'CIRUGIA');
+    await ventaTipo('C', 'CONSULTA');
+    await ventaTipo('C', 'CONSULTA');
+
+    const r = await planilla.listarVentas(periodoId, { tipo: 'C' });
+
+    expect(r.total).toBe(2);
+    expect(r.datos.every(d => d.tipo === 'C')).toBe(true);
+  });
+
+  it('sin filtro devuelve los tres tipos', async () => {
+    await ventaTipo('A', 'PLANPAQ');
+    await ventaTipo('B', 'CIRUGIA');
+    await ventaTipo('C', 'CONSULTA');
+
+    expect((await planilla.listarVentas(periodoId, {})).total).toBe(3);
+  });
+
+  it('se combina con la clasificación en vez de sustituirla', async () => {
+    await ventaTipo('C', 'CONSULTA');
+    await ventaTipo('B', 'CIRUGIA');
+
+    const r = await planilla.listarVentas(periodoId, { tipo: 'C', clasif: 'CIRUGIA' });
+
+    expect(r.total).toBe(0);
+  });
+});

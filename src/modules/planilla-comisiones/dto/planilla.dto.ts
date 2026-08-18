@@ -11,7 +11,7 @@ import {
   ValidateIf,
 } from 'class-validator';
 
-import { CanalVenta, ClasifComision, NivelPlan, UnidadNegocio } from '@prisma/client';
+import { CanalVenta, TipoComision, ClasifComision, NivelPlan, UnidadNegocio } from '@prisma/client';
 
 import { PaginationDto } from '../../../common/dto/pagination.dto';
 
@@ -35,6 +35,16 @@ export class QueryVentasImportadasDto extends PaginationDto {
   @IsOptional()
   @IsEnum(CanalVenta)
   canal?: CanalVenta;
+
+  /**
+   * Tipo de comisión (A/B/C), que es como se agrupan las columnas de la
+   * liquidación. Sale de la clasificación —A planes, B cirugías, C el resto—
+   * pero se filtra aparte porque revisar "todo lo que paga por Tipo B" cruza
+   * varias clasificaciones y era lo único que no se podía acotar.
+   */
+  @IsOptional()
+  @IsEnum(TipoComision)
+  tipo?: TipoComision;
 
   @IsOptional()
   @IsString()
