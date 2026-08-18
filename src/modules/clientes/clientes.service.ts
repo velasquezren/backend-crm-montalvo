@@ -2,6 +2,7 @@ import { ConflictException, Injectable, NotFoundException } from '@nestjs/common
 import { CategoriaCliente, EstadoLead, Prisma } from '@prisma/client';
 
 import { AuditService } from '../../common/audit/audit.service';
+import { terminoBusqueda } from '../../common/dto/busqueda';
 import { calcularPaginacion, construirOrden, paginar } from '../../common/dto/pagination.dto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateClienteDto } from './dto/create-cliente.dto';
@@ -104,16 +105,21 @@ export class ClientesService {
    * pasando (o no) soloAgenteId desde el controller.
    */
   async findAll(query: QueryClienteDto, soloAgenteId?: string) {
+    /* Escapado: `%` y `_` son comodines de LIKE y Prisma no los neutraliza.
+       Sin esto, buscar "50%" traía a cualquiera con un "50" en el nombre, el
+       teléfono o el email, y buscar "%" devolvía los 15.000+ pacientes
+       recorriendo entero el índice trigram. */
+    const busqueda = terminoBusqueda(query.busqueda);
     const where: Prisma.ClienteWhereInput = {
       categoria: query.categoria,
       ...(soloAgenteId ? { OR: [{ agenteId: soloAgenteId }, { agenteId: null }] } : {}),
-      ...(query.busqueda
+      ...(busqueda
         ? {
             AND: {
               OR: [
-                { nombre: { contains: query.busqueda, mode: 'insensitive' } },
-                { telefono: { contains: query.busqueda } },
-                { email: { contains: query.busqueda, mode: 'insensitive' } },
+                { nombre: { contains: busqueda, mode: 'insensitive' } },
+                { telefono: { contains: busqueda } },
+                { email: { contains: busqueda, mode: 'insensitive' } },
               ],
             },
           }

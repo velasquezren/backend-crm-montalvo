@@ -2,6 +2,7 @@ import { BadRequestException, ConflictException, Injectable, Logger, NotFoundExc
 import { EstadoPeriodo, Prisma, VendedoraComision } from '@prisma/client';
 
 import { AuditService } from '../../common/audit/audit.service';
+import { terminoBusqueda } from '../../common/dto/busqueda';
 import { calcularPaginacion, paginar } from '../../common/dto/pagination.dto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { clasificarFila, determinarTipo, FilaExcel, normalizar } from './clasificador';
@@ -457,6 +458,7 @@ export class PlanillaComisionesService {
   async listarVentas(periodoId: string, query: QueryVentasImportadasDto) {
     await this.obtenerPeriodo(periodoId);
 
+    const buscar = terminoBusqueda(query.buscar);
     const where: Prisma.VentaImportadaWhereInput = {
       periodoId,
       ...(query.clasif ? { clasif: query.clasif } : {}),
@@ -465,11 +467,15 @@ export class PlanillaComisionesService {
       ...(query.modulo ? { modulo: query.modulo } : {}),
       ...(query.soloExcluidas ? { comisionable: false } : {}),
       ...(query.soloSinClasificar ? { requiereRevision: true } : {}),
-      ...(query.buscar
+      /* Escapado de comodines: sin esto, buscar un "20%" de descuento en el
+         detalle hacía match con cualquier venta que tuviera un "20". Es el
+         mismo buscador que ya se arregló una vez por decir "no existe" a
+         ventas que sí existen. */
+      ...(buscar
         ? {
             OR: [
-              { detalle: { contains: query.buscar, mode: 'insensitive' } },
-              { paciente: { contains: query.buscar, mode: 'insensitive' } },
+              { detalle: { contains: buscar, mode: 'insensitive' } },
+              { paciente: { contains: buscar, mode: 'insensitive' } },
             ],
           }
         : {}),

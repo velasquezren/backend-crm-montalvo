@@ -61,46 +61,46 @@ enum DireccionMensaje {
 }
 
 model Usuario {
-  id             String         @id @default(uuid())
-  nombre         String
-  email          String         @unique
-  passwordHash   String
-  rol            Rol            @default(AGENTE)
-  activo         Boolean        @default(true)
-  foto           String?
+  id                String                 @id @default(uuid())
+  nombre            String
+  email             String                 @unique
+  passwordHash      String
+  rol               Rol                    @default(AGENTE)
+  activo            Boolean                @default(true)
+  foto              String?
   /// Identificador que usa la empresa para esta persona (el `vendedora_pk` de
   /// FileMaker, ej. Pe2455). Es la ÚNICA vía por la que la planilla de comisiones
   /// reconoce a qué agente pertenece cada venta: al ser único y venir en el propio
   /// Excel, no hace falta vincular nada a mano ni adivinar por el nombre.
   /// Solo un SUPER_ADMIN puede asignarlo.
-  codigo         String?        @unique @db.VarChar(40)
-  clientes       Cliente[]      @relation("AgenteAsignado")
-  intereses      Interes[]
-  leads          Lead[]
-  conversaciones Conversacion[]
-  ventas         Venta[]
-  comisiones     Comision[]
-  plantillas     PlantillaAgente[]
-  recursosMemoria RecursoMemoriaAgente[]
+  codigo            String?                @unique @db.VarChar(40)
+  clientes          Cliente[]              @relation("AgenteAsignado")
+  intereses         Interes[]
+  leads             Lead[]
+  conversaciones    Conversacion[]
+  ventas            Venta[]
+  comisiones        Comision[]
+  plantillas        PlantillaAgente[]
+  recursosMemoria   RecursoMemoriaAgente[]
   pushSubscriptions PushSubscription[]
-  createdAt      DateTime          @default(now())
-  updatedAt      DateTime          @updatedAt
+  createdAt         DateTime               @default(now())
+  updatedAt         DateTime               @updatedAt
 }
 
 model Cliente {
-  id             String           @id @default(uuid())
-  nombre         String
-  telefono       String           @unique
-  email          String?
-  categoria      CategoriaCliente @default(PROSPECTO)
-  agente         Usuario?         @relation("AgenteAsignado", fields: [agenteId], references: [id])
-  agenteId       String?
+  id        String           @id @default(uuid())
+  nombre    String
+  telefono  String           @unique
+  email     String?
+  categoria CategoriaCliente @default(PROSPECTO)
+  agente    Usuario?         @relation("AgenteAsignado", fields: [agenteId], references: [id])
+  agenteId  String?
   /// Identificador del paciente en FileMaker (columna `pk`: Pac1897). Es la MISMA
   /// clave que `VentaImportada.pac`, así que el historial de servicios de un
   /// paciente es un join indexado y no un escaneo sobre JSON.
   /// Se guarda siempre en MAYÚSCULAS: FileMaker exporta `Pac1897` en el maestro
   /// de pacientes y `PAC50660` en el de ventas, y sin normalizar no cruzarían.
-  pac            String?          @unique @db.VarChar(20)
+  pac       String?          @unique @db.VarChar(20)
   // ── Ficha del paciente (origen: FileMaker) ──────────────────────────
   // Columnas propias y no un JSON: el listado las trae sin coste extra, la
   // ficha abre sin pedir nada más, y se pueden filtrar y agregar en SQL para
@@ -109,24 +109,24 @@ model Cliente {
   /// Fuente de verdad de la edad. NO se guarda la edad en número: el volcado de
   /// FileMaker traía la edad del día de la exportación y hoy miente hasta en 18
   /// años. La edad se calcula al mostrarla; esta fecha nunca caduca.
-  fechaNacimiento DateTime?       @db.Date
-  sexo            String?         @db.VarChar(1)
-  ocupacion       String?         @db.VarChar(80)
-  ci              String?         @db.VarChar(40)
-  ciLugar         String?         @db.VarChar(30)
-  estadoCivil     String?         @db.VarChar(25)
-  direccion       String?         @db.VarChar(200)
-  nacionalidad    String?         @db.VarChar(50)
-  telefonoFijo    String?         @db.VarChar(30)
-  nit             String?         @db.VarChar(45)
+  fechaNacimiento DateTime? @db.Date
+  sexo            String?   @db.VarChar(1)
+  ocupacion       String?   @db.VarChar(80)
+  ci              String?   @db.VarChar(40)
+  ciLugar         String?   @db.VarChar(30)
+  estadoCivil     String?   @db.VarChar(25)
+  direccion       String?   @db.VarChar(200)
+  nacionalidad    String?   @db.VarChar(50)
+  telefonoFijo    String?   @db.VarChar(30)
+  nit             String?   @db.VarChar(45)
   /// Saldo pendiente que arrastraba el paciente en el sistema antiguo.
-  saldoTotal      Decimal?        @db.Decimal(12, 2)
+  saldoTotal      Decimal?  @db.Decimal(12, 2)
   /// Dónde trabaja (`EmpTrab` de FileMaker).
-  empresaTrabajo  String?         @db.VarChar(120)
+  empresaTrabajo  String?   @db.VarChar(120)
   /// Persona de referencia o contacto de emergencia, con su teléfono.
-  contactoRef     String?         @db.VarChar(120)
-  telefonoRef     String?         @db.VarChar(30)
-  telefonoOficina String?         @db.VarChar(30)
+  contactoRef     String?   @db.VarChar(120)
+  telefonoRef     String?   @db.VarChar(30)
+  telefonoOficina String?   @db.VarChar(30)
   /// Visitas acumuladas en el sistema antiguo (`Movimientos`). Es el mejor
   /// indicador de recurrencia que trae el volcado: sirve para segmentar quién
   /// ya es paciente fiel y quién vino una sola vez.
@@ -140,8 +140,11 @@ model Cliente {
   leads          Lead[]
   conversaciones Conversacion[]
   ventas         Venta[]
-  createdAt      DateTime         @default(now())
-  updatedAt      DateTime         @updatedAt
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  // `Cliente_saldoTotal_idx` es parcial (`WHERE "saldoTotal" > 0`) y el lenguaje de
+  // Prisma no puede expresar un WHERE: vive solo en el SQL de la migración. Prisma
+  // no lo ve y por eso tampoco intenta borrarlo.
 
   @@index([categoria])
   @@index([nombre])
@@ -155,10 +158,6 @@ model Cliente {
   @@index([fechaNacimiento])
   @@index([ocupacion])
   @@index([visitasPrevias(sort: Desc)])
-  // `Cliente_saldoTotal_idx` es parcial (`WHERE "saldoTotal" > 0`) y el lenguaje de
-  // Prisma no puede expresar un WHERE: vive solo en el SQL de la migración. Prisma
-  // no lo ve y por eso tampoco intenta borrarlo.
-
   // Búsqueda por texto. Un B-tree no sirve para `ILIKE '%texto%'` —el comodín
   // inicial lo inutiliza— así que estos son GIN de trigramas. Sin ellos, cada
   // tecleo en el buscador era un Seq Scan sobre 15.000+ filas (41 ms → 0,2 ms).
@@ -189,11 +188,20 @@ model Lead {
   clienteId  String
   origen     OrigenLead
   estado     EstadoLead @default(NUEVO)
+  /// `leadgen_id` de Meta Lead Ads: **uno por persona que rellena el formulario**.
+  /// Es único porque es la clave de idempotencia con la que `procesarLeadMeta`
+  /// deduplica los reintentos del webhook. NO metas aquí el id de un anuncio.
   metaLeadId String?    @unique
+  /// Anuncio de Click-to-WhatsApp por el que entró (`referral.source_id`).
+  /// **No es único a propósito**: un mismo anuncio trae a muchas pacientes, que
+  /// es justo para lo que se paga una campaña. Indexado para poder contar
+  /// cuántos leads trajo cada anuncio.
+  anuncioId  String?    @db.VarChar(64)
   agente     Usuario?   @relation(fields: [agenteId], references: [id])
   agenteId   String?
   createdAt  DateTime   @default(now())
 
+  @@index([anuncioId])
   @@index([clienteId])
   @@index([estado])
   @@index([agenteId])
@@ -361,26 +369,26 @@ enum CategoriaRecursoMemoria {
 }
 
 model RecursoMemoriaAgente {
-  id           String                  @id @default(uuid())
-  usuario      Usuario                 @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
-  usuarioId    String
+  id        String  @id @default(uuid())
+  usuario   Usuario @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  usuarioId String
 
-  titulo       String                  @db.VarChar(120)
-  contenido    String?                 @db.Text
-  tipo         TipoRecursoMemoria      @default(TEXTO)
-  categoria    CategoriaRecursoMemoria @default(GENERAL)
-  atajo        String?                 @db.VarChar(35)
+  titulo    String                  @db.VarChar(120)
+  contenido String?                 @db.Text
+  tipo      TipoRecursoMemoria      @default(TEXTO)
+  categoria CategoriaRecursoMemoria @default(GENERAL)
+  atajo     String?                 @db.VarChar(35)
 
-  mediaKey     String?                 @db.VarChar(255)
-  mediaMime    String?                 @db.VarChar(100)
-  mediaNombre  String?                 @db.VarChar(255)
-  pesoBytes    Int                     @default(0)
+  mediaKey    String? @db.VarChar(255)
+  mediaMime   String? @db.VarChar(100)
+  mediaNombre String? @db.VarChar(255)
+  pesoBytes   Int     @default(0)
 
-  tags         String[]                @default([])
-  metadata     Json?
+  tags     String[] @default([])
+  metadata Json?
 
-  createdAt    DateTime                @default(now())
-  updatedAt    DateTime                @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([usuarioId, categoria])
   @@index([usuarioId, tipo])
@@ -515,13 +523,13 @@ model VentaImportada {
   nivel         NivelPlan?
 
   /// false = no entra al cálculo (precio 0, plan no aprobado, etc.).
-  comisionable    Boolean @default(true)
-  motivoExclusion String? @db.VarChar(200)
+  comisionable     Boolean @default(true)
+  motivoExclusion  String? @db.VarChar(200)
   /// true = ni el diccionario ni los heurísticos reconocieron el servicio.
   /// Comisiona provisionalmente como OTROSS, pero debe revisarse a mano.
   requiereRevision Boolean @default(false)
   /// true = un admin corrigió la clasificación a mano; no se pisa al recalcular.
-  ajustadaManual  Boolean @default(false)
+  ajustadaManual   Boolean @default(false)
 
   /// Solo para planes (PLANPAQ/PLANNIN). Decide si ESTE plan concreto comisiona
   /// cuando la vendedora superó su objetivo — porque solo comisionan los que lo
@@ -530,7 +538,7 @@ model VentaImportada {
   /// `null` = lo elige el sistema (base más baja primero, que es lo que hizo
   /// administración); `true`/`false` = decisión manual, y esa manda. En la
   /// planilla era la columna `PLANPAG COMISIONABLE`, escrita a mano fila por fila.
-  comisionaPlan   Boolean?
+  comisionaPlan Boolean?
 
   vendedora   VendedoraComision? @relation(fields: [vendedoraId], references: [id])
   vendedoraId String?
@@ -542,11 +550,9 @@ model VentaImportada {
   @@index([periodoId, clasif])
   @@index([periodoId, comisionable])
   @@index([periodoId, requiereRevision])
-
   // Se buscan al revisar la clasificación de un mes; ver la nota de Cliente.
   @@index([detalle(ops: raw("gin_trgm_ops"))], type: Gin, map: "VentaImportada_detalle_trgm_idx")
   @@index([paciente(ops: raw("gin_trgm_ops"))], type: Gin, map: "VentaImportada_paciente_trgm_idx")
-
   // El historial clínico agrupa por paciente y por médico sobre TODOS los
   // periodos, no dentro de uno: los índices compuestos de arriba empiezan por
   // `periodoId` y no le sirven. Hoy son 1.287 filas y da igual, pero la tabla
@@ -809,5 +815,3 @@ model PushSubscription {
 
   @@index([usuarioId])
 }
-
-

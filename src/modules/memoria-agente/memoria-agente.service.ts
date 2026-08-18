@@ -1,6 +1,7 @@
 import { ArchivoSubido } from './archivo-subido';
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma, TipoRecursoMemoria } from '@prisma/client';
+import { terminoBusqueda } from '../../common/dto/busqueda';
 import { calcularPaginacion, paginar } from '../../common/dto/pagination.dto';
 import { R2Service } from '../../common/storage/r2.service';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -79,13 +80,16 @@ export class MemoriaAgenteService {
       usuarioId,
       tipo: query.tipo,
       categoria: query.categoria,
-      ...(query.busqueda
+      /* Los tres `contains` van escapados porque acaban en un LIKE; el `has`
+         NO, porque es contención sobre el array de tags y ahí `%` es un
+         carácter más. Escaparlo haría que un tag con `%` dejara de encontrarse. */
+      ...(query.busqueda?.trim()
         ? {
             OR: [
-              { titulo: { contains: query.busqueda, mode: 'insensitive' } },
-              { contenido: { contains: query.busqueda, mode: 'insensitive' } },
-              { atajo: { contains: query.busqueda, mode: 'insensitive' } },
-              { tags: { has: query.busqueda.toLowerCase() } },
+              { titulo: { contains: terminoBusqueda(query.busqueda), mode: 'insensitive' } },
+              { contenido: { contains: terminoBusqueda(query.busqueda), mode: 'insensitive' } },
+              { atajo: { contains: terminoBusqueda(query.busqueda), mode: 'insensitive' } },
+              { tags: { has: query.busqueda.trim().toLowerCase() } },
             ],
           }
         : {}),

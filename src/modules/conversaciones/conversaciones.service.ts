@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { OrigenLead, Prisma, TipoMensaje } from '@prisma/client';
 
 import { CacheMemoria } from '../../common/cache/cache-memoria';
+import { escaparComodinesLike } from '../../common/dto/busqueda';
 import { R2Service } from '../../common/storage/r2.service';
 import { WhatsappCloudService } from '../../common/whatsapp/whatsapp-cloud.service';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -49,23 +50,6 @@ const LIMITE_MENSAJES_DETALLE = 50;
  * log en vez de esconder chats en silencio.
  */
 const LIMITE_INBOX = 500;
-
-/**
- * Neutraliza los comodines de LIKE en un término de búsqueda escrito por una
- * persona.
- *
- * Prisma traduce `contains` a `LIKE '%término%'` **sin escapar nada**: lo que
- * teclea la agente llega crudo al patrón. Buscar `%` devolvía el historial
- * completo del chat, y `20%` —que en esta clínica se escribe todo el día, entre
- * descuentos y promociones— hacía match con cualquier mensaje que tuviera "20".
- * `_` es igual de comodín, y comerse una barra invertida rompería el patrón.
- *
- * Postgres usa `\` como escape por defecto en LIKE. La barra va primero en la
- * clase de caracteres a propósito: se escapa a sí misma antes que al resto.
- */
-function escaparComodinesLike(termino: string): string {
-  return termino.replace(/[\\%_]/g, caracter => `\\${caracter}`);
-}
 
 /* Estas dos cachés guardan un único valor cada una, así que la clave es
    simbólica: existe porque `CacheMemoria` está pensada para varias entradas. */
@@ -509,8 +493,22 @@ export class ConversacionesService {
        —qué se reclama, qué se respeta, qué se audita— en dos sitios que se
        separan al primer cambio. Fuera de la transacción a propósito: que la
        paciente quede sin dueña no puede tumbar el envío de un mensaje que ya
-       salió hacia Meta. */
-    await this.clientesService.reclamarSiNoTieneDuena(conversacion.clienteId, agenteId, agenteId);
+       salió hacia Meta.
+
+       El `catch` es lo que hace verdad esa última frase. Era un `await` pelado,
+       y el despacho a Meta va DESPUÉS: si esta escritura fallaba —un deadlock,
+       un timeout— la excepción se llevaba consigo el `void despachador…`, así
+       que el mensaje quedaba guardado en el CRM y NO SALÍA hacia la paciente.
+       La agente veía un 500 sobre un mensaje que ya aparecía en el hilo, y al
+       reintentar lo duplicaba. */
+    await this.clientesService
+      .reclamarSiNoTieneDuena(conversacion.clienteId, agenteId, agenteId)
+      .catch(error =>
+        this.logger.error(
+          `No se pudo reclamar la paciente ${conversacion.clienteId} para ${agenteId}`,
+          error,
+        ),
+      );
 
     /* Empuja el refresco a los demás clientes conectados (ver ConversacionesGateway). */
     this.gateway.emitirActividad(conversacionId);
@@ -914,16 +912,36 @@ export class ConversacionesService {
        por cada webhook simultáneo (Lead no es único por cliente — un cliente
        puede tener varias oportunidades). Como la creación de la conversación
        está serializada por el índice único, exactamente un webhook ve `esNueva`. */
+    /* El lead va en su propio try/catch, y no por desconfiar de la línea de
+       arriba: es la misma regla que el webhook aplica a cada elemento de un
+       lote. Lo que viene después —la notificación push a la agente y el acuse
+       fuera de horario— es lo que hace que alguien atienda a la paciente; el
+       lead es contabilidad. Si algún día vuelve a fallar esta escritura, que se
+       pierda el registro, no el aviso. */
     if (esNueva) {
-      await this.prisma.lead.create({
-        data: {
-          clienteId: cliente.id,
-          origen: origenLead,
-          estado: 'NUEVO',
-          metaLeadId: referral?.anuncioId || null,
-          agenteId: cliente.agenteId,
-        },
-      });
+      try {
+        await this.prisma.lead.create({
+          data: {
+            clienteId: cliente.id,
+            origen: origenLead,
+            estado: 'NUEVO',
+            /* El id del ANUNCIO va a su columna, que no es única.
+               Estuvo yendo a `metaLeadId`, que sí lo es porque guarda el
+               `leadgen_id` de Lead Ads —uno por persona— y con él deduplica
+               `procesarLeadMeta` los reintentos del webhook. Un anuncio lo
+               clican muchas pacientes: la primera creaba su lead y de la
+               segunda en adelante el INSERT reventaba con P2002. */
+            anuncioId: referral?.anuncioId || null,
+            agenteId: cliente.agenteId,
+          },
+        });
+      } catch (error) {
+        this.logger.error(
+          `No se pudo crear el lead de primer contacto para ${cliente.id} ` +
+            `(anuncio ${referral?.anuncioId ?? 'ninguno'})`,
+          error,
+        );
+      }
     }
 
     /* Refresca el inbox de quien lo tenga abierto y avisa al teléfono de quien

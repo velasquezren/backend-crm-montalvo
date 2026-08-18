@@ -487,6 +487,70 @@ describe('Conversaciones contra Postgres real', () => {
   });
 
   /**
+   * Click-to-WhatsApp: varias pacientes entran por el MISMO anuncio.
+   *
+   * Es el caso normal de una campaña —para eso se paga— y era el que fallaba:
+   * el id del anuncio se guardaba en `Lead.metaLeadId`, que es `@unique` porque
+   * ahí va el `leadgen_id` de Lead Ads, uno por persona. La primera paciente
+   * creaba su lead y la segunda reventaba con P2002.
+   *
+   * Y el daño no se quedaba en el lead: la excepción salía de `procesarEntrante`
+   * sin try/catch, así que se llevaba por delante lo que viene después —el aviso
+   * push a la agente y el acuse fuera de horario—. En plena campaña, de la
+   * segunda paciente en adelante nadie se enteraba de que había escrito.
+   *
+   * Probar con UNA sola paciente por anuncio pasaba en verde, que es justo por
+   * lo que el fallo llegó a producción sin verse.
+   */
+  describe('Click-to-WhatsApp: varias pacientes por el mismo anuncio', () => {
+    const anuncio = '120215839201920';
+    const campana = { origenTipo: 'ad', anuncioId: anuncio, titular: 'Promo Rinoplastia' };
+
+    it('dos pacientes del mismo anuncio generan sus dos leads', async () => {
+      await service.procesarEntrante('+59172000020', 'Hola', 'wamid.ads1', 'Primera', undefined, campana);
+      await service.procesarEntrante('+59172000021', 'Hola', 'wamid.ads2', 'Segunda', undefined, campana);
+
+      const leads = await prisma.lead.findMany({ where: { anuncioId: anuncio } });
+      expect(leads).toHaveLength(2);
+      /* El anuncio va a su columna; `metaLeadId` queda libre para Lead Ads. */
+      expect(leads.every(l => l.metaLeadId === null)).toBe(true);
+      expect(leads.every(l => l.origen === 'FACEBOOK_LEAD_AD')).toBe(true);
+    });
+
+    /* Lo que de verdad dolía: la segunda paciente escribía y no sonaba nada.
+       La excepción del lead cortaba `procesarEntrante` justo antes de
+       `notificarEntrante`, así que este contador se quedaba en 1. */
+    it('la segunda paciente del anuncio también dispara su aviso al teléfono', async () => {
+      await service.procesarEntrante('+59172000022', 'Hola', 'wamid.ads3', 'Primera', undefined, campana);
+      await service.procesarEntrante('+59172000023', 'Hola', 'wamid.ads4', 'Segunda', undefined, campana);
+
+      expect(gateway.notificados).toHaveLength(2);
+    });
+
+    it('un anuncio de Instagram se clasifica como INSTAGRAM_LEAD_AD', async () => {
+      await service.procesarEntrante('+59172000024', 'Hola', 'wamid.ads5', 'Tercera', undefined, {
+        ...campana,
+        origenUrl: 'https://www.instagram.com/p/xyz',
+      });
+
+      const lead = await prisma.lead.findFirstOrThrow({ where: { anuncioId: anuncio } });
+      expect(lead.origen).toBe('INSTAGRAM_LEAD_AD');
+    });
+
+    /* Sin `referral` nada cambia: el chat orgánico sigue siendo WHATSAPP_DIRECTO
+       y sin anuncio, para que la atribución de campaña no se contamine. */
+    it('un chat orgánico no queda atribuido a ninguna campaña', async () => {
+      await service.procesarEntrante('+59172000025', 'Hola', 'wamid.org1', 'Orgánica');
+
+      const lead = await prisma.lead.findFirstOrThrow({
+        where: { cliente: { telefono: '+59172000025' } },
+      });
+      expect(lead.anuncioId).toBeNull();
+      expect(lead.origen).toBe('WHATSAPP_DIRECTO');
+    });
+  });
+
+  /**
    * El refresco por WebSocket es barato y lo dispara todo; la notificación al
    * teléfono es intrusiva y solo la dispara un mensaje de la paciente.
    *
