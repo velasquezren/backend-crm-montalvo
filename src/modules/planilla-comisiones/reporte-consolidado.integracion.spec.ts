@@ -401,3 +401,93 @@ describe('filtro por tipo de comisión', () => {
     expect(r.total).toBe(0);
   });
 });
+
+describe('totales y subtotales del listado de ventas', () => {
+  async function vender(vendedoraId: string, n: number, precio: number) {
+    await prisma.ventaImportada.createMany({
+      data: Array.from({ length: n }, () => ({
+        periodoId,
+        vendedoraId,
+        detalle: 'Servicio',
+        precio,
+        canal: 'PROPIO' as const,
+        ingresoNeto: precio * 0.87,
+        unidadNegocio: 'VARIOS' as const,
+        clasif: 'OTROSS' as const,
+        tipo: 'C' as const,
+        comisionable: true,
+      })),
+    });
+  }
+
+  async function vendedora(codigo: string, nombre: string) {
+    return prisma.vendedoraComision.create({ data: { codigo, nombre, configurada: true } });
+  }
+
+  /* Lo que no puede volver a pasar: sumar en el navegador lo que llegó y
+     presentarlo como el total del mes. Con 150 ventas y una página de 10, el
+     total tiene que seguir siendo el de las 150. */
+  it('el total es del filtro entero, no de la página', async () => {
+    const v = await vendedora('PeT', 'Total');
+    await vender(v.id, 150, 100);
+
+    const r = await planilla.listarVentas(periodoId, { limite: 10 });
+
+    expect(r.datos).toHaveLength(10);
+    expect(r.totales.ventas).toBe(150);
+    expect(r.totales.monto).toBeCloseTo(15000, 2);
+    expect(r.totales.base).toBeCloseTo(13050, 2);
+  });
+
+  it('da un subtotal por vendedora, de mayor a menor', async () => {
+    const a = await vendedora('PeM', 'Mucho');
+    const b = await vendedora('PeP', 'Poco');
+    await vender(a.id, 10, 500);
+    await vender(b.id, 3, 100);
+
+    const r = await planilla.listarVentas(periodoId, { limite: 5 });
+
+    expect(r.porVendedora).toHaveLength(2);
+    expect(r.porVendedora[0]).toMatchObject({ nombre: 'Mucho', ventas: 10 });
+    expect(r.porVendedora[0].monto).toBeCloseTo(5000, 2);
+    expect(r.porVendedora[1]).toMatchObject({ nombre: 'Poco', ventas: 3 });
+  });
+
+  it('los subtotales suman exactamente el total', async () => {
+    const a = await vendedora('PeX1', 'A');
+    const b = await vendedora('PeX2', 'B');
+    await vender(a.id, 7, 300);
+    await vender(b.id, 5, 120);
+
+    const r = await planilla.listarVentas(periodoId, { limite: 2 });
+
+    const suma = r.porVendedora.reduce((t, v) => t + v.monto, 0);
+    expect(suma).toBeCloseTo(r.totales.monto, 2);
+    expect(r.porVendedora.reduce((t, v) => t + v.ventas, 0)).toBe(r.totales.ventas);
+  });
+
+  /* Los totales respetan el filtro: es "el total de lo que estoy viendo". */
+  it('filtrar por tipo acota también los totales', async () => {
+    const v = await vendedora('PeF', 'Filtrada');
+    await vender(v.id, 4, 100);
+    await prisma.ventaImportada.create({
+      data: {
+        periodoId, vendedoraId: v.id, detalle: 'Cirugia', precio: 900,
+        canal: 'PROPIO', ingresoNeto: 783, unidadNegocio: 'VARIOS',
+        clasif: 'CIRUGIA', tipo: 'B', comisionable: true,
+      },
+    });
+
+    const r = await planilla.listarVentas(periodoId, { tipo: 'B' });
+
+    expect(r.totales.ventas).toBe(1);
+    expect(r.totales.monto).toBeCloseTo(900, 2);
+  });
+
+  it('sin ventas los totales son cero, no NaN', async () => {
+    const r = await planilla.listarVentas(periodoId, {});
+
+    expect(r.totales).toEqual({ ventas: 0, monto: 0, base: 0 });
+    expect(r.porVendedora).toEqual([]);
+  });
+});

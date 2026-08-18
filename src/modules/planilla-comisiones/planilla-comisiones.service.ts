@@ -34,6 +34,19 @@ const TAMANO_LOTE = 500;
  */
 const LIMITE_MES_VENDEDORA = 500;
 
+/** Totales del filtro completo, no de la página que se está viendo. */
+export interface TotalesVentas {
+  readonly ventas: number;
+  readonly monto: number;
+  readonly base: number;
+}
+
+/** Subtotal de una vendedora dentro del filtro actual. */
+export interface SubtotalVendedora extends TotalesVentas {
+  readonly vendedoraId: string;
+  readonly nombre: string;
+}
+
 /** Reparto por canal de una vendedora, o `null` si no se pidió por vendedora. */
 export interface RepartoCanal {
   readonly total: number;
@@ -55,6 +68,36 @@ export interface RepartoCanal {
  * "yo la traje" contra "me la dio la clínica", y agrupar el resto evita que un
  * canal nuevo en FileMaker desaparezca de la cuenta sin avisar.
  */
+/**
+ * Fila cruda de un `groupBy` con conteo y sumas.
+ *
+ * Se declara a mano porque Prisma tipa `_count` como `true | objeto` aunque la
+ * consulta pida `{ _all: true }`, y leerlo directo no compila. Es el mismo
+ * rodeo que ya usaba `repartoPorCanal`: un tipo explícito en vez de un `any`.
+ */
+interface FilaAgrupada {
+  readonly vendedoraId: string | null;
+  readonly _count: { readonly _all: number };
+  readonly _sum: { readonly precio: unknown; readonly ingresoNeto: unknown };
+}
+
+/** Subtotales por vendedora a partir del `groupBy`, de mayor a menor. */
+function subtotalesPorVendedora(
+  filas: readonly FilaAgrupada[],
+  nombres: ReadonlyMap<string, string>,
+): SubtotalVendedora[] {
+  return filas
+    .filter(f => f.vendedoraId)
+    .map(f => ({
+      vendedoraId: f.vendedoraId as string,
+      nombre: nombres.get(f.vendedoraId as string) ?? 'Sin identificar',
+      ventas: f._count._all,
+      monto: Number(f._sum.precio ?? 0),
+      base: Number(f._sum.ingresoNeto ?? 0),
+    }))
+    .sort((a, b) => b.monto - a.monto);
+}
+
 function repartoPorCanal(
   filas: { canal: string; _count: { _all: number } }[] | undefined,
 ): RepartoCanal | null {
@@ -512,7 +555,7 @@ export class PlanillaComisionesService {
       comisionable: true,
     };
 
-    const [datos, total, porCanal] = await this.prisma.$transaction([
+    const [datos, total, agregado, porVendedoraCrudo, porCanal] = await this.prisma.$transaction([
       this.prisma.ventaImportada.findMany({
         where,
         orderBy: [{ fecha: 'asc' }, { detalle: 'asc' }],
@@ -521,6 +564,23 @@ export class PlanillaComisionesService {
         include: { vendedora: { select: { id: true, nombre: true, codigo: true } } },
       }),
       this.prisma.ventaImportada.count({ where }),
+      /* Totales y subtotales del FILTRO ENTERO, no de la página.
+         Sumarlos en el navegador sobre `datos` daría el total de 100 filas y lo
+         presentaría como el del mes — es el mismo error que ya costó caro en el
+         reparto por canal y en el buscador de desempeño. Van aquí dentro porque
+         la transacción ya se hacía: no cuestan un viaje de red más. */
+      this.prisma.ventaImportada.aggregate({
+        where,
+        _count: { _all: true },
+        _sum: { precio: true, ingresoNeto: true },
+      }),
+      this.prisma.ventaImportada.groupBy({
+        by: ['vendedoraId'],
+        where,
+        _count: { _all: true },
+        _sum: { precio: true, ingresoNeto: true },
+        orderBy: { _sum: { precio: 'desc' } },
+      }),
       ...(conCanales
         ? [
             this.prisma.ventaImportada.groupBy({
@@ -552,7 +612,36 @@ export class PlanillaComisionesService {
       ? { datos, total, pagina: 1, limite: LIMITE_MES_VENDEDORA, totalPaginas: 1 }
       : paginar(datos, total, query);
 
-    return { ...sobre, canales: repartoPorCanal(porCanal) };
+    /* Los nombres salen de las filas ya traídas cuando se puede, y solo se
+       consulta la tabla si algún subtotal quedó fuera de la página — con el
+       filtro por vendedora puesto, que es el caso normal, no se consulta nada. */
+    const nombres = new Map<string, string>();
+    for (const fila of datos) {
+      if (fila.vendedoraId && fila.vendedora) nombres.set(fila.vendedoraId, fila.vendedora.nombre);
+    }
+    const faltantes = porVendedoraCrudo
+      .map(f => f.vendedoraId)
+      .filter((id): id is string => Boolean(id) && !nombres.has(id as string));
+    if (faltantes.length > 0) {
+      const encontradas = await this.prisma.vendedoraComision.findMany({
+        where: { id: { in: faltantes } },
+        select: { id: true, nombre: true },
+      });
+      for (const v of encontradas) nombres.set(v.id, v.nombre);
+    }
+
+    const porVendedora = subtotalesPorVendedora(
+      porVendedoraCrudo as unknown as FilaAgrupada[],
+      nombres,
+    );
+
+    const totales: TotalesVentas = {
+      ventas: agregado._count._all,
+      monto: Number(agregado._sum.precio ?? 0),
+      base: Number(agregado._sum.ingresoNeto ?? 0),
+    };
+
+    return { ...sobre, canales: repartoPorCanal(porCanal), totales, porVendedora };
   }
 
   /** Corrige a mano la clasificación de una fila; queda marcada como ajustada. */
