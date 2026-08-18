@@ -10,6 +10,7 @@ import {
   FilaExcel,
   normalizar,
   ReglaDiccionario,
+  clasifDeFileMaker,
 } from './clasificador';
 
 /**
@@ -349,5 +350,40 @@ describe('área clínica → unidad de negocio', () => {
         UnidadNegocio.RA,
       );
     }
+  });
+});
+
+/* La columna que FileMaker ya trae resuelta. El sistema la ignoraba —la cabecera
+   del export dice `clasifiacion`, sin la segunda c— y volvía a deducir con
+   heurísticos algo que tenía delante. Acertaba, pero un servicio nuevo con un
+   nombre desconocido habría caído en OTROSS. */
+describe('clasifDeFileMaker', () => {
+  it('traduce las siete etiquetas que usa el export de enero', () => {
+    expect(clasifDeFileMaker('Laboratorio')).toBe('LAB');
+    expect(clasifDeFileMaker('Consulta')).toBe('CONSULTA');
+    expect(clasifDeFileMaker('Ecografia')).toBe('ECOGRAFIA');
+    expect(clasifDeFileMaker('Cirugia')).toBe('CIRUGIA');
+    expect(clasifDeFileMaker('Otros servicios')).toBe('OTROSS');
+  });
+
+  /* Paquete y Plan comisionan distinto: los paquetes de maternidad son Tipo A
+     con tabla por nivel, los planes varios llevan su propio porcentaje. */
+  it('separa Paquete de Plan, que no pagan igual', () => {
+    expect(clasifDeFileMaker('Paquete')).toBe('PLANPAQ');
+    expect(clasifDeFileMaker('Plan')).toBe('PLANNIN');
+  });
+
+  it('ignora acentos y mayúsculas, que el export mezcla', () => {
+    expect(clasifDeFileMaker('ECOGRAFÍA')).toBe('ECOGRAFIA');
+    expect(clasifDeFileMaker('  laboratorio  ')).toBe('LAB');
+  });
+
+  /* Las 8 filas de enero que vienen sin clasificar: aquí devuelve null y sigue
+     mandando el heurístico, que es lo que las venía resolviendo. */
+  it('devuelve null si la columna viene vacía o dice algo desconocido', () => {
+    expect(clasifDeFileMaker(null)).toBeNull();
+    expect(clasifDeFileMaker('')).toBeNull();
+    expect(clasifDeFileMaker('   ')).toBeNull();
+    expect(clasifDeFileMaker('Vacunación')).toBeNull();
   });
 });

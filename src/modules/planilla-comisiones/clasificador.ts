@@ -51,6 +51,8 @@ export interface FilaExcel {
   tc: number | null;
   obs: string | null;
   clasificacionPlan: string | null;
+  /** Clasificación del SERVICIO tal como la trae FileMaker (columna `clasifiacion`). */
+  clasificacionServicio: string | null;
 }
 
 /** Regla del diccionario configurable (subconjunto de `ReglaClasificacion`). */
@@ -284,6 +286,37 @@ export function determinarUnidadNegocio(
 }
 
 /**
+ * Lo que FileMaker ya dice que es este servicio.
+ *
+ * El export trae una columna con la clasificación resuelta —231 laboratorios, 85
+ * consultas, 35 ecografías…— y hasta ahora el sistema la ignoraba y volvía a
+ * deducirla con heurísticos sobre el texto del detalle. Adivinaba bien (coincidía
+ * en las 415 filas de enero que traen valor), pero adivinar teniendo el dato es
+ * frágil: basta un servicio nuevo con un nombre que ningún patrón reconozca para
+ * que caiga en OTROSS.
+ *
+ * `Plan` y `Paquete` se separan porque comisionan distinto: los paquetes de
+ * maternidad son Tipo A con tabla por nivel, los planes varios llevan su propio
+ * porcentaje.
+ *
+ * Devuelve null si la columna viene vacía o dice algo que no conocemos; ahí sigue
+ * mandando el heurístico, que es lo que cubre las 8 filas sin clasificar de enero.
+ */
+export function clasifDeFileMaker(valor: string | null): ClasifComision | null {
+  const texto = normalizar(valor);
+  if (!texto) return null;
+
+  if (texto.includes('LABORATORIO')) return ClasifComision.LAB;
+  if (texto.includes('ECOGRAFIA')) return ClasifComision.ECOGRAFIA;
+  if (texto.includes('CONSULTA')) return ClasifComision.CONSULTA;
+  if (texto.includes('CIRUGIA')) return ClasifComision.CIRUGIA;
+  if (texto.includes('PAQUETE')) return ClasifComision.PLANPAQ;
+  if (texto.includes('PLAN')) return ClasifComision.PLANNIN;
+  if (texto.includes('OTROS')) return ClasifComision.OTROSS;
+  return null;
+}
+
+/**
  * PASO 4 — Clasificación por heurísticos, cuando el diccionario no la fijó.
  * Devuelve null si nada reconoce el servicio (queda para revisión manual).
  */
@@ -397,11 +430,16 @@ export function clasificarFila(
   const regla = buscarRegla(fila, reglas, detalleNorm, moduloNorm);
   const unidadNegocio = determinarUnidadNegocio(fila, regla);
 
+  /* Prioridad: lo que administración ajustó a mano (diccionario) manda sobre lo
+     que dice FileMaker, y lo de FileMaker manda sobre lo que deduzcamos nosotros.
+     El diccionario sigue primero porque es la vía por la que se corrige un caso
+     concreto sin tocar el export. */
+  const clasifFileMaker = clasifDeFileMaker(fila.clasificacionServicio);
   const clasifHeuristica = determinarClasifHeuristica(fila, unidadNegocio);
-  // Sin regla ni heurístico no se inventa una clasificación: se marca OTROSS
-  // para que no rompa el cálculo, pero se levanta la bandera de revisión.
-  const requiereRevision = !regla && clasifHeuristica === null;
-  let clasif = regla?.clasif ?? clasifHeuristica ?? ClasifComision.OTROSS;
+  // Sin regla, sin columna y sin heurístico no se inventa una clasificación: se
+  // marca OTROSS para que no rompa el cálculo, pero se levanta la bandera.
+  const requiereRevision = !regla && clasifFileMaker === null && clasifHeuristica === null;
+  let clasif = regla?.clasif ?? clasifFileMaker ?? clasifHeuristica ?? ClasifComision.OTROSS;
 
   // PASO 5 — Las promociones no comisionan, y pisan cualquier clasificación previa.
   const promocion = normalizar(fila.promocion);

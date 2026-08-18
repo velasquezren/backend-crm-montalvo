@@ -33,6 +33,9 @@ const ALIAS_COLUMNAS: Record<keyof FilaExcel, readonly string[]> = {
   anticipoPlan: ['ANTICIPO_PLAN', 'ANTICIPOPLAN', 'ANTICIPO PLAN', 'ANTICIPO'],
   tc: ['TC'],
   obs: ['OBS', 'OBSERVACIONES'],
+  /* La cabecera real del export dice `clasifiacion`, sin la segunda c. Se acepta
+     tal cual y también bien escrita, por si FileMaker lo corrige algún día. */
+  clasificacionServicio: ['CLASIFIACION', 'CLASIFICACION SERVICIO', 'CLASIF SERVICIO'],
   clasificacionPlan: [
     'CONFIG.PLANES.CLAS::CLASIFICACION',
     'CLASIFICACION',
@@ -189,6 +192,7 @@ export function leerExcel(buffer: Buffer): ResultadoLectura {
       anticipoPlan: aNumero(leer(cruda, 'anticipoPlan')),
       tc: aNumero(leer(cruda, 'tc')),
       obs: aTexto(leer(cruda, 'obs')),
+      clasificacionServicio: aTexto(leer(cruda, 'clasificacionServicio')),
       clasificacionPlan: aTexto(leer(cruda, 'clasificacionPlan')),
     });
   }
