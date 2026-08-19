@@ -525,7 +525,9 @@ model VentaImportada {
 
   // ── Derivados por el clasificador (admin puede sobreescribirlos) ──
   canal         CanalVenta
-  /// Base de cálculo: precio (o anticipo, si lo hay) sin el 13% de impuestos.
+  /// Base de cálculo: SIEMPRE precio × 0,87. El anticipo no la cambia — un plan
+  /// comisiona una sola vez, por su precio entero, sin importar cuánto se pagó
+  /// ese mes ni cuánto queda debiendo.
   ingresoNeto   Decimal        @db.Decimal(12, 2)
   unidadNegocio UnidadNegocio
   clasif        ClasifComision

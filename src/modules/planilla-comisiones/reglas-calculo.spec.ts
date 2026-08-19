@@ -73,14 +73,18 @@ describe('objetivo de planes como franquicia (Tipo A)', () => {
    * por eso este caso no bastaba para descubrir que el prorrateo estaba mal.
    */
   it('paga la base completa del plan elegido, no una fracción', () => {
+    const bases = new Map([
+      ['nino-a', 873.74],
+      ['nino-b', 873.74],
+    ]);
     const plannin: PlanCandidato[] = [
-      { id: 'nino-a', base: 873.74, comisionaPlan: null },
-      { id: 'nino-b', base: 873.74, comisionaPlan: null },
+      { id: 'nino-a', codOrigen: 'VE1001', fecha: null, comisionaPlan: null },
+      { id: 'nino-b', codOrigen: 'VE1002', fecha: null, comisionaPlan: null },
     ];
     const { elegidos } = seleccionarPlanesComisionables(plannin, 1);
     expect(elegidos.size).toBe(1);
 
-    const base = plannin.filter(p => elegidos.has(p.id)).reduce((s, p) => s + p.base, 0);
+    const base = [...elegidos].reduce((s, id) => s + (bases.get(id) ?? 0), 0);
     expect(Math.round(base * 0.03 * 100) / 100).toBe(26.21);
   });
 });
@@ -162,67 +166,94 @@ describe('cierre de trimestre', () => {
 });
 
 describe('selección de planes comisionables', () => {
-  /** Los 5 paquetes de Zuany en diciembre, con sus bases reales. */
-  const zuany: PlanCandidato[] = [
-    { id: 'bronce-1800', base: 1800.9, comisionaPlan: null },
-    { id: 'bronce-2102', base: 2102.79, comisionaPlan: null },
-    { id: 'gold-2579', base: 2579.34, comisionaPlan: null },
-    { id: 'gold-3001-a', base: 3001.5, comisionaPlan: null },
-    { id: 'gold-3001-b', base: 3001.5, comisionaPlan: null },
+  /**
+   * Los 6 paquetes de Claudia en diciembre 2025, con su correlativo y su fecha
+   * REALES. La planilla marcó "COMISIONA" en VE1458 y VE1462 —los dos últimos
+   * por correlativo— y pagó 3 % × 2.106,62 + 2 % × 1.886,62 = 100,93.
+   *
+   * El caso vale porque la fecha y el correlativo se contradicen: VE1458 es del
+   * 22/12 y VE1462 del 13/12, así que "los dos últimos por fecha" habría elegido
+   * VE1458 y el VE1457 del 10/12. Y las bases también se contradicen: los dos
+   * más baratos son VE1457 (645,64) y VE1462, que pagaban 50,65 — la mitad.
+   */
+  const claudia: PlanCandidato[] = [
+    { id: 'VE1447', codOrigen: 'VE1447', fecha: new Date('2025-12-02'), comisionaPlan: null },
+    { id: 'VE1452', codOrigen: 'VE1452', fecha: new Date('2025-12-05'), comisionaPlan: null },
+    { id: 'VE1454', codOrigen: 'VE1454', fecha: new Date('2025-12-08'), comisionaPlan: null },
+    { id: 'VE1457', codOrigen: 'VE1457', fecha: new Date('2025-12-10'), comisionaPlan: null },
+    { id: 'VE1458', codOrigen: 'VE1458', fecha: new Date('2025-12-22'), comisionaPlan: null },
+    { id: 'VE1462', codOrigen: 'VE1462', fecha: new Date('2025-12-13'), comisionaPlan: null },
   ];
 
-  it('sin decisión manual elige los de base más baja, como hizo la planilla', () => {
-    const { elegidos, cupo } = seleccionarPlanesComisionables(zuany, 4);
-    expect(cupo).toBe(1);
-    expect([...elegidos]).toEqual(['bronce-1800']);
+  it('sin decisión manual elige los ÚLTIMOS, como marcó la planilla', () => {
+    const { elegidos, cupo } = seleccionarPlanesComisionables(claudia, 4);
+    expect(cupo).toBe(2);
+    expect([...elegidos].sort()).toEqual(['VE1458', 'VE1462']);
   });
 
-  it('respeta lo que administración marcó, aunque no sea el más barato', () => {
-    const conMarca = zuany.map(p =>
-      p.id === 'gold-3001-a' ? { ...p, comisionaPlan: true } : p,
-    );
-    const { elegidos } = seleccionarPlanesComisionables(conMarca, 4);
-    expect([...elegidos]).toEqual(['gold-3001-a']);
+  it('ordena por correlativo, no por fecha de venta', () => {
+    const { elegidos } = seleccionarPlanesComisionables(claudia, 5);
+    expect([...elegidos]).toEqual(['VE1462']);
+  });
+
+  it('respeta lo que administración marcó, aunque no sea de los últimos', () => {
+    const conMarca = claudia.map(p => (p.id === 'VE1447' ? { ...p, comisionaPlan: true } : p));
+    const { elegidos } = seleccionarPlanesComisionables(conMarca, 5);
+    expect([...elegidos]).toEqual(['VE1447']);
   });
 
   it('nunca elige uno descartado a mano', () => {
-    const conDescarte = zuany.map(p =>
-      p.id === 'bronce-1800' ? { ...p, comisionaPlan: false } : p,
-    );
-    const { elegidos } = seleccionarPlanesComisionables(conDescarte, 4);
-    expect([...elegidos]).toEqual(['bronce-2102']);
+    const conDescarte = claudia.map(p => (p.id === 'VE1462' ? { ...p, comisionaPlan: false } : p));
+    const { elegidos } = seleccionarPlanesComisionables(conDescarte, 5);
+    expect([...elegidos]).toEqual(['VE1458']);
   });
 
-  it('completa el cupo con automáticos cuando la marca manual no alcanza', () => {
-    const conMarca = zuany.map(p =>
-      p.id === 'gold-3001-b' ? { ...p, comisionaPlan: true } : p,
-    );
-    const { elegidos, cupo } = seleccionarPlanesComisionables(conMarca, 2);
+  it('completa el cupo con los siguientes más recientes', () => {
+    const conMarca = claudia.map(p => (p.id === 'VE1447' ? { ...p, comisionaPlan: true } : p));
+    const { elegidos, cupo } = seleccionarPlanesComisionables(conMarca, 3);
     expect(cupo).toBe(3);
-    expect(elegidos.size).toBe(3);
-    expect(elegidos.has('gold-3001-b')).toBe(true);
-    expect(elegidos.has('bronce-1800')).toBe(true);
-    expect(elegidos.has('bronce-2102')).toBe(true);
+    expect([...elegidos].sort()).toEqual(['VE1447', 'VE1458', 'VE1462']);
   });
 
   it('no paga de más si marcaron más de los que el objetivo permite', () => {
-    const exceso = zuany.map(p => ({ ...p, comisionaPlan: true }));
-    const { elegidos, cupo, descartadosPorCupo } = seleccionarPlanesComisionables(exceso, 4);
+    const exceso = claudia.map(p => ({ ...p, comisionaPlan: true }));
+    const { elegidos, cupo, descartadosPorCupo } = seleccionarPlanesComisionables(exceso, 5);
     expect(cupo).toBe(1);
-    expect(elegidos.size).toBe(1);
-    expect(descartadosPorCupo).toHaveLength(4);
+    expect([...elegidos]).toEqual(['VE1462']);
+    expect(descartadosPorCupo).toHaveLength(5);
   });
 
   it('igualar el objetivo no comisiona ninguno', () => {
-    expect(seleccionarPlanesComisionables(zuany, 5).elegidos.size).toBe(0);
-    expect(seleccionarPlanesComisionables(zuany, 9).cupo).toBe(0);
+    expect(seleccionarPlanesComisionables(claudia, 6).elegidos.size).toBe(0);
+    expect(seleccionarPlanesComisionables(claudia, 9).cupo).toBe(0);
   });
 
-  it('es determinista: dos corridas eligen lo mismo con bases empatadas', () => {
+  /*
+   * El correlativo se compara como número, no como texto: "VE999" es anterior a
+   * "VE1000" aunque alfabéticamente vaya después. El mes en que la clínica cruce
+   * el millar es el mes en que esto se pagaría al revés.
+   */
+  it('el correlativo se ordena por número, no alfabéticamente', () => {
+    const cruce: PlanCandidato[] = [
+      { id: 'x', codOrigen: 'VE999', fecha: null, comisionaPlan: null },
+      { id: 'y', codOrigen: 'VE1000', fecha: null, comisionaPlan: null },
+    ];
+    expect([...seleccionarPlanesComisionables(cruce, 1).elegidos]).toEqual(['y']);
+  });
+
+  it('sin correlativo cae a la fecha', () => {
+    const sinCodigo: PlanCandidato[] = [
+      { id: 'viejo', codOrigen: null, fecha: new Date('2026-01-03'), comisionaPlan: null },
+      { id: 'nuevo', codOrigen: null, fecha: new Date('2026-01-28'), comisionaPlan: null },
+    ];
+    expect([...seleccionarPlanesComisionables(sinCodigo, 1).elegidos]).toEqual(['nuevo']);
+  });
+
+  it('es determinista: dos corridas eligen lo mismo sin correlativo ni fecha', () => {
     const empate: PlanCandidato[] = [
-      { id: 'b', base: 1000, comisionaPlan: null },
-      { id: 'a', base: 1000, comisionaPlan: null },
-      { id: 'c', base: 1000, comisionaPlan: null },
+      { id: 'b', codOrigen: null, fecha: null, comisionaPlan: null },
+      { id: 'a', codOrigen: null, fecha: null, comisionaPlan: null },
+      { id: 'c', codOrigen: null, fecha: null, comisionaPlan: null },
     ];
     const uno = [...seleccionarPlanesComisionables(empate, 2).elegidos];
     const dos = [...seleccionarPlanesComisionables([...empate].reverse(), 2).elegidos];

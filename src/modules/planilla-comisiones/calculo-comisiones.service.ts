@@ -36,6 +36,9 @@ interface FilaCalculo {
   id: string;
   /** Decisión manual de administración sobre si este plan comisiona. */
   comisionaPlan: boolean | null;
+  /** Correlativo de registro: es lo que decide cuáles son los ÚLTIMOS planes. */
+  codOrigen: string | null;
+  fecha: Date | null;
   vendedoraId: string;
   canal: CanalVenta;
   clasif: ClasifComision;
@@ -137,7 +140,12 @@ function fotografiarConfiguracion(
 function candidatos(filas: readonly FilaCalculo[], clasif: ClasifComision): PlanCandidato[] {
   return filas
     .filter(f => f.clasif === clasif)
-    .map(f => ({ id: f.id, base: f.ingresoNeto, comisionaPlan: f.comisionaPlan }));
+    .map(f => ({
+      id: f.id,
+      codOrigen: f.codOrigen,
+      fecha: f.fecha,
+      comisionaPlan: f.comisionaPlan,
+    }));
 }
 
 /**
@@ -198,6 +206,8 @@ export class CalculoComisionesService {
         select: {
           id: true,
           comisionaPlan: true,
+          codOrigen: true,
+          fecha: true,
           vendedoraId: true,
           canal: true,
           clasif: true,
@@ -214,6 +224,8 @@ export class CalculoComisionesService {
     const filas: FilaCalculo[] = filasCrudas.map(f => ({
       id: f.id,
       comisionaPlan: f.comisionaPlan,
+      codOrigen: f.codOrigen,
+      fecha: f.fecha,
       vendedoraId: f.vendedoraId as string,
       canal: f.canal,
       clasif: f.clasif,
@@ -334,11 +346,12 @@ export class CalculoComisionesService {
     const cumpleObjetivoPlanes = planpaqComisionables > 0 || planninComisionables > 0;
 
     /*
-     * Qué planes CONCRETOS comisionan. No se prorratea: en la planilla se marca
-     * el plan elegido y se le paga su base completa con la tarifa de su nivel
-     * (hoja `Ejecutivas`, columna AR: `=SI(AQ="COMISIONA"; % × base; 0)`).
+     * Qué planes CONCRETOS comisionan: los ÚLTIMOS vendidos, tantos como diga
+     * el cupo. No se prorratea — en la planilla se marca el plan elegido y se
+     * le paga su base completa con SU propia tarifa (hoja `BDEjecutivas`,
+     * columna AR: `=SI(AQ="COMISIONA"; % de la fila × base de la fila; 0)`).
      * `seleccionarPlanesComisionables` respeta lo que administración marcó y
-     * completa el resto con el criterio automático.
+     * completa el resto por antigüedad inversa.
      */
     const seleccionPlanpaq = seleccionarPlanesComisionables(
       candidatos(filas, ClasifComision.PLANPAQ),

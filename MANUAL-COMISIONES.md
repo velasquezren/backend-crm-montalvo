@@ -75,7 +75,13 @@ cobra.
 
 Esto está verificado contra la planilla de diciembre 2025, hoja `BDEjecutivas`:
 en sus 356 filas, la columna INGRESO NETO es `precio × 0,87` en **356 de 356**, y
-el anticipo en **0 de 356**, incluidas las 20 filas que traen anticipo.
+el anticipo en **0 de 356**, incluidas las 20 filas que traen anticipo. La fórmula
+de la columna `BASE DE CALCULO` lo dice literalmente: `=SI(...; 0; PRECIO*0,87)`.
+
+**Un plan se paga a lo largo de varios meses, pero comisiona una sola vez**: el mes
+en que se vendió, por su precio entero. Lo que la paciente vaya pagando después es
+asunto suyo con la clínica y no vuelve a generar comisión. Por eso da igual cuánto
+adelantó y cuánto queda debiendo.
 
 ---
 
@@ -209,11 +215,37 @@ cantidad**.
 > Ninguna llega al objetivo de paquetes, que es 4 o 6. Y como el de planes varios
 > es solo **1**, casi todos superan — por eso las cifras parecen altas.
 
-### Cuáles comisionan, si no comisionan todos
+### Cuáles comisionan: los ÚLTIMOS
 
-El sistema elige los de **base más baja** primero, que es lo conservador para la
-clínica. Administración puede cambiarlo: en la pestaña **Planes**, pulsar
-cualquier plan lo marca a mano, y lo marcado manda sobre lo automático.
+Si una vendedora hizo **8 planes** y su objetivo era **6**, comisionan **2** — y son
+**los dos últimos que vendió**. Los otros 6 no pagan nada.
+
+El orden lo da el **correlativo de registro** de la venta (`Cod. Origen`: VE1458,
+VE1462…), que es el número con el que entró al sistema. No es lo mismo que la fecha:
+en diciembre de 2025 la venta VE1458 lleva fecha del 22/12 y la VE1462 —posterior—
+lleva la del 13/12. La planilla siempre siguió el correlativo.
+
+En la pestaña **Planes que comisionan** la lista sale ya ordenada del último al
+primero y numerada, así que los que comisionan son siempre **los de arriba**.
+
+> **De dónde sale esta regla.** En diciembre de 2025 dos vendedoras superaron su
+> objetivo de paquetes, y administración marcó a mano estas filas como COMISIONA:
+>
+> | Vendedora | Sus 6 paquetes, por correlativo | Objetivo | Marcados |
+> |---|---|---|---|
+> | Claudia | 1447 · 1452 · 1454 · 1457 · **1458** · **1462** | 4 | los 2 últimos |
+> | Yelca | 1449 · 1461 · 1463 · 1465 · **1469** · **1470** | 4 | los 2 últimos |
+
+**Por qué importa cuáles se eligen.** Cada plan paga con **su propia tarifa**, no con
+un promedio. Los dos de Claudia cobraron `3% × 2.106,62 + 2% × 1.886,62 = **100,93**`.
+Si en vez de los dos últimos se hubieran elegido sus dos planes más baratos, habría
+cobrado **50,65** — la mitad. Esa era la regla que tenía el sistema antes, y por eso
+se corrigió.
+
+Administración puede cambiar la selección: en la pestaña **Planes que comisionan**,
+pulsar cualquier plan lo marca a mano, y **lo marcado manda sobre lo automático**. Si
+se marcan más planes de los que el cupo permite, los sobrantes no se pagan y el
+sistema lo avisa en pantalla en vez de pagar de más en silencio.
 
 ### El porcentaje del plan
 
@@ -227,7 +259,8 @@ cualquier plan lo marca a mano, y lo marcado manda sobre lo automático.
 El nivel del paquete sale del texto del detalle (GOLD, SILVER, BRONCE). Si no lo
 dice, se asume **Silver**.
 
-**El plan elegido paga sobre su base completa**, no sobre el excedente.
+**Cada plan elegido paga sobre su base completa**, no sobre el excedente, y con la
+tarifa de **su propia fila**. Nada se promedia ni se reparte entre los demás planes.
 
 ---
 
@@ -347,6 +380,15 @@ ya pagado.
 
 423 ventas · tipo de cambio 6,97 · **$107.596,53** vendidos · **$93.608,91** de base
 
+> ⚠️ **La fila "Tipo A" de esta tabla es anterior al cambio de regla** y sube al
+> volver a calcular el periodo. Se calculó cuando el sistema elegía los planes de
+> base más baja; ahora elige los **últimos vendidos**, que suelen tener base y
+> tarifa mayores. **Monto vendido, base, Tipo B, Tipo C y los bonos no cambian** —
+> ninguno depende de qué planes comisionan.
+>
+> Para actualizarla: **Planilla → enero 2026 → Calcular**. La configuración queda
+> congelada con el cálculo, así que el resultado es reproducible.
+
 | | Viviana (jefa) | Claudia | Yelca | Zuany |
 |---|---|---|---|---|
 | Monto vendido | $42.725,33 | $30.251,94 | $16.611,64 | $16.453,95 |
@@ -407,6 +449,15 @@ Por el 13% de impuestos, y solo por eso. En enero: **$107.596,53** de precio →
 
 Si alguna vez ves una diferencia mayor, algo va mal: significaría que alguna fila
 no está usando `precio × 0,87`.
+
+**Una vendedora hizo 8 planes y su meta era 6. ¿Cuánto cobra?**
+Por **2 planes**, y son los **dos últimos** que vendió. Los otros 6 no pagan nada.
+Si hubiera hecho 6 o menos, no cobraría nada por planes.
+
+**¿Y si el plan se paga en cuotas durante varios meses?**
+No importa. El plan comisiona **una sola vez**, en el mes en que se vendió y por su
+precio entero menos el 13%. Lo que la paciente pague después no vuelve a generar
+comisión, y lo que quede debiendo no la reduce.
 
 **¿Por qué una venta dice "sin % directo · RA"?**
 Porque su columna `area` del export dice RA, y el área RA tiene su porcentaje en

@@ -141,7 +141,8 @@ export class AjustarVentaDto {
 
   /**
    * Solo para planes: si ESTE plan comisiona cuando la vendedora superó su
-   * objetivo. `null` devuelve la decisión al sistema (base más baja primero).
+   * objetivo. `null` devuelve la decisión al sistema, que elige los últimos
+   * planes vendidos hasta llenar el cupo.
    */
   @IsOptional()
   @ValidateIf((_objeto, valor) => valor !== null)

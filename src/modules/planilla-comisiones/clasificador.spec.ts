@@ -45,6 +45,7 @@ function fila(campos: Partial<FilaExcel> = {}): FilaExcel {
     tc: 6.97,
     obs: null,
     clasificacionPlan: null,
+    clasificacionServicio: null,
     ...campos,
   };
 }

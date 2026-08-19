@@ -143,13 +143,54 @@ export function cierraTrimestre(mes: number): boolean {
 /** Un plan candidato a comisionar, con lo mínimo que la selección necesita. */
 export interface PlanCandidato {
   id: string;
-  /** Base de cálculo del plan, ya sin impuestos. */
-  base: number;
+  /**
+   * Correlativo con el que se registró la venta (`Cod. Origen` del export,
+   * "VE1462"). Es lo que ordena los planes de menor a mayor antigüedad.
+   */
+  codOrigen: string | null;
+  /** Fecha de la venta. Solo desempata cuando falta el correlativo. */
+  fecha: Date | null;
   /**
    * Decisión de administración. `null` = todavía no la tomó y decide el
    * sistema; `true` = este plan comisiona sí o sí; `false` = este no.
    */
   comisionaPlan: boolean | null;
+}
+
+/**
+ * El número dentro de un `Cod. Origen`. "VE1462" → 1462.
+ *
+ * Se compara el número y no el texto porque el prefijo es fijo pero el ancho
+ * no: como texto, "VE999" iría después de "VE1000" y el último plan del mes
+ * dejaría de ser el último justo al cruzar el millar.
+ */
+function correlativo(codOrigen: string | null): number | null {
+  if (!codOrigen) return null;
+  const digitos = codOrigen.replace(/\D+/g, '');
+  return digitos === '' ? null : Number(digitos);
+}
+
+/**
+ * Ordena los planes del último registrado al primero.
+ *
+ * El criterio es el correlativo de registro, no la fecha de la venta: en
+ * diciembre 2025 la venta VE1458 lleva fecha 22/12 y la VE1465 lleva 22/12
+ * también, mientras VE1469 y VE1470 —posteriores— llevan 17 y 19/12. Ordenar
+ * por fecha habría elegido otros planes que los que la planilla marcó.
+ *
+ * Sin correlativo se cae a la fecha, y a falta de las dos al id, para que dos
+ * cálculos del mismo periodo den siempre lo mismo.
+ */
+function ultimoPrimero(a: PlanCandidato, b: PlanCandidato): number {
+  const ca = correlativo(a.codOrigen);
+  const cb = correlativo(b.codOrigen);
+  if (ca !== null && cb !== null && ca !== cb) return cb - ca;
+
+  const fa = a.fecha?.getTime() ?? null;
+  const fb = b.fecha?.getTime() ?? null;
+  if (fa !== null && fb !== null && fa !== fb) return fb - fa;
+
+  return b.id.localeCompare(a.id);
 }
 
 export interface SeleccionPlanes {
@@ -162,18 +203,25 @@ export interface SeleccionPlanes {
 }
 
 /**
- * Qué planes concretos comisionan cuando alguien supera su objetivo.
+ * Qué planes concretos comisionan cuando alguien supera su objetivo:
+ * **los últimos vendidos**, tantos como diga el cupo.
  *
- * En la planilla de la clínica esto **no era una fórmula**: la columna
- * `PLANPAG COMISIONABLE` de la hoja `Ejecutivas` se escribe a mano — en
- * diciembre solo la fila 143 decía "COMISIONA" — y la de al lado paga
- * `% × base` del plan marcado, su base completa y con la tarifa de su propio
- * nivel. No se reparte nada entre los demás.
+ * En la planilla de la clínica esto **no es una fórmula**: la columna
+ * `PLANPAG COMISIONABLE` de la hoja `BDEjecutivas` se escribe a mano, y la de
+ * al lado paga `% de esa fila × base de esa fila`. No se reparte nada entre los
+ * demás planes ni se promedia: cada plan elegido cobra con SU base y SU tarifa,
+ * que no tienen por qué ser iguales.
  *
- * Por eso aquí no se inventa una regla: se respeta lo que administración marcó
- * y solo se rellena el resto. El criterio automático es **la base más baja
- * primero**, que es lo que hicieron en diciembre (con 5 paquetes y objetivo 4
- * comisionó un Bronce de 2.102,79, no uno de los Gold de 3.001,50).
+ * Cuáles marcaron a mano en diciembre 2025 no es ambiguo — son los últimos por
+ * correlativo de registro, en las dos vendedoras que superaron el objetivo:
+ *
+ *   Claudia  1447 1452 1454 1457 **1458 1462**   6 vendidos, objetivo 4
+ *   Yelca    1449 1461 1463 1465 **1469 1470**   6 vendidos, objetivo 4
+ *
+ * Y el orden importa en plata, porque la tarifa va por fila: los dos de Claudia
+ * pagaron 3 % × 2.106,62 + 2 % × 1.886,62 = 100,93. Elegir en cambio sus dos
+ * planes más baratos —que es lo que hacía este código antes— daba 50,65, la
+ * mitad de lo que la clínica pagó.
  *
  * El cupo es un tope duro: si marcaron más planes de los que el objetivo
  * permite, los sobrantes se devuelven en `descartadosPorCupo` para que la
@@ -188,22 +236,21 @@ export function seleccionarPlanesComisionables(
     return { elegidos: new Set(), cupo: 0, descartadosPorCupo: [] };
   }
 
-  // Base ascendente, y a igualdad de base un orden estable por id: dos cálculos
-  // del mismo periodo tienen que dar exactamente lo mismo.
-  const porBaseAscendente = [...planes].sort((a, b) => a.base - b.base || a.id.localeCompare(b.id));
+  const delUltimoAlPrimero = [...planes].sort(ultimoPrimero);
 
   const elegidos = new Set<string>();
   const descartadosPorCupo: string[] = [];
 
   // 1. Lo que administración marcó manda, hasta llenar el cupo.
-  for (const plan of porBaseAscendente) {
+  for (const plan of delUltimoAlPrimero) {
     if (plan.comisionaPlan !== true) continue;
     if (elegidos.size < cupo) elegidos.add(plan.id);
     else descartadosPorCupo.push(plan.id);
   }
 
-  // 2. El resto del cupo se completa solo, sin tocar los descartados a mano.
-  for (const plan of porBaseAscendente) {
+  // 2. El resto del cupo se completa con los más recientes que quedan, sin
+  //    tocar los que administración descartó a mano.
+  for (const plan of delUltimoAlPrimero) {
     if (elegidos.size >= cupo) break;
     if (plan.comisionaPlan === null && !elegidos.has(plan.id)) elegidos.add(plan.id);
   }

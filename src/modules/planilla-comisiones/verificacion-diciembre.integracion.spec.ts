@@ -1,5 +1,7 @@
 import { readFileSync } from 'node:fs';
 
+import { ClasifComision } from '@prisma/client';
+
 import { ConfigService } from '@nestjs/config';
 
 import { AuditService } from '../../common/audit/audit.service';
@@ -28,6 +30,29 @@ const MESES = [
   { archivo: 'octubre.xlsx', anio: 2025, mes: 10 },
   { archivo: 'noviembre.xlsx', anio: 2025, mes: 11 },
   { archivo: 'diciembre.xlsx', anio: 2025, mes: 12 },
+];
+
+/**
+ * Comisión de PLANES que pagó la planilla en diciembre 2025, en USD.
+ *
+ * Sale de la hoja `por Ejecutiva`, bloque PLANES, columna
+ * `COMISIÓN MATERNIDAD PLAN NIÑO` (fila 14), que es la suma por vendedora de
+ * `=SI(PLANPAG COMISIONABLE="COMISIONA"; % de la fila × base de la fila; 0)`.
+ *
+ * Es la cifra que ninguna prueba miraba, y por eso el motor pudo pasar meses
+ * eligiendo los planes equivocados sin que nada fallara: con la regla anterior
+ * —los de base más baja— Claudia cobraba 50,65 en vez de 100,93 y la
+ * conciliación de `montoVendido` seguía en verde, porque lo vendido no cambia
+ * según cuál plan comisione.
+ *
+ * Zuany igualó su objetivo (4 de 4) y Viviana no lo alcanzó (3 de 6): las dos
+ * cobran cero, que es la franquicia funcionando.
+ */
+const ESPERADO_TIPO_A = [
+  { codigo: 'Pe1342', nombre: 'Viviana', comisionAUsd: 0 },
+  { codigo: 'Pe2455', nombre: 'Claudia', comisionAUsd: 100.93 },
+  { codigo: 'Pe2456', nombre: 'Yelca', comisionAUsd: 78.73 },
+  { codigo: 'Pe1535', nombre: 'Zuany', comisionAUsd: 0 },
 ];
 
 /** Lo que administración pagó en diciembre 2025 (hoja "GRAL COM", filas 7-13). */
@@ -77,11 +102,12 @@ afterAll(async () => {
 describe('los tres Excel reales contra la planilla de diciembre 2025', () => {
   const resultados = new Map<string, Record<string, number>>();
   let montoVendidoPorCodigo = new Map<string, number>();
+  const comisionAPorCodigo = new Map<string, number>();
+  let periodoDiciembre = '';
 
   it('importa octubre, noviembre y diciembre y calcula diciembre', async () => {
     if (!hayArchivos) return;
 
-    let periodoDiciembre = '';
     for (const m of MESES) {
       const buffer = readFileSync(`${CARPETA}/${m.archivo}`);
       const res = await planilla.importar(buffer, m.archivo, { anio: m.anio, mes: m.mes }, 'test');
@@ -96,6 +122,7 @@ describe('los tres Excel reales contra la planilla de diciembre 2025', () => {
     });
 
     for (const f of filas) {
+      comisionAPorCodigo.set(f.vendedora.codigo, Number(f.comisionA));
       resultados.set(f.vendedora.codigo, {
         montoVendido: Number(f.montoVendido),
         comisionBob: Number(f.totalBob) - Number(f.bonoTrimestral) * 1 - 0,
@@ -118,6 +145,61 @@ describe('los tres Excel reales contra la planilla de diciembre 2025', () => {
       expect(montoVendidoPorCodigo.get(codigo)).toBeCloseTo(montoVendido, 1);
     },
   );
+
+  it.each(ESPERADO_TIPO_A)(
+    '$nombre: la comisión de planes coincide con la planilla ($comisionAUsd USD)',
+    ({ codigo, comisionAUsd }) => {
+      if (!hayArchivos) return;
+      expect(comisionAPorCodigo.get(codigo)).toBeCloseTo(comisionAUsd, 1);
+    },
+  );
+
+  /**
+   * Los planes que comisionan son los ÚLTIMOS por correlativo de registro.
+   *
+   * Se comprueba sobre los datos importados y no solo en la prueba unitaria
+   * porque lo que importa es que el correlativo sobreviva al parser y llegue al
+   * motor: si `codOrigen` se perdiera por el camino, la selección caería a la
+   * fecha y elegiría otros planes sin que nada avisara.
+   */
+  it('comisionan los últimos planes vendidos, no los más baratos', async () => {
+    if (!hayArchivos) return;
+
+    const planes = await prisma.ventaImportada.findMany({
+      where: {
+        periodoId: periodoDiciembre,
+        clasif: { in: [ClasifComision.PLANPAQ, ClasifComision.PLANNIN] },
+        comisionable: true,
+        vendedoraId: { not: null },
+      },
+      select: { codOrigen: true, ingresoNeto: true, vendedoraId: true },
+    });
+    expect(planes.length).toBeGreaterThan(0);
+
+    // Claudia superó su objetivo por 2, y la planilla marcó VE1458 y VE1462.
+    const claudia = await prisma.vendedoraComision.findFirst({ where: { codigo: 'Pe2455' } });
+    const suyos = planes
+      .filter(p => p.vendedoraId === claudia?.id)
+      .sort((a, b) => Number(a.codOrigen?.replace(/\D+/g, '')) - Number(b.codOrigen?.replace(/\D+/g, '')));
+
+    expect(suyos.map(p => p.codOrigen)).toEqual([
+      'VE1447',
+      'VE1452',
+      'VE1454',
+      'VE1457',
+      'VE1458',
+      'VE1462',
+    ]);
+
+    // Y los dos últimos no son los dos más baratos: si lo fueran, esta prueba
+    // pasaría con cualquiera de los dos criterios y no probaría nada.
+    const dosMasBaratos = [...suyos]
+      .sort((a, b) => Number(a.ingresoNeto) - Number(b.ingresoNeto))
+      .slice(0, 2)
+      .map(p => p.codOrigen)
+      .sort();
+    expect(dosMasBaratos).not.toEqual(['VE1458', 'VE1462']);
+  }, 30000);
 
   /**
    * La base es SIEMPRE precio × 0,87, también en las filas con anticipo.
