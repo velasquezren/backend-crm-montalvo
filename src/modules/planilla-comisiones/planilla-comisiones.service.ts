@@ -827,9 +827,14 @@ export class PlanillaComisionesService {
       orderBy: [{ configurada: 'asc' }, { nombre: 'asc' }],
     });
 
+    /* `foto` viaja porque la ficha de desempeño pone la cara de la ejecutiva en
+       su avatar, y este endpoint es el único que ya cruza vendedora con usuario
+       —`Usuario.codigo` ES el `vendedora_pk` del Excel—. Además está cacheado 60 s
+       en el frontend, así que las fotos se piden una vez por sesión y no en cada
+       cambio de periodo. Medido en producción: 3 fotos de ~10 KB, 30 KB en total. */
     const agentes = await this.prisma.usuario.findMany({
       where: { codigo: { in: vendedoras.map(v => v.codigo) } },
-      select: { id: true, nombre: true, email: true, codigo: true, activo: true },
+      select: { id: true, nombre: true, email: true, codigo: true, activo: true, foto: true },
     });
     const porCodigo = new Map(agentes.map(a => [a.codigo, a]));
 
