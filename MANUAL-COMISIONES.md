@@ -1,10 +1,15 @@
 # Manual de comisiones — Clínica Montalvo
 
 Cómo el sistema calcula la planilla, regla por regla, con los números reales de
-**enero 2026** como ejemplo.
+**enero 2026** como ejemplo, y en qué pantalla se hace cada cosa.
 
 Este documento describe lo que el software hace hoy. Si algo aquí no coincide con
 lo que hace el sistema, el equivocado es el documento.
+
+**Cómo leerlo.** La sección 1 es el flujo de trabajo y la 2 las pantallas: con
+esas dos se opera el módulo. De la 4 a la 13 están las reglas de cálculo, para
+cuando haya que explicar un número concreto. La 14 es un mes completo de ejemplo
+y la 16 las preguntas que más se repiten.
 
 ---
 
@@ -41,7 +46,59 @@ correcciones de clasificación hechas a mano se conservan cruzándolas por servi
 
 ---
 
-## 2. La moneda: todo se calcula en dólares
+## 2. Las pantallas: dónde se hace cada cosa
+
+### Planilla de Comisiones
+
+Es la pantalla de trabajo. Arriba se elige el mes; el resto son pestañas:
+
+| Pestaña | Para qué | Quién |
+|---|---|---|
+| **Importar** | Subir o arrastrar el Excel de FileMaker | Super admin |
+| **Clasificación** | Revisar fila por fila cómo quedó clasificada cada venta, corregirla, excluirla con motivo | Admin |
+| **Planes que comisionan** | Ver qué planes concretos pagan y cambiarlo a mano | Admin |
+| **Reportes** | La liquidación de todo el equipo, y los reportes de bonos y por vendedora | Admin |
+| **Configuración** | Tarifas, niveles, metas y los cuatro parámetros globales | Super admin |
+
+En **Clasificación** se puede filtrar por clasificación, por tipo (A/B/C), por
+vendedora, y buscar por servicio o paciente. El pie de la tabla muestra el total
+del **filtro entero**, no el de la página que se está viendo.
+
+En **Planes que comisionan** la lista sale ordenada del **último plan vendido al
+primero** y numerada, porque ese orden *es* la regla (sección 9). Pulsar un plan
+lo alterna entre automático, comisiona y no comisiona.
+
+### Desempeño de Agentes
+
+La ficha de una sola ejecutiva: responde **por qué cobró lo que cobró**.
+
+- **Cabecera** — quién es y el total a transferir del mes.
+- **Metas** — sus dos objetivos de planes por separado y en qué tramo de cirugías
+  cayó, con cuánto le falta para el siguiente.
+- **De qué se compone el pago** — una barra con el peso de cada concepto: sueldo,
+  Tipo A, Tipo B, Tipo C y bonos.
+- **Ventas del mes** — todas sus ventas, con buscador y filtro por canal.
+
+Las metas y los tramos que muestra son los del **mes que se está viendo**, leídos
+de la foto de reglas de ese periodo, no los de hoy.
+
+### Resumen Anual
+
+Los doce meses de cada vendedora en una matriz, con los trimestres y su bono.
+
+### El selector Bs / $us
+
+Está en la barra superior y afecta a **todo el CRM**: tablas, tarjetas y
+gráficos. Es solo de visualización — no cambia ni un dato ni el cálculo.
+
+El tipo de cambio lo trae el sistema del **último periodo importado**, no está
+escrito en el programa. Y dentro de la Planilla se usa el tipo de cambio **de ese
+mes**, que es con el que se liquidó: así lo que se ve en dólares cuadra con la
+liquidación en bolivianos.
+
+---
+
+## 3. La moneda: todo se calcula en dólares
 
 El Excel de FileMaker viene en **dólares**. Todo el cálculo ocurre en dólares y el
 tipo de cambio se aplica **una sola vez, al final**, para saber cuánto se paga en
@@ -49,12 +106,14 @@ bolivianos.
 
 En enero 2026 el tipo de cambio es **6,97**.
 
-En pantalla verás `$` en las columnas de precio, base y comisiones, y `Bs` solo en
-lo que se paga: total en bolivianos, sueldo y total ganado.
+En pantalla, las columnas de precio, base y comisiones se muestran en la moneda
+que elijas con el selector Bs / $us; lo que se paga —sueldo, total en bolivianos
+y total ganado— está siempre en bolivianos porque es la moneda en la que se
+transfiere.
 
 ---
 
-## 3. Base de cálculo: sobre qué se comisiona
+## 4. Base de cálculo: sobre qué se comisiona
 
 **La base es siempre el precio menos el 13% de impuestos.**
 
@@ -85,7 +144,7 @@ adelantó y cuánto queda debiendo.
 
 ---
 
-## 4. Clasificación: qué es cada venta
+## 5. Clasificación: qué es cada venta
 
 Cada fila recibe una **clasificación**, y de ella sale su **tipo de comisión**.
 
@@ -135,7 +194,7 @@ comisionar casi todos los paquetes del mes.
 
 ---
 
-## 5. El canal: quién trajo a la paciente
+## 6. El canal: quién trajo a la paciente
 
 Cada venta es **EMPRESA** (la trajo la clínica) o **PROPIO** (la trajo la
 vendedora). El canal sale de la columna `captacion` del Excel, según un mapeo que
@@ -145,7 +204,7 @@ administración configura.
 
 ---
 
-## 6. Tipo C — consulta, laboratorio, ecografía y otros
+## 7. Tipo C — consulta, laboratorio, ecografía y otros
 
 El más simple: un porcentaje fijo sobre la base.
 
@@ -162,7 +221,7 @@ El más simple: un porcentaje fijo sobre la base.
 
 ---
 
-## 7. Tipo B — cirugías, por nivel acumulado
+## 8. Tipo B — cirugías, por nivel acumulado
 
 El porcentaje **no depende de la venta suelta**, sino de cuánto acumuló esa
 vendedora en cirugías durante el mes.
@@ -185,7 +244,7 @@ $21.999 a $22.001 sube el porcentaje sobre la cifra completa.
 
 ---
 
-## 8. Tipo A — planes y paquetes
+## 9. Tipo A — planes y paquetes
 
 El más complejo, y el que más dinero mueve.
 
@@ -207,8 +266,30 @@ NO cumple.
 Este es el punto que más confusión genera al leer los reportes.
 
 Los paquetes de maternidad y los planes varios tienen **objetivos distintos y se
-cuentan por separado**. La columna "Planes" de la liquidación muestra la **suma**
-de los dos cálculos, no un cálculo único.
+cuentan por separado**. Son dos cubos independientes.
+
+#### Qué es cada uno
+
+| | **Paquetes de maternidad** (PLANPAQ) | **Planes varios** (PLANNIN) |
+|---|---|---|
+| Unidad de negocio | MATERNIDAD | VARIOS |
+| Qué incluye | "Plan Nacer" cesárea y parto, y los paquetes de cesárea | El **Paquete Niño Sano** (pediatría) |
+| Área de la venta | Maternidad | Pediatría |
+| Objetivo | **4** vendedora · **6** jefa | **1** las dos |
+| Tarifa | por nivel: Bronce 1/2 %, Silver 2/4 %, Gold 3/5 % | plana: 3 % empresa / 5 % propio |
+| Lleva nivel | Sí (Bronce/Silver/Gold) | No |
+
+**"Planes varios" es prácticamente el Paquete Niño Sano.** En los seis meses
+exportados (octubre 2025 a marzo 2026) hay **una sola venta** de esta categoría:
+un Paquete Niño Sano en enero. Con objetivo 1, no llegó a comisionar — harían
+falta dos en el mismo mes para que una pague.
+
+> ⚠️ **Los nombres del export están cruzados.** La columna `clasifiacion` de
+> FileMaker etiqueta "Plan Nacer Cesárea" como `Plan` —y es un **paquete** de
+> maternidad— y el "Paquete Niño Sano" como `Paquete` —y es un **plan** varios—.
+> Además usa `Paquete` para los dos lados. Por eso el sistema **ignora esas dos
+> palabras** y se guía por el **área** (Maternidad o Pediatría), que sí distingue.
+> Ver la sección 5.
 
 Y no confundir con el **objetivo de monto** ($12.000 / $15.000): ese no interviene
 en los planes, solo en el bono de jefatura. Los planes comisionan **solo por
@@ -241,7 +322,7 @@ cantidad**.
 > mandaba a *planes varios* los 19 "Plan Nacer" —que son paquetes de maternidad—
 > y a *paquetes* el "Paquete Niño Sano", que es el plan varios. Como el objetivo
 > de planes varios es **1** y el de paquetes es 4 o 6, comisionaban **16 planes en
-> vez de 6**. Ver la sección 4.
+> vez de 6**. Ver la sección 5.
 
 ### Cuáles comisionan: los ÚLTIMOS
 
@@ -292,7 +373,7 @@ tarifa de **su propia fila**. Nada se promedia ni se reparte entre los demás pl
 
 ---
 
-## 9. El área RA
+## 10. El área RA
 
 Las ventas cuya columna `area` del export dice **RA** pertenecen a la unidad de
 reproducción asistida.
@@ -309,7 +390,7 @@ Reglas del cálculo → Comisión del área RA**, sin tocar código.
 
 ---
 
-## 10. Los bonos
+## 11. Los bonos
 
 > ### Los bonos NO usan la base — usan el precio bruto
 >
@@ -379,7 +460,7 @@ También sobre el precio bruto.
 
 ---
 
-## 11. Quién se liquida
+## 12. Quién se liquida
 
 **Solo quien está en el equipo oficial.** Las vendedoras que aparecen en el Excel
 pero no están configuradas se dan de alta solas y quedan a la espera de que
@@ -393,7 +474,7 @@ No es un descarte silencioso: cada una deja un aviso en el log con lo que vendi�
 
 ---
 
-## 12. El total ganado
+## 13. El total ganado
 
 ```
 total ganado (Bs) = (comisiones + bonos en USD) × tipo de cambio + sueldo base
@@ -404,54 +485,59 @@ ya pagado.
 
 ---
 
-## 13. Enero 2026, completo
+## 14. Enero 2026, completo
 
-423 ventas · tipo de cambio 6,97 · **$107.596,53** vendidos · **$93.608,91** de base
+423 ventas · tipo de cambio 6,97 · **$107.596,54** facturado · **$93.608,99** de base
 
-> ⚠️ **La fila "Tipo A" de esta tabla es anterior al cambio de regla** y sube al
-> volver a calcular el periodo. Se calculó cuando el sistema elegía los planes de
-> base más baja; ahora elige los **últimos vendidos**, que suelen tener base y
-> tarifa mayores. **Monto vendido, base, Tipo B, Tipo C y los bonos no cambian** —
-> ninguno depende de qué planes comisionan.
->
-> Para actualizarla: **Planilla → enero 2026 → Calcular**. La configuración queda
-> congelada con el cálculo, así que el resultado es reproducible.
+Cifras leídas directamente del export `enero.xlsx`, así que no dependen de ningún
+cálculo:
 
 | | Viviana (jefa) | Claudia | Yelca | Zuany |
 |---|---|---|---|---|
-| Monto vendido | $42.725,33 | $30.251,94 | $16.611,64 | $16.453,95 |
-| Base de cálculo | $37.171,06 | $26.319,11 | $14.452,10 | $14.314,95 |
-| **Tipo A** (planes) | $412,89 | $191,30 | $278,29 | $159,58 |
-| **Tipo B** (cirugías) | $551,24 | $112,59 | — | $25,70 |
-| **Tipo C** (resto) | $24,60 | $99,61 | $51,37 | $81,86 |
-| Nivel de cirugía | 4 | 2 | — | 1 |
+| Ventas del mes | 46 | 205 | 76 | 95 |
+| Monto vendido | $42.725,33 | $30.251,95 | $16.611,64 | $16.453,95 |
+| Base de cálculo | $37.171,04 | $26.319,20 | $14.452,13 | $14.314,93 |
+| **Paquetes de maternidad** (meta 6 jefa / 4 vendedora) | 8 → **2 comisionan** | 7 → **3** | 5 → **1** | 4 → **0** |
+| **Planes varios** (meta 1) | 0 → 0 | 0 → 0 | 0 → 0 | 1 → **0** |
 | Acumulado cirugías | $18.374,51 | $7.506,03 | — | $2.570,13 |
-| Planes vendidos → comisionan | 8 → 6 | 7 → 3 | 5 → 4 | 5 → 3 |
-| Bono jefatura | $110,09 | — | — | — |
-| Bono trimestral | — | — | — | — |
-| **Total comisiones USD** | **$1.098,82** | **$403,50** | **$329,66** | **$267,14** |
-| En bolivianos | Bs 7.658,78 | Bs 2.812,40 | Bs 2.297,73 | Bs 1.861,97 |
+| Nivel de cirugía | 4 | 2 | — | 1 |
 | Sueldo base | Bs 4.236,81 | Bs 2.750,00 | Bs 2.750,00 | Bs 2.750,00 |
-| **TOTAL GANADO** | **Bs 11.895,59** | **Bs 5.562,40** | **Bs 5.047,73** | **Bs 4.611,97** |
 
-### Cómo leer la fila de Viviana
+Una quinta persona, Gizelle, aparece con 1 venta de $1.553,67 y **no se liquida**:
+no está en el equipo oficial (sección 12).
 
-- Vendió **$42.725,33** en 46 ventas.
-- Su base es **$37.171,06** — el 87% del precio, sin el 13% de impuestos.
-- **Tipo A**: de sus 8 planes comisionan 6 (1 paquete con objetivo 6 → ninguno;
-  7 planes varios con objetivo 1 → seis). Total **$412,89**.
-- **Tipo B**: acumuló $18.374,51 en cirugías → nivel 4 → 3% → **$551,24**.
-- **Tipo C**: solo $24,60, porque casi todo su laboratorio y consulta es del área
-  RA, que no comisiona.
-- **Bono jefatura**: fue la única que superó su objetivo mensual de $15.000, así
-  que el pote de $110,09 es suyo.
-- **Bono trimestral**: cero, porque enero no es mes de cierre.
-- Total: $1.098,82 × 6,97 = Bs 7.658,78, más su sueldo de Bs 4.236,81 =
-  **Bs 11.895,59**.
+### Cómo se lee la columna de Viviana
+
+- Vendió **$42.725,33** en 46 ventas; su base es el 87 % de eso.
+- **Tipo A**: hizo 8 paquetes de maternidad con meta 6, así que comisionan
+  **los 2 últimos que vendió** — no los 8, y no los dos más baratos.
+- **Tipo B**: acumuló $18.374,51 en cirugías → nivel 4 → 3 % sobre todo ese
+  acumulado.
+- **Tipo C**: le queda muy poco, porque casi todo su laboratorio y consulta es
+  del área RA, que hoy paga 0 %.
+- **Bono de jefatura**: es la única que superó su objetivo mensual de $15.000.
+- **Bono trimestral**: cero, porque enero no cierra trimestre.
+
+### Las comisiones de este mes hay que volver a calcularlas
+
+> ⚠️ Enero se liquidó **antes** de dos correcciones, así que las cifras de
+> comisión que haya guardadas no son las buenas:
+>
+> 1. Comisionaban los planes de base más baja en vez de **los últimos vendidos**.
+> 2. La clasificación cruzaba paquetes con planes varios, y por eso **comisionaban
+>    16 planes donde deben comisionar 6**.
+>
+> **Qué hacer:** Planilla → enero 2026 → Calcular. Después, copiar aquí las filas
+> de Tipo A, Tipo B, Tipo C, bonos y total ganado desde
+> Reportes → Liquidación.
+>
+> Lo que **no** cambia y ya está en la tabla de arriba: ventas, monto vendido,
+> base, acumulado de cirugías, nivel, conteo de planes y sueldo base. Ninguno
+> depende de qué planes comisionan.
 
 ---
 
-## 14. Los cuatro parámetros globales
+## 15. Los cuatro parámetros globales
 
 En **Configuración → Reglas del cálculo**. Solo el super administrador puede
 cambiarlos, y se aplican en el **próximo** cálculo.
@@ -465,18 +551,29 @@ cambiarlos, y se aplican en el **próximo** cálculo.
 
 ---
 
-## 15. Preguntas frecuentes
+## 16. Preguntas frecuentes
 
 **¿Los bonos se calculan sobre la base o sobre el precio?**
 Sobre el **precio bruto**, sin quitar el 13%. Solo las comisiones usan la base.
 Es la única regla del sistema donde se usa el precio completo.
 
 **¿Por qué la base total es menor que el precio total?**
-Por el 13% de impuestos, y solo por eso. En enero: **$107.596,53** de precio →
-**$93.608,91** de base. La diferencia es exactamente el 13%.
+Por el 13% de impuestos, y solo por eso. En enero: **$107.596,54** de precio →
+**$93.608,99** de base. La diferencia es exactamente el 13%.
 
 Si alguna vez ves una diferencia mayor, algo va mal: significaría que alguna fila
 no está usando `precio × 0,87`.
+
+**¿Qué son exactamente los "planes varios"?**
+Es la otra clasificación de plan (PLANNIN), y en la práctica es el **Paquete Niño
+Sano** de pediatría. No es maternidad: los "Plan Nacer" de cesárea y parto son
+*paquetes* y van al otro cubo, aunque el Excel los etiquete como "Plan".
+
+Tiene meta **1** —para jefa y para vendedora— y tarifa plana de 3 % empresa / 5 %
+propio, sin niveles Bronce/Silver/Gold.
+
+En los seis meses exportados (octubre 2025 a marzo 2026) hay **una sola venta** de
+esta categoría. Con meta 1, harían falta dos en el mismo mes para que una pague.
 
 **Una vendedora hizo 8 planes y su meta era 6. ¿Cuánto cobra?**
 Por **2 planes**, y son los **dos últimos** que vendió. Los otros 6 no pagan nada.
@@ -496,8 +593,9 @@ Porque su porcentaje depende del acumulado del mes de esa vendedora, no de la
 venta suelta.
 
 **¿Por qué no comisionan todos los planes?**
-Porque el objetivo es una franquicia: solo comisiona lo que lo supera. El sistema
-elige los de base más baja, y administración puede cambiar cuáles.
+Porque el objetivo es una franquicia: solo comisiona lo que lo **supera**. Los que
+comisionan son los **últimos vendidos**, y administración puede cambiar cuáles en
+la pestaña "Planes que comisionan".
 
 **¿Hay dos formas de que un plan comisione, por meta o por monto?**
 No. Los planes comisionan **solo por cantidad**, y con dos objetivos separados:
