@@ -178,6 +178,18 @@ Igualar el objetivo paga **cero**. Verificado contra la planilla de diciembre
 `vendidos − objetivo`, y quien vendió tantos planes como su objetivo figura como
 NO cumple.
 
+### Hay DOS objetivos de planes, y no se mezclan
+
+Este es el punto que más confusión genera al leer los reportes.
+
+Los paquetes de maternidad y los planes varios tienen **objetivos distintos y se
+cuentan por separado**. La columna "Planes" de la liquidación muestra la **suma**
+de los dos cálculos, no un cálculo único.
+
+Y no confundir con el **objetivo de monto** ($12.000 / $15.000): ese no interviene
+en los planes, solo en el bono de jefatura. Los planes comisionan **solo por
+cantidad**.
+
 ### Los objetivos se cuentan por separado
 
 | Cargo | Objetivo PLANPAQ | Objetivo PLANNIN | Objetivo mensual | Objetivo trimestral |
@@ -185,10 +197,17 @@ NO cumple.
 | **Jefa** | 6 | 1 | $15.000 | $15.000 |
 | **Vendedora** | 4 | 1 | $12.000 | $15.000 |
 
-> **Ejemplo real de enero — Viviana (jefa).**
-> - PLANPAQ: vendió **1**, objetivo 6 → `1 − 6 = 0` comisionan.
-> - PLANNIN: vendió **7**, objetivo 1 → `7 − 1 = 6` comisionan.
-> - Total: **6 de sus 8 planes** comisionan.
+> **Los cuatro casos de enero, que explican los números de la tabla:**
+>
+> | | Paquetes | obj | → | Planes varios | obj | → | **Columna "Planes"** |
+> |---|---|---|---|---|---|---|---|
+> | Viviana (jefa) | 1 | 6 | 0 | 7 | 1 | 6 | **6 comisionan** |
+> | Claudia | 3 | 4 | 0 | 4 | 1 | 3 | **3 comisionan** |
+> | Yelca | 0 | 4 | 0 | 5 | 1 | 4 | **4 comisionan** |
+> | Zuany | 1 | 4 | 0 | 4 | 1 | 3 | **3 comisionan** |
+>
+> Ninguna llega al objetivo de paquetes, que es 4 o 6. Y como el de planes varios
+> es solo **1**, casi todos superan — por eso las cifras parecen altas.
 
 ### Cuáles comisionan, si no comisionan todos
 
@@ -400,6 +419,11 @@ venta suelta.
 **¿Por qué no comisionan todos los planes?**
 Porque el objetivo es una franquicia: solo comisiona lo que lo supera. El sistema
 elige los de base más baja, y administración puede cambiar cuáles.
+
+**¿Hay dos formas de que un plan comisione, por meta o por monto?**
+No. Los planes comisionan **solo por cantidad**, y con dos objetivos separados:
+uno para paquetes y otro para planes varios. El objetivo de **monto**
+($12.000/$15.000) no toca los planes — solo decide el bono de jefatura.
 
 **Cambié un parámetro y los números no se movieron.**
 Los parámetros se aplican en el próximo cálculo. Hay que recalcular el periodo.
