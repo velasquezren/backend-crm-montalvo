@@ -722,6 +722,8 @@ export class PlanillaComisionesService {
       porMotivo,
       planesSinEstado,
       sinClasificar,
+      vendedorasPendientes,
+      serviciosSinClasificar,
     ] = await Promise.all([
       this.prisma.ventaImportada.count({ where: { periodoId, comisionable: false } }),
       this.prisma.vendedoraComision.count({
@@ -738,9 +740,6 @@ export class PlanillaComisionesService {
         where: { periodoId, modulo: 'PLANES', comisionable: false },
       }),
       this.prisma.ventaImportada.count({ where: { periodoId, requiereRevision: true } }),
-    ]);
-
-    const [vendedorasPendientes, serviciosSinClasificar] = await Promise.all([
       this.prisma.vendedoraComision.findMany({
         where: { configurada: false, ventas: { some: { periodoId } } },
         select: { id: true, codigo: true, nombre: true },
