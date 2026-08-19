@@ -216,21 +216,25 @@ describe('exclusiones: lo que NO debe comisionar', () => {
     expect(r.motivoExclusion).toMatch(/Precio 0/);
   });
 
-  it('plan sin estado aprobado', () => {
-    const r = clasificarFila(
-      fila({ detalle: 'Paquete Cesarea Silver', modulo: 'PLANES', estadoPlan: null }),
-      [],
-    );
-    expect(r.comisionable).toBe(false);
-  });
-
-  it('plan en un estado que no es APROBADO ni TERMINADO', () => {
-    const r = clasificarFila(
-      fila({ detalle: 'Paquete Cesarea Silver', modulo: 'PLANES', estadoPlan: 'ANULADO' }),
-      [],
-    );
-    expect(r.comisionable).toBe(false);
-  });
+  /*
+   * El estado del plan dejó de excluir, por decisión de negocio: la venta existe
+   * y la vendedora la hizo. En qué punto está el plan —y si la paciente debe— es
+   * cosa de administración, que lo ve en la tabla junto al anticipo.
+   *
+   * Se prueban los tres casos que ANTES tumbaban la fila, para que quede fijado
+   * que hoy ninguno lo hace.
+   */
+  it.each([[null], ['ANULADO'], ['CUALQUIER COSA']])(
+    'un plan con estado %p comisiona igual',
+    estadoPlan => {
+      const r = clasificarFila(
+        fila({ detalle: 'Paquete Cesarea Silver', modulo: 'PLANES', estadoPlan }),
+        [],
+      );
+      expect(r.comisionable).toBe(true);
+      expect(r.motivoExclusion).toBeNull();
+    },
+  );
 
   it('venta sin vendedora: no hay a quién pagarle', () => {
     const r = clasificarFila(

@@ -123,8 +123,14 @@ export const CLAVES_CIRUGIA = [
 /** Textos que marcan un plan de maternidad cuando falta la clasificación. */
 export const CLAVES_MATERNIDAD = ['PLAN NACER', 'CESAREA', 'PARTO'];
 
-/** Estados de plan que sí generan comisión (regla 7 de casos borde). */
-export const ESTADOS_PLAN_VALIDOS = ['APROBADO', 'TERMINADO'];
+/**
+ * Estados que trae un plan de FileMaker. **Ya no filtran nada** — se conservan
+ * como referencia de qué valores existen, para quien tenga que leer la columna.
+ *
+ * Describen el ciclo del plan, no su cobranza: en enero hay TERMINADOS con el
+ * 25 % pagado y APROBADOS con el 100 %.
+ */
+export const ESTADOS_PLAN_CONOCIDOS = ['APROBADO', 'TERMINADO'];
 
 /**
  * Normaliza texto para comparar: sin acentos, sin espacios sobrantes y en
@@ -492,18 +498,23 @@ function evaluarComisionabilidad(
     return { comisionable: false, motivoExclusion: 'Precio 0 o inválido' };
   }
 
-  // Regla 7: en PLANES solo comisionan los aprobados o terminados.
-  if (normalizar(fila.modulo) === 'PLANES') {
-    const estado = normalizar(fila.estadoPlan);
-    if (!ESTADOS_PLAN_VALIDOS.includes(estado)) {
-      return {
-        comisionable: false,
-        motivoExclusion: estado
-          ? `Plan en estado "${fila.estadoPlan}" (requiere APROBADO o TERMINADO)`
-          : 'Plan sin estado — revisar manualmente',
-      };
-    }
-  }
+  /*
+   * El estado del plan NO excluye. Se guarda y se muestra, nada más.
+   *
+   * Había una regla que dejaba fuera todo plan que no estuviera APROBADO o
+   * TERMINADO. Se retira por decisión de negocio: la venta existe y la vendedora
+   * la hizo, así que comisiona; en qué punto de su ciclo esté el plan, y si la
+   * paciente debe o no, es cosa de administración y no del cálculo.
+   *
+   * No cambia ninguna cifra actual: los 30 planes de enero y los 20 de diciembre
+   * están todos en uno de esos dos estados. Lo que evita es que un estado nuevo
+   * de FileMaker tumbe una venta legítima sin que nadie lo note.
+   *
+   * `estadoPlan` sigue viajando hasta la tabla, junto al anticipo, para que se
+   * vea qué planes están en curso y cuánto llevan pagado. Ojo: el estado NO dice
+   * si pagó — en enero hay TERMINADOS con el 25 % pagado y APROBADOS con el
+   * 100 %.
+   */
 
   if (!fila.vendedoraPk && !fila.vendedoraNombre) {
     return { comisionable: false, motivoExclusion: 'Venta sin vendedora asignada' };
