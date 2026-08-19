@@ -314,12 +314,31 @@ export function determinarUnidadNegocio(
  * frágil: basta un servicio nuevo con un nombre que ningún patrón reconozca para
  * que caiga en OTROSS.
  *
- * `Plan` y `Paquete` se separan porque comisionan distinto: los paquetes de
- * maternidad son Tipo A con tabla por nivel, los planes varios llevan su propio
- * porcentaje.
+ * **`Plan` y `Paquete` NO se resuelven aquí, a propósito.** Es tentador —son dos
+ * palabras y hay dos clasificaciones— pero en el vocabulario de la clínica
+ * significan lo contrario de lo que parecen, y esta función leyéndolas al pie de
+ * la letra las cruzaba. En el export de enero 2026:
+ *
+ *   clasifiacion   detalle                              lo que es
+ *   ------------   ----------------------------------   -------------------
+ *   Plan     ×19   "Plan Nacer Cesárea 1er trim (Gold)"  PAQUETE maternidad
+ *   Paquete  ×5    "Paquete Cesarea Silver"              PAQUETE maternidad
+ *   Paquete  ×1    "Paquete Niño Sano (2025)"            PLAN niño
+ *
+ * O sea: `Paquete` cae en los dos lados y `Plan` no cae en ninguno de los que su
+ * nombre sugiere. La palabra no alcanza; lo que sí distingue es el **área**
+ * (Maternidad vs Pediatria), y de eso ya se ocupa `determinarUnidadNegocio`. Por
+ * eso aquí se devuelve null y decide el heurístico, que acierta los 30 casos.
+ *
+ * El coste de haberlo cruzado no era cosmético: los 19 paquetes de maternidad de
+ * enero se contaban contra el objetivo de PLANNIN —que es **1**, no 4 ni 6— y
+ * casi todos comisionaban, además de cobrar la tarifa plana en vez de la de su
+ * nivel. No lo detectó ninguna prueba porque el export de diciembre, el mes de
+ * referencia, **no trae esta columna**: son 20 columnas y `clasifiacion` no está
+ * entre ellas, así que en diciembre esta función nunca llegaba a ejecutarse.
  *
  * Devuelve null si la columna viene vacía o dice algo que no conocemos; ahí sigue
- * mandando el heurístico, que es lo que cubre las 8 filas sin clasificar de enero.
+ * mandando el heurístico, que es lo que cubre las filas sin clasificar de enero.
  */
 export function clasifDeFileMaker(valor: string | null): ClasifComision | null {
   const texto = normalizar(valor);
@@ -329,8 +348,6 @@ export function clasifDeFileMaker(valor: string | null): ClasifComision | null {
   if (texto.includes('ECOGRAFIA')) return ClasifComision.ECOGRAFIA;
   if (texto.includes('CONSULTA')) return ClasifComision.CONSULTA;
   if (texto.includes('CIRUGIA')) return ClasifComision.CIRUGIA;
-  if (texto.includes('PAQUETE')) return ClasifComision.PLANPAQ;
-  if (texto.includes('PLAN')) return ClasifComision.PLANNIN;
   if (texto.includes('OTROS')) return ClasifComision.OTROSS;
   return null;
 }

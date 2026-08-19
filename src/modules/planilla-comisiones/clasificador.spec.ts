@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+
 import { CAPTACION_POR_DEFECTO } from './configuracion-por-defecto';
 import { ClasifComision, NivelPlan, UnidadNegocio } from '@prisma/client';
 
@@ -12,6 +14,7 @@ import {
   ReglaDiccionario,
   clasifDeFileMaker,
 } from './clasificador';
+import { leerExcel } from './excel-parser';
 
 /**
  * El clasificador decide de qué categoría es cada venta, y de ahí sale lo que
@@ -391,11 +394,19 @@ describe('clasifDeFileMaker', () => {
     expect(clasifDeFileMaker('Otros servicios')).toBe('OTROSS');
   });
 
-  /* Paquete y Plan comisionan distinto: los paquetes de maternidad son Tipo A
-     con tabla por nivel, los planes varios llevan su propio porcentaje. */
-  it('separa Paquete de Plan, que no pagan igual', () => {
-    expect(clasifDeFileMaker('Paquete')).toBe('PLANPAQ');
-    expect(clasifDeFileMaker('Plan')).toBe('PLANNIN');
+  /*
+   * `Plan` y `Paquete` NO deciden aquí, y esta prueba existe para que nadie
+   * vuelva a "arreglarlo" añadiéndolas: en el vocabulario de la clínica
+   * significan lo contrario de lo que parecen.
+   *
+   * "Plan Nacer Cesárea (Gold)" viene etiquetado como `Plan` y es un PAQUETE de
+   * maternidad; "Paquete Niño Sano" viene como `Paquete` y es un PLAN niño. Y
+   * `Paquete` etiqueta además las cesáreas, que son maternidad. Lo que separa de
+   * verdad es el área, y de eso se encarga el heurístico.
+   */
+  it('NO decide entre Paquete y Plan: las dos palabras están cruzadas', () => {
+    expect(clasifDeFileMaker('Paquete')).toBeNull();
+    expect(clasifDeFileMaker('Plan')).toBeNull();
   });
 
   it('ignora acentos y mayúsculas, que el export mezcla', () => {
@@ -410,5 +421,171 @@ describe('clasifDeFileMaker', () => {
     expect(clasifDeFileMaker('')).toBeNull();
     expect(clasifDeFileMaker('   ')).toBeNull();
     expect(clasifDeFileMaker('Vacunación')).toBeNull();
+  });
+});
+
+/**
+ * Los cuatro tipos de fila de plan del export de enero 2026, con sus valores
+ * REALES en las tres columnas que intervienen.
+ *
+ * Esto es lo que faltaba: el resto de las pruebas de plan usan filas sin
+ * `clasificacionServicio`, porque los seis export anteriores —octubre a marzo,
+ * incluido el diciembre con el que se concilia todo— traen 20 columnas y no
+ * incluyen esa. El formato nuevo la añadió, y con ella un camino de código que
+ * ninguna prueba recorría: el paquete de maternidad de mayor volumen del mes se
+ * clasificaba como plan varios, con objetivo 1 en vez de 4 o 6.
+ */
+describe('planes del export nuevo de enero 2026 (con columna `clasifiacion`)', () => {
+  const plan = (campos: Partial<FilaExcel>): FilaExcel =>
+    fila({ modulo: 'PLANES', ...campos });
+
+  it('"Plan" + Plan Maternidad es un PAQUETE de maternidad, con su nivel', () => {
+    const r = clasificarFila(
+      plan({
+        detalle: 'Plan Nacer Cesárea 1er trimestre (Gold)',
+        area: 'Maternidad',
+        clasificacionServicio: 'Plan',
+        clasificacionPlan: 'Plan Maternidad',
+      }),
+    );
+    expect(r.clasif).toBe(ClasifComision.PLANPAQ);
+    expect(r.unidadNegocio).toBe(UnidadNegocio.MATERNIDAD);
+    expect(r.nivel).toBe(NivelPlan.GOLD);
+  });
+
+  it('"Paquete" + Niño Sano es un PLAN varios, sin nivel', () => {
+    const r = clasificarFila(
+      plan({
+        detalle: 'Paquete Niño Sano (2025)',
+        area: 'Pediatria',
+        clasificacionServicio: 'Paquete',
+        clasificacionPlan: 'Paquete Niño Sano',
+      }),
+    );
+    expect(r.clasif).toBe(ClasifComision.PLANNIN);
+    expect(r.unidadNegocio).toBe(UnidadNegocio.VARIOS);
+    expect(r.nivel).toBeNull();
+  });
+
+  it('"Paquete" sin clasificación de plan, si es cesárea, es maternidad', () => {
+    const r = clasificarFila(
+      plan({
+        detalle: 'Paquete de Cesarea sin equipo medico Silver',
+        area: 'Maternidad',
+        clasificacionServicio: 'Paquete',
+        clasificacionPlan: null,
+      }),
+    );
+    expect(r.clasif).toBe(ClasifComision.PLANPAQ);
+    expect(r.nivel).toBe(NivelPlan.SILVER);
+  });
+
+  it('"Cirugia" + Bariatrica sale de planes y entra en cirugía', () => {
+    const r = clasificarFila(
+      plan({
+        detalle: 'Paquete Bariatrica Premium',
+        area: 'Cirugia',
+        clasificacionServicio: 'Cirugia',
+        clasificacionPlan: 'Paquete Bariatrica',
+      }),
+    );
+    expect(r.clasif).toBe(ClasifComision.CIRUGIA);
+  });
+
+  /*
+   * El reparto del mes entero. Si alguien vuelve a hacer que la palabra decida,
+   * los 19 se van a PLANNIN y este número lo canta.
+   */
+  it('el mes reparte 24 paquetes, 1 plan varios y 5 cirugías', () => {
+    const mes: FilaExcel[] = [
+      ...Array.from({ length: 19 }, () =>
+        plan({
+          detalle: 'Plan Nacer Cesárea 1er trimestre (Gold)',
+          area: 'Maternidad',
+          clasificacionServicio: 'Plan',
+          clasificacionPlan: 'Plan Maternidad',
+        }),
+      ),
+      ...Array.from({ length: 5 }, () =>
+        plan({
+          detalle: 'Paquete Cesarea Silver',
+          area: 'Maternidad',
+          clasificacionServicio: 'Paquete',
+          clasificacionPlan: null,
+        }),
+      ),
+      plan({
+        detalle: 'Paquete Niño Sano (2025)',
+        area: 'Pediatria',
+        clasificacionServicio: 'Paquete',
+        clasificacionPlan: 'Paquete Niño Sano',
+      }),
+      ...Array.from({ length: 5 }, () =>
+        plan({
+          detalle: 'Paquete Bariatrica Premium',
+          area: 'Cirugia',
+          clasificacionServicio: 'Cirugia',
+          clasificacionPlan: 'Paquete Bariatrica',
+        }),
+      ),
+    ];
+
+    const conteo = mes
+      .map(f => clasificarFila(f).clasif)
+      .reduce<Record<string, number>>((acc, c) => ({ ...acc, [c]: (acc[c] ?? 0) + 1 }), {});
+
+    expect(conteo).toEqual({ PLANPAQ: 24, PLANNIN: 1, CIRUGIA: 5 });
+  });
+});
+
+/**
+ * El export NUEVO de enero 2026, leído de verdad con el parser.
+ *
+ * Las pruebas de arriba fijan la regla con los valores reales escritos a mano;
+ * esta comprueba lo otro que puede romperse en silencio: que la columna
+ * `clasifiacion` —así, sin la segunda c— llegue desde el fichero hasta el
+ * clasificador. Si el mapeo de cabeceras deja de reconocerla, el reparto vuelve
+ * a moverse sin que nada más se queje.
+ *
+ * Es el ÚNICO fichero de la clínica con esa columna: los seis anteriores
+ * (octubre → marzo, incluido el diciembre de referencia) traen 20 columnas.
+ * Si no está en el disco, se omite en vez de fallar.
+ */
+describe('el export nuevo de enero 2026, leído con el parser real', () => {
+  const RUTA = '/Users/macmini2024/Documents/CARPETA RENE/2026 EXCELS/enero.xlsx';
+
+  let filas: readonly FilaExcel[] | null = null;
+  beforeAll(() => {
+    try {
+      filas = leerExcel(readFileSync(RUTA)).filas;
+    } catch {
+      filas = null;
+    }
+  });
+
+  it('la columna `clasifiacion` llega al clasificador', () => {
+    if (!filas) return;
+    const planes = filas.filter(f => normalizar(f.modulo) === 'PLANES');
+    expect(planes).toHaveLength(30);
+    expect(planes.every(f => f.clasificacionServicio)).toBe(true);
+  });
+
+  it('reparte los 30 planes en 24 paquetes, 1 plan varios y 5 cirugías', () => {
+    if (!filas) return;
+    const conteo = filas
+      .filter(f => normalizar(f.modulo) === 'PLANES')
+      .map(f => clasificarFila(f).clasif)
+      .reduce<Record<string, number>>((acc, c) => ({ ...acc, [c]: (acc[c] ?? 0) + 1 }), {});
+
+    expect(conteo).toEqual({ PLANPAQ: 24, PLANNIN: 1, CIRUGIA: 5 });
+  });
+
+  /* Con el objetivo de PLANNIN en 1, mandar los paquetes ahí hacía comisionar
+     casi todos. Este es el número que importa en plata. */
+  it('solo UNA venta del mes es plan varios', () => {
+    if (!filas) return;
+    const varios = filas.filter(f => clasificarFila(f).clasif === ClasifComision.PLANNIN);
+    expect(varios).toHaveLength(1);
+    expect(varios[0]?.detalle).toContain('Niño Sano');
   });
 });

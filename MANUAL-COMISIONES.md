@@ -94,12 +94,30 @@ Cada fila recibe una **clasificación**, y de ella sale su **tipo de comisión**
 1. **El diccionario de administración.** Reglas configuradas a mano. Mandan sobre
    todo lo demás — es la vía para corregir un caso concreto sin tocar el Excel.
 2. **La columna del export.** FileMaker ya trae el servicio clasificado
-   (Laboratorio, Consulta, Ecografía, Plan, Paquete, Cirugía, Otros servicios).
+   (Laboratorio, Consulta, Ecografía, Cirugía, Otros servicios).
 3. **Los heurísticos.** Solo si las dos anteriores no dicen nada. Deducen por el
-   módulo y el texto del detalle.
+   **área** de la venta y el texto del detalle.
 
 Si ninguna de las tres reconoce el servicio, la fila queda marcada **para
 revisión** y se clasifica como "Otros servicios" para no romper el cálculo.
+
+### Ojo: "Plan" y "Paquete" significan lo contrario de lo que parecen
+
+El export trae etiquetas `Plan` y `Paquete`, y **el sistema las ignora a
+propósito**, porque en el vocabulario de la clínica están cruzadas:
+
+| Dice el export | Es en realidad | Cuenta como |
+|---|---|---|
+| `Plan` — "Plan Nacer Cesárea (Gold)" | un **paquete** de maternidad | PLANPAQ |
+| `Paquete` — "Paquete Cesarea Silver" | un **paquete** de maternidad | PLANPAQ |
+| `Paquete` — "Paquete Niño Sano" | un **plan** varios | PLANNIN |
+
+Como se ve, `Paquete` cae en los dos lados: la palabra no alcanza. Lo que sí
+separa es el **área** — Maternidad o Pediatría — y es lo que usa el sistema.
+
+Esto importa en dinero: los paquetes tienen objetivo 4 o 6 y tarifa por nivel;
+los planes varios tienen objetivo **1** y tarifa plana. Confundirlos hacía
+comisionar casi todos los paquetes del mes.
 
 ### Las nueve clasificaciones y su tipo
 
@@ -207,13 +225,23 @@ cantidad**.
 >
 > | | Paquetes | obj | → | Planes varios | obj | → | **Columna "Planes"** |
 > |---|---|---|---|---|---|---|---|
-> | Viviana (jefa) | 1 | 6 | 0 | 7 | 1 | 6 | **6 comisionan** |
-> | Claudia | 3 | 4 | 0 | 4 | 1 | 3 | **3 comisionan** |
-> | Yelca | 0 | 4 | 0 | 5 | 1 | 4 | **4 comisionan** |
-> | Zuany | 1 | 4 | 0 | 4 | 1 | 3 | **3 comisionan** |
+> | Viviana (jefa) | 8 | 6 | 2 | 0 | 1 | 0 | **2 comisionan** |
+> | Claudia | 7 | 4 | 3 | 0 | 1 | 0 | **3 comisionan** |
+> | Yelca | 5 | 4 | 1 | 0 | 1 | 0 | **1 comisiona** |
+> | Zuany | 4 | 4 | 0 | 1 | 1 | 0 | **0** |
 >
-> Ninguna llega al objetivo de paquetes, que es 4 o 6. Y como el de planes varios
-> es solo **1**, casi todos superan — por eso las cifras parecen altas.
+> Casi todo el mes es paquete de maternidad: de las 30 ventas del módulo PLANES,
+> **24 son paquetes**, 5 son bariátricas (que se van a cirugía) y **una sola** es
+> plan varios, el "Paquete Niño Sano" de Zuany. Zuany no cobra por planes: igualó
+> los dos objetivos, y igualar paga cero.
+
+> ⚠️ **Si viste antes esta tabla con "6 · 3 · 4 · 3 comisionan", era un error y
+> está corregido.** El export nuevo de FileMaker trae una columna `clasifiacion`
+> que los anteriores no tenían, y el sistema leía sus etiquetas al pie de la letra:
+> mandaba a *planes varios* los 19 "Plan Nacer" —que son paquetes de maternidad—
+> y a *paquetes* el "Paquete Niño Sano", que es el plan varios. Como el objetivo
+> de planes varios es **1** y el de paquetes es 4 o 6, comisionaban **16 planes en
+> vez de 6**. Ver la sección 4.
 
 ### Cuáles comisionan: los ÚLTIMOS
 
