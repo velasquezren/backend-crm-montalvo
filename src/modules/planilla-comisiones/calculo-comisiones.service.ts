@@ -1,6 +1,7 @@
 import { ConflictException, Injectable, Logger } from '@nestjs/common';
 import {
   AreaVendedora,
+  Prisma,
   CanalVenta,
   ClasifComision,
   EstadoPeriodo,
@@ -56,6 +57,80 @@ export interface LineaDesglose {
   porcentaje: number;
   comisionUsd: number;
   tipo: 'A' | 'B' | 'C';
+}
+
+/**
+ * Foto de las reglas con las que se liquidó un mes.
+ *
+ * Se guarda en el periodo porque las tarifas, los niveles y los parámetros son
+ * globales: cambiarlos hoy cambiaría lo que daría recalcular enero. Los números
+ * ya liquidados no se mueven —están en `ResultadoComision`—, pero sin esta foto
+ * nadie puede explicar de dónde salieron.
+ *
+ * Se guarda solo lo que DECIDE el pago. El diccionario de clasificación y los
+ * mapeos de captación quedan fuera a propósito: ya están aplicados fila por fila
+ * en `VentaImportada`, que también se congela al importar.
+ */
+export interface FotoConfiguracion {
+  readonly calculadoEn: string;
+  readonly tipoCambio: number;
+  readonly parametros: Record<string, number>;
+  readonly objetivos: ReadonlyArray<{
+    tipo: string;
+    planpaqMinimos: number;
+    planninMinimos: number;
+    montoMensualUsd: number;
+    montoTrimestralUsd: number;
+  }>;
+  readonly tarifasServicio: ReadonlyArray<{
+    clasif: string;
+    pctEmpresa: number;
+    pctPropio: number;
+  }>;
+  readonly tarifasPlan: ReadonlyArray<{ clave: string; pctEmpresa: number; pctPropio: number }>;
+  readonly nivelesCirugia: ReadonlyArray<{
+    nivel: number;
+    montoDesde: number;
+    montoHasta: number;
+    pctEmpresa: number;
+    pctPropio: number;
+  }>;
+}
+
+/** Arma la foto a partir de la configuración que acaba de usar el cálculo. */
+function fotografiarConfiguracion(
+  config: ConfiguracionCompleta,
+  tipoCambio: number,
+): FotoConfiguracion {
+  return {
+    calculadoEn: new Date().toISOString(),
+    tipoCambio,
+    parametros: Object.fromEntries(config.parametros),
+    objetivos: config.objetivos.map(o => ({
+      tipo: String(o.tipo),
+      planpaqMinimos: o.planpaqMinimos,
+      planninMinimos: o.planninMinimos,
+      montoMensualUsd: Number(o.montoMensualUsd),
+      montoTrimestralUsd: Number(o.montoTrimestralUsd),
+    })),
+    tarifasServicio: config.tarifasServicio.map(t => ({
+      clasif: String(t.clasif),
+      pctEmpresa: Number(t.pctEmpresa),
+      pctPropio: Number(t.pctPropio),
+    })),
+    tarifasPlan: config.tarifasPlan.map(t => ({
+      clave: t.clave,
+      pctEmpresa: Number(t.pctEmpresa),
+      pctPropio: Number(t.pctPropio),
+    })),
+    nivelesCirugia: config.nivelesCirugia.map(n => ({
+      nivel: n.nivel,
+      montoDesde: Number(n.montoDesde),
+      montoHasta: Number(n.montoHasta),
+      pctEmpresa: Number(n.pctEmpresa),
+      pctPropio: Number(n.pctPropio),
+    })),
+  };
 }
 
 /** Los planes de una clasificación, en el formato que espera la regla pura. */
@@ -195,7 +270,16 @@ export class CalculoComisionesService {
       }),
       this.prisma.periodoComision.update({
         where: { id: periodoId },
-        data: { estado: EstadoPeriodo.CALCULADO, calculadoEn: new Date() },
+        data: {
+          estado: EstadoPeriodo.CALCULADO,
+          calculadoEn: new Date(),
+          /* En la MISMA transacción que los resultados: si una falla no puede
+             quedar una foto que describa unos números que no se guardaron. */
+          configuracionUsada: fotografiarConfiguracion(
+            config,
+            tipoCambio,
+          ) as unknown as Prisma.InputJsonValue,
+        },
       }),
     ]);
 

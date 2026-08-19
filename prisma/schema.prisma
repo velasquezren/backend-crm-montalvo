@@ -473,6 +473,16 @@ model PeriodoComision {
   filasValidas  Int           @default(0)
   importadoPor  String?
   calculadoEn   DateTime?
+  /// Foto de las reglas con las que se liquidó este mes.
+  ///
+  /// Tarifas, niveles, parámetros y objetivos son GLOBALES: cambiarlos hoy
+  /// cambia lo que daría cualquier recálculo, también el de un mes viejo. Sin
+  /// esta foto, en marzo nadie puede responder "¿con qué reglas se pagó enero?",
+  /// porque los números están guardados pero las reglas ya no son las mismas.
+  ///
+  /// Se escribe en cada cálculo y se pisa al recalcular: describe el resultado
+  /// que hay ahora, no el historial de intentos —eso vive en AuditLog—.
+  configuracionUsada Json?
 
   ventas     VentaImportada[]
   resultados ResultadoComision[]

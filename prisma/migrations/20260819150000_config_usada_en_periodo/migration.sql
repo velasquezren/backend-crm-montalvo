@@ -1,0 +1,11 @@
+-- Foto de las reglas con las que se liquidó cada mes.
+--
+-- Tarifas, niveles, parámetros y objetivos base son globales: cambiarlos hoy
+-- cambia lo que daría un recálculo de cualquier periodo, incluido uno ya pagado.
+-- Sin esta columna, una discrepancia futura no se puede resolver — los números
+-- están guardados pero las reglas que los produjeron ya no.
+--
+-- Nulable a propósito: los periodos calculados ANTES de esto no tienen foto y no
+-- se puede inventar. La interfaz lo dirá en vez de mostrar reglas que quizá no
+-- fueron las suyas.
+ALTER TABLE "PeriodoComision" ADD COLUMN IF NOT EXISTS "configuracionUsada" JSONB;
