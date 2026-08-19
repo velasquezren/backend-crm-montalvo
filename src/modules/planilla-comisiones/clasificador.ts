@@ -288,11 +288,33 @@ export function determinarUnidadNegocio(
 
   if (normalizar(fila.modulo) === 'PLANES') {
     const clasificacion = normalizar(fila.clasificacionPlan);
-    if (clasificacion === 'PLAN MATERNIDAD') {
+
+    /*
+     * `Plan Maternidad` y `Paquete Maternidad` son la MISMA cosa —el paquete de
+     * maternidad—, y FileMaker usa las dos. La comparación exacta contra
+     * "PLAN MATERNIDAD" dejaba fuera la segunda: 4 filas en octubre y 1 en
+     * noviembre se iban a planes varios, cuyo objetivo es 1 en vez de 4 o 6.
+     *
+     * Se compara por "MATERNIDAD" contenido, que es la palabra que decide, y no
+     * por la que la acompaña. Ninguna de las otras clasificaciones que existen
+     * —Paquete Bariatrica, Paquete Niño Sano— la lleva.
+     */
+    if (clasificacion.includes('MATERNIDAD')) {
       return UnidadNegocio.MATERNIDAD;
     }
-    // Plan sin clasificación: se deduce del detalle (caso borde 3).
-    if (!clasificacion) {
+
+    /*
+     * Bariátrica y Niño Sano dicen explícitamente que NO son maternidad, así que
+     * se respetan. Para todo lo demás —incluida la columna vacía, que son 2 a 5
+     * filas cada mes— manda el detalle: "Paquete Cesarea Silver" es maternidad
+     * aunque nadie lo haya clasificado.
+     */
+    const declaraOtraCosa =
+      clasificacion.includes('BARIATRIC') ||
+      clasificacion.includes('CIRUG') ||
+      clasificacion.includes('NINO');
+
+    if (!declaraOtraCosa) {
       const detalle = normalizar(fila.detalle);
       if (CLAVES_MATERNIDAD.some(clave => detalle.includes(clave))) {
         return UnidadNegocio.MATERNIDAD;

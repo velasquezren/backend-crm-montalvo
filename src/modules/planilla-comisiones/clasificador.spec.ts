@@ -16,6 +16,9 @@ import {
 } from './clasificador';
 import { leerExcel } from './excel-parser';
 
+const CARPETA_2025 = '/Users/macmini2024/Documents/CARPETA RENE/Excels';
+const CARPETA_2026 = '/Users/macmini2024/Documents/CARPETA RENE/2026 EXCELS';
+
 /**
  * El clasificador decide de qué categoría es cada venta, y de ahí sale lo que
  * cobra cada vendedora. Una regresión aquí no da error: paga mal y nadie se
@@ -480,6 +483,26 @@ describe('planes del export nuevo de enero 2026 (con columna `clasifiacion`)', (
     expect(r.nivel).toBe(NivelPlan.SILVER);
   });
 
+  /*
+   * FileMaker escribe la misma cosa de dos maneras. `Paquete Maternidad` sale 4
+   * veces en octubre y 1 en noviembre, y la comparación exacta contra
+   * "PLAN MATERNIDAD" las mandaba a planes varios —objetivo 1— en vez de a
+   * paquetes —objetivo 4 o 6—.
+   */
+  it('"Paquete Maternidad" es lo mismo que "Plan Maternidad"', () => {
+    const r = clasificarFila(
+      plan({
+        detalle: 'Paquete Cesárea (Gold)',
+        area: 'Maternidad',
+        clasificacionServicio: 'Paquete',
+        clasificacionPlan: 'Paquete Maternidad',
+      }),
+    );
+    expect(r.clasif).toBe(ClasifComision.PLANPAQ);
+    expect(r.unidadNegocio).toBe(UnidadNegocio.MATERNIDAD);
+    expect(r.nivel).toBe(NivelPlan.GOLD);
+  });
+
   it('"Cirugia" + Bariatrica sale de planes y entra en cirugía', () => {
     const r = clasificarFila(
       plan({
@@ -552,7 +575,7 @@ describe('planes del export nuevo de enero 2026 (con columna `clasifiacion`)', (
  * Si no está en el disco, se omite en vez de fallar.
  */
 describe('el export nuevo de enero 2026, leído con el parser real', () => {
-  const RUTA = '/Users/macmini2024/Documents/CARPETA RENE/2026 EXCELS/enero.xlsx';
+  const RUTA = `${CARPETA_2026}/enero.xlsx`;
 
   let filas: readonly FilaExcel[] | null = null;
   beforeAll(() => {
@@ -587,5 +610,67 @@ describe('el export nuevo de enero 2026, leído con el parser real', () => {
     const varios = filas.filter(f => clasificarFila(f).clasif === ClasifComision.PLANNIN);
     expect(varios).toHaveLength(1);
     expect(varios[0]?.detalle).toContain('Niño Sano');
+  });
+});
+
+/**
+ * El reparto de planes de los SEIS meses exportados, leídos de verdad.
+ *
+ * Existe porque este fallo ya entró dos veces por dos puertas distintas: una
+ * clasificación nueva en el export (`Paquete Maternidad` en octubre) y una
+ * columna nueva (`clasifiacion` en enero) bastaron para mandar paquetes de
+ * maternidad a planes varios, que tienen objetivo 1 en vez de 4 o 6.
+ *
+ * Ninguna de las dos la detectó nada: la conciliación de diciembre solo compara
+ * el monto vendido de octubre y noviembre —que no cambia con la clasificación—
+ * y las comisiones únicamente de diciembre.
+ *
+ * Los 19 paquetes de diciembre son los mismos 19 que cuenta la hoja
+ * `BDEjecutivas` de la planilla de administración.
+ */
+describe('reparto de planes de los seis meses exportados', () => {
+  const CASOS: Array<[string, string, Record<string, number>]> = [
+    ['octubre', `${CARPETA_2025}/octubre.xlsx`, { PLANPAQ: 20, CIRUGIA: 2 }],
+    ['noviembre', `${CARPETA_2025}/noviembre.xlsx`, { PLANPAQ: 21 }],
+    ['diciembre', `${CARPETA_2025}/diciembre.xlsx`, { PLANPAQ: 19, CIRUGIA: 1 }],
+    ['enero', `${CARPETA_2026}/enero.xlsx`, { PLANPAQ: 24, PLANNIN: 1, CIRUGIA: 5 }],
+    ['febrero', `${CARPETA_2025}/febrero.xlsx`, { PLANPAQ: 19, CIRUGIA: 2 }],
+    ['marzo', `${CARPETA_2025}/marzo.xlsx`, { PLANPAQ: 15 }],
+  ];
+
+  it.each(CASOS)('%s reparte sus planes como espera la planilla', (_mes, ruta, esperado) => {
+    let filas: readonly FilaExcel[];
+    try {
+      filas = leerExcel(readFileSync(ruta)).filas;
+    } catch {
+      return; // sin el fichero en disco no se falla, se omite
+    }
+
+    const conteo = filas
+      .filter(f => normalizar(f.modulo) === 'PLANES')
+      .map(f => clasificarFila(f).clasif)
+      .reduce<Record<string, number>>((acc, c) => ({ ...acc, [c]: (acc[c] ?? 0) + 1 }), {});
+
+    expect(conteo).toEqual(esperado);
+  });
+
+  /*
+   * En seis meses hay UNA sola venta de plan varios. Como el objetivo es 1 y solo
+   * comisiona lo que lo SUPERA, ese objetivo no ha pagado nunca nada. Si este
+   * número se dispara, es que los paquetes se están yendo otra vez al cubo
+   * equivocado.
+   */
+  it('en los seis meses hay UNA sola venta de plan varios', () => {
+    let total = 0;
+    for (const [, ruta] of CASOS) {
+      try {
+        total += leerExcel(readFileSync(ruta)).filas.filter(
+          f => clasificarFila(f).clasif === ClasifComision.PLANNIN,
+        ).length;
+      } catch {
+        return;
+      }
+    }
+    expect(total).toBe(1);
   });
 });
