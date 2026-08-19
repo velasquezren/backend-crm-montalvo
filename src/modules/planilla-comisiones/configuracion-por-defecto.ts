@@ -14,6 +14,15 @@ import {
  * este archivo no vuelve a pisarlos.
  */
 
+/**
+ * Tipo de cambio de referencia de la clínica (Bs por dólar).
+ *
+ * Solo se usa cuando todavía no hay ningún periodo importado del que leerlo. El
+ * TC real de cada mes vive en `PeriodoComision.tipoCambio`, que es con el que se
+ * liquidó, y es el que sirve `tipoCambioVigente()`.
+ */
+export const TIPO_CAMBIO_POR_DEFECTO = 6.97;
+
 /** Claves de `ParametroComision`, para no repetir literales por el código. */
 export const PARAM = {
   IVA: 'IVA',

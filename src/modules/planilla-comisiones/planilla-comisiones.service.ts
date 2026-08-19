@@ -8,7 +8,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { clasificarFila, determinarTipo, FilaExcel, normalizar } from './clasificador';
 import { CatalogoClinicoService } from './catalogo-clinico.service';
 import { ConfiguracionComisionesService } from './configuracion-comisiones.service';
-import { EQUIPO_OFICIAL } from './configuracion-por-defecto';
+import { EQUIPO_OFICIAL, TIPO_CAMBIO_POR_DEFECTO } from './configuracion-por-defecto';
 import { ActualizarVendedoraDto } from './dto/configuracion.dto';
 import { AjustarVentaDto, ImportarExcelDto, QueryPeriodosDto, QueryVentasImportadasDto } from './dto/planilla.dto';
 import { deducirPeriodo, leerExcel } from './excel-parser';
@@ -444,6 +444,39 @@ export class PlanillaComisionesService {
   }
 
   /* ── Consulta de periodos ───────────────────────────────────────────── */
+
+  /**
+   * El tipo de cambio del periodo más reciente, que es el que rige hoy.
+   *
+   * Sale del último periodo importado y no de un parámetro aparte a propósito:
+   * el TC ya vive en `PeriodoComision`, lo fija administración al importar y con
+   * él se liquidó ese mes. Un segundo sitio donde escribirlo sería un sitio más
+   * del que puede desviarse.
+   *
+   * Sin periodos todavía devuelve el de referencia de la clínica y lo dice en
+   * `origen`, para que la interfaz no presente como oficial un número que nadie
+   * ha configurado.
+   */
+  async tipoCambioVigente(): Promise<{
+    tipoCambio: number;
+    anio: number | null;
+    mes: number | null;
+    origen: 'periodo' | 'defecto';
+  }> {
+    const ultimo = await this.prisma.periodoComision.findFirst({
+      orderBy: [{ anio: 'desc' }, { mes: 'desc' }],
+      select: { tipoCambio: true, anio: true, mes: true },
+    });
+
+    if (!ultimo) {
+      return { tipoCambio: TIPO_CAMBIO_POR_DEFECTO, anio: null, mes: null, origen: 'defecto' };
+    }
+
+    const tipoCambio = Number(ultimo.tipoCambio);
+    return tipoCambio > 0
+      ? { tipoCambio, anio: ultimo.anio, mes: ultimo.mes, origen: 'periodo' }
+      : { tipoCambio: TIPO_CAMBIO_POR_DEFECTO, anio: null, mes: null, origen: 'defecto' };
+  }
 
   async listarPeriodos(query: QueryPeriodosDto) {
     const where: Prisma.PeriodoComisionWhereInput = query.anio ? { anio: query.anio } : {};

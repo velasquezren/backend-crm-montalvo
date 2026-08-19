@@ -146,6 +146,18 @@ describe('los tres Excel reales contra la planilla de diciembre 2025', () => {
     },
   );
 
+  /*
+   * El tipo de cambio que sirve el navbar sale del periodo más reciente, no de
+   * una constante del frontend. Con octubre, noviembre y diciembre importados,
+   * el vigente es el de diciembre.
+   */
+  it('el tipo de cambio vigente sale del último periodo importado', async () => {
+    if (!hayArchivos) return;
+
+    const vigente = await planilla.tipoCambioVigente();
+    expect(vigente).toEqual({ tipoCambio: 6.97, anio: 2025, mes: 12, origen: 'periodo' });
+  });
+
   it.each(ESPERADO_TIPO_A)(
     '$nombre: la comisión de planes coincide con la planilla ($comisionAUsd USD)',
     ({ codigo, comisionAUsd }) => {

@@ -111,6 +111,24 @@ export class PlanillaComisionesController {
     return this.planilla.importar(archivo.buffer, archivo.originalname, dto, usuario.sub);
   }
 
+  /**
+   * Tipo de cambio vigente, para el selector Bs / $us de la barra superior.
+   *
+   * Va abierto a AGENTE —el resto del controlador es ADMIN— porque el selector
+   * vive en el navbar y lo ve todo el mundo. No expone nada sensible: es el
+   * mismo número que ya aparece impreso en cualquier factura de la clínica, sin
+   * ninguna cifra de comisiones detrás.
+   *
+   * Hasta ahora el frontend lo llevaba escrito a mano (6,97) y por tanto no se
+   * enteraba si administración importaba un mes con otro tipo de cambio: al
+   * pasar la tabla a dólares dividía por un número que no era el del periodo.
+   */
+  @Get('tipo-cambio')
+  @Roles('AGENTE')
+  tipoCambioVigente() {
+    return this.planilla.tipoCambioVigente();
+  }
+
   @Get('periodos')
   listarPeriodos(@Query() query: QueryPeriodosDto) {
     return this.planilla.listarPeriodos(query);
