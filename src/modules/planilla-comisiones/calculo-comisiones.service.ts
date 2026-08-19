@@ -533,21 +533,28 @@ export class CalculoComisionesService {
     const mesesTrimestre = Math.max(1, config.parametros.get(PARAM.MESES_BONO_TRIMESTRAL) ?? 3);
 
     /*
-     * Pote de jefatura. Contra lo que sugiere el nombre, no lo cobra la jefa:
-     * es una bolsa que genera el equipo comercial y que termina íntegra en el
-     * área de publicidad. En la planilla de diciembre 2024 la columna
-     * "BONO A PAGAR" de TODAS las vendedoras —incluidas las dos jefas, Viviana
-     * y Maricela— está en cero, y el total aparece repartido en partes iguales
-     * entre las tres personas de publicidad.
+     * Pote de jefatura.
      *
-     * Cada vendedora aporta al pote `su ingreso neto × factor`, y solo si ella
-     * superó SU propio objetivo de monto (la jefa 15.000, las vendedoras
-     * 12.000). No es el excedente sobre el objetivo: es el neto completo.
+     * **Los bonos se calculan sobre el PRECIO BRUTO, no sobre la base.** Es la
+     * diferencia con las comisiones, que sí usan `precio × 0,87`. Aquí entra el
+     * monto vendido tal cual.
      *
-     *   Viviana  31.568,42 × 0,2% = 63,14
-     *   Zuany    14.005,37 × 0,2% = 28,01
-     *   Claudia  13.015,66 × 0,2% = 26,03   (Yelca no llegó a 12.000 → 0)
-     *   pote = 117,18 → 39,06 para cada una de las 3 de publicidad
+     * Cada vendedora aporta el EXCEDENTE sobre su propio objetivo por el factor,
+     * y solo si lo supera. Verificado celda por celda contra la planilla de
+     * DICIEMBRE 2025, hoja "CALCULO BONOS" filas 18-21, donde la columna MONTO
+     * VENDIDO coincide con la suma de precios del export:
+     *
+     *   Viviana  (26.641,39 − 15.000) × 0,2% = 23,28
+     *   Yelca    (20.759,43 − 12.000) × 0,2% = 17,52
+     *   Zuany    (18.843,40 − 12.000) × 0,2% = 13,69
+     *   Claudia  (18.098,82 − 12.000) × 0,2% = 12,20
+     *   pote = 66,69, que es el "Total general" de la fila 22.
+     *
+     * Aquí hubo un comentario que afirmaba lo contrario —"es el neto completo,
+     * no el excedente"— con cifras de la planilla de 2024. El código nunca hizo
+     * eso, pero el comentario invitaba a "corregirlo" hasta romper la
+     * reconciliación de diciembre. Las cifras de arriba son de 2025 y salen de
+     * los tres export reales que usa `verificacion-diciembre`.
      */
     // Una sola consulta para todo el equipo, en vez de dos por vendedora dentro
     // del bucle. Con 5 vendedoras eran 10 viajes a la base, uno detrás de otro.
@@ -561,12 +568,10 @@ export class CalculoComisionesService {
       if (!objetivo) continue;
 
       /*
-       * El objetivo se compara directamente contra el monto vendido, sin tocar
-       * el tipo de cambio: ambos ya están en dólares, igual que el resto del
-       * cálculo. Verificado en la planilla ("CALCULO BONOS", fila 15): a Viviana
-       * le contrastan 36.285,54 contra el objetivo 15.000 y la diferencia que
-       * anotan es 21.285,54 — resta directa. Y el aporte al pote es el neto por
-       * el factor: 31.568,42 × 0,002 = 63,14.
+       * El objetivo se compara contra el monto vendido sin tocar el tipo de
+       * cambio: ambos están en dólares, igual que el resto del cálculo. La
+       * planilla de diciembre 2025 anota la resta directa —26.641,39 − 15.000 =
+       * 11.641,39 para la jefa— y sobre esa diferencia aplica el factor.
        *
        * Dividir antes entre el TC hacía el umbral siete veces más exigente: con
        * los meses reales nadie lo alcanzaba nunca y el bono salía siempre en cero.

@@ -231,6 +231,21 @@ Reglas del cálculo → Comisión del área RA**, sin tocar código.
 
 ## 10. Los bonos
 
+> ### Los bonos NO usan la base — usan el precio bruto
+>
+> Es la diferencia más importante de este apartado, y la que más confusión
+> genera:
+>
+> | | Sobre qué se calcula |
+> |---|---|
+> | **Comisiones** (Tipo A, B y C) | La **base**: precio × 0,87 |
+> | **Bonos** (jefatura y trimestral) | El **monto vendido**: precio bruto, sin quitar el 13% |
+>
+> Verificado celda por celda contra la planilla de diciembre 2025, hoja
+> `CALCULO BONOS`. El MONTO VENDIDO que anota para la jefa es **26.641,39**, que
+> es exactamente la suma de precios de su export — no 23.178,01, que sería el
+> neto.
+
 ### Bono de jefatura
 
 Cada vendedora que supera su objetivo mensual aporta al pote:
@@ -243,8 +258,21 @@ aporte = (monto vendido − objetivo mensual) × 0,002
 entre el equipo de publicidad. Las vendedoras que lo generan cobran **cero** por
 él.
 
-> **Ejemplo real de enero.** Solo Viviana superó su objetivo. El pote fue de
-> **$110,09**, que cobró íntegro como jefa.
+> **Ejemplo real de enero.** Solo Viviana superó su objetivo mensual:
+> `(42.725,33 − 15.000) × 0,002 = 55,45`. Con los aportes del resto el pote
+> quedó en **$110,09**, que cobró íntegro como jefa.
+
+**Comprobación con diciembre 2025**, donde las cuatro superaron su objetivo:
+
+| | Monto vendido | Objetivo | Diferencia | × 0,002 |
+|---|---|---|---|---|
+| Viviana (jefa) | $26.641,39 | $15.000 | $11.641,39 | **$23,28** |
+| Yelca | $20.759,43 | $12.000 | $8.759,43 | **$17,52** |
+| Zuany | $18.843,40 | $12.000 | $6.843,40 | **$13,69** |
+| Claudia | $18.098,82 | $12.000 | $6.098,82 | **$12,20** |
+| | | | **Pote** | **$66,69** |
+
+Los cinco números coinciden con las filas 18 a 22 de la hoja `CALCULO BONOS`.
 
 ### Bono trimestral
 
@@ -262,6 +290,12 @@ Con dos condiciones:
 El promedio se calcula sobre los **3 meses** anteriores incluyendo el que se
 liquida, y usa lo **importado**, no lo liquidado: si subiste tres meses y solo
 calculaste el último, el promedio sale igual de bien.
+
+También sobre el precio bruto.
+
+> **Ejemplo real de diciembre 2025 — Viviana.**
+> `(31.908,22 + 33.025,19 + 26.641,39) / 3 = 30.524,93`
+> `30.524,93 × 0,5% = 152,62 USD → Bs 1.063,76`
 
 ---
 
@@ -343,6 +377,10 @@ cambiarlos, y se aplican en el **próximo** cálculo.
 ---
 
 ## 15. Preguntas frecuentes
+
+**¿Los bonos se calculan sobre la base o sobre el precio?**
+Sobre el **precio bruto**, sin quitar el 13%. Solo las comisiones usan la base.
+Es la única regla del sistema donde se usa el precio completo.
 
 **¿Por qué la base total es menor que el precio total?**
 Por el 13% de impuestos, y solo por eso. En enero: **$107.596,53** de precio →
