@@ -105,23 +105,43 @@ describe('base de cálculo (paso 2)', () => {
   // que la clínica liquida con `precio × 0,87` y no con `precio ÷ 1,13`: si
   // alguien vuelve a la división, estos dos casos fallan.
   it('descuenta el 13% multiplicando por 0,87 — celda D15 de CALCULO BONOS COORD', () => {
-    expect(calcularIngresoNeto(27061.48, null)).toBe(23543.49);
+    expect(calcularIngresoNeto(27061.48)).toBe(23543.49);
   });
 
   it('mismo criterio en la hoja de ejecutivas — celda D6 de CALCULO BONOS', () => {
-    expect(calcularIngresoNeto(36285.54, null)).toBe(31568.42);
+    expect(calcularIngresoNeto(36285.54)).toBe(31568.42);
   });
 
   it('NO usa la división 1/1,13 (dejaría 88,50 en vez de 87,00 sobre 100)', () => {
-    expect(calcularIngresoNeto(100, null)).toBe(87);
+    expect(calcularIngresoNeto(100)).toBe(87);
   });
 
-  it('cuando el plan tiene anticipo, ese monto manda y NO se le vuelve a quitar el IVA', () => {
-    expect(calcularIngresoNeto(3532.87, 353.29)).toBe(353.29);
+  /*
+   * El anticipo NO es la base, y estas tres filas son de la hoja `BDEjecutivas`
+   * de "CALCULO COMISION DICIEMBRE 2025.xlsx" — la que usa administración.
+   *
+   * Hubo una regla que decía lo contrario: con anticipo, ese monto pasaba a ser
+   * la base sin descontarle nada. Sobre las 356 filas de diciembre el Excel da
+   * `precio × 0,87` en 356 y `anticipo` en 0, incluidas las 20 que traen
+   * anticipo. La regla vieja dejaba la base de enero corta en 24.974 USD.
+   */
+  /* Los precios van con TODOS sus decimales, como los guarda el Excel. Con el
+     valor redondeado a dos, `3236.52 × 0,87` cae en 2815,77 y el Excel dice
+     2815,78: el céntimo sale de los decimales que el redondeo se comió. */
+  it.each([
+    ['Plan Nacer Cesarea 3er. Trimestre', 2652.6429040961234, 265.28, 2307.8],
+    ['Plan Nacer Cesárea 1er trimestre', 3236.5231587202175, 323.65, 2815.78],
+    ['Paquete Bariatrica Premium', 2510.76828225314, 2510.76, 2184.37],
+    ['Plan Nacer Parto Normal 2do. Trim.', 2238.5230172782663, 286.94, 1947.52],
+  ])('%s: la base sale del precio, no del anticipo', (_detalle, precio, _anticipo, neto) => {
+    expect(calcularIngresoNeto(precio)).toBe(neto);
   });
 
-  it('un anticipo en cero no cuenta como anticipo', () => {
-    expect(calcularIngresoNeto(113, 0)).toBe(98.31);
+  /* El caso que más despistaba: pagado al 100 %, el anticipo casi iguala al
+     precio, y aun así hay que descontarle el 13 %. */
+  it('un anticipo igual al precio tampoco se libra del descuento', () => {
+    expect(calcularIngresoNeto(2510.76828225314)).toBe(2184.37);
+    expect(calcularIngresoNeto(2510.76828225314)).not.toBe(2510.76);
   });
 });
 

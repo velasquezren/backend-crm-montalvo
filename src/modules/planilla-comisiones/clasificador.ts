@@ -161,9 +161,29 @@ export function determinarCanal(
 }
 
 /**
- * PASO 2 — Base de cálculo.
- * Si el plan tiene anticipo, ese monto manda y **ya viene sin impuestos**
- * (caso borde 6); si no, se descuenta el IVA del precio de lista.
+ * PASO 2 — Base de cálculo: SIEMPRE el precio menos el IVA. Sin excepciones.
+ *
+ * Hubo una: si la fila traía anticipo, ese monto pasaba a ser la base y no se le
+ * descontaba nada, con el argumento de que "ya viene neto". **Es falso**, y la
+ * planilla de diciembre lo desmiente en las 356 filas:
+ *
+ *   INGRESO NETO = precio × 0,87   →  356 de 356
+ *   INGRESO NETO = anticipo        →    0 de 356
+ *   MONTO VENDIDO = precio         →  356 de 356
+ *
+ * Incluidas las 20 que traen anticipo. Por ejemplo, "Plan Nacer Cesárea 1er
+ * trimestre" con precio 3.236,52 y anticipo 323,65 liquida sobre 2.815,78, que
+ * es 3.236,52 × 0,87 — no sobre los 323,65.
+ *
+ * El anticipo dice cuánto lleva pagado la paciente y no cambia la comisión: la
+ * vendedora cobra por VENDER el plan, no al ritmo al que se cobra. Por eso el
+ * mismo plan aparece con precio idéntico en cada fila —es el precio de catálogo—
+ * y lo único que varía entre filas es qué paciente lo compró.
+ *
+ * La regla vieja dejaba la base de enero corta en 24.974 USD sobre 30 filas, y
+ * en las que el anticipo superaba al precio la dejaba alta. Se verificó circular:
+ * se comprobó que el `ingresoNeto` guardado coincidía con el anticipo, y
+ * coincidía porque este mismo código lo había escrito así.
  *
  * El descuento es `precio × (1 − iva)`, **no** `precio ÷ (1 + iva)`. No es lo
  * mismo: sobre 100 el primero deja 87,00 y el segundo 88,50. La planilla de la
@@ -177,14 +197,7 @@ export function determinarCanal(
  * que YA incluye impuesto, pero aquí manda cómo liquida administración: si un
  * día cambian de criterio, se cambia acá y en el parámetro IVA, no fila por fila.
  */
-export function calcularIngresoNeto(
-  precio: number,
-  anticipoPlan: number | null,
-  iva: number = IVA_POR_DEFECTO,
-): number {
-  if (anticipoPlan !== null && anticipoPlan > 0) {
-    return redondear(anticipoPlan);
-  }
+export function calcularIngresoNeto(precio: number, iva: number = IVA_POR_DEFECTO): number {
   return redondear(precio * (1 - iva));
 }
 
@@ -421,7 +434,7 @@ export function clasificarFila(
   mapeosCaptacion: ReadonlyMap<string, CanalVenta> = new Map(),
 ): ResultadoClasificacion {
   const canal = determinarCanal(fila.captacion, mapeosCaptacion);
-  const ingresoNeto = calcularIngresoNeto(fila.precio, fila.anticipoPlan, iva);
+  const ingresoNeto = calcularIngresoNeto(fila.precio, iva);
 
   // Se normalizan una sola vez: los pasos 3 a 6 los volvían a calcular cada uno.
   const detalleNorm = normalizar(fila.detalle);
