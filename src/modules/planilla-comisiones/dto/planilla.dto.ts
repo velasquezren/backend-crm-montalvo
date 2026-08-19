@@ -118,6 +118,22 @@ export class AjustarVentaDto {
   @IsBoolean()
   comisionable?: boolean;
 
+  /**
+   * Por qué se saca esta venta del cálculo. **Obligatorio al excluir a mano.**
+   *
+   * Quitarle la comisión a una fila es mover dinero de una persona, y sin motivo
+   * la decisión es irrecuperable: dentro de tres meses nadie sabe si fue un
+   * error del Excel, una devolución o un criterio de administración. El motivo
+   * viaja también al registro de auditoría.
+   *
+   * 200 es el ancho real de la columna (`@db.VarChar(200)`): sin el tope, un
+   * texto largo pasaría la validación y reventaría en Postgres con un 500.
+   */
+  @IsOptional()
+  @IsString()
+  @Length(3, 200)
+  motivoExclusion?: string;
+
   @IsOptional()
   @IsString()
   @Length(1, 40)

@@ -673,12 +673,29 @@ export class PlanillaComisionesService {
       }
     }
 
+    /*
+     * Excluir a mano exige motivo, y volver a incluir lo borra.
+     *
+     * Sin esto la fila quedaba excluida sin explicación —o peor, arrastrando el
+     * motivo que le puso el clasificador, que ya no es cierto— y dentro de tres
+     * meses nadie sabe si fue un error del Excel, una devolución o un criterio
+     * de administración. Es dinero de una persona: tiene que quedar por qué.
+     */
+    if (dto.comisionable === false && !dto.motivoExclusion?.trim()) {
+      throw new BadRequestException(
+        'Para excluir una venta del cálculo hay que indicar el motivo.',
+      );
+    }
+
     // Cambiar la clasificación cambia el tipo de comisión que le corresponde.
     const actualizada = await this.prisma.ventaImportada.update({
       where: { id },
       data: {
         ...dto,
         ...(dto.clasif ? { tipo: determinarTipo(dto.clasif) } : {}),
+        /* Al reincluir, el motivo deja de aplicar: dejarlo puesto haría que la
+           fila apareciera comisionando y "excluida por X" a la vez. */
+        ...(dto.comisionable === true ? { motivoExclusion: null } : {}),
         // Corregirla a mano es, precisamente, haberla revisado.
         requiereRevision: false,
         ajustadaManual: true,
