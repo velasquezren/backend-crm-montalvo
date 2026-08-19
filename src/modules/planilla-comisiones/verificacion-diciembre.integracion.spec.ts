@@ -119,6 +119,59 @@ describe('los tres Excel reales contra la planilla de diciembre 2025', () => {
     },
   );
 
+  /**
+   * La base es SIEMPRE precio × 0,87, también en las filas con anticipo.
+   *
+   * Esto se comprueba aquí, sobre las filas que salieron de los tres Excel
+   * reales, y no solo en una prueba unitaria con tres filas escritas a mano.
+   * La regla anterior —"si hay anticipo, ese monto es la base"— se dio por
+   * válida verificándola CONTRA LA BASE DE DATOS, que la había escrito ese mismo
+   * código: una comprobación circular que no demuestra nada.
+   *
+   * La planilla de diciembre lo desmiente en sus 356 filas, y este mes trae 20
+   * con anticipo, así que el caso está cubierto de verdad.
+   */
+  it('la base de TODAS las filas importadas es precio × 0,87', async () => {
+    if (!hayArchivos) return;
+
+    const filas = await prisma.ventaImportada.findMany({
+      select: { precio: true, anticipoPlan: true, ingresoNeto: true },
+    });
+
+    expect(filas.length).toBeGreaterThan(300);
+
+    const desviadas = filas.filter(
+      f => Math.abs(Number(f.ingresoNeto) - Number(f.precio) * 0.87) > 0.02,
+    );
+    expect(desviadas).toHaveLength(0);
+  });
+
+  it('las filas con anticipo NO liquidan sobre el anticipo', async () => {
+    if (!hayArchivos) return;
+
+    const conAnticipo = await prisma.ventaImportada.findMany({
+      where: { anticipoPlan: { not: null } },
+      select: { precio: true, anticipoPlan: true, ingresoNeto: true },
+    });
+
+    // Los tres meses traen 61 filas con anticipo: el caso está cubierto de verdad.
+    expect(conAnticipo.length).toBeGreaterThan(0);
+
+    for (const f of conAnticipo) {
+      const base = Number(f.ingresoNeto);
+      /* Tolerancia de 2 céntimos, no exactitud al céntimo: `redondear` corrige el
+         arrastre binario del flotante y alguna fila queda a menos de un céntimo
+         del producto exacto. Lo que esta prueba fija es la REGLA —la base sale
+         del precio, no del anticipo—, y para eso 0,02 sobra: el anticipo se
+         desvía del precio en cientos o miles, no en céntimos. */
+      expect(Math.abs(base - Number(f.precio) * 0.87)).toBeLessThan(0.02);
+      /* Y la comprobación que de verdad importa: no es el anticipo. */
+      if (Math.abs(Number(f.anticipoPlan) - Number(f.precio) * 0.87) > 1) {
+        expect(Math.abs(base - Number(f.anticipoPlan))).toBeGreaterThan(0.02);
+      }
+    }
+  });
+
   it('Gizelle no se liquida: no está en el equipo oficial', () => {
     if (!hayArchivos) return;
     expect(resultados.has('Pe2591')).toBe(false);
