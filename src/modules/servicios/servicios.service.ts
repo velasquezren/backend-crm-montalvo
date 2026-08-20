@@ -2,7 +2,6 @@ import { Injectable } from '@nestjs/common';
 import { NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 
-import { CacheMemoria } from '../../common/cache/cache-memoria';
 import { calcularPaginacion, paginar } from '../../common/dto/pagination.dto';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
@@ -91,90 +90,13 @@ interface ConteoCrudo {
  * medias— y por eso la cobertura se expone como métrica en vez de esconderse:
  * un servicio sin ficha se sigue mostrando con el nombre que trae el Excel.
  */
-export interface DashboardServiciosResponse {
-  totales: {
-    servicios: number;
-    pacientes: number;
-    medicos: number;
-    ingreso: number;
-  };
-  cobertura: {
-    servicios: number;
-    conCodigo: number;
-    conFicha: number;
-  };
-  porModulo: Array<{
-    etiqueta: string;
-    total: number;
-    ingreso: number;
-  }>;
-  porClasif: Array<{
-    etiqueta: string;
-    total: number;
-  }>;
-  topServicios: Array<{
-    etiqueta: string;
-    total: number;
-    ingreso: number;
-  }>;
-  porMedico: Array<{
-    codigo: string;
-    etiqueta: string;
-    total: number;
-    ingreso: number;
-  }>;
-  porMes: Array<{
-    anio: number;
-    mes: number;
-    total: number;
-    ingreso: number;
-  }>;
-}
-
-export interface DemografiaResponse {
-  total: number;
-  visitasPromedio: number;
-  saldoAcumulado: number;
-  porSexo: Array<{ etiqueta: string; total: number }>;
-  porDepartamento: Array<{ etiqueta: string; total: number }>;
-  porTramoEdad: Array<{ etiqueta: string; total: number }>;
-}
-
-export type HistorialPacienteResponse = Awaited<ReturnType<ServiciosService['calcularHistorialPaciente']>>;
-export type PerfilMedicoResponse = Awaited<ReturnType<ServiciosService['calcularPerfilMedico']>>;
-
 @Injectable()
 export class ServiciosService {
-  private readonly cacheDashboard = new CacheMemoria<DashboardServiciosResponse>({
-    ttlMs: 60_000 * 2, // 2 minutos
-    maxEntradas: 50,
-  });
-
-  private readonly cacheDemografia = new CacheMemoria<DemografiaResponse>({
-    ttlMs: 60_000 * 5, // 5 minutos
-    maxEntradas: 10,
-  });
-
-  private readonly cacheHistorial = new CacheMemoria<HistorialPacienteResponse>({
-    ttlMs: 60_000 * 5, // 5 minutos
-    maxEntradas: 100,
-  });
-
-  private readonly cachePerfilMedico = new CacheMemoria<PerfilMedicoResponse>({
-    ttlMs: 60_000 * 5, // 5 minutos
-    maxEntradas: 50,
-  });
-
   constructor(private readonly prisma: PrismaService) {}
 
   /* ── Dashboard ──────────────────────────────────────────────────────── */
 
   async dashboard(query: QueryServiciosDto) {
-    const clave = `dash:${query.periodoId ?? 'all'}:${query.modulo ?? 'all'}:${query.desde ?? ''}:${query.hasta ?? ''}`;
-    return this.cacheDashboard.resolver(clave, () => this.calcularDashboard(query));
-  }
-
-  private async calcularDashboard(query: QueryServiciosDto) {
     const where = this.filtroServicios(query);
 
     const [
@@ -257,10 +179,6 @@ export class ServiciosService {
    * cruzan, y limitarlo al cruce daría una foto pobre y sesgada.
    */
   async demografia() {
-    return this.cacheDemografia.resolver('demografia', () => this.calcularDemografia());
-  }
-
-  private async calcularDemografia() {
     const [porSexo, porDepartamento, porTramo, totales] = await Promise.all([
       this.prisma.cliente.groupBy({ by: ['sexo'], _count: true }),
       this.prisma.cliente.groupBy({ by: ['ciLugar'], _count: true }),
@@ -340,11 +258,8 @@ export class ServiciosService {
 
   /** Ficha del paciente (si existe) y su línea de tiempo de servicios. */
   async historialPaciente(pac: string) {
-    const codigo = pac.toUpperCase().trim();
-    return this.cacheHistorial.resolver(codigo, () => this.calcularHistorialPaciente(codigo));
-  }
+    const codigo = pac.toUpperCase();
 
-  private async calcularHistorialPaciente(codigo: string) {
     const [ficha, servicios] = await Promise.all([
       this.prisma.cliente.findUnique({
         where: { pac: codigo },
@@ -372,7 +287,7 @@ export class ServiciosService {
     ]);
 
     if (!ficha && servicios.length === 0) {
-      throw new NotFoundException(`No hay historial para el paciente ${codigo}`);
+      throw new NotFoundException(`No hay historial para el paciente ${pac}`);
     }
 
     const gastado = servicios.reduce((s, v) => s + Number(v.precio), 0);
@@ -464,10 +379,7 @@ export class ServiciosService {
     if (!medicoPk || medicoPk.length > 40) {
       throw new NotFoundException(`No hay servicios del médico ${codigo}`);
     }
-    return this.cachePerfilMedico.resolver(medicoPk, () => this.calcularPerfilMedico(medicoPk));
-  }
 
-  private async calcularPerfilMedico(medicoPk: string) {
     const where: Prisma.VentaImportadaWhereInput = { medicoPk };
 
     const [totales, distintosYFechas, porModulo, topServicios, porMes, topPacientes] =
@@ -522,7 +434,7 @@ export class ServiciosService {
       ]);
 
     if (totales._count === 0) {
-      throw new NotFoundException(`No hay servicios del médico ${medicoPk}`);
+      throw new NotFoundException(`No hay servicios del médico ${codigo}`);
     }
 
     return {
