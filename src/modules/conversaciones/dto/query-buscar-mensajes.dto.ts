@@ -3,7 +3,8 @@ import { Type } from 'class-transformer';
 
 export class QueryBuscarMensajesDto {
   @IsString()
-  query: string;
+  /* Lo rellena el ValidationPipe, no un constructor. */
+  query!: string;
 
   @IsOptional()
   @Type(() => Number)

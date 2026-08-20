@@ -2,8 +2,6 @@ import { readFileSync } from 'node:fs';
 
 import { ClasifComision } from '@prisma/client';
 
-import { ConfigService } from '@nestjs/config';
-
 import { AuditService } from '../../common/audit/audit.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AnaliticaComisionesService } from './analitica-comisiones.service';

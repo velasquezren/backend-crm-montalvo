@@ -1,5 +1,4 @@
-import { Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
+import {  } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import {
   OnGatewayConnection,
@@ -23,11 +22,8 @@ export class ConversacionesGateway implements OnGatewayConnection, OnGatewayDisc
   @WebSocketServer()
   private server!: Server;
 
-  private readonly logger = new Logger(ConversacionesGateway.name);
-
   constructor(
     private readonly jwtService: JwtService,
-    private readonly config: ConfigService,
     private readonly pushService: PushService,
   ) {}
 

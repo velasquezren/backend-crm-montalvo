@@ -107,7 +107,6 @@ beforeEach(async () => {
   service = new ConversacionesService(
     prisma,
     clientesService,
-    config,
     gateway as unknown as ConversacionesGateway,
     r2 as unknown as R2Service,
     /* Sin credenciales queda deshabilitado: no sale ni una petición a Meta. */
@@ -758,7 +757,6 @@ describe('Acuse automático fuera de horario', () => {
     const s = new ConversacionesService(
       prisma,
       clientesService,
-      config,
       gateway as unknown as ConversacionesGateway,
       r2 as unknown as R2Service,
       /* Sin credenciales queda deshabilitado: no sale ni una petición a Meta. */

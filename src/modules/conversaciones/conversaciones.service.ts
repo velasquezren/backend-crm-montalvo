@@ -1,5 +1,4 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { OrigenLead, Prisma, TipoMensaje } from '@prisma/client';
 
 import { CacheMemoria } from '../../common/cache/cache-memoria';
@@ -169,7 +168,6 @@ export class ConversacionesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly clientesService: ClientesService,
-    private readonly config: ConfigService,
     private readonly gateway: ConversacionesGateway,
     private readonly r2: R2Service,
     private readonly whatsapp: WhatsappCloudService,
