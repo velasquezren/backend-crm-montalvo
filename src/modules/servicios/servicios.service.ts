@@ -140,6 +140,9 @@ export interface DemografiaResponse {
   porTramoEdad: Array<{ etiqueta: string; total: number }>;
 }
 
+export type HistorialPacienteResponse = Awaited<ReturnType<ServiciosService['calcularHistorialPaciente']>>;
+export type PerfilMedicoResponse = Awaited<ReturnType<ServiciosService['calcularPerfilMedico']>>;
+
 @Injectable()
 export class ServiciosService {
   private readonly cacheDashboard = new CacheMemoria<DashboardServiciosResponse>({
@@ -150,6 +153,16 @@ export class ServiciosService {
   private readonly cacheDemografia = new CacheMemoria<DemografiaResponse>({
     ttlMs: 60_000 * 5, // 5 minutos
     maxEntradas: 10,
+  });
+
+  private readonly cacheHistorial = new CacheMemoria<HistorialPacienteResponse>({
+    ttlMs: 60_000 * 5, // 5 minutos
+    maxEntradas: 100,
+  });
+
+  private readonly cachePerfilMedico = new CacheMemoria<PerfilMedicoResponse>({
+    ttlMs: 60_000 * 5, // 5 minutos
+    maxEntradas: 50,
   });
 
   constructor(private readonly prisma: PrismaService) {}
@@ -327,8 +340,11 @@ export class ServiciosService {
 
   /** Ficha del paciente (si existe) y su línea de tiempo de servicios. */
   async historialPaciente(pac: string) {
-    const codigo = pac.toUpperCase();
+    const codigo = pac.toUpperCase().trim();
+    return this.cacheHistorial.resolver(codigo, () => this.calcularHistorialPaciente(codigo));
+  }
 
+  private async calcularHistorialPaciente(codigo: string) {
     const [ficha, servicios] = await Promise.all([
       this.prisma.cliente.findUnique({
         where: { pac: codigo },
@@ -356,7 +372,7 @@ export class ServiciosService {
     ]);
 
     if (!ficha && servicios.length === 0) {
-      throw new NotFoundException(`No hay historial para el paciente ${pac}`);
+      throw new NotFoundException(`No hay historial para el paciente ${codigo}`);
     }
 
     const gastado = servicios.reduce((s, v) => s + Number(v.precio), 0);
@@ -448,7 +464,10 @@ export class ServiciosService {
     if (!medicoPk || medicoPk.length > 40) {
       throw new NotFoundException(`No hay servicios del médico ${codigo}`);
     }
+    return this.cachePerfilMedico.resolver(medicoPk, () => this.calcularPerfilMedico(medicoPk));
+  }
 
+  private async calcularPerfilMedico(medicoPk: string) {
     const where: Prisma.VentaImportadaWhereInput = { medicoPk };
 
     const [totales, distintosYFechas, porModulo, topServicios, porMes, topPacientes] =
@@ -503,7 +522,7 @@ export class ServiciosService {
       ]);
 
     if (totales._count === 0) {
-      throw new NotFoundException(`No hay servicios del médico ${codigo}`);
+      throw new NotFoundException(`No hay servicios del médico ${medicoPk}`);
     }
 
     return {
