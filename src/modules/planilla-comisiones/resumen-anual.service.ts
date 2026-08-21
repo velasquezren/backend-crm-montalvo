@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { AreaVendedora, EstadoPeriodo, TipoVendedora } from '@prisma/client';
 
+import { CacheMemoria } from '../../common/cache/cache-memoria';
 import { PrismaService } from '../../prisma/prisma.service';
 import { redondear } from './clasificador';
 import { ConfiguracionComisionesService } from './configuracion-comisiones.service';
@@ -74,12 +75,45 @@ const TRIMESTRES: ReadonlyArray<{ trimestre: 1 | 2 | 3 | 4; meses: readonly numb
  */
 @Injectable()
 export class ResumenAnualService {
+  /**
+   * Caché del año (TTL 60 s, igual que `AnaliticaComisionesService`): son cuatro
+   * rondas de agregados más el pivote de 12 × N celdas que se recalculaban en
+   * cada carga del panel, para datos que solo se mueven al importar, calcular o
+   * reabrir un periodo. Las mutaciones del módulo la invalidan explícitamente
+   * (ver `invalidar()`); las de configuración —tarifas, objetivos— no, porque
+   * `ConfiguracionComisionesService` ya es dependencia de este service y
+   * inyectarlo acá al revés crearía un ciclo: para esas queda el TTL.
+   *
+   * El `soloVendedoraId` va en la clave al estilo de `KpisService`, aunque hoy
+   * `GET /anual` sea `@Roles('ADMIN')` y siempre llegue `undefined`: si algún
+   * día se cablea el escopado por vendedora, la caché no puede convertirse en
+   * el agujero de servirle a una el año de otra.
+   */
+  private readonly cache = new CacheMemoria<Awaited<ReturnType<ResumenAnualService['calcular']>>>({
+    ttlMs: 60_000,
+    maxEntradas: 20,
+  });
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly configuracion: ConfiguracionComisionesService,
   ) {}
 
   async porAnio(anio: number, soloVendedoraId?: string): Promise<{
+    anio: number;
+    filas: FilaAnual[];
+    totalesPorMes: number[];
+  }> {
+    const clave = `${anio}_${soloVendedoraId ?? 'ALL'}`;
+    return this.cache.resolver(clave, () => this.calcular(anio, soloVendedoraId));
+  }
+
+  /** La vacía entera: las claves son por año, y una mutación puede tocar varios. */
+  invalidar(): void {
+    this.cache.invalidar();
+  }
+
+  private async calcular(anio: number, soloVendedoraId?: string): Promise<{
     anio: number;
     filas: FilaAnual[];
     totalesPorMes: number[];

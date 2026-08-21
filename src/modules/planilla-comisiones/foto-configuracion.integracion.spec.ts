@@ -65,6 +65,7 @@ beforeEach(async () => {
     configuracion,
     new AuditService(prisma),
     new AnaliticaComisionesService(prisma),
+    { invalidar: () => undefined } as never,
   );
   jest.spyOn(calculo['logger'], 'warn').mockImplementation(() => undefined);
   jest.spyOn(calculo['logger'], 'log').mockImplementation(() => undefined);

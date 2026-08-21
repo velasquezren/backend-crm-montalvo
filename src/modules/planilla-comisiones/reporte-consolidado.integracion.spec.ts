@@ -55,12 +55,14 @@ beforeEach(async () => {
     new ConfiguracionComisionesService(prisma),
     new AuditService(prisma),
     new AnaliticaComisionesService(prisma),
+    { invalidar: () => undefined } as never,
   );
   planilla = new PlanillaComisionesService(
     prisma,
     new ConfiguracionComisionesService(prisma),
     new AuditService(prisma),
     new CatalogoClinicoService(prisma),
+    { invalidar: () => undefined } as never,
   );
   jest.spyOn(calculo['logger'], 'warn').mockImplementation(() => undefined);
   jest.spyOn(calculo['logger'], 'log').mockImplementation(() => undefined);

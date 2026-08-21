@@ -80,8 +80,20 @@ beforeAll(async () => {
   await prisma.$connect();
   const config = new ConfiguracionComisionesService(prisma);
   const audit = new AuditService(prisma);
-  calculo = new CalculoComisionesService(prisma, config, audit, new AnaliticaComisionesService(prisma));
-  planilla = new PlanillaComisionesService(prisma, config, audit, new CatalogoClinicoService(prisma));
+  calculo = new CalculoComisionesService(
+    prisma,
+    config,
+    audit,
+    new AnaliticaComisionesService(prisma),
+    { invalidar: () => undefined } as never,
+  );
+  planilla = new PlanillaComisionesService(
+    prisma,
+    config,
+    audit,
+    new CatalogoClinicoService(prisma),
+    { invalidar: () => undefined } as never,
+  );
   anual = new ResumenAnualService(prisma, config);
 
   /* Silencia los avisos del importador y del cálculo: esta prueba mueve 1.600

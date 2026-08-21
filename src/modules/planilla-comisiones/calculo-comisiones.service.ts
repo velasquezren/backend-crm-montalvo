@@ -13,6 +13,7 @@ import {
 import { AuditService } from '../../common/audit/audit.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AnaliticaComisionesService } from './analitica-comisiones.service';
+import { ResumenAnualService } from './resumen-anual.service';
 import { redondear } from './clasificador';
 import {
   aporteAlPoteJefatura,
@@ -183,6 +184,7 @@ export class CalculoComisionesService {
     private readonly configuracion: ConfiguracionComisionesService,
     private readonly audit: AuditService,
     private readonly analitica: AnaliticaComisionesService,
+    private readonly resumenAnual: ResumenAnualService,
   ) {}
 
   /** Liquida el periodo completo y persiste un `ResultadoComision` por vendedora. */
@@ -298,8 +300,10 @@ export class CalculoComisionesService {
     /* La analítica del periodo se sirve de una caché de 60 s. Sin esta línea,
        quien acaba de recalcular sigue viendo las cifras anteriores durante un
        minuto y concluye que el recálculo no hizo nada — es exactamente la
-       confusión que costó descubrir por qué la columna Sueldo salía en 0. */
+       confusión que costó descubrir por qué la columna Sueldo salía en 0.
+       La vista anual lee estos mismos resultados: misma línea, mismo motivo. */
     this.analitica.invalidar(periodoId);
+    this.resumenAnual.invalidar();
 
     await this.audit.registrar('PeriodoComision', periodoId, 'CALCULAR', usuarioId, {
       vendedoras: resultados.length,

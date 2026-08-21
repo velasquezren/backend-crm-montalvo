@@ -12,6 +12,7 @@ import { EQUIPO_OFICIAL, TIPO_CAMBIO_POR_DEFECTO } from './configuracion-por-def
 import { ActualizarVendedoraDto } from './dto/configuracion.dto';
 import { AjustarVentaDto, ImportarExcelDto, QueryPeriodosDto, QueryVentasImportadasDto } from './dto/planilla.dto';
 import { deducirPeriodo, leerExcel } from './excel-parser';
+import { ResumenAnualService } from './resumen-anual.service';
 
 /** Cuántas filas se insertan por lote (el VPS tiene poca RAM: no cargar todo de golpe). */
 const TAMANO_LOTE = 500;
@@ -121,6 +122,7 @@ export class PlanillaComisionesService {
     private readonly configuracion: ConfiguracionComisionesService,
     private readonly audit: AuditService,
     private readonly catalogo: CatalogoClinicoService,
+    private readonly resumenAnual: ResumenAnualService,
   ) {}
 
   /* ── Importación ────────────────────────────────────────────────────── */
@@ -263,8 +265,10 @@ export class PlanillaComisionesService {
 
     /* El catálogo del modal de ventas sale de estas filas: si no se invalida,
        los servicios del mes recién importado tardarían una hora en aparecer
-       como sugerencia. */
+       como sugerencia. La vista anual lee estas mismas filas: mismo motivo,
+       con TTL de 60 s en vez de una hora. */
     this.catalogo.invalidar();
+    this.resumenAnual.invalidar();
 
     await this.audit.registrar('PeriodoComision', periodo.id, 'IMPORTAR', usuarioId, {
       archivo: nombreArchivo,
@@ -514,6 +518,9 @@ export class PlanillaComisionesService {
     }
     // Las ventas y resultados caen por onDelete: Cascade.
     await this.prisma.periodoComision.delete({ where: { id } });
+    /* El mes borrado desaparece del año: sin esto seguiría pintado hasta 60 s
+       en una vista que ya no tiene respaldo en la base. */
+    this.resumenAnual.invalidar();
     await this.audit.registrar('PeriodoComision', id, 'ELIMINAR', usuarioId, {
       anio: periodo.anio,
       mes: periodo.mes,
@@ -525,6 +532,9 @@ export class PlanillaComisionesService {
   async cambiarEstado(id: string, estado: EstadoPeriodo, usuarioId: string) {
     await this.obtenerPeriodo(id);
     const periodo = await this.prisma.periodoComision.update({ where: { id }, data: { estado } });
+    /* BORRADOR ↔ CALCULADO mueve qué meses cuentan como liquidados en la vista
+       anual: hay que reflejarlo en el momento, no un minuto después. */
+    this.resumenAnual.invalidar();
     await this.audit.registrar('PeriodoComision', id, `ESTADO_${estado}`, usuarioId);
     return periodo;
   }
@@ -735,6 +745,10 @@ export class PlanillaComisionesService {
       },
     });
 
+    /* Incluir o excluir una fila mueve el vendido del mes —y con él el promedio
+       del trimestre— en la vista anual. */
+    this.resumenAnual.invalidar();
+
     await this.audit.registrar('VentaImportada', id, 'AJUSTAR', usuarioId, { ...dto });
     return actualizada;
   }
@@ -856,6 +870,10 @@ export class PlanillaComisionesService {
       // Editarla desde el panel es exactamente el acto de configurarla.
       data: { ...datos, configurada: true },
     });
+
+    /* Tipo y área deciden objetivo y bonos de la vista anual; `activa` decide
+       si la vendedora aparece en ella. */
+    this.resumenAnual.invalidar();
 
     await this.audit.registrar('VendedoraComision', id, 'ACTUALIZAR', usuarioId, {
       ...(datos as Record<string, unknown>),

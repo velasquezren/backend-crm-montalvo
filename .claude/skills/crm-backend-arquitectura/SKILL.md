@@ -301,12 +301,21 @@ cierre de esta sección).
   consciente (con la razón de por qué no se resolvió: paginar de verdad exige
   mover pestañas y búsqueda al servidor). Vale revisar si sigue siendo
   suficiente a medida que crece `Mensaje`/`Conversacion`.
-- **N+1 en los services grandes**: no audité línea por línea
-  `planilla-comisiones.service.ts` (866 líneas) ni `calculo-comisiones.service.ts`
-  (946 líneas) buscando queries dentro de loops. `crm-backend-module` documenta
-  la regla ("agregar en SQL, no en JS") pero no confirmé que se cumpla en el
-  100% de esos dos archivos — son los más grandes y los más candidatos a que
-  algo se haya colado.
+- **N+1 en los services grandes** — auditado el 2026-08-21, línea por línea:
+  `planilla-comisiones.service.ts` resuelve TODOS sus agregados en SQL dentro de
+  una sola `$transaction` (`aggregate` + dos `groupBy` en `listarVentas`), y el N+1
+  que sí tuvo `calculo-comisiones.service.ts` (dos queries por vendedora en el
+  bucle de bonos) ya está resuelto con una sola consulta de equipo — el comentario
+  del propio código lo documenta. El `findMany` sin `take` de `calcular()` es a
+  propósito: el motor de liquidación necesita las filas del periodo en memoria
+  (~500/mes; tabla entera: 1.287), no es un listado de API. `reporteConsolidado`
+  suma en JS sobre las ~5 filas que ya devuelve: trivial, no vale moverlo.
+  Cerrado: no re-auditar sin una razón nueva.
+- **Exportación y parseo de Excel** — verificado el 2026-08-21:
+  `exportacion-comisiones.service.ts` ya escribe en **streaming** por lotes de
+  1.000 filas (el libro nunca se materializa entero en memoria). Queda como
+  candidato a `worker_thread` solo si el parseo de importación se vuelve
+  perceptible con planillas mucho más grandes.
 - **`connection_limit=25`** en `DATABASE_URL`: nunca vi ese número puesto a
   prueba bajo carga real concurrente. Si el número de agentes conectados a la
   vez crece, vale confirmar que 25 conexiones alcanzan sin que Prisma empiece a

@@ -57,7 +57,8 @@ Por defecto 25 por página, tope duro 100 (`common/dto/pagination.dto.ts`).
 El frontend consume este sobre con `RespuestaPaginada<T>` y el átomo `<app-paginator>`.
 
 **Excepción documentada:** el inbox de conversaciones no se pagina (la UI filtra por
-pestañas sobre el conjunto cargado); se acota a las 100 más recientes.
+pestañas sobre el conjunto cargado); se acota a las 500 más recientes
+(`LIMITE_INBOX`, con un WARN en el log si se alcanza).
 
 ## Visibilidad por rol
 

@@ -56,6 +56,7 @@ function montar(opciones: { estadoPeriodo?: string; venta?: VentaFalsa | null } 
     {} as never,
     audit as never,
     { invalidar: () => undefined } as never,
+    { invalidar: () => undefined } as never,
   );
 
   return { servicio, actualizaciones, auditorias };
