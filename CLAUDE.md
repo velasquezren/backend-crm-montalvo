@@ -28,6 +28,12 @@ Ese skill documenta **cicatrices**, no teoría: cada regla está ahí porque alg
 rompió en producción. Si una te parece excesiva, probablemente estás a punto de
 reintroducir el bug que la motivó.
 
+Para cualquier tarea que no sea "tocar un endpoint" —desplegar, diagnosticar
+lentitud, decidir si algo escala, u orientarte la primera vez en este repo—
+carga además `crm-backend-arquitectura`: infraestructura real del servidor,
+escala real de datos, cómo desplegar paso a paso, y dónde mirar para
+rendimiento sin inventar problemas que no existen a esta escala.
+
 ## Comandos
 
 ```bash
