@@ -6,7 +6,6 @@ import { AuditService } from '../../common/audit/audit.service';
 import { R2Service } from '../../common/storage/r2.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ClientesService } from '../clientes/clientes.service';
-import { ComisionesService } from '../comisiones/comisiones.service';
 import { LeadsService } from '../leads/leads.service';
 import { ArchivoSubido } from './archivo-subido';
 import { CreateVentaDto } from './dto/create-venta.dto';
@@ -48,9 +47,8 @@ function esComprobantePropio(clave: string, agenteId: string): boolean {
 /**
  * Módulo Ventas — RF-11/RF-12.
  * Una venta GANADA dispara (vía services de otros módulos, nunca su BD):
- *   1. ComisionesService.generarParaVenta()  → comisión automática (RF-13)
- *   2. ClientesService.actualizarCategoria() → recategorización (RF-21)
- *   3. LeadsService.marcarConvertidos()      → cierre automático de oportunidades
+ *   1. ClientesService.actualizarCategoria() → recategorización (RF-21)
+ *   2. LeadsService.marcarConvertidos()      → cierre automático de oportunidades
  * El agente que cierra queda fijado desde el JWT y no existe endpoint para cambiarlo.
  */
 @Injectable()
@@ -58,7 +56,6 @@ export class VentasService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly clientesService: ClientesService,
-    private readonly comisionesService: ComisionesService,
     private readonly leadsService: LeadsService,
     private readonly audit: AuditService,
     private readonly r2: R2Service,
@@ -107,7 +104,6 @@ export class VentasService {
     });
 
     if (venta.estado === 'GANADA') {
-      await this.comisionesService.generarParaVenta(venta);
       await this.clientesService.actualizarCategoria(venta.clienteId);
       await this.leadsService.marcarConvertidos(venta.clienteId);
     }
@@ -185,7 +181,6 @@ export class VentasService {
         include: {
           cliente: { select: { id: true, nombre: true, telefono: true, pac: true } },
           agente: { select: { id: true, nombre: true } },
-          comision: { select: { id: true, monto: true, estado: true } },
         },
         skip,
         take,
@@ -217,7 +212,6 @@ export class VentasService {
     });
 
     if (estado === 'GANADA' && venta.estado !== 'GANADA') {
-      await this.comisionesService.generarParaVenta(actualizada);
       await this.clientesService.actualizarCategoria(actualizada.clienteId);
       await this.leadsService.marcarConvertidos(actualizada.clienteId);
     }

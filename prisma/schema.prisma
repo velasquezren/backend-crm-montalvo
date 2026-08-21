@@ -50,11 +50,6 @@ enum EstadoLead {
   PERDIDO
 }
 
-enum EstadoComision {
-  PENDIENTE
-  PAGADA
-}
-
 enum DireccionMensaje {
   ENTRANTE
   SALIENTE
@@ -79,7 +74,6 @@ model Usuario {
   leads             Lead[]
   conversaciones    Conversacion[]
   ventas            Venta[]
-  comisiones        Comision[]
   plantillas        PlantillaAgente[]
   recursosMemoria   RecursoMemoriaAgente[]
   pushSubscriptions PushSubscription[]
@@ -298,28 +292,11 @@ model Venta {
   medico            String?     @db.VarChar(120)
   modulo            String?     @db.VarChar(60)
   notas             String?     @db.Text
-  comision          Comision?
   createdAt         DateTime    @default(now())
 
   @@index([clienteId])
   @@index([agenteId])
   @@index([estado])
-  @@index([createdAt])
-  @@index([agenteId, estado])
-}
-
-model Comision {
-  id        String         @id @default(uuid())
-  venta     Venta          @relation(fields: [ventaId], references: [id])
-  ventaId   String         @unique
-  agente    Usuario        @relation(fields: [agenteId], references: [id])
-  agenteId  String
-  monto     Decimal        @db.Decimal(12, 2)
-  estado    EstadoComision @default(PENDIENTE)
-  pagadaEn  DateTime?
-  createdAt DateTime       @default(now())
-
-  @@index([agenteId])
   @@index([createdAt])
   @@index([agenteId, estado])
 }
@@ -397,11 +374,11 @@ model RecursoMemoriaAgente {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// PLANILLA DE COMISIONES — liquidación mensual desde el Excel de FileMaker.
-//
-// Dominio SEPARADO de `Venta`/`Comision` (que modelan la venta puntual de un
-// agente dentro del CRM). Aquí se importa el export mensual de FileMaker, se
-// clasifica cada fila y se liquida la planilla del equipo comercial.
+// ── Planilla Mensual de Comisiones (Importación FileMaker) ───────────────
+// Dominio SEPARADO de `Venta` (que modela la venta puntual en el CRM).
+// Aquí vive la planilla mensual consolidada que administración importa desde
+// el Excel de FileMaker: periodos, tarifas, vendedoras, médicos, reglas de
+// clasificación y liquidación en USD/Bs.
 // Nada de esto toca los modelos anteriores.
 // ═══════════════════════════════════════════════════════════════════════════
 

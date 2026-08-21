@@ -10,7 +10,6 @@ import { LoggingInterceptor } from './common/logging/logging.interceptor';
 import { RolesGuard } from './common/guards/roles.guard';
 import { AuthModule } from './modules/auth/auth.module';
 import { ClientesModule } from './modules/clientes/clientes.module';
-import { ComisionesModule } from './modules/comisiones/comisiones.module';
 import { ConversacionesModule } from './modules/conversaciones/conversaciones.module';
 import { KpisModule } from './modules/kpis/kpis.module';
 import { LeadsModule } from './modules/leads/leads.module';
@@ -40,7 +39,6 @@ import { PrismaModule } from './prisma/prisma.module';
     ConversacionesModule,
     ServiciosModule,
     VentasModule,
-    ComisionesModule,
     KpisModule,
     PlantillasAgenteModule,
     MemoriaAgenteModule,
