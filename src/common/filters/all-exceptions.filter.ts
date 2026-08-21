@@ -2,6 +2,7 @@ import { ArgumentsHost, Catch, ExceptionFilter, HttpException, HttpStatus, Logge
 import type { Request, Response } from 'express';
 
 import '../logging/request.types';
+import { idPeticion, rutaSinQuery } from '../logging/ruta-peticion';
 
 /**
  * Red de seguridad final de errores HTTP.
@@ -37,7 +38,10 @@ export class AllExceptionsFilter implements ExceptionFilter {
     const ctx = host.switchToHttp();
     const res = ctx.getResponse<Response>();
     const req = ctx.getRequest<Request>();
-    const requestId = req.requestId;
+    /* Mismo recorte de query string que el interceptor: un error no es
+       excusa para escribir el nombre de una paciente en el log. */
+    const requestId = idPeticion(req);
+    const ruta = rutaSinQuery(req);
 
     if (exception instanceof HttpException) {
       const status = exception.getStatus();
@@ -47,7 +51,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
       /* Un HttpException con status 5xx explícito es tan inesperado como uno
          sin capturar: también queda con stack en el log. */
       if (status >= 500) {
-        this.logger.error(`${requestId} ${req.method} ${req.originalUrl} ${status}`, exception.stack);
+        this.logger.error(`${requestId} ${req.method} ${ruta} ${status}`, exception.stack);
       }
 
       res.status(status).json({ ...forma, requestId });
@@ -59,7 +63,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
        completo en el log del servidor, atado al mismo requestId que ve el
        cliente en la respuesta. */
     const error = exception instanceof Error ? exception : new Error(String(exception));
-    this.logger.error(`${requestId} ${req.method} ${req.originalUrl} 500 — sin capturar`, error.stack);
+    this.logger.error(`${requestId} ${req.method} ${ruta} 500 — sin capturar`, error.stack);
 
     res.status(HttpStatus.INTERNAL_SERVER_ERROR).json({
       statusCode: HttpStatus.INTERNAL_SERVER_ERROR,

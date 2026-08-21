@@ -3,6 +3,7 @@ import type { Request, Response } from 'express';
 import { Observable, tap } from 'rxjs';
 
 import './request.types';
+import { idPeticion, rutaSinQuery } from './ruta-peticion';
 
 /**
  * Una línea por petición HTTP exitosa, con el mismo `requestId` que
@@ -11,7 +12,8 @@ import './request.types';
  * conoce el status real que se va a responder. Registrar ambos aquí duplicaría
  * la línea con un status engañoso (el que había antes de que el filtro actúe).
  *
- * No registra cuerpo ni cabeceras: son datos de pacientes.
+ * No registra cuerpo, cabeceras ni query string: son datos de pacientes
+ * (ver `rutaSinQuery`).
  */
 @Injectable()
 export class LoggingInterceptor implements NestInterceptor {
@@ -30,7 +32,7 @@ export class LoggingInterceptor implements NestInterceptor {
     return next.handle().pipe(
       tap(() => {
         const ms = Date.now() - inicio;
-        this.logger.log(`${req.requestId} ${req.method} ${req.originalUrl} ${res.statusCode} ${ms}ms`);
+        this.logger.log(`${idPeticion(req)} ${req.method} ${rutaSinQuery(req)} ${res.statusCode} ${ms}ms`);
       }),
     );
   }

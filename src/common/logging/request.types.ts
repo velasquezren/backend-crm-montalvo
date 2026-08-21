@@ -7,6 +7,12 @@ import 'express';
  */
 declare module 'express' {
   interface Request {
-    requestId: string;
+    /**
+     * Opcional a propósito: lo asigna un middleware, así que el tipo no puede
+     * prometer que exista. Declararlo obligatorio hacía que un camino que no
+     * pasara por `asignarRequestId` imprimiera `undefined` en el log sin que
+     * el compilador dijera nada. Para leerlo, `idPeticion(req)`.
+     */
+    requestId?: string;
   }
 }

@@ -21,7 +21,8 @@ const CABECERA = 'X-Request-Id';
  */
 export function asignarRequestId(req: Request, res: Response, next: NextFunction): void {
   const entrante = req.get(CABECERA);
-  req.requestId = entrante && entrante.length <= 100 ? entrante : randomUUID();
-  res.setHeader(CABECERA, req.requestId);
+  const id = entrante && entrante.length <= 100 ? entrante : randomUUID();
+  req.requestId = id;
+  res.setHeader(CABECERA, id);
   next();
 }
