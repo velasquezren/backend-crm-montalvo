@@ -10,6 +10,7 @@ import { ConversacionesGateway } from './conversaciones.gateway';
 import { AcuseAutomaticoService } from './acuse-automatico.service';
 import { DespachadorSalienteService } from './despachador-saliente.service';
 import { ConversacionesService } from './conversaciones.service';
+import { IngestaWhatsappService } from './ingesta-whatsapp.service';
 import { MediaEntranteService } from './media-entrante.service';
 
 /**
@@ -75,6 +76,7 @@ class R2Espia {
 }
 
 let service: ConversacionesService;
+let ingesta: IngestaWhatsappService;
 let clientesService: ClientesService;
 let gateway: GatewayEspia;
 let r2: R2Espia;
@@ -104,6 +106,14 @@ beforeEach(async () => {
   const config = new ConfigService({});
   clientesService = new ClientesService(prisma, new AuditService(prisma));
   const whatsappService = new WhatsappCloudService(config);
+  /* Un solo despachador, compartido — igual que en producción, donde es un
+     provider singleton que Nest inyecta en los dos services. */
+  const despachadorService = new DespachadorSalienteService(
+    prisma,
+    gateway as unknown as ConversacionesGateway,
+    r2 as unknown as R2Service,
+    whatsappService,
+  );
   service = new ConversacionesService(
     prisma,
     clientesService,
@@ -111,13 +121,14 @@ beforeEach(async () => {
     r2 as unknown as R2Service,
     /* Sin credenciales queda deshabilitado: no sale ni una petición a Meta. */
     whatsappService,
+    despachadorService,
+  );
+  ingesta = new IngestaWhatsappService(
+    prisma,
+    clientesService,
+    gateway as unknown as ConversacionesGateway,
     new AcuseAutomaticoService(config),
-    new DespachadorSalienteService(
-      prisma,
-      gateway as unknown as ConversacionesGateway,
-      r2 as unknown as R2Service,
-      whatsappService,
-    ),
+    despachadorService,
     new MediaEntranteService(
       prisma,
       gateway as unknown as ConversacionesGateway,
@@ -128,6 +139,7 @@ beforeEach(async () => {
   jest.spyOn(service['logger'], 'warn').mockImplementation(() => undefined);
   jest.spyOn(service['logger'], 'error').mockImplementation(() => undefined);
   jest.spyOn(service['logger'], 'log').mockImplementation(() => undefined);
+  jest.spyOn(ingesta['logger'], 'error').mockImplementation(() => undefined);
 });
 
 async function crearAgente(nombre: string, rol: 'AGENTE' | 'ADMIN' = 'AGENTE') {
@@ -434,7 +446,7 @@ describe('Conversaciones contra Postgres real', () => {
 
   describe('webhook entrante: alta automática e idempotencia', () => {
     it('un mensaje de un número nuevo crea cliente, conversación y lead', async () => {
-      await service.procesarEntrante('+59172000001', 'Hola, quiero información', 'wamid.a1', 'Ana Pérez');
+      await ingesta.procesarEntrante('+59172000001', 'Hola, quiero información', 'wamid.a1', 'Ana Pérez');
 
       const cliente = await prisma.cliente.findUniqueOrThrow({ where: { telefono: '+59172000001' } });
       expect(cliente.nombre).toBe('Ana Pérez');
@@ -443,8 +455,8 @@ describe('Conversaciones contra Postgres real', () => {
     });
 
     it('el mismo whatsappMsgId dos veces guarda UN mensaje (Meta reintenta)', async () => {
-      await service.procesarEntrante('+59172000002', 'Hola', 'wamid.b1');
-      await service.procesarEntrante('+59172000002', 'Hola', 'wamid.b1');
+      await ingesta.procesarEntrante('+59172000002', 'Hola', 'wamid.b1');
+      await ingesta.procesarEntrante('+59172000002', 'Hola', 'wamid.b1');
 
       expect(await prisma.mensaje.count({ where: { whatsappMsgId: 'wamid.b1' } })).toBe(1);
     });
@@ -455,7 +467,7 @@ describe('Conversaciones contra Postgres real', () => {
     it('5 webhooks simultáneos del mismo número nuevo: 1 cliente, 1 conversación, 5 mensajes, 1 lead', async () => {
       await Promise.all(
         [1, 2, 3, 4, 5].map(n =>
-          service.procesarEntrante('+59172000003', `mensaje ${n}`, `wamid.c${n}`, 'Paciente Nuevo'),
+          ingesta.procesarEntrante('+59172000003', `mensaje ${n}`, `wamid.c${n}`, 'Paciente Nuevo'),
         ),
       );
 
@@ -467,19 +479,19 @@ describe('Conversaciones contra Postgres real', () => {
     });
 
     it('un entrante sube el chat al tope del inbox', async () => {
-      await service.procesarEntrante('+59172000004', 'primero', 'wamid.d1');
+      await ingesta.procesarEntrante('+59172000004', 'primero', 'wamid.d1');
       const conv = await prisma.conversacion.findFirstOrThrow();
       const antes = conv.updatedAt;
 
       await new Promise(r => setTimeout(r, 5));
-      await service.procesarEntrante('+59172000004', 'segundo', 'wamid.d2');
+      await ingesta.procesarEntrante('+59172000004', 'segundo', 'wamid.d2');
 
       const despues = await prisma.conversacion.findUniqueOrThrow({ where: { id: conv.id } });
       expect(despues.updatedAt.getTime()).toBeGreaterThan(antes.getTime());
     });
 
     it('sin nombre de perfil, el alta usa el marcador con el teléfono', async () => {
-      await service.procesarEntrante('+59172000005', 'Hola', 'wamid.e1');
+      await ingesta.procesarEntrante('+59172000005', 'Hola', 'wamid.e1');
       const cliente = await prisma.cliente.findUniqueOrThrow({ where: { telefono: '+59172000005' } });
       expect(cliente.nombre).toBe('WhatsApp +59172000005');
     });
@@ -506,8 +518,8 @@ describe('Conversaciones contra Postgres real', () => {
     const campana = { origenTipo: 'ad', anuncioId: anuncio, titular: 'Promo Rinoplastia' };
 
     it('dos pacientes del mismo anuncio generan sus dos leads', async () => {
-      await service.procesarEntrante('+59172000020', 'Hola', 'wamid.ads1', 'Primera', undefined, campana);
-      await service.procesarEntrante('+59172000021', 'Hola', 'wamid.ads2', 'Segunda', undefined, campana);
+      await ingesta.procesarEntrante('+59172000020', 'Hola', 'wamid.ads1', 'Primera', undefined, campana);
+      await ingesta.procesarEntrante('+59172000021', 'Hola', 'wamid.ads2', 'Segunda', undefined, campana);
 
       const leads = await prisma.lead.findMany({ where: { anuncioId: anuncio } });
       expect(leads).toHaveLength(2);
@@ -520,14 +532,14 @@ describe('Conversaciones contra Postgres real', () => {
        La excepción del lead cortaba `procesarEntrante` justo antes de
        `notificarEntrante`, así que este contador se quedaba en 1. */
     it('la segunda paciente del anuncio también dispara su aviso al teléfono', async () => {
-      await service.procesarEntrante('+59172000022', 'Hola', 'wamid.ads3', 'Primera', undefined, campana);
-      await service.procesarEntrante('+59172000023', 'Hola', 'wamid.ads4', 'Segunda', undefined, campana);
+      await ingesta.procesarEntrante('+59172000022', 'Hola', 'wamid.ads3', 'Primera', undefined, campana);
+      await ingesta.procesarEntrante('+59172000023', 'Hola', 'wamid.ads4', 'Segunda', undefined, campana);
 
       expect(gateway.notificados).toHaveLength(2);
     });
 
     it('un anuncio de Instagram se clasifica como INSTAGRAM_LEAD_AD', async () => {
-      await service.procesarEntrante('+59172000024', 'Hola', 'wamid.ads5', 'Tercera', undefined, {
+      await ingesta.procesarEntrante('+59172000024', 'Hola', 'wamid.ads5', 'Tercera', undefined, {
         ...campana,
         origenUrl: 'https://www.instagram.com/p/xyz',
       });
@@ -539,7 +551,7 @@ describe('Conversaciones contra Postgres real', () => {
     /* Sin `referral` nada cambia: el chat orgánico sigue siendo WHATSAPP_DIRECTO
        y sin anuncio, para que la atribución de campaña no se contamine. */
     it('un chat orgánico no queda atribuido a ninguna campaña', async () => {
-      await service.procesarEntrante('+59172000025', 'Hola', 'wamid.org1', 'Orgánica');
+      await ingesta.procesarEntrante('+59172000025', 'Hola', 'wamid.org1', 'Orgánica');
 
       const lead = await prisma.lead.findFirstOrThrow({
         where: { cliente: { telefono: '+59172000025' } },
@@ -561,13 +573,13 @@ describe('Conversaciones contra Postgres real', () => {
    */
   describe('a quién se le avisa al teléfono', () => {
     it('un mensaje de la paciente notifica una sola vez', async () => {
-      await service.procesarEntrante('+59172000010', 'Hola, quiero una cita', 'wamid.n1');
+      await ingesta.procesarEntrante('+59172000010', 'Hola, quiero una cita', 'wamid.n1');
 
       expect(gateway.notificados).toHaveLength(1);
     });
 
     it('el chat sin dueña notifica al equipo entero', async () => {
-      await service.procesarEntrante('+59172000011', 'Hola', 'wamid.n2');
+      await ingesta.procesarEntrante('+59172000011', 'Hola', 'wamid.n2');
 
       expect(gateway.notificados[0].agenteId).toBeNull();
     });
@@ -576,7 +588,7 @@ describe('Conversaciones contra Postgres real', () => {
       const a = await crearAgente('agente-a');
       await crearChat({ telefono: '+59172000012', agenteCliente: a.id });
 
-      await service.procesarEntrante('+59172000012', 'Hola', 'wamid.n3');
+      await ingesta.procesarEntrante('+59172000012', 'Hola', 'wamid.n3');
 
       expect(gateway.notificados[0].agenteId).toBe(a.id);
     });
@@ -670,8 +682,8 @@ describe('Conversaciones contra Postgres real', () => {
   describe('marcar leído', () => {
     it('pone leidoEn a los entrantes sin leer y vacía el contador del inbox', async () => {
       const a = await crearAgente('agente-a');
-      await service.procesarEntrante('+59174000001', 'uno', 'wamid.f1');
-      await service.procesarEntrante('+59174000001', 'dos', 'wamid.f2');
+      await ingesta.procesarEntrante('+59174000001', 'uno', 'wamid.f1');
+      await ingesta.procesarEntrante('+59174000001', 'dos', 'wamid.f2');
       const conv = await prisma.conversacion.findFirstOrThrow();
       await prisma.conversacion.update({ where: { id: conv.id }, data: { agenteId: a.id } });
 
@@ -686,7 +698,7 @@ describe('Conversaciones contra Postgres real', () => {
     it('no marca nada si la conversación es de otro agente', async () => {
       const a = await crearAgente('agente-a');
       const b = await crearAgente('agente-b');
-      await service.procesarEntrante('+59174000002', 'uno', 'wamid.g1');
+      await ingesta.procesarEntrante('+59174000002', 'uno', 'wamid.g1');
       const conv = await prisma.conversacion.findFirstOrThrow();
       await prisma.conversacion.update({ where: { id: conv.id }, data: { agenteId: b.id } });
       await prisma.cliente.updateMany({ data: { agenteId: b.id } });
@@ -752,15 +764,20 @@ describe('Acuse automático fuera de horario', () => {
     return new ConfigService(valores);
   }
 
+  /**
+   * Solo construye `IngestaWhatsappService` — es la única que necesita el
+   * reloj sustituido (`ahora()` vive ahí desde el split; ver ese archivo).
+   * Donde una prueba de este bloque necesita leer el inbox (`findAll`), usa
+   * el `service` del `beforeEach` de arriba: esa lectura no depende de la
+   * hora, así que no hace falta una segunda instancia de ConversacionesService
+   * por cada combinación de horario que se prueba aquí.
+   */
   function servicioCon(config: ConfigService, ahora: Date) {
     const whatsapp = new WhatsappCloudService(config);
-    const s = new ConversacionesService(
+    const s = new IngestaWhatsappService(
       prisma,
       clientesService,
       gateway as unknown as ConversacionesGateway,
-      r2 as unknown as R2Service,
-      /* Sin credenciales queda deshabilitado: no sale ni una petición a Meta. */
-      whatsapp,
       new AcuseAutomaticoService(config),
       new DespachadorSalienteService(
         prisma,
@@ -841,7 +858,7 @@ describe('Acuse automático fuera de horario', () => {
     await s.procesarEntrante('+59176000004', 'Hola', 'wamid.s1');
     await esperarSalientes(1);
 
-    const [conv] = await s.findAll(undefined);
+    const [conv] = await service.findAll(undefined);
     const ultimo = conv.mensajes[0];
 
     expect(ultimo.direccion).toBe('SALIENTE');

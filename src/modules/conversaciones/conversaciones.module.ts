@@ -11,6 +11,7 @@ import { ConversacionesController } from './conversaciones.controller';
 import { ConversacionesGateway } from './conversaciones.gateway';
 import { ConversacionesService } from './conversaciones.service';
 import { DespachadorSalienteService } from './despachador-saliente.service';
+import { IngestaWhatsappService } from './ingesta-whatsapp.service';
 import { MediaEntranteService } from './media-entrante.service';
 import { WhatsappWebhookController } from './webhooks/whatsapp-webhook.controller';
 
@@ -19,6 +20,7 @@ import { WhatsappWebhookController } from './webhooks/whatsapp-webhook.controlle
   controllers: [ConversacionesController, WhatsappWebhookController],
   providers: [
     ConversacionesService,
+    IngestaWhatsappService,
     ConversacionesGateway,
     AcuseAutomaticoService,
     DespachadorSalienteService,

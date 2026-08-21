@@ -7,6 +7,8 @@ import compression from 'compression';
 import helmet from 'helmet';
 
 import { AppModule } from './app.module';
+import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
+import { asignarRequestId } from './common/logging/request-id.middleware';
 
 async function bootstrap(): Promise<void> {
   /**
@@ -42,6 +44,12 @@ async function bootstrap(): Promise<void> {
     res.setHeader('X-Api-Version', '1.0.0');
     next();
   });
+
+  /* Id de correlación por petición: ver el comentario de asignarRequestId.
+     Va temprano a propósito, antes de CORS y de los guards, para que hasta
+     una petición rechazada por CORS o por el rate-limit tenga su id en la
+     respuesta. */
+  app.use(asignarRequestId);
 
   /**
    * CORS restringido al origen del frontend.
@@ -96,6 +104,14 @@ async function bootstrap(): Promise<void> {
       transformOptions: { enableImplicitConversion: false },
     }),
   );
+
+  /**
+   * Red de seguridad final: cualquier excepción que no sea un HttpException
+   * (un error de programación, no un 400/404/401 esperado) queda con forma
+   * consistente y con requestId en vez de reventar como un 500 sin rastro.
+   * Ver el comentario de AllExceptionsFilter.
+   */
+  app.useGlobalFilters(new AllExceptionsFilter());
 
   /**
    * En producción se escucha solo en loopback: el tráfico público entra por

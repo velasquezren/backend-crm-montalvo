@@ -84,6 +84,27 @@ había tres y una de ellas no borraba nunca, que es como se llegó a la fuga de 
 Vive en el proceso, no es distribuida. Si algún día el backend escala a varias
 instancias, ese archivo es el único sitio donde cambiar a Redis.
 
+## Observabilidad
+
+Toda petición HTTP lleva un `requestId` (cabecera `X-Request-Id`), asignado por
+`asignarRequestId` en `main.ts` — el primer middleware de la cadena. `LoggingInterceptor`
+(global, en `app.module.ts`) registra una línea por petición **exitosa**; `AllExceptionsFilter`
+(global, en `main.ts`) registra los errores. Entre los dos, cada petición deja exactamente una
+línea de log con su `requestId`, que también viaja en el cuerpo de cualquier error — así se
+cruza lo que vio la agente con el log del servidor sin depender de la hora aproximada. Ninguno
+de los dos registra cuerpo ni cabeceras (son datos de pacientes).
+
+`AllExceptionsFilter` no cambia la forma de un `HttpException` normal (400/401/404 siguen
+siendo `{ statusCode, message, error }`, igual que antes): solo le suma `requestId`. Es la red
+de seguridad para lo que NO es un `HttpException` — antes cualquier error de programación caía
+al 500 default de Nest, sin forma consistente.
+
+`GET /health` (`common/health/`) es `@Public()` + `@SkipThrottle()` y verifica la base con
+`SELECT 1`; 503 si no responde. Sirve para monitoreo/systemd y para confirmar rápido que un
+despliegue subió — no reemplaza los dos curls de verificación post-despliegue (`/auth/login`
+vacío → 400, `/planilla-comisiones/periodos` sin token → 401), que prueban que el
+`ValidationPipe` y el guard siguen vivos.
+
 ## Trampas conocidas
 
 - **Comisiones: el Excel importado viene en DÓLARES**, y se convierte a Bs con el

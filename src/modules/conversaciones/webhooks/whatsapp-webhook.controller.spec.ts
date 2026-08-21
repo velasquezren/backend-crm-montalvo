@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 
 import { AlertasWhatsappService } from '../../../common/whatsapp/alertas-whatsapp.service';
 import { ConversacionesService } from '../conversaciones.service';
+import { IngestaWhatsappService } from '../ingesta-whatsapp.service';
 import { WhatsappWebhookDto } from './dto/whatsapp-webhook.dto';
 import { WhatsappWebhookController } from './whatsapp-webhook.controller';
 
@@ -14,9 +15,12 @@ import { WhatsappWebhookController } from './whatsapp-webhook.controller';
  * nadie se entere.
  */
 
-interface Servicio {
-  procesarEntrante: jest.Mock;
+interface ServicioConversaciones {
   procesarEstadoMensaje: jest.Mock;
+}
+
+interface ServicioIngesta {
+  procesarEntrante: jest.Mock;
 }
 
 /** Registra los avisos de plataforma sin tocar push ni base. */
@@ -28,14 +32,21 @@ class AlertasEspia {
 }
 
 function montar(config: Record<string, string> = {}) {
-  const servicio: Servicio = {
-    procesarEntrante: jest.fn().mockResolvedValue({ id: 'msg' }),
+  const conversaciones: ServicioConversaciones = {
     procesarEstadoMensaje: jest.fn().mockResolvedValue(undefined),
   };
+  const ingesta: ServicioIngesta = {
+    procesarEntrante: jest.fn().mockResolvedValue({ id: 'msg' }),
+  };
+  /* Alias con el nombre que usaban las pruebas antes del split de
+     ConversacionesService/IngestaWhatsappService, para no reescribir cada
+     `servicio.procesarEntrante` de abajo — sigue siendo el mismo objeto. */
+  const servicio = { ...conversaciones, ...ingesta };
   const alertas = new AlertasEspia();
   const controller = new WhatsappWebhookController(
     { get: (clave: string) => config[clave] } as ConfigService,
-    servicio as unknown as ConversacionesService,
+    conversaciones as unknown as ConversacionesService,
+    ingesta as unknown as IngestaWhatsappService,
     alertas as unknown as AlertasWhatsappService,
   );
   jest.spyOn(controller['logger'], 'error').mockImplementation(() => undefined);

@@ -18,6 +18,7 @@ import { Public } from '../../../common/decorators/public.decorator';
 import { MetaSignatureGuard } from '../../../common/guards/meta-signature.guard';
 import { AlertasWhatsappService } from '../../../common/whatsapp/alertas-whatsapp.service';
 import { ConversacionesService } from '../conversaciones.service';
+import { IngestaWhatsappService } from '../ingesta-whatsapp.service';
 import {
   WhatsappContactDto,
   WhatsappMessageDto,
@@ -110,6 +111,7 @@ export class WhatsappWebhookController {
   constructor(
     private readonly config: ConfigService,
     private readonly conversacionesService: ConversacionesService,
+    private readonly ingesta: IngestaWhatsappService,
     private readonly alertas: AlertasWhatsappService,
   ) {}
 
@@ -232,7 +234,7 @@ export class WhatsappWebhookController {
 
     if (mensaje.type === 'text' && mensaje.text?.body) {
       if (referral) {
-        await this.conversacionesService.procesarEntrante(
+        await this.ingesta.procesarEntrante(
           telefono,
           mensaje.text.body,
           mensaje.id,
@@ -241,7 +243,7 @@ export class WhatsappWebhookController {
           referral,
         );
       } else {
-        await this.conversacionesService.procesarEntrante(
+        await this.ingesta.procesarEntrante(
           telefono,
           mensaje.text.body,
           mensaje.id,
@@ -254,7 +256,7 @@ export class WhatsappWebhookController {
     const respuestaBoton = extraerRespuestaBoton(mensaje);
     if (respuestaBoton) {
       if (referral) {
-        await this.conversacionesService.procesarEntrante(
+        await this.ingesta.procesarEntrante(
           telefono,
           respuestaBoton,
           mensaje.id,
@@ -263,7 +265,7 @@ export class WhatsappWebhookController {
           referral,
         );
       } else {
-        await this.conversacionesService.procesarEntrante(
+        await this.ingesta.procesarEntrante(
           telefono,
           respuestaBoton,
           mensaje.id,
@@ -276,7 +278,7 @@ export class WhatsappWebhookController {
     const media = extraerMedia(mensaje);
     if (media) {
       if (referral) {
-        await this.conversacionesService.procesarEntrante(
+        await this.ingesta.procesarEntrante(
           telefono,
           media.caption ?? '',
           mensaje.id,
@@ -285,7 +287,7 @@ export class WhatsappWebhookController {
           referral,
         );
       } else {
-        await this.conversacionesService.procesarEntrante(
+        await this.ingesta.procesarEntrante(
           telefono,
           media.caption ?? '',
           mensaje.id,
