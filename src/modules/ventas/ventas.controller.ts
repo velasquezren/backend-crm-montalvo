@@ -69,6 +69,6 @@ export class VentasController {
     @Body() dto: CambiarEstadoDto,
     @CurrentUser() usuario: UsuarioJwt,
   ) {
-    return this.ventasService.cambiarEstado(id, dto.estado, usuario.sub);
+    return this.ventasService.cambiarEstado(id, dto.estado, usuario.sub, dto.motivoPerdida);
   }
 }

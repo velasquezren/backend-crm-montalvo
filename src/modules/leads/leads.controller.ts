@@ -46,7 +46,7 @@ export class LeadsController {
     @CurrentUser() usuario: UsuarioJwt,
   ) {
     const soloAgenteId = alcanceAgente(usuario);
-    return this.leadsService.updateEstado(id, dto.estado, soloAgenteId);
+    return this.leadsService.updateEstado(id, dto.estado, soloAgenteId, dto.motivoPerdida);
   }
 
   /**

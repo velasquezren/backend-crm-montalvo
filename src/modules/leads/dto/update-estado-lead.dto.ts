@@ -1,5 +1,5 @@
 import { EstadoLead } from '@prisma/client';
-import { IsEnum } from 'class-validator';
+import { IsEnum, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
 
 /**
  * Movimiento de una tarjeta en el pipeline kanban.
@@ -10,4 +10,16 @@ import { IsEnum } from 'class-validator';
 export class UpdateEstadoLeadDto {
   @IsEnum(EstadoLead)
   estado!: EstadoLead;
+
+  /**
+   * Obligatorio en el service cuando `estado = PERDIDO` (no se puede exigir
+   * aquí con un decorador condicional legible: depende del otro campo). 200
+   * es el ancho real de la columna (`@db.VarChar(200)`) — mismo criterio que
+   * `motivoExclusion` en la planilla de comisiones.
+   */
+  @IsOptional()
+  @IsString()
+  @MinLength(3)
+  @MaxLength(200)
+  motivoPerdida?: string;
 }

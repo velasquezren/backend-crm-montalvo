@@ -89,9 +89,29 @@ describe('LeadsService.updateEstado — escopado por agente', () => {
     const otro = await usuario('Otro', 'otro@test.local');
     const { lead } = await clienteConLead('Ana', '+59170000001', otro.id);
 
-    const actualizado = await service.updateEstado(lead.id, 'PERDIDO', undefined);
+    const actualizado = await service.updateEstado(lead.id, 'PERDIDO', undefined, 'No contestó tras 3 intentos');
 
     expect(actualizado.estado).toBe('PERDIDO');
+  });
+});
+
+describe('LeadsService.updateEstado — motivo de pérdida', () => {
+  it('exige motivo para marcar un lead como perdido', async () => {
+    const { lead } = await clienteConLead('Ana', '+59170000001');
+
+    await expect(service.updateEstado(lead.id, 'PERDIDO', undefined)).rejects.toThrow(
+      'Para marcar un lead como perdido hay que indicar el motivo.',
+    );
+  });
+
+  it('guarda el motivo y lo limpia si el lead vuelve a moverse', async () => {
+    const { lead } = await clienteConLead('Ana', '+59170000001');
+
+    const perdido = await service.updateEstado(lead.id, 'PERDIDO', undefined, 'Precio muy alto');
+    expect(perdido.motivoPerdida).toBe('Precio muy alto');
+
+    const reabierto = await service.updateEstado(lead.id, 'CONTACTADO', undefined);
+    expect(reabierto.motivoPerdida).toBeNull();
   });
 });
 

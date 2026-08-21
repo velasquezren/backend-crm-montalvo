@@ -192,7 +192,7 @@ describe('VentasService contra Postgres real', () => {
       expect(await prisma.ventaImportada.count()).toBe(importadasAntes);
     });
 
-    it('cierra los leads abiertos de la paciente', async () => {
+    it('sin leadId, cierra TODOS los leads abiertos de la paciente (comportamiento previo)', async () => {
       const lead = await prisma.lead.create({
         data: { clienteId, origen: 'PRESENCIAL', estado: 'NUEVO' },
       });
@@ -202,6 +202,66 @@ describe('VentasService contra Postgres real', () => {
       expect((await prisma.lead.findUniqueOrThrow({ where: { id: lead.id } })).estado).toBe(
         'CONVERTIDO',
       );
+    });
+  });
+
+  describe('vínculo con el lead de origen', () => {
+    it('con leadId, cierra SOLO ese lead y deja abiertos los demás del cliente', async () => {
+      const leadDeEstaVenta = await prisma.lead.create({
+        data: { clienteId, origen: 'INSTAGRAM_LEAD_AD', estado: 'CONTACTADO' },
+      });
+      const otroLeadSinRelacion = await prisma.lead.create({
+        data: { clienteId, origen: 'FACEBOOK_LEAD_AD', estado: 'NUEVO' },
+      });
+
+      const venta = await service.create({ ...ventaBase(), leadId: leadDeEstaVenta.id }, agenteId);
+
+      expect(venta.leadId).toBe(leadDeEstaVenta.id);
+      expect((await prisma.lead.findUniqueOrThrow({ where: { id: leadDeEstaVenta.id } })).estado).toBe(
+        'CONVERTIDO',
+      );
+      expect((await prisma.lead.findUniqueOrThrow({ where: { id: otroLeadSinRelacion.id } })).estado).toBe(
+        'NUEVO',
+      );
+    });
+
+    it('rechaza un leadId que pertenece a otro cliente', async () => {
+      const otroCliente = await prisma.cliente.create({
+        data: { nombre: 'Otra paciente', telefono: '+59170099999' },
+      });
+      const leadAjeno = await prisma.lead.create({
+        data: { clienteId: otroCliente.id, origen: 'PRESENCIAL', estado: 'NUEVO' },
+      });
+
+      await expect(service.create({ ...ventaBase(), leadId: leadAjeno.id }, agenteId)).rejects.toThrow(
+        BadRequestException,
+      );
+    });
+  });
+
+  describe('motivo de pérdida', () => {
+    it('exige motivo al registrar una venta directamente como PERDIDA', async () => {
+      await expect(
+        service.create({ ...ventaBase(), estado: 'PERDIDA' }, agenteId),
+      ).rejects.toThrow('Para registrar una venta como perdida hay que indicar el motivo.');
+    });
+
+    it('exige motivo al cambiar una venta a PERDIDA', async () => {
+      const venta = await service.create(ventaBase(), agenteId);
+
+      await expect(service.cambiarEstado(venta.id, 'PERDIDA', agenteId)).rejects.toThrow(
+        'Para marcar una venta como perdida hay que indicar el motivo.',
+      );
+    });
+
+    it('guarda el motivo y lo limpia si la venta vuelve a GANADA', async () => {
+      const venta = await service.create(ventaBase(), agenteId);
+
+      const perdida = await service.cambiarEstado(venta.id, 'PERDIDA', agenteId, 'Se fue con la competencia');
+      expect(perdida.motivoPerdida).toBe('Se fue con la competencia');
+
+      const recuperada = await service.cambiarEstado(venta.id, 'GANADA', agenteId);
+      expect(recuperada.motivoPerdida).toBeNull();
     });
   });
 });
