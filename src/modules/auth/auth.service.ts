@@ -1,4 +1,4 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
 
@@ -41,7 +41,10 @@ export class AuthService {
       rol: usuario.rol,
     };
 
-    /* Refresh token con rotación y expiración absoluta de 30 días de inactividad real */
+    /* Refresh token de 30 días **absolutos desde el login**: no rota ni se
+       renueva al usarlo (`refresh()` solo emite un access_token nuevo), así
+       que no es una ventana deslizante de inactividad. Se invalida cerrando
+       sesión —`POST /auth/logout` borra la cookie— o dejándolo expirar. */
     const refreshToken = await this.jwtService.signAsync(
       { sub: usuario.id, type: 'refresh' },
       { expiresIn: '30d' },
@@ -55,34 +58,60 @@ export class AuthService {
     };
   }
 
+  /**
+   * Canjea un `refresh_token` por un `access_token` nuevo.
+   *
+   * **Solo lo que de verdad invalida la sesión responde 401.** El `try` cubre
+   * únicamente la verificación de la firma: envolver también la consulta a la
+   * base convertía un parpadeo de Postgres en «token inválido», y el
+   * interceptor del frontend reacciona a ese 401 cerrando la sesión y mandando
+   * al login. Una caída transitoria de la base echaba a todas las agentes a la
+   * vez, en vez de darles un 500 que se reintenta. Todo lo que no sea un
+   * problema de credenciales sube tal cual y sale como 500.
+   */
   async refresh(refreshToken: string) {
     if (!refreshToken) {
       throw new UnauthorizedException('Token de refresco no provisto');
     }
+
+    let decoded: { sub: string; type?: string };
     try {
-      const decoded = await this.jwtService.verifyAsync<{ sub: string; type?: string }>(
-        refreshToken,
-      );
-      if (decoded.type !== 'refresh') {
-        throw new UnauthorizedException('Token de tipo inválido');
-      }
-      const usuario = await this.usuariosService.findOne(decoded.sub);
-      if (!usuario || !usuario.activo) {
-        throw new UnauthorizedException('Usuario no activo o no encontrado');
-      }
-      const payload = {
-        sub: usuario.id,
-        email: usuario.email,
-        nombre: usuario.nombre,
-        rol: usuario.rol,
-      };
-      return {
-        access_token: await this.jwtService.signAsync(payload),
-        usuario: { ...payload, foto: usuario.foto },
-      };
+      decoded = await this.jwtService.verifyAsync<{ sub: string; type?: string }>(refreshToken);
     } catch {
       throw new UnauthorizedException('Token de refresco inválido o expirado');
     }
+
+    /* Un access_token no lleva `type`, así que no se puede colar como refresco. */
+    if (decoded.type !== 'refresh') {
+      throw new UnauthorizedException('Token de tipo inválido');
+    }
+
+    let usuario: Awaited<ReturnType<UsuariosService['findOne']>>;
+    try {
+      usuario = await this.usuariosService.findOne(decoded.sub);
+    } catch (error) {
+      /* Usuario borrado: la sesión ya no vale, 401. Cualquier otro fallo
+         —la base no responde— se re-lanza a propósito. */
+      if (error instanceof NotFoundException) {
+        throw new UnauthorizedException('Usuario no activo o no encontrado');
+      }
+      throw error;
+    }
+
+    if (!usuario.activo) {
+      throw new UnauthorizedException('Usuario no activo o no encontrado');
+    }
+
+    const payload = {
+      sub: usuario.id,
+      email: usuario.email,
+      nombre: usuario.nombre,
+      rol: usuario.rol,
+    };
+    return {
+      access_token: await this.jwtService.signAsync(payload),
+      usuario: { ...payload, foto: usuario.foto },
+    };
   }
 
   async getPerfil(id: string) {
