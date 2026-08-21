@@ -35,10 +35,19 @@ export class AuthController {
     const rememberMe = dto.rememberMe ?? true;
 
     if (resultado.refresh_token) {
+      /* En producción el frontend (Vercel) y esta API viven en dominios
+         distintos: es cross-site, no cross-origin del mismo sitio. Con
+         `SameSite=Lax` el navegador nunca manda la cookie en el POST fetch a
+         /auth/refresh —Lax solo la deja viajar en navegaciones de nivel
+         superior—, así que el refresco silencioso jamás llegaría a
+         dispararse. Cross-site exige `SameSite=None`, que a su vez exige
+         `Secure`. En local (localhost:4200 → localhost:3001) sigue siendo el
+         mismo sitio y basta con `Lax`. */
+      const produccion = process.env.NODE_ENV === 'production';
       const cookieOptions: CookieOptions = {
         httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: 'lax',
+        secure: produccion,
+        sameSite: produccion ? 'none' : 'lax',
         path: '/',
       };
 
