@@ -314,6 +314,27 @@ export class ServiciosService {
     };
   }
 
+  /** Historial de servicios de un paciente por su código PAC de FileMaker (para otros dominios). */
+  async historialPorPac(pac: string) {
+    const codigo = pac.toUpperCase();
+    return this.prisma.ventaImportada.findMany({
+      where: { pac: codigo },
+      orderBy: { fecha: 'desc' },
+      select: {
+        id: true,
+        fecha: true,
+        modulo: true,
+        detalle: true,
+        clasif: true,
+        precio: true,
+        medico: true,
+        vendedoraNombre: true,
+        periodo: { select: { anio: true, mes: true } },
+      },
+      take: 200,
+    });
+  }
+
   /* ── Médicos ────────────────────────────────────────────────────────── */
 
   async medicos(query: QueryMedicosDto) {

@@ -10,22 +10,15 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { EstadoVenta } from '@prisma/client';
-import { IsEnum } from 'class-validator';
-
 import { alcanceAgente } from '../../common/auth/roles';
 import { CurrentUser, UsuarioJwt } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { ArchivoSubido } from './archivo-subido';
+import { CambiarEstadoDto } from './dto/cambiar-estado.dto';
 import { CreateVentaDto } from './dto/create-venta.dto';
 import { QueryVentaDto } from './dto/query-venta.dto';
 import { CatalogoClinicoService } from '../planilla-comisiones/catalogo-clinico.service';
 import { VentasService } from './ventas.service';
-
-class CambiarEstadoDto {
-  @IsEnum(EstadoVenta)
-  estado!: EstadoVenta;
-}
 
 @Controller('ventas')
 export class VentasController {

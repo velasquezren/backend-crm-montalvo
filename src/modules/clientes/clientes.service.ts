@@ -5,6 +5,7 @@ import { AuditService } from '../../common/audit/audit.service';
 import { terminoBusqueda } from '../../common/dto/busqueda';
 import { calcularPaginacion, construirOrden, paginar } from '../../common/dto/pagination.dto';
 import { PrismaService } from '../../prisma/prisma.service';
+import { ServiciosService } from '../servicios/servicios.service';
 import { CreateClienteDto } from './dto/create-cliente.dto';
 import { CreateInteresDto } from './dto/create-interes.dto';
 import { QueryClienteDto } from './dto/query-cliente.dto';
@@ -73,6 +74,7 @@ export class ClientesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly serviciosService?: ServiciosService,
   ) {}
 
   async create(dto: CreateClienteDto) {
@@ -411,16 +413,24 @@ export class ClientesService {
       return { pac: null, totalServicios: 0, montoTotal: 0, servicios: [] };
     }
 
-    const servicios = await this.prisma.ventaImportada.findMany({
-      where: { pac: cliente.pac },
-      orderBy: { fecha: 'desc' },
-      select: {
-        id: true, fecha: true, modulo: true, detalle: true, clasif: true,
-        precio: true, medico: true, vendedoraNombre: true,
-        periodo: { select: { anio: true, mes: true } },
-      },
-      take: 200,
-    });
+    const servicios = this.serviciosService
+      ? await this.serviciosService.historialPorPac(cliente.pac)
+      : await this.prisma.ventaImportada.findMany({
+          where: { pac: cliente.pac },
+          orderBy: { fecha: 'desc' },
+          select: {
+            id: true,
+            fecha: true,
+            modulo: true,
+            detalle: true,
+            clasif: true,
+            precio: true,
+            medico: true,
+            vendedoraNombre: true,
+            periodo: { select: { anio: true, mes: true } },
+          },
+          take: 200,
+        });
 
     return {
       pac: cliente.pac,

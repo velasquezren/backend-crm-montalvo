@@ -15,8 +15,7 @@ import {
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { Response } from 'express';
-import { ClasifComision, EstadoPeriodo, TipoVendedora } from '@prisma/client';
-import { IsEnum } from 'class-validator';
+import { ClasifComision, TipoVendedora } from '@prisma/client';
 
 import { CurrentUser, UsuarioJwt } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -39,6 +38,7 @@ import {
 import { QueryAnualDto } from './dto/query-anual.dto';
 import {
   AjustarVentaDto,
+  CambiarEstadoPeriodoDto,
   ImportarExcelDto,
   QueryPeriodosDto,
   QueryVentasImportadasDto,
@@ -57,11 +57,6 @@ interface ArchivoSubido {
 const TAMANO_MAXIMO_BYTES = 15 * 1024 * 1024;
 
 const EXTENSIONES_VALIDAS = ['.xlsx', '.xls'];
-
-class CambiarEstadoPeriodoDto {
-  @IsEnum(EstadoPeriodo)
-  estado!: EstadoPeriodo;
-}
 
 /**
  * Planilla de comisiones (liquidación mensual desde el Excel de FileMaker).

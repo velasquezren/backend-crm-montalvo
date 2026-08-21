@@ -55,6 +55,36 @@ export class AuthService {
     };
   }
 
+  async refresh(refreshToken: string) {
+    if (!refreshToken) {
+      throw new UnauthorizedException('Token de refresco no provisto');
+    }
+    try {
+      const decoded = await this.jwtService.verifyAsync<{ sub: string; type?: string }>(
+        refreshToken,
+      );
+      if (decoded.type !== 'refresh') {
+        throw new UnauthorizedException('Token de tipo inválido');
+      }
+      const usuario = await this.usuariosService.findOne(decoded.sub);
+      if (!usuario || !usuario.activo) {
+        throw new UnauthorizedException('Usuario no activo o no encontrado');
+      }
+      const payload = {
+        sub: usuario.id,
+        email: usuario.email,
+        nombre: usuario.nombre,
+        rol: usuario.rol,
+      };
+      return {
+        access_token: await this.jwtService.signAsync(payload),
+        usuario: { ...payload, foto: usuario.foto },
+      };
+    } catch {
+      throw new UnauthorizedException('Token de refresco inválido o expirado');
+    }
+  }
+
   async getPerfil(id: string) {
     return this.usuariosService.findOne(id);
   }

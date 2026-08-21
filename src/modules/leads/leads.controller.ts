@@ -2,6 +2,7 @@ import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common
 
 import { alcanceAgente } from '../../common/auth/roles';
 import { CurrentUser, UsuarioJwt } from '../../common/decorators/current-user.decorator';
+import { AsignarAgenteLeadDto } from './dto/asignar-agente-lead.dto';
 import { CreateLeadPresencialDto } from './dto/create-lead-presencial.dto';
 import { QueryLeadDto } from './dto/query-lead.dto';
 import { UpdateEstadoLeadDto } from './dto/update-estado-lead.dto';
@@ -35,7 +36,7 @@ export class LeadsController {
   }
 
   @Patch(':id/agente')
-  asignarAgente(@Param('id') id: string, @Body('agenteId') agenteId: string | null) {
-    return this.leadsService.asignarAgente(id, agenteId);
+  asignarAgente(@Param('id') id: string, @Body() dto: AsignarAgenteLeadDto) {
+    return this.leadsService.asignarAgente(id, dto.agenteId);
   }
 }

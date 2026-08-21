@@ -11,7 +11,14 @@ import {
   ValidateIf,
 } from 'class-validator';
 
-import { CanalVenta, TipoComision, ClasifComision, NivelPlan, UnidadNegocio } from '@prisma/client';
+import {
+  CanalVenta,
+  ClasifComision,
+  EstadoPeriodo,
+  NivelPlan,
+  TipoComision,
+  UnidadNegocio,
+} from '@prisma/client';
 
 import { PaginationDto } from '../../../common/dto/pagination.dto';
 
@@ -183,4 +190,10 @@ export class ImportarExcelDto {
   @Type(() => Number)
   @Min(0.01)
   tipoCambio?: number;
+}
+
+/** Cambio de estado del periodo de comisiones. */
+export class CambiarEstadoPeriodoDto {
+  @IsEnum(EstadoPeriodo)
+  estado!: EstadoPeriodo;
 }

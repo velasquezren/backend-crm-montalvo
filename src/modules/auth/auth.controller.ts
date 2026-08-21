@@ -1,6 +1,5 @@
-import type { CookieOptions } from 'express';
-import { Body, Controller, Get, Patch, Post, Res } from '@nestjs/common';
-import { Response } from 'express';
+import type { CookieOptions, Request, Response } from 'express';
+import { Body, Controller, Get, Patch, Post, Req, Res } from '@nestjs/common';
 
 import { CurrentUser, UsuarioJwt } from '../../common/decorators/current-user.decorator';
 import { Throttle } from '@nestjs/throttler';
@@ -8,7 +7,14 @@ import { Throttle } from '@nestjs/throttler';
 import { Public } from '../../common/decorators/public.decorator';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
+import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { UpdateUsuarioDto } from '../usuarios/dto/update-usuario.dto';
+
+function extraerCookie(headerCookie: string | undefined, nombre: string): string | undefined {
+  if (!headerCookie) return undefined;
+  const match = headerCookie.match(new RegExp(`(?:^|;\\s*)${nombre}=([^;]+)`));
+  return match ? decodeURIComponent(match[1]) : undefined;
+}
 
 @Controller('auth')
 export class AuthController {
@@ -46,6 +52,20 @@ export class AuthController {
     }
 
     return resultado;
+  }
+
+  /**
+   * Refresco de sesión silencioso mediante refresh_token (cookie o body).
+   */
+  @Public()
+  @Post('refresh')
+  async refresh(
+    @Req() req: Request,
+    @Body() dto: RefreshTokenDto,
+  ) {
+    const tokenCookie = extraerCookie(req.headers.cookie, 'refresh_token');
+    const token = dto.refresh_token || tokenCookie;
+    return this.authService.refresh(token ?? '');
   }
 
   /** Perfil del usuario autenticado — útil para restaurar sesión en el frontend. */

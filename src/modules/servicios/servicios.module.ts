@@ -9,5 +9,6 @@ import { ServiciosService } from './servicios.service';
   imports: [PrismaModule],
   controllers: [ServiciosController],
   providers: [ServiciosService],
+  exports: [ServiciosService],
 })
 export class ServiciosModule {}
