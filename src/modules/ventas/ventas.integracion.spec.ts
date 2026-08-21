@@ -7,6 +7,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { ClientesService } from '../clientes/clientes.service';
 import { ComisionesService } from '../comisiones/comisiones.service';
 import { LeadsService } from '../leads/leads.service';
+import { ServiciosService } from '../servicios/servicios.service';
 import { VentasService } from './ventas.service';
 
 /**
@@ -80,9 +81,9 @@ beforeEach(async () => {
   const config = new ConfigService({ COMISION_PORCENTAJE: '5' });
   service = new VentasService(
     prisma,
-    new ClientesService(prisma, audit),
+    new ClientesService(prisma, audit, new ServiciosService(prisma)),
     new ComisionesService(prisma, config, audit),
-    new LeadsService(prisma, new ClientesService(prisma, audit)),
+    new LeadsService(prisma, new ClientesService(prisma, audit, new ServiciosService(prisma))),
     audit,
     r2 as unknown as R2Service,
   );

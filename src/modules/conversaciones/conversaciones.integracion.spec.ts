@@ -5,6 +5,7 @@ import { AuditService } from '../../common/audit/audit.service';
 import { R2Service } from '../../common/storage/r2.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ClientesService } from '../clientes/clientes.service';
+import { ServiciosService } from '../servicios/servicios.service';
 import { WhatsappCloudService } from '../../common/whatsapp/whatsapp-cloud.service';
 import { ConversacionesGateway } from './conversaciones.gateway';
 import { AcuseAutomaticoService } from './acuse-automatico.service';
@@ -104,7 +105,7 @@ beforeEach(async () => {
   /* ConfigService real y vacío: sin credenciales de Meta, los envíos a la Cloud
      API cortan antes del fetch. Es el comportamiento real documentado. */
   const config = new ConfigService({});
-  clientesService = new ClientesService(prisma, new AuditService(prisma));
+  clientesService = new ClientesService(prisma, new AuditService(prisma), new ServiciosService(prisma));
   const whatsappService = new WhatsappCloudService(config);
   /* Un solo despachador, compartido — igual que en producción, donde es un
      provider singleton que Nest inyecta en los dos services. */

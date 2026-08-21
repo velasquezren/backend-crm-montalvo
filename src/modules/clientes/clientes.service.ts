@@ -74,7 +74,7 @@ export class ClientesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
-    private readonly serviciosService?: ServiciosService,
+    private readonly serviciosService: ServiciosService,
   ) {}
 
   async create(dto: CreateClienteDto) {
@@ -413,24 +413,10 @@ export class ClientesService {
       return { pac: null, totalServicios: 0, montoTotal: 0, servicios: [] };
     }
 
-    const servicios = this.serviciosService
-      ? await this.serviciosService.historialPorPac(cliente.pac)
-      : await this.prisma.ventaImportada.findMany({
-          where: { pac: cliente.pac },
-          orderBy: { fecha: 'desc' },
-          select: {
-            id: true,
-            fecha: true,
-            modulo: true,
-            detalle: true,
-            clasif: true,
-            precio: true,
-            medico: true,
-            vendedoraNombre: true,
-            periodo: { select: { anio: true, mes: true } },
-          },
-          take: 200,
-        });
+    /* La query vive en ServiciosService y solo ahí: es su dominio, y tenerla
+       duplicada acá significaba que un cambio de columnas había que acertarlo
+       en dos sitios. */
+    const servicios = await this.serviciosService.historialPorPac(cliente.pac);
 
     return {
       pac: cliente.pac,

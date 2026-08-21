@@ -1,5 +1,6 @@
 import { AuditService } from '../../common/audit/audit.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import { ServiciosService } from '../servicios/servicios.service';
 import { ClientesService } from './clientes.service';
 
 /**
@@ -30,7 +31,7 @@ beforeEach(async () => {
   await prisma.auditLog.deleteMany();
   await prisma.cliente.deleteMany();
   await prisma.usuario.deleteMany();
-  service = new ClientesService(prisma, new AuditService(prisma));
+  service = new ClientesService(prisma, new AuditService(prisma), new ServiciosService(prisma));
 });
 
 async function cliente(nombre: string, telefono: string, categoria: 'GOLD' | 'PROSPECTO' = 'PROSPECTO') {
