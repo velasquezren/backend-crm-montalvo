@@ -259,9 +259,19 @@ export class LeadsService {
     };
   }
 
-  async updateEstado(id: string, estado: EstadoLead) {
-    const existe = await this.prisma.lead.findUnique({ where: { id }, select: { id: true } });
-    if (!existe) {
+  /**
+   * `soloAgenteId` repite exactamente el criterio de `construirWhere`: sin este
+   * chequeo, escopar `findAll` era cosmético — cualquier agente autenticado
+   * podía cambiar el estado de un lead ajeno con solo conocer el UUID. 404
+   * (no 403) para no confirmar que el registro existe, mismo criterio que
+   * `ClientesService.findOne`.
+   */
+  async updateEstado(id: string, estado: EstadoLead, soloAgenteId?: string) {
+    const existe = await this.prisma.lead.findUnique({
+      where: { id },
+      select: { id: true, agenteId: true, cliente: { select: { agenteId: true } } },
+    });
+    if (!existe || !this.enAlcance(existe, soloAgenteId)) {
       throw new NotFoundException(`Lead ${id} no encontrado`);
     }
 
@@ -288,8 +298,22 @@ export class LeadsService {
     };
   }
 
-  async asignarAgente(id: string, agenteId: string | null) {
-    const existe = await this.prisma.lead.findUnique({ where: { id }, select: { id: true, clienteId: true } });
+  /**
+   * Reasignar el agente responsable de un lead — el controller ya exige
+   * `@Roles('ADMIN')`, igual que el mismo gesto en Conversaciones.
+   *
+   * Delega la cascada a `ClientesService.update()` en vez de escribir
+   * `prisma.cliente`/`prisma.conversacion` aquí: esa es la copia correcta
+   * (transacción + AuditLog) y esta ya había divergido de ella — no tocaba
+   * los OTROS leads abiertos del mismo cliente (solo este `id`) y no dejaba
+   * rastro en auditoría. Escribir la tabla de otro dominio directamente
+   * también rompe el aislamiento de persistencia (CRM_MANIFESTO.md §1.1).
+   */
+  async asignarAgente(id: string, agenteId: string | null, usuarioId?: string) {
+    const existe = await this.prisma.lead.findUnique({
+      where: { id },
+      select: { id: true, clienteId: true },
+    });
     if (!existe) {
       throw new NotFoundException(`Lead ${id} no encontrado`);
     }
@@ -301,36 +325,40 @@ export class LeadsService {
       }
     }
 
-    const [lead] = await this.prisma.$transaction([
-      this.prisma.lead.update({
-        where: { id },
-        data: { agenteId },
-        include: {
-          cliente: {
-            select: {
-              id: true,
-              nombre: true,
-              telefono: true,
-              categoria: true,
-              agente: { select: { id: true, nombre: true } },
-            },
+    await this.clientesService.update(existe.clienteId, { agenteId }, usuarioId);
+
+    const lead = await this.prisma.lead.findUniqueOrThrow({
+      where: { id },
+      include: {
+        cliente: {
+          select: {
+            id: true,
+            nombre: true,
+            telefono: true,
+            categoria: true,
+            agente: { select: { id: true, nombre: true } },
           },
-          agente: { select: { id: true, nombre: true } },
         },
-      }),
-      this.prisma.cliente.update({
-        where: { id: existe.clienteId },
-        data: { agenteId },
-      }),
-      this.prisma.conversacion.updateMany({
-        where: { clienteId: existe.clienteId },
-        data: { agenteId },
-      }),
-    ]);
+        agente: { select: { id: true, nombre: true } },
+      },
+    });
 
     return {
       ...lead,
       agente: agenteEfectivo(lead),
     };
+  }
+
+  /** Mismo criterio de visibilidad que `construirWhere`: propio, sin asignar, o del cliente propio. */
+  private enAlcance(
+    lead: { agenteId: string | null; cliente?: { agenteId: string | null } | null },
+    soloAgenteId?: string,
+  ): boolean {
+    return (
+      !soloAgenteId ||
+      lead.agenteId === soloAgenteId ||
+      lead.agenteId === null ||
+      lead.cliente?.agenteId === soloAgenteId
+    );
   }
 }

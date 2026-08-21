@@ -329,11 +329,14 @@ cierre de esta sección).
   Postgres (`pg_stat_statements` si está habilitada) para las queries más lentas
   de verdad. Optimizar sin medir es tan fácil de hacer para el lado equivocado
   como de hacerlo bien.
-- **No hay Swagger/OpenAPI ni tests de `kpis`/`usuarios`/`leads`** — no es
+- **No hay Swagger/OpenAPI ni tests de `kpis`/`usuarios`** — no es
   "velocidad" pero sí es de las cosas que quedaron pendientes de la revisión de
   arquitectura del 2026-08-20; `kpis.service.ts` es justo donde ya hubo una fuga
   real de datos entre agentes (ver `crm-backend-module`), así que es el módulo
-  con menos red de seguridad hoy.
+  con menos red de seguridad hoy. `leads` **ya tiene** `leads.integracion.spec.ts`
+  (2026-08-21): la falta de tests ahí no era solo hipotética — escondía el bug de
+  escopado que describe `crm-backend-module` §"La regla de findAll…", y las
+  pruebas nuevas son justamente las que lo hubieran atrapado antes de producción.
 
 ## 8. Antes de dar por terminada cualquier tarea de este tipo
 

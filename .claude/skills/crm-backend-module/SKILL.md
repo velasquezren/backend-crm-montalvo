@@ -95,7 +95,17 @@ Endpoints sin sesión: `@Public()`. Los tres guards globales (Throttler → JWT 
 Escopar solo el listado no basta: si `findOne(id)`/`update(id, …)` no repiten el mismo chequeo,
 un agente autenticado puede leer o editar **cualquier** registro por ID con solo conocer el UUID,
 sin importar a quién esté asignado — el filtro del listado se vuelve cosmético. Encontrado real en
-Clientes y Conversaciones (ver commits que arreglan "ownership check").
+Clientes, Conversaciones y Leads (ver commits que arreglan "ownership check").
+
+**Leads (2026-08-21) fue el caso más completo**: `findAll`/`resumen` sí escopaban, pero
+`updateEstado`/`asignarAgente` no recibían `soloAgenteId` en absoluto — ni el controller lo
+pedía ni el service lo aceptaba —, así que cualquier agente podía cambiar el estado o el dueño
+de cualquier lead del sistema. `asignarAgente` además escribía `prisma.cliente`/`prisma.conversacion`
+directamente en vez de llamar a `ClientesService.update()` (que ya hace esa cascada con
+transacción y AuditLog): dos copias del mismo gesto de reasignación, una sin auditoría y que
+solo tocaba ESE lead, no los demás leads abiertos del mismo cliente. La regla corta: si dos
+módulos hacen "lo mismo" al reasignar un agente, uno de los dos es una copia divergente — el
+que no pase por el service del dueño de la tabla es el sospechoso.
 
 ```ts
 // service — mismo soloAgenteId que findAll, 404 (no 403) para no confirmar que el registro existe
