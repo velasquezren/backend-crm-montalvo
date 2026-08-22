@@ -255,6 +255,9 @@ export class WhatsappWebhookController {
 
     const respuestaBoton = extraerRespuestaBoton(mensaje);
     if (respuestaBoton) {
+      /* `true` al final: es un clic en un botón (del acuse fuera de horario,
+         hoy la única botonera que manda el CRM), no un mensaje escrito a
+         mano — dispara el pedido de nombre y edad. Ver IngestaWhatsappService. */
       if (referral) {
         await this.ingesta.procesarEntrante(
           telefono,
@@ -263,6 +266,7 @@ export class WhatsappWebhookController {
           nombrePerfil,
           undefined,
           referral,
+          true,
         );
       } else {
         await this.ingesta.procesarEntrante(
@@ -270,6 +274,9 @@ export class WhatsappWebhookController {
           respuestaBoton,
           mensaje.id,
           nombrePerfil,
+          undefined,
+          undefined,
+          true,
         );
       }
       return true;

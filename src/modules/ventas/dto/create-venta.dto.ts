@@ -95,4 +95,24 @@ export class CreateVentaDto {
   @IsString()
   @MaxLength(2000)
   notas?: string;
+
+  /**
+   * Lead que originó esta venta, si el agente lo indicó. El service valida
+   * que pertenezca al mismo `clienteId` — un UUID de un lead ajeno no cuela
+   * en silencio, se rechaza con 400.
+   */
+  @IsOptional()
+  @IsUUID()
+  leadId?: string;
+
+  /**
+   * Solo tiene sentido si `estado = PERDIDA` (una venta puede registrarse
+   * directamente en ese estado, aunque hoy el formulario del CRM no lo haga).
+   * Mismo criterio que `Lead.motivoPerdida`.
+   */
+  @IsOptional()
+  @IsString()
+  @MinLength(3)
+  @MaxLength(200)
+  motivoPerdida?: string;
 }

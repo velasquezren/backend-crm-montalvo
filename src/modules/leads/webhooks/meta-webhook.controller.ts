@@ -14,16 +14,19 @@ import { SkipThrottle } from '@nestjs/throttler';
 
 import { Public } from '../../../common/decorators/public.decorator';
 import { MetaSignatureGuard } from '../../../common/guards/meta-signature.guard';
+import { LeadsService } from '../leads.service';
+import { LeadAdsGraphService } from './lead-ads-graph.service';
 import { MetaWebhookDto } from './dto/meta-webhook.dto';
 
 /**
  * Webhook de Meta (Facebook/Instagram Lead Ads) — RF-04.
  *
- * Estado actual: verificación (GET) funcional + recepción (POST) que registra
- * los leadgen_id entrantes. La resolución del lead completo requiere llamar a
- * Graph API con un PAGE_ACCESS_TOKEN (pendiente de configurar en .env cuando
- * la página de Meta esté conectada) — ahí se obtienen nombre/teléfono y se
- * delega a LeadsService.procesarLeadMeta().
+ * Recibe el `leadgen_id` (el webhook nunca trae los datos del formulario, solo
+ * el identificador), lo resuelve contra Graph API con `LeadAdsGraphService`
+ * (requiere `PAGE_ACCESS_TOKEN` con permiso `leads_retrieval`) y delega el
+ * alta/deduplicación a `LeadsService.procesarLeadMeta()`. Sin el token, cada
+ * lead queda logueado como "no se pudo resolver" — el CRM no se cae, pero
+ * tampoco crea nada.
  */
 /* Igual que el de WhatsApp: sin forbidNonWhitelisted, el payload de Meta
    trae campos que no modelamos y rechazarlo desactivaría la suscripción.
@@ -35,7 +38,11 @@ import { MetaWebhookDto } from './dto/meta-webhook.dto';
 export class MetaWebhookController {
   private readonly logger = new Logger(MetaWebhookController.name);
 
-  constructor(private readonly config: ConfigService) {}
+  constructor(
+    private readonly config: ConfigService,
+    private readonly graph: LeadAdsGraphService,
+    private readonly leadsService: LeadsService,
+  ) {}
 
   /** Verificación del webhook — Meta llama esto al configurar la suscripción. */
   @Public()
@@ -69,20 +76,57 @@ export class MetaWebhookController {
      esperar. Ver la nota en el webhook de WhatsApp. */
   @HttpCode(200)
   recibir(@Body() payload: MetaWebhookDto): { received: true } {
+    /* Meta exige un 200 rápido (< 3s); resolver contra Graph API es una llamada
+       de red por lead y no debe demorar la respuesta al webhook — mismo
+       criterio que WhatsappWebhookController.recibir(). */
+    void this.procesarWebhook(payload);
+    return { received: true };
+  }
+
+  /**
+   * Procesa el payload ya verificado. Público (no privado) para poder probarlo
+   * esperando su promesa: desde `recibir` se dispara con `void` a propósito.
+   *
+   * Cada `leadgen_id` va en su propio try/catch — un lead que falle al
+   * resolverse contra Graph API (rate limit, formulario raro, red) no puede
+   * llevarse el resto del lote, mismo criterio que
+   * `WhatsappWebhookController.procesarWebhook`.
+   */
+  async procesarWebhook(payload: MetaWebhookDto): Promise<void> {
     const leadgenIds =
       payload.entry
         ?.flatMap(e => e.changes ?? [])
         .filter(c => c.field === 'leadgen')
         .map(c => c.value?.leadgen_id)
-        .filter(Boolean) ?? [];
+        .filter((id): id is string => Boolean(id)) ?? [];
 
-    if (leadgenIds.length > 0) {
-      /* TODO (requiere PAGE_ACCESS_TOKEN): por cada leadgen_id llamar a Graph API,
-         extraer nombre/teléfono y delegar a LeadsService.procesarLeadMeta(). */
-      this.logger.log(`Webhook Meta: ${leadgenIds.length} lead(s) recibido(s), pendientes de resolución`);
+    let procesados = 0;
+    for (const leadgenId of leadgenIds) {
+      try {
+        const resuelto = await this.graph.resolverLead(leadgenId);
+        if (!resuelto) {
+          // LeadAdsGraphService ya logueó el motivo (sin token, error de Meta, campos ausentes).
+          continue;
+        }
+
+        await this.leadsService.procesarLeadMeta({
+          nombre: resuelto.nombre,
+          telefono: resuelto.telefono,
+          origen: resuelto.origen,
+          metaLeadId: leadgenId,
+          anuncioId: resuelto.anuncioId,
+        });
+        procesados++;
+      } catch (error) {
+        this.logger.error(
+          `Error procesando el lead ${leadgenId} del webhook de Meta; se continúa con el resto del lote`,
+          error,
+        );
+      }
     }
 
-    /* Meta exige 200 rápido; cualquier procesamiento pesado debe ser asíncrono. */
-    return { received: true };
+    if (procesados > 0) {
+      this.logger.log(`Webhook Meta: ${procesados} lead(s) de Ads procesado(s)`);
+    }
   }
 }

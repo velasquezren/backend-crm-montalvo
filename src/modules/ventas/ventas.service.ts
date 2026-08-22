@@ -6,7 +6,6 @@ import { AuditService } from '../../common/audit/audit.service';
 import { R2Service } from '../../common/storage/r2.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ClientesService } from '../clientes/clientes.service';
-import { ComisionesService } from '../comisiones/comisiones.service';
 import { LeadsService } from '../leads/leads.service';
 import { ArchivoSubido } from './archivo-subido';
 import { CreateVentaDto } from './dto/create-venta.dto';
@@ -48,9 +47,8 @@ function esComprobantePropio(clave: string, agenteId: string): boolean {
 /**
  * Módulo Ventas — RF-11/RF-12.
  * Una venta GANADA dispara (vía services de otros módulos, nunca su BD):
- *   1. ComisionesService.generarParaVenta()  → comisión automática (RF-13)
- *   2. ClientesService.actualizarCategoria() → recategorización (RF-21)
- *   3. LeadsService.marcarConvertidos()      → cierre automático de oportunidades
+ *   1. ClientesService.actualizarCategoria() → recategorización (RF-21)
+ *   2. LeadsService.marcarConvertidos()      → cierre automático de oportunidades
  * El agente que cierra queda fijado desde el JWT y no existe endpoint para cambiarlo.
  */
 @Injectable()
@@ -58,7 +56,6 @@ export class VentasService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly clientesService: ClientesService,
-    private readonly comisionesService: ComisionesService,
     private readonly leadsService: LeadsService,
     private readonly audit: AuditService,
     private readonly r2: R2Service,
@@ -74,13 +71,32 @@ export class VentasService {
       );
     }
 
+    /* Un leadId de otro cliente no cuela en silencio: sin este chequeo, un
+       UUID válido pero ajeno quedaría vinculado a la venta y `marcarConvertidos`
+       nunca encontraría el lead a cerrar (está scopeado por clienteId), así
+       que el error saldría a la luz recién al leer los reportes de atribución. */
+    if (dto.leadId) {
+      const lead = await this.prisma.lead.findUnique({
+        where: { id: dto.leadId },
+        select: { id: true, clienteId: true },
+      });
+      if (!lead || lead.clienteId !== dto.clienteId) {
+        throw new BadRequestException('El lead indicado no corresponde a este cliente.');
+      }
+    }
+
+    const estado = dto.estado ?? 'GANADA';
+    if (estado === 'PERDIDA' && !dto.motivoPerdida?.trim()) {
+      throw new BadRequestException('Para registrar una venta como perdida hay que indicar el motivo.');
+    }
+
     const venta = await this.prisma.venta.create({
       data: {
         clienteId: dto.clienteId,
         agenteId,
         producto: dto.producto,
         monto: dto.monto,
-        estado: dto.estado ?? 'GANADA',
+        estado,
         metodoPago: dto.metodoPago ?? null,
         comprobante: dto.comprobante ?? null,
         comprobanteKey: dto.comprobanteKey ?? null,
@@ -89,10 +105,13 @@ export class VentasService {
         medico: dto.medico ?? null,
         modulo: dto.modulo ?? null,
         notas: dto.notas ?? null,
+        leadId: dto.leadId ?? null,
+        motivoPerdida: estado === 'PERDIDA' ? dto.motivoPerdida!.trim() : null,
       },
       include: {
         cliente: { select: { id: true, nombre: true, telefono: true } },
         agente: { select: { id: true, nombre: true } },
+        lead: { select: { id: true, origen: true, anuncioId: true } },
       },
     });
 
@@ -104,12 +123,12 @@ export class VentasService {
       comprobante: venta.comprobante,
       modulo: venta.modulo,
       medico: venta.medico,
+      leadId: venta.leadId,
     });
 
     if (venta.estado === 'GANADA') {
-      await this.comisionesService.generarParaVenta(venta);
       await this.clientesService.actualizarCategoria(venta.clienteId);
-      await this.leadsService.marcarConvertidos(venta.clienteId);
+      await this.leadsService.marcarConvertidos(venta.clienteId, venta.leadId);
     }
 
     const comprobanteUrl = venta.comprobanteKey ? await this.firmarComprobante(venta.comprobanteKey) : null;
@@ -185,7 +204,7 @@ export class VentasService {
         include: {
           cliente: { select: { id: true, nombre: true, telefono: true, pac: true } },
           agente: { select: { id: true, nombre: true } },
-          comision: { select: { id: true, monto: true, estado: true } },
+          lead: { select: { id: true, origen: true, anuncioId: true } },
         },
         skip,
         take,
@@ -204,22 +223,35 @@ export class VentasService {
   }
 
   /** Cambio de estado (solo ADMIN, garantizado en el controller) — RF-12: el agente no se toca. */
-  async cambiarEstado(id: string, estado: EstadoVenta, adminId: string) {
+  async cambiarEstado(id: string, estado: EstadoVenta, adminId: string, motivoPerdida?: string) {
     const venta = await this.prisma.venta.findUnique({ where: { id } });
     if (!venta) {
       throw new NotFoundException(`Venta ${id} no encontrada`);
     }
 
-    const actualizada = await this.prisma.venta.update({ where: { id }, data: { estado } });
+    /* Mismo criterio que Lead.motivoPerdida: perder una venta sin decir por
+       qué es irrecuperable a los tres meses. */
+    if (estado === 'PERDIDA' && !motivoPerdida?.trim()) {
+      throw new BadRequestException('Para marcar una venta como perdida hay que indicar el motivo.');
+    }
+
+    const actualizada = await this.prisma.venta.update({
+      where: { id },
+      data: {
+        estado,
+        // Al salir de PERDIDA el motivo deja de aplicar — mismo criterio que Lead.updateEstado.
+        motivoPerdida: estado === 'PERDIDA' ? motivoPerdida!.trim() : null,
+      },
+    });
     await this.audit.registrar('Venta', id, 'CAMBIO_ESTADO', adminId, {
       de: venta.estado,
       a: estado,
+      motivoPerdida: estado === 'PERDIDA' ? actualizada.motivoPerdida : undefined,
     });
 
     if (estado === 'GANADA' && venta.estado !== 'GANADA') {
-      await this.comisionesService.generarParaVenta(actualizada);
       await this.clientesService.actualizarCategoria(actualizada.clienteId);
-      await this.leadsService.marcarConvertidos(actualizada.clienteId);
+      await this.leadsService.marcarConvertidos(actualizada.clienteId, actualizada.leadId);
     }
 
     const comprobanteUrl = actualizada.comprobanteKey ? await this.firmarComprobante(actualizada.comprobanteKey) : null;

@@ -50,11 +50,6 @@ enum EstadoLead {
   PERDIDO
 }
 
-enum EstadoComision {
-  PENDIENTE
-  PAGADA
-}
-
 enum DireccionMensaje {
   ENTRANTE
   SALIENTE
@@ -79,7 +74,6 @@ model Usuario {
   leads             Lead[]
   conversaciones    Conversacion[]
   ventas            Venta[]
-  comisiones        Comision[]
   plantillas        PlantillaAgente[]
   recursosMemoria   RecursoMemoriaAgente[]
   pushSubscriptions PushSubscription[]
@@ -192,13 +186,25 @@ model Lead {
   /// Es único porque es la clave de idempotencia con la que `procesarLeadMeta`
   /// deduplica los reintentos del webhook. NO metas aquí el id de un anuncio.
   metaLeadId String?    @unique
-  /// Anuncio de Click-to-WhatsApp por el que entró (`referral.source_id`).
+  /// Anuncio por el que entró: `referral.source_id` en Click-to-WhatsApp, o
+  /// `ad_id` de Graph API en un Lead Ad de formulario instantáneo — mismo
+  /// significado en los dos casos ("qué anuncio trajo a esta persona"), así que
+  /// comparten columna en vez de duplicarla.
   /// **No es único a propósito**: un mismo anuncio trae a muchas pacientes, que
   /// es justo para lo que se paga una campaña. Indexado para poder contar
   /// cuántos leads trajo cada anuncio.
   anuncioId  String?    @db.VarChar(64)
+  /// Por qué se perdió. Solo tiene sentido con `estado = PERDIDO`; se limpia si
+  /// el lead vuelve a moverse a otro estado — mismo criterio que
+  /// `VentaImportada.motivoExclusion`: mover (o dejar de mover) una oportunidad
+  /// sin dejar dicho el motivo es irrecuperable a los tres meses.
+  motivoPerdida String? @db.VarChar(200)
   agente     Usuario?   @relation(fields: [agenteId], references: [id])
   agenteId   String?
+  /// Ventas que citan a este lead como su origen (`Venta.leadId`). No toda
+  /// venta nace de un lead trabajado en el pipeline, así que la relación es
+  /// opcional del lado de `Venta`.
+  ventas     Venta[]
   createdAt  DateTime   @default(now())
 
   @@index([anuncioId])
@@ -298,7 +304,18 @@ model Venta {
   medico            String?     @db.VarChar(120)
   modulo            String?     @db.VarChar(60)
   notas             String?     @db.Text
-  comision          Comision?
+  /// Lead que originó esta venta, si el agente lo indicó al registrarla.
+  /// Opcional a propósito: hay ventas presenciales o históricas sin un lead
+  /// trabajado antes en el pipeline. Sirve para saber de qué campaña/anuncio
+  /// vino una venta real (vía `Lead.anuncioId`/`origen`) en vez de asumir que
+  /// TODOS los leads abiertos del cliente se cerraron por esta venta —
+  /// ver `LeadsService.marcarConvertidos`.
+  lead              Lead?       @relation(fields: [leadId], references: [id])
+  leadId            String?
+  /// Por qué se perdió. Solo tiene sentido con `estado = PERDIDA`; se limpia si
+  /// la venta vuelve a moverse a otro estado — mismo criterio que
+  /// `Lead.motivoPerdida` y `VentaImportada.motivoExclusion`.
+  motivoPerdida     String?     @db.VarChar(200)
   createdAt         DateTime    @default(now())
 
   @@index([clienteId])
@@ -306,22 +323,7 @@ model Venta {
   @@index([estado])
   @@index([createdAt])
   @@index([agenteId, estado])
-}
-
-model Comision {
-  id        String         @id @default(uuid())
-  venta     Venta          @relation(fields: [ventaId], references: [id])
-  ventaId   String         @unique
-  agente    Usuario        @relation(fields: [agenteId], references: [id])
-  agenteId  String
-  monto     Decimal        @db.Decimal(12, 2)
-  estado    EstadoComision @default(PENDIENTE)
-  pagadaEn  DateTime?
-  createdAt DateTime       @default(now())
-
-  @@index([agenteId])
-  @@index([createdAt])
-  @@index([agenteId, estado])
+  @@index([leadId])
 }
 
 model AuditLog {
@@ -397,11 +399,11 @@ model RecursoMemoriaAgente {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// PLANILLA DE COMISIONES — liquidación mensual desde el Excel de FileMaker.
-//
-// Dominio SEPARADO de `Venta`/`Comision` (que modelan la venta puntual de un
-// agente dentro del CRM). Aquí se importa el export mensual de FileMaker, se
-// clasifica cada fila y se liquida la planilla del equipo comercial.
+// ── Planilla Mensual de Comisiones (Importación FileMaker) ───────────────
+// Dominio SEPARADO de `Venta` (que modela la venta puntual en el CRM).
+// Aquí vive la planilla mensual consolidada que administración importa desde
+// el Excel de FileMaker: periodos, tarifas, vendedoras, médicos, reglas de
+// clasificación y liquidación en USD/Bs.
 // Nada de esto toca los modelos anteriores.
 // ═══════════════════════════════════════════════════════════════════════════
 

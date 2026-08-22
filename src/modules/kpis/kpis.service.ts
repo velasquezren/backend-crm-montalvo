@@ -52,7 +52,6 @@ export class KpisService {
       leadsPorOrigen,
       leadsConvertidosPorOrigen,
       clientesPorCategoria,
-      comisiones,
       totalConversaciones,
       leadsContactados,
       // Pulso operativo de hoy / tiempo real
@@ -89,12 +88,7 @@ export class KpisService {
         by: ['categoria'],
         _count: true,
       }),
-      this.prisma.comision.groupBy({
-        by: ['estado'],
-        where: { createdAt: rango, agenteId: soloAgenteId },
-        _sum: { monto: true },
-      }),
-      /* Escopadas por soloAgenteId igual que ventas/comisiones arriba */
+      /* Escopadas por soloAgenteId igual que ventas arriba */
       this.prisma.conversacion.count({
         where: soloAgenteId
           ? { OR: [{ agenteId: soloAgenteId }, { agenteId: null }] }
@@ -246,10 +240,6 @@ export class KpisService {
         categoria: c.categoria,
         cantidad: c._count,
       })),
-      comisiones: {
-        pendiente: Number(comisiones.find(c => c.estado === 'PENDIENTE')?._sum.monto ?? 0),
-        pagada: Number(comisiones.find(c => c.estado === 'PAGADA')?._sum.monto ?? 0),
-      },
       funnel: {
         conversacionesTotal: totalConversaciones,
         leadsContactados: leadsContactados,

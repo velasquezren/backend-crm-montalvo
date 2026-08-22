@@ -17,6 +17,11 @@ export class QueryLeadDto extends PaginationDto {
   @IsString()
   agenteId?: string;
 
+  /** Leads de un cliente puntual — usado por el selector de "lead de origen" al registrar una venta. */
+  @IsOptional()
+  @IsString()
+  clienteId?: string;
+
   /**
    * Los leads con origen IMPORTACION son el histórico cargado desde FileMaker
    * (15.000+ pacientes antiguos): no son prospectos que un agente deba trabajar,

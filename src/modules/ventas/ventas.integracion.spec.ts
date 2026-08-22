@@ -1,11 +1,9 @@
 import { BadRequestException } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 
 import { AuditService } from '../../common/audit/audit.service';
 import { R2Service } from '../../common/storage/r2.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ClientesService } from '../clientes/clientes.service';
-import { ComisionesService } from '../comisiones/comisiones.service';
 import { LeadsService } from '../leads/leads.service';
 import { ServiciosService } from '../servicios/servicios.service';
 import { VentasService } from './ventas.service';
@@ -60,7 +58,6 @@ afterAll(async () => {
      ventas: dejar filas de `Venta` aquí hace que la FK `Venta_clienteId_fkey`
      les reviente el `beforeEach` a todas. Cada suite devuelve la base como la
      encontró. */
-  await prisma.comision.deleteMany();
   await prisma.venta.deleteMany();
   await prisma.lead.deleteMany();
   await prisma.cliente.deleteMany();
@@ -70,7 +67,6 @@ afterAll(async () => {
 
 beforeEach(async () => {
   await prisma.auditLog.deleteMany();
-  await prisma.comision.deleteMany();
   await prisma.venta.deleteMany();
   await prisma.lead.deleteMany();
   await prisma.cliente.deleteMany();
@@ -78,11 +74,9 @@ beforeEach(async () => {
 
   r2 = new R2Espia();
   const audit = new AuditService(prisma);
-  const config = new ConfigService({ COMISION_PORCENTAJE: '5' });
   service = new VentasService(
     prisma,
     new ClientesService(prisma, audit, new ServiciosService(prisma)),
-    new ComisionesService(prisma, config, audit),
     new LeadsService(prisma, new ClientesService(prisma, audit, new ServiciosService(prisma))),
     audit,
     r2 as unknown as R2Service,
@@ -190,16 +184,15 @@ describe('VentasService contra Postgres real', () => {
   });
 
   describe('convivencia con la planilla de FileMaker', () => {
-    it('una venta del CRM genera comisión propia y no toca VentaImportada', async () => {
+    it('una venta del CRM no toca VentaImportada', async () => {
       const importadasAntes = await prisma.ventaImportada.count();
 
-      const venta = await service.create(ventaBase(), agenteId);
+      await service.create(ventaBase(), agenteId);
 
-      expect(await prisma.comision.count({ where: { ventaId: venta.id } })).toBe(1);
       expect(await prisma.ventaImportada.count()).toBe(importadasAntes);
     });
 
-    it('cierra los leads abiertos de la paciente', async () => {
+    it('sin leadId, cierra TODOS los leads abiertos de la paciente (comportamiento previo)', async () => {
       const lead = await prisma.lead.create({
         data: { clienteId, origen: 'PRESENCIAL', estado: 'NUEVO' },
       });
@@ -209,6 +202,66 @@ describe('VentasService contra Postgres real', () => {
       expect((await prisma.lead.findUniqueOrThrow({ where: { id: lead.id } })).estado).toBe(
         'CONVERTIDO',
       );
+    });
+  });
+
+  describe('vínculo con el lead de origen', () => {
+    it('con leadId, cierra SOLO ese lead y deja abiertos los demás del cliente', async () => {
+      const leadDeEstaVenta = await prisma.lead.create({
+        data: { clienteId, origen: 'INSTAGRAM_LEAD_AD', estado: 'CONTACTADO' },
+      });
+      const otroLeadSinRelacion = await prisma.lead.create({
+        data: { clienteId, origen: 'FACEBOOK_LEAD_AD', estado: 'NUEVO' },
+      });
+
+      const venta = await service.create({ ...ventaBase(), leadId: leadDeEstaVenta.id }, agenteId);
+
+      expect(venta.leadId).toBe(leadDeEstaVenta.id);
+      expect((await prisma.lead.findUniqueOrThrow({ where: { id: leadDeEstaVenta.id } })).estado).toBe(
+        'CONVERTIDO',
+      );
+      expect((await prisma.lead.findUniqueOrThrow({ where: { id: otroLeadSinRelacion.id } })).estado).toBe(
+        'NUEVO',
+      );
+    });
+
+    it('rechaza un leadId que pertenece a otro cliente', async () => {
+      const otroCliente = await prisma.cliente.create({
+        data: { nombre: 'Otra paciente', telefono: '+59170099999' },
+      });
+      const leadAjeno = await prisma.lead.create({
+        data: { clienteId: otroCliente.id, origen: 'PRESENCIAL', estado: 'NUEVO' },
+      });
+
+      await expect(service.create({ ...ventaBase(), leadId: leadAjeno.id }, agenteId)).rejects.toThrow(
+        BadRequestException,
+      );
+    });
+  });
+
+  describe('motivo de pérdida', () => {
+    it('exige motivo al registrar una venta directamente como PERDIDA', async () => {
+      await expect(
+        service.create({ ...ventaBase(), estado: 'PERDIDA' }, agenteId),
+      ).rejects.toThrow('Para registrar una venta como perdida hay que indicar el motivo.');
+    });
+
+    it('exige motivo al cambiar una venta a PERDIDA', async () => {
+      const venta = await service.create(ventaBase(), agenteId);
+
+      await expect(service.cambiarEstado(venta.id, 'PERDIDA', agenteId)).rejects.toThrow(
+        'Para marcar una venta como perdida hay que indicar el motivo.',
+      );
+    });
+
+    it('guarda el motivo y lo limpia si la venta vuelve a GANADA', async () => {
+      const venta = await service.create(ventaBase(), agenteId);
+
+      const perdida = await service.cambiarEstado(venta.id, 'PERDIDA', agenteId, 'Se fue con la competencia');
+      expect(perdida.motivoPerdida).toBe('Se fue con la competencia');
+
+      const recuperada = await service.cambiarEstado(venta.id, 'GANADA', agenteId);
+      expect(recuperada.motivoPerdida).toBeNull();
     });
   });
 });

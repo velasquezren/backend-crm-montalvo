@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { EstadoLead, Prisma } from '@prisma/client';
 
 import { PrismaService } from '../../prisma/prisma.service';
@@ -59,6 +59,7 @@ export class LeadsService {
       origen: query.origen ?? (excluirHistorico ? { not: 'IMPORTACION' } : undefined),
       estado: query.estado,
       agenteId: query.agenteId,
+      clienteId: query.clienteId,
       ...(soloAgenteId
         ? {
             OR: [
@@ -140,10 +141,28 @@ export class LeadsService {
   }
 
   /**
-   * Conversión automática (RF-17): al cerrarse una venta, los leads abiertos
-   * del cliente pasan a CONVERTIDO. Invocado por VentasService.
+   * Conversión automática (RF-17): al cerrarse una venta, se marca CONVERTIDO
+   * el lead que la originó. Invocado por VentasService.
+   *
+   * Con `leadId` (la venta cita su lead de origen): cierra SOLO ese lead. Sin
+   * `leadId` (venta sin lead asociado — presencial, histórica, o registrada
+   * antes de que existiera este vínculo): repite el comportamiento anterior y
+   * cierra TODOS los leads abiertos del cliente, que era la única señal
+   * disponible antes de poder citar un lead concreto.
+   *
+   * La distinción importa: un cliente puede tener dos leads abiertos de dos
+   * campañas distintas, y cerrar los dos como "convertidos" porque solo uno
+   * terminó en venta le atribuye a la campaña equivocada el mismo resultado.
    */
-  async marcarConvertidos(clienteId: string): Promise<void> {
+  async marcarConvertidos(clienteId: string, leadId?: string | null): Promise<void> {
+    if (leadId) {
+      await this.prisma.lead.updateMany({
+        where: { id: leadId, clienteId, estado: { in: ['NUEVO', 'CONTACTADO'] } },
+        data: { estado: 'CONVERTIDO' },
+      });
+      return;
+    }
+
     await this.prisma.lead.updateMany({
       where: { clienteId, estado: { in: ['NUEVO', 'CONTACTADO'] } },
       data: { estado: 'CONVERTIDO' },
@@ -201,6 +220,8 @@ export class LeadsService {
     telefono: string;
     origen: 'FACEBOOK_LEAD_AD' | 'INSTAGRAM_LEAD_AD';
     metaLeadId: string;
+    /** `ad_id` que devolvió Graph API, si lo hubo — ver `Lead.anuncioId`. */
+    anuncioId?: string;
   }) {
     const existente = await this.prisma.lead.findUnique({
       where: { metaLeadId: datos.metaLeadId },
@@ -237,6 +258,7 @@ export class LeadsService {
         clienteId: cliente.id,
         origen: datos.origen,
         metaLeadId: datos.metaLeadId,
+        anuncioId: datos.anuncioId,
         agenteId: cliente.agenteId,
       },
       include: {
@@ -266,7 +288,7 @@ export class LeadsService {
    * (no 403) para no confirmar que el registro existe, mismo criterio que
    * `ClientesService.findOne`.
    */
-  async updateEstado(id: string, estado: EstadoLead, soloAgenteId?: string) {
+  async updateEstado(id: string, estado: EstadoLead, soloAgenteId?: string, motivoPerdida?: string) {
     const existe = await this.prisma.lead.findUnique({
       where: { id },
       select: { id: true, agenteId: true, cliente: { select: { agenteId: true } } },
@@ -275,9 +297,21 @@ export class LeadsService {
       throw new NotFoundException(`Lead ${id} no encontrado`);
     }
 
+    /* Perder un lead sin decir por qué es irrecuperable a los tres meses —
+       mismo criterio que `VentaImportada.motivoExclusion` en la planilla. */
+    if (estado === 'PERDIDO' && !motivoPerdida?.trim()) {
+      throw new BadRequestException('Para marcar un lead como perdido hay que indicar el motivo.');
+    }
+
     const lead = await this.prisma.lead.update({
       where: { id },
-      data: { estado },
+      data: {
+        estado,
+        /* Al moverse a cualquier otro estado, el motivo deja de aplicar —
+           dejarlo puesto haría que un lead vuelto a NUEVO siguiera mostrando
+           "perdido por X". */
+        motivoPerdida: estado === 'PERDIDO' ? motivoPerdida!.trim() : null,
+      },
       include: {
         cliente: {
           select: {
