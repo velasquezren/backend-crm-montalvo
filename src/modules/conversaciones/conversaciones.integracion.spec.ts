@@ -888,6 +888,77 @@ describe('Acuse automático fuera de horario', () => {
 
     expect(await prisma.mensaje.count({ where: { whatsappMsgId: 'wamid.x1' } })).toBe(1);
   });
+
+  /**
+   * Hasta este cambio, un clic en el botón del acuse no disparaba nada más:
+   * el título quedaba en el chat como si el paciente lo hubiera escrito.
+   */
+  describe('pedido de nombre y edad tras un clic en el botón del acuse', () => {
+    it('un clic dispara el pedido, marcado como automático', async () => {
+      const s = servicioCon(
+        conConfig({ AUTORESPUESTA_PEDIDO_DATOS: 'Decinos tu nombre y edad, porfa.' }),
+        DOMINGO,
+      );
+      await s.procesarEntrante('+59176000008', 'Hola', 'wamid.p0'); // dispara el acuse normal
+      await esperarSalientes(1);
+
+      await s.procesarEntrante(
+        '+59176000008',
+        'Agendar una cita', // el título del botón, tal como vuelve por el webhook
+        'wamid.p1',
+        undefined,
+        undefined,
+        undefined,
+        true, // esRespuestaBotonAcuse
+      );
+      await esperarSalientes(2);
+
+      const salientes = await prisma.mensaje.findMany({
+        where: { direccion: 'SALIENTE' },
+        orderBy: { createdAt: 'asc' },
+      });
+      expect(salientes).toHaveLength(2);
+      expect(salientes[1].contenido).toBe('Decinos tu nombre y edad, porfa.');
+      expect(salientes[1].automatico).toBe(true);
+    });
+
+    it('un mensaje normal (no un clic) no dispara el pedido', async () => {
+      const s = servicioCon(
+        conConfig({ AUTORESPUESTA_PEDIDO_DATOS: 'Decinos tu nombre y edad, porfa.' }),
+        DOMINGO,
+      );
+      await s.procesarEntrante('+59176000009', 'Agendar una cita', 'wamid.q0'); // sin el flag: es texto normal
+      await esperarSalientes(1);
+
+      await new Promise(r => setTimeout(r, 300));
+      expect(await prisma.mensaje.count({ where: { direccion: 'SALIENTE' } })).toBe(1); // solo el acuse
+    });
+
+    it('no se repite si el paciente clica un segundo botón', async () => {
+      const s = servicioCon(
+        conConfig({ AUTORESPUESTA_PEDIDO_DATOS: 'Decinos tu nombre y edad, porfa.' }),
+        DOMINGO,
+      );
+      await s.procesarEntrante('+59176000010', 'Hola', 'wamid.r0');
+      await esperarSalientes(1);
+      await s.procesarEntrante('+59176000010', 'Agendar una cita', 'wamid.r1', undefined, undefined, undefined, true);
+      await esperarSalientes(2);
+      await s.procesarEntrante('+59176000010', 'Ver resultados', 'wamid.r2', undefined, undefined, undefined, true);
+
+      await new Promise(r => setTimeout(r, 300));
+      expect(await prisma.mensaje.count({ where: { direccion: 'SALIENTE' } })).toBe(2); // no un tercero
+    });
+
+    it('sin AUTORESPUESTA_PEDIDO_DATOS configurado, el clic no manda nada extra', async () => {
+      const s = servicioCon(conConfig(), DOMINGO); // sin la variable nueva
+      await s.procesarEntrante('+59176000011', 'Hola', 'wamid.s0');
+      await esperarSalientes(1);
+      await s.procesarEntrante('+59176000011', 'Agendar una cita', 'wamid.s1', undefined, undefined, undefined, true);
+
+      await new Promise(r => setTimeout(r, 300));
+      expect(await prisma.mensaje.count({ where: { direccion: 'SALIENTE' } })).toBe(1);
+    });
+  });
 });
 
 describe('búsqueda histórica de mensajes', () => {

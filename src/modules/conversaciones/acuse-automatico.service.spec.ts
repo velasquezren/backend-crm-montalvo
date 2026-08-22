@@ -80,4 +80,27 @@ describe('AcuseAutomaticoService', () => {
     expect(servicio({ AUTORESPUESTA_ESPERA_HORAS: 'muchas' }).s.esperaHoras).toBe(12);
     expect(servicio({ AUTORESPUESTA_ESPERA_HORAS: '6' }).s.esperaHoras).toBe(6);
   });
+
+  describe('decidirPedidoDatos', () => {
+    it('apagado si no hay AUTORESPUESTA_PEDIDO_DATOS configurado', () => {
+      expect(servicio().s.decidirPedidoDatos()).toBeNull();
+    });
+
+    it('apagado si está vacío o solo espacios', () => {
+      expect(servicio({ AUTORESPUESTA_PEDIDO_DATOS: '   ' }).s.decidirPedidoDatos()).toBeNull();
+    });
+
+    it('devuelve el texto configurado, recortado', () => {
+      expect(
+        servicio({ AUTORESPUESTA_PEDIDO_DATOS: '  Decinos tu nombre y edad, porfa  ' }).s.decidirPedidoDatos(),
+      ).toBe('Decinos tu nombre y edad, porfa');
+    });
+
+    /* A diferencia de decidir(), no depende de la hora ni del horario: el
+       clic en el botón puede llegar de madrugada o ya en horario de atención. */
+    it('no depende de la hora', () => {
+      const { s } = servicio({ AUTORESPUESTA_PEDIDO_DATOS: 'Nombre y edad, porfa' });
+      expect(s.decidirPedidoDatos()).toBe('Nombre y edad, porfa');
+    });
+  });
 });

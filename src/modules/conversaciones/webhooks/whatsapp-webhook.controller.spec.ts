@@ -226,6 +226,9 @@ describe('WhatsappWebhookController', () => {
         'Confirmar',
         'wamid.b',
         undefined,
+        undefined,
+        undefined,
+        true, // esRespuestaBotonAcuse: dispara el pedido de nombre y edad
       );
     });
 
@@ -251,6 +254,8 @@ describe('WhatsappWebhookController', () => {
       );
 
       expect(servicio.procesarEntrante.mock.calls.map(c => c[1])).toEqual(['Sí', 'Consulta']);
+      // Las dos son clics, no texto tecleado: las dos disparan el pedido de nombre y edad.
+      expect(servicio.procesarEntrante.mock.calls.map(c => c[6])).toEqual([true, true]);
     });
 
     it('guarda la media con su tipo, mime y nombre, usando el caption como contenido', async () => {

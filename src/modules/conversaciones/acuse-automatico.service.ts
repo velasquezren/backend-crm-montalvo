@@ -62,6 +62,20 @@ export class AcuseAutomaticoService {
 
     return { texto, botones: leerBotones(this.config.get<string>('AUTORESPUESTA_BOTONES')) };
   }
+
+  /**
+   * Qué mandar cuando el paciente toca uno de los botones del acuse — hoy esa
+   * respuesta no dispara nada, el título del botón queda como si el paciente lo
+   * hubiera escrito y ahí se corta. `null` = apagado, mismo criterio que
+   * `decidir()`: sin texto configurado no se inventa uno.
+   *
+   * A diferencia del acuse, no depende de la hora: el clic puede llegar horas
+   * después, incluso ya en horario de atención, y el objetivo sigue siendo el
+   * mismo — que quien abra el chat ya sepa con quién habla.
+   */
+  decidirPedidoDatos(): string | null {
+    return this.config.get<string>('AUTORESPUESTA_PEDIDO_DATOS')?.trim() || null;
+  }
 }
 
 /**

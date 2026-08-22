@@ -74,6 +74,8 @@ export class IngestaWhatsappService {
     nombrePerfil?: string,
     media?: MediaEntrante,
     referral?: ReferenciaCampana,
+    /** true = este mensaje entrante es el clic en un botón del acuse fuera de horario (ver `WhatsappWebhookController`). */
+    esRespuestaBotonAcuse = false,
   ) {
     if (whatsappMsgId) {
       const yaExiste = await this.prisma.mensaje.findUnique({ where: { whatsappMsgId } });
@@ -224,6 +226,14 @@ export class IngestaWhatsappService {
        webhook tiene que responder en milisegundos. */
     void this.responderFueraDeHorario(conversacion.id, cliente.telefono);
 
+    /* El clic en un botón del acuse hoy no disparaba nada más: el título
+       quedaba en el chat como si el paciente lo hubiera escrito, y ahí se
+       cortaba. Esto pide nombre y edad para que quien abra el chat después
+       ya sepa con quién habla. */
+    if (esRespuestaBotonAcuse) {
+      void this.pedirDatosDelPaciente(conversacion.id, cliente.telefono);
+    }
+
     return mensaje;
   }
 
@@ -289,25 +299,7 @@ export class IngestaWhatsappService {
       });
       if (yaAvisado) return;
 
-      const [mensaje] = await this.prisma.$transaction([
-        this.prisma.mensaje.create({
-          data: {
-            conversacionId,
-            direccion: 'SALIENTE',
-            contenido: acuse.texto,
-            estadoEnvio: 'ENVIADO',
-            /* La marca que impide que el acuse tape la conversación en el
-               inbox — ver el comentario del campo en schema.prisma. */
-            automatico: true,
-          },
-        }),
-        this.prisma.conversacion.update({
-          where: { id: conversacionId },
-          data: { updatedAt: new Date() },
-        }),
-      ]);
-
-      this.gateway.emitirActividad(conversacionId);
+      const mensaje = await this.guardarMensajeAutomatico(conversacionId, acuse.texto);
 
       const destino = { mensajeId: mensaje.id, conversacionId, telefono };
       if (acuse.botones) {
@@ -320,5 +312,63 @@ export class IngestaWhatsappService {
          ya está guardado, el acuse es un extra. */
       this.logger.error('No se pudo enviar el acuse fuera de horario', error);
     }
+  }
+
+  /**
+   * Tras un clic en los botones del acuse, pide nombre y edad — hasta ahora el
+   * clic no disparaba nada más (ver `procesarEntrante`).
+   *
+   * Una sola vez POR SIEMPRE en la conversación, a diferencia del acuse (que
+   * se repite cada `esperaHoras`): una vez que el paciente contestó, no hace
+   * falta volver a pedirlo aunque pasen semanas y el chat vuelva a cerrarse
+   * fuera de horario. Se identifica por el propio contenido del mensaje —no
+   * hace falta una columna nueva para "ya se pidió".
+   */
+  private async pedirDatosDelPaciente(conversacionId: string, telefono: string): Promise<void> {
+    const texto = this.acuse.decidirPedidoDatos();
+    if (!texto) return; // apagado mientras no exista AUTORESPUESTA_PEDIDO_DATOS
+
+    try {
+      const yaPedido = await this.prisma.mensaje.findFirst({
+        where: { conversacionId, automatico: true, contenido: texto },
+        select: { id: true },
+      });
+      if (yaPedido) return;
+
+      const mensaje = await this.guardarMensajeAutomatico(conversacionId, texto);
+      await this.despachador.texto({ mensajeId: mensaje.id, conversacionId, telefono }, texto);
+    } catch (error) {
+      /* Mismo criterio que el acuse: nunca tumba la entrada del mensaje del
+         paciente, que ya está guardada. */
+      this.logger.error('No se pudo enviar el pedido de nombre y edad tras el clic en el acuse', error);
+    }
+  }
+
+  /**
+   * Guarda un mensaje SALIENTE marcado `automatico: true` y bumpea la
+   * conversación — el mismo par de escrituras que necesitan el acuse y el
+   * pedido de datos, así que vive en un solo sitio.
+   */
+  private async guardarMensajeAutomatico(conversacionId: string, contenido: string) {
+    const [mensaje] = await this.prisma.$transaction([
+      this.prisma.mensaje.create({
+        data: {
+          conversacionId,
+          direccion: 'SALIENTE',
+          contenido,
+          estadoEnvio: 'ENVIADO',
+          /* La marca que impide que esto tape la conversación en el inbox —
+             ver el comentario del campo en schema.prisma. */
+          automatico: true,
+        },
+      }),
+      this.prisma.conversacion.update({
+        where: { id: conversacionId },
+        data: { updatedAt: new Date() },
+      }),
+    ]);
+
+    this.gateway.emitirActividad(conversacionId);
+    return mensaje;
   }
 }
