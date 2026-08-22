@@ -172,12 +172,24 @@ export class ConversacionesService {
   });
 
   /**
-   * Plantillas aprobadas de la WABA. 10 min porque el dato vive en Meta —
+   * Plantillas aprobadas de la WABA. 1 hora porque el dato vive en Meta —
    * aprobar una plantilla es un trámite de horas, no de segundos— y cada
-   * consulta es un round-trip de 300-900 ms contra su API.
+   * consulta es un round-trip real contra su API.
+   *
+   * Antes eran 10 min. Medido en producción el 2026-08-22: con esa ventana,
+   * esta consulta salía en vivo ~6 veces por hora y tardaba 400-1123 ms cada
+   * vez; al caer en la misma ráfaga de peticiones con la que un agente abre
+   * el inbox (junto a /conversaciones, /kpis/resumen, etc.), esas ventanas
+   * mostraban además latencia elevada en endpoints que en aislamiento son
+   * rápidos (GET /conversaciones: 4.5 ms de servidor por EXPLAIN ANALYZE,
+   * pero 200-460 ms de punta a punta en esos momentos) — compatible con
+   * contención en la única CPU del servidor durante esa ráfaga. Subir a 1h
+   * corta la frecuencia de ese round-trip a una sexta parte sin arriesgar
+   * nada: `GET /conversaciones/meta/plantillas?refresh=true` sigue
+   * disponible para quien necesite la lista al segundo.
    */
   private readonly cachePlantillas = new CacheMemoria<PlantillaResumen[]>({
-    ttlMs: 600_000,
+    ttlMs: 3_600_000,
     maxEntradas: 1,
   });
 
