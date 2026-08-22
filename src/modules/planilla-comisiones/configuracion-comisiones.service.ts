@@ -2,6 +2,7 @@ import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import {
   ClasifComision,
   NivelCirugia,
+  NivelTipoARA,
   ObjetivoComision,
   ReglaClasificacion,
   TarifaPlan,
@@ -16,6 +17,7 @@ import { normalizar, ReglaDiccionario } from './clasificador';
 import {
   CAPTACION_POR_DEFECTO,
   NIVELES_CIRUGIA_POR_DEFECTO,
+  NIVELES_TIPO_A_RA_POR_DEFECTO,
   OBJETIVOS_POR_DEFECTO,
   PARAM,
   PARAMETROS_POR_DEFECTO,
@@ -26,6 +28,7 @@ import {
 } from './configuracion-por-defecto';
 import {
   ActualizarNivelCirugiaDto,
+  ActualizarNivelTipoARADto,
   ActualizarObjetivoDto,
   ActualizarParametroDto,
   ActualizarTarifaPlanDto,
@@ -39,6 +42,7 @@ export interface ConfiguracionCompleta {
   tarifasPlan: TarifaPlan[];
   tarifasServicio: TarifaServicio[];
   nivelesCirugia: NivelCirugia[];
+  nivelesTipoARA: NivelTipoARA[];
   tarifasRA: TarifaRA[];
   objetivos: ObjetivoComision[];
   parametros: Map<string, number>;
@@ -52,6 +56,7 @@ export interface ConfiguracionCompleta {
   tarifasPlanPorClave: Map<string, TarifaPlan>;
   tarifasServicioPorClasif: Map<ClasifComision, TarifaServicio>;
   nivelesPorNumero: Map<number, NivelCirugia>;
+  nivelesTipoARAPorNumero: Map<number, NivelTipoARA>;
 }
 
 /**
@@ -87,19 +92,29 @@ export class ConfiguracionComisionesService {
   async asegurarConfiguracion(): Promise<void> {
     if (this.configuracionAsegurada) return;
 
-    const [tarifasPlan, tarifasServicio, niveles, tarifasRA, objetivos, parametros, reglas, captacion] =
-      await this.prisma.$transaction([
-        this.prisma.tarifaPlan.count(),
-        this.prisma.tarifaServicio.count(),
-        this.prisma.nivelCirugia.count(),
-        this.prisma.tarifaRA.count(),
-        // Solo las metas POR DEFECTO: si existieran únicamente las de algún mes,
-        // seguirían faltando las base y hay que sembrarlas igual.
-        this.prisma.objetivoComision.count({ where: { periodoId: null } }),
-        this.prisma.parametroComision.count(),
-        this.prisma.reglaClasificacion.count(),
-        this.prisma.mapeoCaptacion.count(),
-      ]);
+    const [
+      tarifasPlan,
+      tarifasServicio,
+      niveles,
+      nivelesTipoARA,
+      tarifasRA,
+      objetivos,
+      parametros,
+      reglas,
+      captacion,
+    ] = await this.prisma.$transaction([
+      this.prisma.tarifaPlan.count(),
+      this.prisma.tarifaServicio.count(),
+      this.prisma.nivelCirugia.count(),
+      this.prisma.nivelTipoARA.count(),
+      this.prisma.tarifaRA.count(),
+      // Solo las metas POR DEFECTO: si existieran únicamente las de algún mes,
+      // seguirían faltando las base y hay que sembrarlas igual.
+      this.prisma.objetivoComision.count({ where: { periodoId: null } }),
+      this.prisma.parametroComision.count(),
+      this.prisma.reglaClasificacion.count(),
+      this.prisma.mapeoCaptacion.count(),
+    ]);
 
     const pendientes: Promise<unknown>[] = [];
 
@@ -114,6 +129,11 @@ export class ConfiguracionComisionesService {
     if (niveles === 0) {
       pendientes.push(
         this.prisma.nivelCirugia.createMany({ data: [...NIVELES_CIRUGIA_POR_DEFECTO] }),
+      );
+    }
+    if (nivelesTipoARA === 0) {
+      pendientes.push(
+        this.prisma.nivelTipoARA.createMany({ data: [...NIVELES_TIPO_A_RA_POR_DEFECTO] }),
       );
     }
     if (tarifasRA === 0) {
@@ -162,6 +182,7 @@ export class ConfiguracionComisionesService {
         this.prisma.tarifaPlan.findMany(),
         this.prisma.tarifaServicio.findMany(),
         this.prisma.nivelCirugia.findMany({ orderBy: { nivel: 'asc' } }),
+        this.prisma.nivelTipoARA.findMany({ orderBy: { nivel: 'asc' } }),
         this.prisma.tarifaRA.findMany(),
         this.prisma.parametroComision.findMany(),
         this.prisma.mapeoCaptacion.findMany(),
@@ -171,13 +192,14 @@ export class ConfiguracionComisionesService {
         : this.prisma.objetivoComision.findMany({ where: { periodoId: null } }),
     ]);
 
-    const [tarifasPlan, tarifasServicio, nivelesCirugia, tarifasRA, parametros, captacion] =
+    const [tarifasPlan, tarifasServicio, nivelesCirugia, nivelesTipoARA, tarifasRA, parametros, captacion] =
       catalogos;
 
     return {
       tarifasPlan,
       tarifasServicio,
       nivelesCirugia,
+      nivelesTipoARA,
       tarifasRA,
       objetivos,
       parametros: new Map(parametros.map(p => [p.clave, Number(p.valor)])),
@@ -186,6 +208,7 @@ export class ConfiguracionComisionesService {
       tarifasPlanPorClave: new Map(tarifasPlan.map(t => [t.clave, t])),
       tarifasServicioPorClasif: new Map(tarifasServicio.map(t => [t.clasif, t])),
       nivelesPorNumero: new Map(nivelesCirugia.map(n => [n.nivel, n])),
+      nivelesTipoARAPorNumero: new Map(nivelesTipoARA.map(n => [n.nivel, n])),
     };
   }
 
@@ -318,6 +341,7 @@ export class ConfiguracionComisionesService {
       tarifasPlan: config.tarifasPlan,
       tarifasServicio: config.tarifasServicio,
       nivelesCirugia: config.nivelesCirugia,
+      nivelesTipoARA: config.nivelesTipoARA,
       tarifasRA: config.tarifasRA,
       objetivos: config.objetivos,
       parametros: Array.from(config.parametros, ([clave, valor]) => ({ clave, valor })),
@@ -355,6 +379,17 @@ export class ConfiguracionComisionesService {
       `Nivel de cirugía ${nivel}`,
     );
     return this.prisma.nivelCirugia.update({ where: { nivel }, data: dto });
+  }
+
+  async actualizarNivelTipoARA(
+    nivel: number,
+    dto: ActualizarNivelTipoARADto,
+  ): Promise<NivelTipoARA> {
+    await this.exigirExistencia(
+      this.prisma.nivelTipoARA.count({ where: { nivel } }),
+      `Nivel Tipo A (RA) ${nivel}`,
+    );
+    return this.prisma.nivelTipoARA.update({ where: { nivel }, data: dto });
   }
 
   async actualizarTarifaRa(id: string, dto: ActualizarTarifaRaDto): Promise<TarifaRA> {

@@ -26,6 +26,7 @@ import { ResumenAnualService } from './resumen-anual.service';
 import { ExportacionComisionesService } from './exportacion-comisiones.service';
 import {
   ActualizarNivelCirugiaDto,
+  ActualizarNivelTipoARADto,
   ActualizarObjetivoDto,
   GuardarMapeoCaptacionDto,
   ActualizarParametroDto,
@@ -292,6 +293,19 @@ export class PlanillaComisionesController {
       throw new BadRequestException('El nivel debe ser un número entero');
     }
     return this.configuracion.actualizarNivelCirugia(numero, dto);
+  }
+
+  @Patch('configuracion/niveles-tipo-a-ra/:nivel')
+  @Roles('SUPER_ADMIN')
+  actualizarNivelTipoARA(
+    @Param('nivel') nivel: string,
+    @Body() dto: ActualizarNivelTipoARADto,
+  ) {
+    const numero = Number(nivel);
+    if (!Number.isInteger(numero)) {
+      throw new BadRequestException('El nivel debe ser un número entero');
+    }
+    return this.configuracion.actualizarNivelTipoARA(numero, dto);
   }
 
   @Patch('configuracion/tarifas-ra/:id')

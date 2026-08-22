@@ -701,6 +701,25 @@ model TarifaRA {
   esPorcentaje  Boolean @default(false)
 }
 
+/// TIPO A (RA, ejecutivas): escala por el EXCEDENTE sobre `MONTOBJETIVO` de la
+/// suma de ingreso neto de planes de maternidad + ventas del área RA que no son
+/// cirugía (consulta/laboratorio/ecografía/otros). El % resultante se aplica
+/// solo a la porción RA de esa suma — los planes ya cobran su propia tarifa.
+///
+/// Es una tabla APARTE de `NivelCirugia`, aunque en diciembre 2025 traigan los
+/// mismos montos y porcentajes: en la planilla de administración
+/// (`CALCULO COMISION DICIEMBRE 2025.xlsx`, hoja PARAMETROS, filas 58-64 y
+/// 70-83) son dos tablas copiadas por separado, así que administración puede
+/// cambiar una sin que se mueva la otra.
+model NivelTipoARA {
+  id         String  @id @default(uuid())
+  nivel      Int     @unique
+  montoDesde Decimal @db.Decimal(12, 2)
+  montoHasta Decimal @db.Decimal(12, 2)
+  pctEmpresa Decimal @db.Decimal(6, 3)
+  pctPropio  Decimal @db.Decimal(6, 3)
+}
+
 /// Objetivos mínimos por tipo de vendedora (gatillan la comisión Tipo A y los bonos).
 /// Metas del equipo comercial. Hay dos capas:
 ///  · `periodoId = null` → metas POR DEFECTO, las que rigen mientras nadie diga otra cosa.
@@ -783,6 +802,14 @@ model ResultadoComision {
   /// El nivel sale de este acumulado y luego se aplica a TODAS las cirugías.
   acumuladoCirugias Decimal @default(0) @db.Decimal(14, 2)
   nivelCirugia      Int?
+
+  // ── Tipo A (RA) · excedente combinado planes + RA ───────────────────
+  /// Suma de ingreso neto de planes de maternidad + ventas RA no-cirugía; de
+  /// ahí sale el nivel, comparando contra `MONTOBJETIVO`. Es DISTINTA de
+  /// `comisionA` (planes GOLD/SILVER/BRONCE): esta es la columna del Excel
+  /// "COMISIÓN TIPO A (RA)", un cubo aparte que hasta ahora no se calculaba.
+  nivelTipoARA     Int?
+  comisionTipoARA  Decimal @default(0) @db.Decimal(12, 2)
 
   // ── Comisiones, en USD ───────────────────────────────────────────────
   comisionA Decimal @default(0) @db.Decimal(12, 2)

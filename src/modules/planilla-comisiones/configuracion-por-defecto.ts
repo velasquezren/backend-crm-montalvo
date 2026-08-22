@@ -40,7 +40,7 @@ export const PARAMETROS_POR_DEFECTO: ReadonlyArray<{
   { clave: PARAM.IVA, valor: 0.13, descripcion: 'Impuesto descontado del precio antes de comisionar (13%)' },
   { clave: PARAM.FACTOR_BONO_JEFATURA, valor: 0.002, descripcion: 'Factor del bono mensual de jefatura sobre el excedente del objetivo' },
   { clave: PARAM.FACTOR_BONO_TRIMESTRAL, valor: 0.005, descripcion: 'Factor del bono trimestral sobre el promedio de 3 meses' },
-  { clave: PARAM.PCT_TIPO_C_RA, valor: 0, descripcion: 'Comisión Tipo C de ventas del área RA para ejecutivas (0%: solo cobran las coordinadoras RA)' },
+  { clave: PARAM.PCT_TIPO_C_RA, valor: 0, descripcion: 'Comisión Tipo C de campañas y promociones del área RA (0%: el resto del área RA — consulta/lab/ecografía/otros — comisiona por NIVELES_TIPO_A_RA, no por este parámetro)' },
   { clave: PARAM.MESES_BONO_TRIMESTRAL, valor: 3, descripcion: 'Meses que promedia el bono trimestral' },
 ];
 
@@ -81,6 +81,38 @@ export const TARIFAS_SERVICIO_POR_DEFECTO: ReadonlyArray<{
  * Por encima de 40.000 se aplica el nivel 6, que es lo que la planilla hace.
  */
 export const NIVELES_CIRUGIA_POR_DEFECTO: ReadonlyArray<{
+  nivel: number;
+  montoDesde: number;
+  montoHasta: number;
+  pctEmpresa: number;
+  pctPropio: number;
+}> = [
+  { nivel: 1, montoDesde: 1000, montoHasta: 5000, pctEmpresa: 1.0, pctPropio: 1.5 },
+  { nivel: 2, montoDesde: 5000, montoHasta: 10000, pctEmpresa: 1.5, pctPropio: 2.0 },
+  { nivel: 3, montoDesde: 10000, montoHasta: 15000, pctEmpresa: 2.5, pctPropio: 3.0 },
+  { nivel: 4, montoDesde: 15000, montoHasta: 22000, pctEmpresa: 3.0, pctPropio: 3.5 },
+  { nivel: 5, montoDesde: 22000, montoHasta: 30000, pctEmpresa: 3.5, pctPropio: 4.0 },
+  { nivel: 6, montoDesde: 30000, montoHasta: 40000, pctEmpresa: 4.0, pctPropio: 4.5 },
+];
+
+/**
+ * TIPO A (RA) — escala por el EXCEDENTE sobre `MONTOBJETIVO` (el objetivo
+ * mensual en $ de `ObjetivoComision`, no el de cantidad de planes) de la suma
+ * de ingreso neto de planes de maternidad + ventas RA no-cirugía. El % sale
+ * de aquí y se aplica solo a la porción RA de esa suma.
+ *
+ * Tabla APARTE de `NIVELES_CIRUGIA_POR_DEFECTO`: en la planilla de
+ * administración (`CALCULO COMISION DICIEMBRE 2025.xlsx`, hoja PARAMETROS,
+ * filas 58-64 "TOTAL RA Y CIRUGIAS" y 70-83 "CIRUGIA") son dos tablas
+ * copiadas por separado, y en diciembre 2025 coinciden en cada valor — pero
+ * nada obliga a que sigan coincidiendo si administración cambia una.
+ *
+ * ⚠️ La propia planilla trae un comentario de administración en la celda
+ * `PARAMETROS!A58`: "NO SE DEFINIÓ CÓMO DETERMINAR EL NIVEL EN PAGO TIPO A,
+ * EJEMPLO CLAUDIA CANEDO". Esta tabla replica la fórmula real de
+ * `BDEjecutivas` (columnas AT-BD), pero ni la clínica la da por cerrada.
+ */
+export const NIVELES_TIPO_A_RA_POR_DEFECTO: ReadonlyArray<{
   nivel: number;
   montoDesde: number;
   montoHasta: number;

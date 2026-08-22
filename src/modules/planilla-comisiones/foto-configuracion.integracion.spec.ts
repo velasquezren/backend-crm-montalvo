@@ -107,6 +107,7 @@ async function foto() {
     parametros: Record<string, number>;
     tarifasServicio: { clasif: string; pctEmpresa: number }[];
     nivelesCirugia: { nivel: number }[];
+    nivelesTipoARA: { nivel: number }[];
     objetivos: { tipo: string }[];
   } | null;
 }
@@ -125,6 +126,7 @@ describe('foto de la configuración usada', () => {
     expect(f!.parametros['PCT_TIPO_C_RA']).toBeDefined();
     expect(f!.tarifasServicio.length).toBeGreaterThan(0);
     expect(f!.nivelesCirugia.length).toBeGreaterThan(0);
+    expect(f!.nivelesTipoARA.length).toBeGreaterThan(0);
     expect(f!.objetivos.length).toBeGreaterThan(0);
   });
 

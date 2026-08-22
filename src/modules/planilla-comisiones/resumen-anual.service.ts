@@ -154,6 +154,7 @@ export class ResumenAnualService {
           comisionA: true,
           comisionB: true,
           comisionC: true,
+          comisionTipoARA: true,
           bonoTrimestral: true,
           totalBob: true,
         },
@@ -175,7 +176,11 @@ export class ResumenAnualService {
       const mes = mesDePeriodo.get(fila.periodoId);
       if (!mes) continue;
       liquidado.set(clave(fila.vendedoraId, mes), {
-        comision: Number(fila.comisionA) + Number(fila.comisionB) + Number(fila.comisionC),
+        comision:
+          Number(fila.comisionA) +
+          Number(fila.comisionB) +
+          Number(fila.comisionC) +
+          Number(fila.comisionTipoARA),
         trimestral: Number(fila.bonoTrimestral),
         totalBob: Number(fila.totalBob),
       });

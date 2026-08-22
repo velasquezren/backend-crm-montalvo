@@ -57,6 +57,9 @@ export class ActualizarNivelCirugiaDto {
   pctPropio!: number;
 }
 
+/** Mismo tramo que `NivelCirugia`, tabla aparte: ver comentario en el schema. */
+export class ActualizarNivelTipoARADto extends ActualizarNivelCirugiaDto {}
+
 export class ActualizarTarifaRaDto {
   /** USD fijos por procedimiento, o porcentaje si `esPorcentaje` está activo. */
   @IsNumber()

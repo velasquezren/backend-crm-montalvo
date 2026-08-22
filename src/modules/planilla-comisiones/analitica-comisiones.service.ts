@@ -276,6 +276,7 @@ export class AnaliticaComisionesService {
         comisionA: true,
         comisionB: true,
         comisionC: true,
+        comisionTipoARA: true,
         bonoJefatura: true,
         bonoPublicidad: true,
         bonoTrimestral: true,
@@ -290,6 +291,7 @@ export class AnaliticaComisionesService {
       comisionTipoAUsd: num(total._sum.comisionA),
       comisionTipoBUsd: num(total._sum.comisionB),
       comisionTipoCUsd: num(total._sum.comisionC),
+      comisionTipoARAUsd: num(total._sum.comisionTipoARA),
       bonosUsd: redondear(
         Number(total._sum.bonoJefatura ?? 0) +
           Number(total._sum.bonoPublicidad ?? 0) +

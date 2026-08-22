@@ -452,16 +452,34 @@ export function determinarNivel(detalle: string): NivelPlan {
   return NivelPlan.SILVER; // por defecto, según la regla de negocio
 }
 
-/** PASO 7 — Tipo de comisión que corresponde a cada clasificación. */
-export function determinarTipo(clasif: ClasifComision): TipoComision {
+/**
+ * PASO 7 — Tipo de comisión que corresponde a cada clasificación.
+ *
+ * Es informativo (lo que se guarda y se muestra), no lo que decide el pago:
+ * `calculo-comisiones.service.ts` recalcula su propio `tipo` a partir de
+ * `clasif` + `unidadNegocio` fila por fila, sin leer esta columna.
+ *
+ * El área RA es la excepción a la regla simple por-clasif: en la planilla de
+ * administración (`PARAMETROS`, columna `TIPO COMISION`) sus filas de
+ * consulta/laboratorio/ecografía/otros están marcadas 'A', no 'C' — pagan por
+ * el excedente combinado con planes, no por la tarifa plana de Tipo C. Solo
+ * campaña y promoción del área RA se quedan en 'C' (pagan 0 en las dos).
+ */
+export function determinarTipo(
+  clasif: ClasifComision,
+  unidadNegocio: UnidadNegocio,
+): TipoComision {
   switch (clasif) {
     case ClasifComision.PLANPAQ:
     case ClasifComision.PLANNIN:
       return TipoComision.A;
     case ClasifComision.CIRUGIA:
       return TipoComision.B;
-    default:
+    case ClasifComision.CAMPANA:
+    case ClasifComision.PROMOCION:
       return TipoComision.C;
+    default:
+      return unidadNegocio === UnidadNegocio.RA ? TipoComision.A : TipoComision.C;
   }
 }
 
@@ -505,7 +523,7 @@ export function clasificarFila(
     clasif = ClasifComision.CAMPANA;
   }
 
-  const tipo = determinarTipo(clasif);
+  const tipo = determinarTipo(clasif, unidadNegocio);
 
   const esPlanMaternidad = clasif === ClasifComision.PLANPAQ;
   const nivel = esPlanMaternidad ? (regla?.nivel ?? determinarNivel(fila.detalle)) : null;

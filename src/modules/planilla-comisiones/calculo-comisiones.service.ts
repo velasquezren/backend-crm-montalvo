@@ -99,6 +99,13 @@ export interface FotoConfiguracion {
     pctEmpresa: number;
     pctPropio: number;
   }>;
+  readonly nivelesTipoARA: ReadonlyArray<{
+    nivel: number;
+    montoDesde: number;
+    montoHasta: number;
+    pctEmpresa: number;
+    pctPropio: number;
+  }>;
 }
 
 /** Arma la foto a partir de la configuración que acaba de usar el cálculo. */
@@ -128,6 +135,13 @@ function fotografiarConfiguracion(
       pctPropio: Number(t.pctPropio),
     })),
     nivelesCirugia: config.nivelesCirugia.map(n => ({
+      nivel: n.nivel,
+      montoDesde: Number(n.montoDesde),
+      montoHasta: Number(n.montoHasta),
+      pctEmpresa: Number(n.pctEmpresa),
+      pctPropio: Number(n.pctPropio),
+    })),
+    nivelesTipoARA: config.nivelesTipoARA.map(n => ({
       nivel: n.nivel,
       montoDesde: Number(n.montoDesde),
       montoHasta: Number(n.montoHasta),
@@ -373,11 +387,43 @@ export class CalculoComisionesService {
       .reduce((s, f) => s + f.ingresoNeto, 0);
     const nivelCirugia = resolverNivelCirugia(acumuladoCirugias, config.nivelesCirugia);
 
+    /*
+     * Nivel Tipo A (RA) — cubo aparte de `comisionA` (que es la comisión de
+     * planes GOLD/SILVER/BRONCE). Se arma con el ingreso neto de planes de
+     * maternidad MÁS el de ventas del área RA que no son cirugía (consulta,
+     * laboratorio, ecografía, otros — la cirugía RA ya entra al pool de Tipo
+     * B de arriba, junto con las cirugías generales). El excedente sobre el
+     * objetivo mensual en $ (`montoMensualUsd`, el mismo que usa el bono de
+     * jefatura — NO el objetivo de cantidad de planes) fija el nivel; el %
+     * resultante se aplica solo a la porción RA de esa suma, porque los
+     * planes ya cobran su propia tarifa por separado.
+     *
+     * Verificado contra `CALCULO COMISION DICIEMBRE 2025.xlsx`
+     * (`BDEjecutivas`, columnas AT-BD): Claudia 5,69 USD y Yelca 8,69 USD en
+     * NIVEL 1; Viviana y Zuany en NA porque no superan su objetivo mensual.
+     */
+    const ingresoMaternidadTipoARA = filas
+      .filter(f => f.clasif === ClasifComision.PLANPAQ || f.clasif === ClasifComision.PLANNIN)
+      .reduce((s, f) => s + f.ingresoNeto, 0);
+    const ingresoRATipoARA = filas
+      .filter(
+        f =>
+          f.unidadNegocio === UnidadNegocio.RA &&
+          f.clasif !== ClasifComision.CIRUGIA &&
+          f.clasif !== ClasifComision.CAMPANA &&
+          f.clasif !== ClasifComision.PROMOCION,
+      )
+      .reduce((s, f) => s + f.ingresoNeto, 0);
+    const excedenteTipoARA =
+      ingresoMaternidadTipoARA + ingresoRATipoARA - Number(objetivo?.montoMensualUsd ?? 0);
+    const nivelTipoARA = resolverNivelCirugia(excedenteTipoARA, config.nivelesTipoARA);
+
     const desglose: LineaDesglose[] = [];
 
     let comisionA = 0;
     let comisionB = 0;
     let comisionC = 0;
+    let comisionTipoARA = 0;
 
     for (const [clave, grupo] of this.agrupar(filas)) {
       void clave;
@@ -403,6 +449,17 @@ export class CalculoComisionesService {
         porcentaje = this.porcentajeTipoB(nivelCirugia, primera.canal, config);
         comisionUsd = (baseGrupo * porcentaje) / 100;
         comisionB += comisionUsd;
+      } else if (
+        primera.unidadNegocio === UnidadNegocio.RA &&
+        primera.clasif !== ClasifComision.CAMPANA &&
+        primera.clasif !== ClasifComision.PROMOCION
+      ) {
+        // Consulta/laboratorio/ecografía/otros del área RA: Tipo A (RA) por
+        // nivel, no Tipo C. Ver `nivelTipoARA` más arriba.
+        tipo = 'A';
+        porcentaje = this.porcentajeTipoARA(nivelTipoARA, primera.canal, config);
+        comisionUsd = (baseGrupo * porcentaje) / 100;
+        comisionTipoARA += comisionUsd;
       } else {
         tipo = 'C';
         porcentaje = this.porcentajeTipoC(primera, config);
@@ -424,6 +481,7 @@ export class CalculoComisionesService {
     }
 
     const sueldoBase = Number(vendedora.sueldoBase);
+    const comisionesUsd = comisionA + comisionB + comisionC + comisionTipoARA;
 
     return {
       vendedora,
@@ -440,16 +498,18 @@ export class CalculoComisionesService {
         planninComisionables,
         acumuladoCirugias: redondear(acumuladoCirugias),
         nivelCirugia,
+        nivelTipoARA,
         comisionA: redondear(comisionA),
         comisionB: redondear(comisionB),
         comisionC: redondear(comisionC),
+        comisionTipoARA: redondear(comisionTipoARA),
         bonoJefatura: 0,
         bonoPublicidad: 0,
         bonoTrimestral: 0,
-        totalUsd: redondear(comisionA + comisionB + comisionC),
-        totalBob: redondear((comisionA + comisionB + comisionC) * tipoCambio),
+        totalUsd: redondear(comisionesUsd),
+        totalBob: redondear(comisionesUsd * tipoCambio),
         sueldoBase: redondear(sueldoBase),
-        totalGanado: redondear((comisionA + comisionB + comisionC) * tipoCambio + sueldoBase),
+        totalGanado: redondear(comisionesUsd * tipoCambio + sueldoBase),
         desglose: desglose as unknown as object,
       },
     };
@@ -508,23 +568,38 @@ export class CalculoComisionesService {
     fila: FilaCalculo,
     config: ConfiguracionCompleta,
   ): number {
-    /* El área RA no comisiona, y punto.
+    /* Campañas y promociones del área RA no comisionan, y punto.
      *
-     * En la planilla de DICIEMBRE 2025, hoja PARAMETROS, las catorce filas del
-     * área RA —RACONSULTA, RALAB, RAECOGRAFIA, RAOTROSS, RAFIV, RACIRUGIA,
-     * RACAMPAÑA, RAPROMOCIÓN— están todas en 0, tanto EMPRESA como PROPIO.
+     * En la planilla de DICIEMBRE 2025, hoja PARAMETROS, `RACAMPAÑA` y
+     * `RAPROMOCIÓN` están en 0, tanto EMPRESA como PROPIO — igual que sus
+     * equivalentes fuera de RA (`VARIOSCAMPAÑA`/`VARIOSPROMOCIÓN`).
      *
-     * Antes había una excepción para el rol de coordinadora RA, que cobraba esos
-     * ítems con una tarifa fija por procedimiento. Administración confirmó que
-     * ese rol ya no existe, así que la excepción se retiró: hoy nadie cobra por
-     * el área RA. Lo que hay en esas filas son análisis y consultas que pide la
-     * unidad de reproducción y que FileMaker atribuye a la ejecutiva. */
+     * El resto del área RA —consulta, laboratorio, ecografía, otros— NO pasa
+     * por aquí: la propia planilla los marca `TIPO COMISION = A` (no C) y los
+     * liquida por `porcentajeTipoARA`, así que `liquidarVendedora` los
+     * intercepta antes de llegar a este método. Hasta 2026-08-22 este método
+     * los trataba a todos como Tipo C al 0 % (`PCT_TIPO_C_RA`), que era
+     * correcto en el resultado —0 % en ambos caminos— pero solo por
+     * coincidencia con esos dos, no con consulta/lab/ecografía/otros, que sí
+     * comisionan cuando el excedente combinado supera el objetivo mensual. */
     if (fila.unidadNegocio === UnidadNegocio.RA) {
       return config.parametros.get(PARAM.PCT_TIPO_C_RA) ?? 0;
     }
     const tarifa = config.tarifasServicioPorClasif.get(fila.clasif);
     if (!tarifa) return 0;
     return Number(fila.canal === CanalVenta.PROPIO ? tarifa.pctPropio : tarifa.pctEmpresa);
+  }
+
+  /** Tipo A (RA): mismo mecanismo de nivel que Tipo B, tabla y objetivo aparte. */
+  private porcentajeTipoARA(
+    nivel: number | null,
+    canal: CanalVenta,
+    config: ConfiguracionCompleta,
+  ): number {
+    if (nivel === null) return 0;
+    const escala = config.nivelesTipoARAPorNumero.get(nivel);
+    if (!escala) return 0;
+    return Number(canal === CanalVenta.PROPIO ? escala.pctPropio : escala.pctEmpresa);
   }
 
   /** Ubica el acumulado de cirugías del mes en la escala; null si no llega al nivel 1. */
@@ -662,6 +737,7 @@ export class CalculoComisionesService {
         registro.comisionA +
           registro.comisionB +
           registro.comisionC +
+          registro.comisionTipoARA +
           registro.bonoJefatura +
           registro.bonoPublicidad +
           registro.bonoTrimestral,
@@ -790,6 +866,7 @@ export class CalculoComisionesService {
         comisionA: acc.comisionA + Number(r.comisionA),
         comisionB: acc.comisionB + Number(r.comisionB),
         comisionC: acc.comisionC + Number(r.comisionC),
+        comisionTipoARA: acc.comisionTipoARA + Number(r.comisionTipoARA),
         bonos: acc.bonos + sumaBonos(r),
         /* Aparte del total de bonos: es el que administración cuadra contra su
            tabla de promedios trimestrales, y sumado a los otros dos no se puede
@@ -815,6 +892,7 @@ export class CalculoComisionesService {
         comisionA: 0,
         comisionB: 0,
         comisionC: 0,
+        comisionTipoARA: 0,
         bonos: 0,
         bonoTrimestral: 0,
         totalUsd: 0,
@@ -842,9 +920,11 @@ export class CalculoComisionesService {
         planninComisionables: r.planninComisionables,
         acumuladoCirugias: Number(r.acumuladoCirugias),
         nivelCirugia: r.nivelCirugia,
+        nivelTipoARA: r.nivelTipoARA,
         comisionA: Number(r.comisionA),
         comisionB: Number(r.comisionB),
         comisionC: Number(r.comisionC),
+        comisionTipoARA: Number(r.comisionTipoARA),
         bonoJefatura: Number(r.bonoJefatura),
         bonoPublicidad: Number(r.bonoPublicidad),
         bonoTrimestral: Number(r.bonoTrimestral),
@@ -888,9 +968,11 @@ export class CalculoComisionesService {
         cumpleObjetivoPlanes: resultado.cumpleObjetivoPlanes,
         acumuladoCirugias: Number(resultado.acumuladoCirugias),
         nivelCirugia: resultado.nivelCirugia,
+        nivelTipoARA: resultado.nivelTipoARA,
         comisionA: Number(resultado.comisionA),
         comisionB: Number(resultado.comisionB),
         comisionC: Number(resultado.comisionC),
+        comisionTipoARA: Number(resultado.comisionTipoARA),
         bonoJefatura: Number(resultado.bonoJefatura),
         bonoPublicidad: Number(resultado.bonoPublicidad),
         bonoTrimestral: Number(resultado.bonoTrimestral),
@@ -916,6 +998,7 @@ export class CalculoComisionesService {
         comisionTipoAUsd: f.comisionA,
         comisionTipoBUsd: f.comisionB,
         comisionTipoCUsd: f.comisionC,
+        comisionTipoARAUsd: f.comisionTipoARA,
         bonoJefaturaUsd: f.bonoJefatura,
         bonoPublicidadUsd: f.bonoPublicidad,
         bonoTrimestralUsd: f.bonoTrimestral,

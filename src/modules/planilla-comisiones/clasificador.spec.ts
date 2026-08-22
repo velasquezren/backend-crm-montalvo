@@ -262,16 +262,34 @@ describe('exclusiones: lo que NO debe comisionar', () => {
 
 describe('tipo de comisión (paso 7)', () => {
   it.each([
-    [ClasifComision.PLANPAQ, 'A'],
-    [ClasifComision.PLANNIN, 'A'],
-    [ClasifComision.CIRUGIA, 'B'],
-    [ClasifComision.CONSULTA, 'C'],
-    [ClasifComision.LAB, 'C'],
-    [ClasifComision.ECOGRAFIA, 'C'],
-    [ClasifComision.OTROSS, 'C'],
+    [ClasifComision.PLANPAQ, UnidadNegocio.MATERNIDAD, 'A'],
+    [ClasifComision.PLANNIN, UnidadNegocio.VARIOS, 'A'],
+    [ClasifComision.CIRUGIA, UnidadNegocio.VARIOS, 'B'],
+    [ClasifComision.CIRUGIA, UnidadNegocio.RA, 'B'],
+    [ClasifComision.CONSULTA, UnidadNegocio.VARIOS, 'C'],
+    [ClasifComision.LAB, UnidadNegocio.VARIOS, 'C'],
+    [ClasifComision.ECOGRAFIA, UnidadNegocio.VARIOS, 'C'],
+    [ClasifComision.OTROSS, UnidadNegocio.VARIOS, 'C'],
+    [ClasifComision.CAMPANA, UnidadNegocio.VARIOS, 'C'],
+  ])('%s + %s → Tipo %s', (clasif, unidadNegocio, esperado) => {
+    expect(determinarTipo(clasif, unidadNegocio)).toBe(esperado);
+  });
+
+  /*
+   * Excepción del área RA: consulta/lab/ecografía/otros son Tipo A (RA) ahí,
+   * no Tipo C — es la propia planilla de administración la que los marca así
+   * en `PARAMETROS` (columna TIPO COMISION). Campaña y promoción, aunque sean
+   * del área RA, se quedan en C.
+   */
+  it.each([
+    [ClasifComision.CONSULTA, 'A'],
+    [ClasifComision.LAB, 'A'],
+    [ClasifComision.ECOGRAFIA, 'A'],
+    [ClasifComision.OTROSS, 'A'],
     [ClasifComision.CAMPANA, 'C'],
-  ])('%s → Tipo %s', (clasif, esperado) => {
-    expect(determinarTipo(clasif)).toBe(esperado);
+    [ClasifComision.PROMOCION, 'C'],
+  ])('área RA: %s → Tipo %s', (clasif, esperado) => {
+    expect(determinarTipo(clasif, UnidadNegocio.RA)).toBe(esperado);
   });
 });
 

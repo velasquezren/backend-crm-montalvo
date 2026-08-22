@@ -730,12 +730,14 @@ export class PlanillaComisionesService {
       );
     }
 
-    // Cambiar la clasificación cambia el tipo de comisión que le corresponde.
+    // Cambiar la clasificación o la unidad de negocio cambia el tipo de comisión.
     const actualizada = await this.prisma.ventaImportada.update({
       where: { id },
       data: {
         ...dto,
-        ...(dto.clasif ? { tipo: determinarTipo(dto.clasif) } : {}),
+        ...(dto.clasif || dto.unidadNegocio
+          ? { tipo: determinarTipo(dto.clasif ?? venta.clasif, dto.unidadNegocio ?? venta.unidadNegocio) }
+          : {}),
         /* Al reincluir, el motivo deja de aplicar: dejarlo puesto haría que la
            fila apareciera comisionando y "excluida por X" a la vez. */
         ...(dto.comisionable === true ? { motivoExclusion: null } : {}),

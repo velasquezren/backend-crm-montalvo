@@ -376,17 +376,45 @@ tarifa de **su propia fila**. Nada se promedia ni se reparte entre los demás pl
 ## 10. El área RA
 
 Las ventas cuya columna `area` del export dice **RA** pertenecen a la unidad de
-reproducción asistida.
+reproducción asistida. Se dividen en dos grupos que se liquidan distinto:
 
-**Hoy no pagan comisión directa: su porcentaje está en 0.** Antes las cobraba el
-rol de coordinadora RA, que ya no existe.
+- **Cirugía** (Aspiración de Óvulos, ICSI, Biopsia Embrionaria, Congelamiento,
+  Inseminación, Transferencias) va al mismo pool de **Tipo B** que las demás
+  cirugías — el nivel se fija con el acumulado del mes de TODAS las cirugías,
+  RA o no.
+- **Consulta, laboratorio, ecografía y otros** (lo que pide la unidad de
+  reproducción y FileMaker atribuye a la ejecutiva) es **Tipo A (RA)**: se
+  suma al ingreso de planes de maternidad de esa vendedora, y si esa suma
+  combinada supera su **objetivo mensual en $** (12.000 vendedora / 15.000
+  jefa — el mismo que usa el bono de jefatura, no el de cantidad de planes),
+  el excedente cae en la misma escala de niveles que Tipo B (1.000 → 1 %,
+  5.000 → 1,5 %, …, hasta 4 %/4,5 % en el nivel 6). El % del nivel se cobra
+  **solo sobre la porción RA**, no sobre los planes — esos ya cobran su
+  propia tarifa aparte.
+- **Campaña y promoción** del área RA, en cambio, sí quedan en Tipo C al 0 %
+  (`PCT_TIPO_C_RA`).
 
-> **Pero no valen cero.** Esas ventas **sí suman al monto vendido del mes**, que
-> es la base de los dos bonos. En enero son 198 de las 423 filas —170 laboratorios
-> y 25 consultas— y aportan unos $11 al pote de jefatura.
+> **Verificado contra `CALCULO COMISION DICIEMBRE 2025.xlsx`** (`BDEjecutivas`,
+> columnas AT-BD): en diciembre 2025, Claudia y Yelca superaron su objetivo
+> combinado y cobraron NIVEL 1 sobre su porción RA (5,69 USD y 8,69 USD). Antes
+> del 2026-08-22 el sistema no calculaba este cubo en absoluto y trataba TODA
+> venta del área RA como Tipo C al 0 % — subpagaba exactamente esos dos casos.
+>
+> ⚠️ La propia planilla de administración trae una nota en `PARAMETROS!A58`:
+> *"NO SE DEFINIÓ CÓMO DETERMINAR EL NIVEL EN PAGO TIPO A, EJEMPLO CLAUDIA
+> CANEDO"* — ni la clínica da esta regla por cerrada del todo.
 
-Si administración decide que deben comisionar, se cambia en **Configuración →
-Reglas del cálculo → Comisión del área RA**, sin tocar código.
+**No valen cero aunque el nivel no se alcance.** Todas las ventas del área RA
+suman al monto vendido del mes, que es la base de los dos bonos. En enero son
+198 de las 423 filas —170 laboratorios y 25 consultas— y aportan unos $11 al
+pote de jefatura.
+
+El 0 % de campaña/promoción se cambia en **Configuración → Reglas del cálculo
+→ Comisión del área RA**, sin tocar código. La escala de niveles vive en la
+tabla `NivelTipoARA` (endpoint `PATCH /planilla-comisiones/configuracion/niveles-tipo-a-ra/:nivel`,
+SUPER_ADMIN); el panel de administración todavía no tiene una pantalla
+dedicada para editarla — hoy se cambia por API, igual que se hacía con los
+niveles de cirugía antes de tener su propia pantalla.
 
 ---
 
@@ -544,10 +572,13 @@ cambiarlos, y se aplican en el **próximo** cálculo.
 
 | Parámetro | Valor | Qué controla |
 |---|---|---|
-| `PCT_TIPO_C_RA` | 0 | Porcentaje del área RA |
+| `PCT_TIPO_C_RA` | 0 | Campaña y promoción del área RA (el resto del área RA no pasa por este parámetro: ver sección 10) |
 | `FACTOR_BONO_JEFATURA` | 0,002 | El pote sobre el excedente |
 | `FACTOR_BONO_TRIMESTRAL` | 0,005 | Sobre el promedio del trimestre |
 | `MESES_BONO_TRIMESTRAL` | 3 | Meses que entran en el promedio |
+
+La escala de niveles de Tipo A (RA) —tabla `NivelTipoARA`— vive aparte de estos
+cuatro parámetros; ver sección 10.
 
 ---
 
@@ -585,8 +616,12 @@ precio entero menos el 13%. Lo que la paciente pague después no vuelve a genera
 comisión, y lo que quede debiendo no la reduce.
 
 **¿Por qué una venta dice "sin % directo · RA"?**
-Porque su columna `area` del export dice RA, y el área RA tiene su porcentaje en
-0. Sigue sumando al monto vendido y por tanto a los bonos.
+Porque su columna `area` del export dice RA. Si es cirugía, cobra por el nivel de
+Tipo B; si es consulta/laboratorio/ecografía/otros, cobra por el nivel de Tipo A
+(RA) cuando el excedente combinado con planes supera el objetivo mensual — no
+tiene un % fijo por fila en ninguno de los dos casos. Solo campaña y promoción
+del área RA están en 0 fijo. Sigue sumando al monto vendido y por tanto a los
+bonos en cualquier caso.
 
 **¿Por qué una cirugía dice "según nivel"?**
 Porque su porcentaje depende del acumulado del mes de esa vendedora, no de la
