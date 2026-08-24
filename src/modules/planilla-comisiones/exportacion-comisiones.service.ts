@@ -47,10 +47,21 @@ const COLOR = {
 /**
  * Formatos numéricos.
  *
- * `usd`/`bob` son moneda; `pct` espera el número YA multiplicado por 100
- * (ej. `1.5` para "1,5%") — es un formato de texto, no el `0.0%` nativo de
- * Excel, que sí divide entre 100 solo. Mismo criterio que ya usa
- * `AnaliticaComisionesService.porcentaje()` para `pctMonto`.
+ * `usd`/`bob` son moneda; `pct` espera el número YA en puntos porcentuales
+ * (ej. `4.5` para "4,5%") — es un formato de texto, no el `0.0%` nativo de
+ * Excel, que sí divide entre 100 solo.
+ *
+ * **Ojo: no todo lo que se llama "pct" está en la misma unidad.**
+ * `pctMonto` (`AnaliticaComisionesService.porcentaje()`) parte de una
+ * fracción y la multiplica por 100 a propósito. Pero `pctEmpresa`/`pctPropio`
+ * de `NivelCirugia`/`NivelTipoARA`/`TarifaPlan`/`TarifaServicio` NACEN en
+ * puntos porcentuales — así los siembra `configuracion-por-defecto.ts`
+ * (`pctEmpresa: 4.5`) y así los usa el propio motor de cálculo
+ * (`comisionUsd = base * porcentaje / 100`, sin dividir entre 100 antes).
+ * Multiplicarlos por 100 de nuevo —lo que hacía esta hoja hasta que salió
+ * "450.0%" en vez de "4.5%"— infla el número cien veces. Antes de tocar un
+ * `%`, confirmar la unidad real contra el sembrado o el motor, nunca contra
+ * el nombre del campo.
  */
 const FORMATO = {
   bob: '"Bs" #,##0.00',
@@ -351,8 +362,19 @@ export class ExportacionComisionesService {
         objetivo,
         excedente: f.excedenteTipoARA,
         nivel: f.nivelTipoARA ? `NIVEL ${f.nivelTipoARA}` : 'NA',
-        pctEmpresa: escala ? Number(escala.pctEmpresa) * 100 : null,
-        pctPropio: escala ? Number(escala.pctPropio) * 100 : null,
+        /*
+         * `pctEmpresa`/`pctPropio` de `NivelTipoARA` YA vienen en puntos
+         * porcentuales (4.5 = 4,5%), no como fracción — así los siembra
+         * `configuracion-por-defecto.ts` y así los consume el propio motor
+         * de cálculo (`comisionUsd = base * porcentaje / 100`). Multiplicar
+         * por 100 aquí (como si fueran fracción, igual que `pctMonto` de
+         * `AnaliticaComisionesService`) los infla 100 veces: 4,5% salía
+         * como "450.0%". Dos columnas con "%" en el nombre, dos convenciones
+         * distintas — antes de tocar un formato de porcentaje, confirmar
+         * SIEMPRE contra el sembrado o el motor, nunca asumir por el nombre.
+         */
+        pctEmpresa: escala ? Number(escala.pctEmpresa) : null,
+        pctPropio: escala ? Number(escala.pctPropio) : null,
         comisionTipoARA: f.comisionTipoARA,
       });
 
