@@ -180,8 +180,14 @@ function correlativo(codOrigen: string | null): number | null {
  *
  * Sin correlativo se cae a la fecha, y a falta de las dos al id, para que dos
  * cálculos del mismo periodo den siempre lo mismo.
+ *
+ * Exportada porque `exportacion-comisiones.service.ts` necesita mostrar los
+ * planes de una vendedora en el mismo orden en que el motor decide cuáles
+ * comisionan — repetir este criterio a mano en el exportador sería la
+ * tercera copia (la primera es esta, la segunda la reproduce el frontend
+ * para la vista previa en pantalla, con la misma deuda ya documentada ahí).
  */
-function ultimoPrimero(a: PlanCandidato, b: PlanCandidato): number {
+export function ultimoPrimero(a: PlanCandidato, b: PlanCandidato): number {
   const ca = correlativo(a.codOrigen);
   const cb = correlativo(b.codOrigen);
   if (ca !== null && cb !== null && ca !== cb) return cb - ca;

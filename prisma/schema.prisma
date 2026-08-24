@@ -806,10 +806,26 @@ model ResultadoComision {
   nivelCirugia      Int?
 
   // ── Tipo A (RA) · excedente combinado planes + RA ───────────────────
-  /// Suma de ingreso neto de planes de maternidad + ventas RA no-cirugía; de
-  /// ahí sale el nivel, comparando contra `MONTOBJETIVO`. Es DISTINTA de
-  /// `comisionA` (planes GOLD/SILVER/BRONCE): esta es la columna del Excel
-  /// "COMISIÓN TIPO A (RA)", un cubo aparte que hasta ahora no se calculaba.
+  /// Los dos sumandos de "SUMA MONTO COMISIONABLE" (columna AU de
+  /// `BDEjecutivas` en el Excel de administración), guardados por separado
+  /// en vez de solo su suma: sin esto no se le puede explicar a una
+  /// vendedora ni a administración cuánto vino de sus planes de maternidad
+  /// y cuánto de sus ventas RA — antes se calculaban y se descartaban en el
+  /// mismo momento, así que el informe solo podía mostrar el resultado
+  /// final sin el porqué.
+  /// Ingreso neto de planes de maternidad (PLANPAQ + PLANNIN) del mes.
+  ingresoMaternidadTipoARA Decimal @default(0) @db.Decimal(14, 2)
+  /// Ingreso neto de ventas del área RA que NO son cirugía (consulta,
+  /// laboratorio, ecografía, otros) — la cirugía RA ya está en `comisionB`.
+  ingresoRATipoARA         Decimal @default(0) @db.Decimal(14, 2)
+  /// `ingresoMaternidadTipoARA + ingresoRATipoARA − MONTOBJETIVO` del tipo
+  /// de vendedora. Puede ser negativo: significa que no llegó al objetivo y
+  /// por tanto `nivelTipoARA` es `null` (columna "NA" del Excel).
+  excedenteTipoARA         Decimal @default(0) @db.Decimal(14, 2)
+  /// Ahí sale el nivel, comparando el excedente contra la escala. Es
+  /// DISTINTA de `comisionA` (planes GOLD/SILVER/BRONCE): esta es la
+  /// columna del Excel "COMISIÓN TIPO A (RA)", un cubo aparte que hasta
+  /// 2026-08-22 no se calculaba.
   nivelTipoARA     Int?
   comisionTipoARA  Decimal @default(0) @db.Decimal(12, 2)
 

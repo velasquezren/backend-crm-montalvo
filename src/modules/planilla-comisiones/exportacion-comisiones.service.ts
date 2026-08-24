@@ -1,10 +1,13 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
+import { ClasifComision } from '@prisma/client';
 import { Workbook, Worksheet } from 'exceljs';
 import { Writable } from 'stream';
 
 import { PrismaService } from '../../prisma/prisma.service';
 import { AnaliticaComisionesService } from './analitica-comisiones.service';
-import { CalculoComisionesService } from './calculo-comisiones.service';
+import { CalculoComisionesService, FotoConfiguracion } from './calculo-comisiones.service';
+import { redondear } from './clasificador';
+import { PlanCandidato, seleccionarPlanesComisionables, ultimoPrimero } from './reglas-calculo';
 
 /**
  * Exportación del informe mensual a Excel (requisito §12.7 del documento de
@@ -19,6 +22,17 @@ import { CalculoComisionesService } from './calculo-comisiones.service';
  * SheetJS no escribe estilos, y este archivo lo abre administración para
  * revisarlo y firmarlo — necesita leerse como un documento, con cabeceras
  * legibles, formatos de moneda y totales, no como un volcado de datos.
+ *
+ * ## Vocabulario: el mismo que usa administración, no el nuestro
+ *
+ * Las hojas "Tipo A (RA)" y "Planes por Vendedora" se diseñaron leyendo
+ * `CALCULO COMISION DICIEMBRE 2025.xlsx` (hoja `BDEjecutivas`, columnas
+ * AT-BD, y `PARAMETROS`). Donde el Excel de administración ya tiene un
+ * nombre para un número — `MONTOBJETIVO`, `SUMA MONTO COMISIONABLE`,
+ * `NIVEL n` — esa hoja lo usa entre paréntesis junto al nombre en español
+ * llano, para que quien ya conoce su propio Excel reconozca el número al
+ * primer vistazo. Ver las notas de celda (▲ roja en la cabecera) de cada
+ * hoja para el detalle de cada fórmula.
  */
 
 /** Colores de la identidad del CRM, en el formato ARGB que pide ExcelJS. */
@@ -30,7 +44,14 @@ const COLOR = {
   borde: 'FFCBD5E1',
 } as const;
 
-/** Formatos numéricos: bolivianos, dólares y porcentaje. */
+/**
+ * Formatos numéricos.
+ *
+ * `usd`/`bob` son moneda; `pct` espera el número YA multiplicado por 100
+ * (ej. `1.5` para "1,5%") — es un formato de texto, no el `0.0%` nativo de
+ * Excel, que sí divide entre 100 solo. Mismo criterio que ya usa
+ * `AnaliticaComisionesService.porcentaje()` para `pctMonto`.
+ */
 const FORMATO = {
   bob: '"Bs" #,##0.00',
   usd: '"$" #,##0.00',
@@ -72,9 +93,10 @@ export class ExportacionComisionesService {
   /**
    * Escribe el libro completo sobre el stream de salida.
    *
-   * Cinco hojas, en el orden en que se leen: el resumen para la firma, la
-   * planilla para pagar, y el resto como respaldo de cómo se llegó a esas
-   * cifras.
+   * Siete hojas, en el orden en que se leen: el resumen para la firma, la
+   * planilla para pagar, el desglose de los dos cubos que tienen más de un
+   * paso (Tipo A (RA) y los planes elegidos), y el resto como respaldo de
+   * cómo se llegó a esas cifras.
    */
   async exportar(periodoId: string, salida: Writable): Promise<void> {
     const [informe, consolidado] = await Promise.all([
@@ -89,6 +111,8 @@ export class ExportacionComisionesService {
     this.hojaResumen(libro, informe);
     if (consolidado) {
       this.hojaLiquidacion(libro, consolidado);
+      this.hojaTipoARA(libro, consolidado);
+      await this.hojaPlanesPorVendedora(libro, consolidado);
     }
     this.hojaDistribucion(libro, informe);
     this.hojaRankings(libro, informe);
@@ -113,23 +137,46 @@ export class ExportacionComisionesService {
     this.dato(hoja, 'Filas en el archivo', periodo.filasTotales, FORMATO.entero);
     this.dato(hoja, 'Tipo de cambio aplicado', resumen.tipoCambio);
 
+    /*
+     * Facturación: TODOS estos montos vienen de `precio`/`ingresoNeto` de
+     * `VentaImportada`, que el export de FileMaker trae en DÓLARES (ver
+     * `CLAUDE.md` del backend). Hasta 2026-08-24 esta sección los mostraba
+     * con formato "Bs" sin convertir un centavo — el número era correcto,
+     * pero la etiqueta mentía: "Base de cálculo: Bs 45.000" era en realidad
+     * 45.000 DÓLARES, casi 7 veces más de lo que decía la etiqueta. Nadie lo
+     * notó porque el número en sí parecía razonable para cualquiera de las
+     * dos monedas.
+     */
     hoja.addRow([]);
-    this.seccion(hoja, 'Facturación', 3);
+    this.seccion(hoja, 'Facturación (en dólares, la moneda del Excel de FileMaker)', 3);
     this.dato(hoja, 'Ventas comisionables', resumen.filasComisionables, FORMATO.entero);
     this.dato(hoja, 'Ventas excluidas del cálculo', resumen.filasExcluidas, FORMATO.entero);
     this.dato(hoja, 'Monto facturado', resumen.montoVendido, FORMATO.usd);
-    this.dato(hoja, 'Impuestos descontados', resumen.impuestosDescontados, FORMATO.bob);
-    this.dato(hoja, 'Base de cálculo', resumen.baseCalculo, FORMATO.bob);
-    this.dato(hoja, 'Ticket promedio', resumen.ticketPromedio, FORMATO.bob);
-    this.dato(hoja, 'Venta mayor', resumen.ventaMayor, FORMATO.bob);
+    this.dato(hoja, 'Impuestos descontados (13%)', resumen.impuestosDescontados, FORMATO.usd);
+    this.dato(hoja, 'Base de cálculo', resumen.baseCalculo, FORMATO.usd);
+    this.dato(hoja, 'Ticket promedio', resumen.ticketPromedio, FORMATO.usd);
+    this.dato(hoja, 'Venta mayor', resumen.ventaMayor, FORMATO.usd);
     this.dato(hoja, 'Pacientes atendidos', resumen.pacientesUnicos, FORMATO.entero);
     this.dato(hoja, 'Servicios distintos', resumen.serviciosDistintos, FORMATO.entero);
 
     hoja.addRow([]);
-    this.seccion(hoja, 'Comisiones a pagar', 3);
+    this.seccion(hoja, 'Comisiones a pagar (en dólares)', 3);
     this.dato(hoja, 'Vendedoras liquidadas', resumen.vendedorasLiquidadas, FORMATO.entero);
-    this.dato(hoja, 'Tipo A · Planes y paquetes', resumen.comisionTipoAUsd, FORMATO.usd);
-    this.dato(hoja, 'Tipo B · Cirugías y Reproducción Asistida', resumen.comisionTipoBUsd, FORMATO.usd);
+    this.dato(hoja, 'Tipo A · Planes de maternidad y varios', resumen.comisionTipoAUsd, FORMATO.usd);
+    /*
+     * Antes de 2026-08-24 esta sección no tenía línea propia para Tipo A
+     * (RA): el dinero SÍ estaba en el TOTAL, pero no había forma de ver
+     * cuánto era ni de dónde salía sin abrir la hoja "Tipo A (RA)" nueva —
+     * que hasta esa fecha tampoco existía. Es justo el hueco que este
+     * informe existe para tapar.
+     */
+    this.dato(
+      hoja,
+      'Tipo A (RA) · Consultas y análisis del área RA',
+      resumen.comisionTipoARAUsd,
+      FORMATO.usd,
+    );
+    this.dato(hoja, 'Tipo B · Cirugías e internaciones', resumen.comisionTipoBUsd, FORMATO.usd);
     this.dato(hoja, 'Tipo C · Consultas, laboratorios y otros', resumen.comisionTipoCUsd, FORMATO.usd);
     this.dato(hoja, 'Bonos', resumen.bonosUsd, FORMATO.usd);
 
@@ -145,6 +192,14 @@ export class ExportacionComisionesService {
       hoja.addRow([]);
       const aviso = hoja.addRow(['El periodo aún no se ha calculado: las cifras de comisión están en cero.']);
       aviso.font = { italic: true, color: { argb: 'FFB91C1C' } };
+    } else {
+      hoja.addRow([]);
+      const nota = hoja.addRow([
+        'El desglose completo de Tipo A (RA) —de dónde sale cada dólar y por qué— está en la hoja "Tipo A (RA)". ' +
+          'Qué planes concretos comisionaron y por qué está en la hoja "Planes por Vendedora".',
+      ]);
+      nota.font = { italic: true, size: 10, color: { argb: 'FF64748B' } };
+      hoja.mergeCells(nota.number, 1, nota.number, 3);
     }
   }
 
@@ -157,15 +212,16 @@ export class ExportacionComisionesService {
       { titulo: 'Tipo', clave: 'tipo', ancho: 12 },
       { titulo: 'Área', clave: 'area', ancho: 14 },
       { titulo: 'Facturado (USD)', clave: 'montoVendido', ancho: 16, formato: FORMATO.usd },
-      { titulo: 'Base de cálculo (Bs)', clave: 'baseCalculo', ancho: 18, formato: FORMATO.bob },
+      { titulo: 'Base de cálculo (USD)', clave: 'baseCalculo', ancho: 18, formato: FORMATO.usd },
       { titulo: 'Planes', clave: 'planesVendidos', ancho: 9, formato: FORMATO.entero },
       { titulo: 'Cumple objetivo', clave: 'cumpleObjetivo', ancho: 15 },
       { titulo: 'Cirugías acum. (USD)', clave: 'acumuladoCirugias', ancho: 18, formato: FORMATO.usd },
-      { titulo: 'Nivel', clave: 'nivelCirugia', ancho: 8 },
+      { titulo: 'Nivel cirugía', clave: 'nivelCirugia', ancho: 11 },
+      { titulo: 'Nivel Tipo A (RA)', clave: 'nivelTipoARA', ancho: 14 },
       { titulo: 'Tipo A ($)', clave: 'comisionA', ancho: 12, formato: FORMATO.usd },
+      { titulo: 'Tipo A RA ($)', clave: 'comisionTipoARA', ancho: 13, formato: FORMATO.usd },
       { titulo: 'Tipo B ($)', clave: 'comisionB', ancho: 12, formato: FORMATO.usd },
       { titulo: 'Tipo C ($)', clave: 'comisionC', ancho: 12, formato: FORMATO.usd },
-      { titulo: 'Tipo A RA ($)', clave: 'comisionTipoARA', ancho: 13, formato: FORMATO.usd },
       { titulo: 'Bonos ($)', clave: 'bonos', ancho: 12, formato: FORMATO.usd },
       { titulo: 'Total ($)', clave: 'totalUsd', ancho: 13, formato: FORMATO.usd },
       { titulo: 'Total (Bs)', clave: 'totalBob', ancho: 14, formato: FORMATO.bob },
@@ -174,12 +230,18 @@ export class ExportacionComisionesService {
     ];
 
     const hoja = this.hojaConCabecera(libro, 'Liquidación', columnas);
+    this.nota(
+      hoja,
+      'nivelTipoARA',
+      'Nivel del cubo Tipo A (RA) — distinto del nivel de cirugía. Ver el desglose completo en la hoja "Tipo A (RA)".',
+    );
 
     for (const f of consolidado.filas) {
       hoja.addRow({
         ...f,
         cumpleObjetivo: f.cumpleObjetivoPlanes ? 'Sí' : 'No',
         nivelCirugia: f.nivelCirugia ?? '—',
+        nivelTipoARA: f.nivelTipoARA ? `NIVEL ${f.nivelTipoARA}` : 'NA',
         bonos: f.totalBonos,
       });
     }
@@ -190,9 +252,9 @@ export class ExportacionComisionesService {
       montoVendido: t['montoVendido'],
       baseCalculo: t['baseCalculo'],
       comisionA: t['comisionA'],
+      comisionTipoARA: t['comisionTipoARA'],
       comisionB: t['comisionB'],
       comisionC: t['comisionC'],
-      comisionTipoARA: t['comisionTipoARA'],
       bonos: t['bonos'],
       totalUsd: t['totalUsd'],
       totalBob: t['totalBob'],
@@ -201,7 +263,287 @@ export class ExportacionComisionesService {
     this.marcarTotales(totales, columnas.length);
   }
 
-  /* ── Hoja 3: de dónde sale la facturación ───────────────────────────── */
+  /* ── Hoja 3: de dónde sale Tipo A (RA), paso a paso ─────────────────── */
+
+  /**
+   * El cubo que menos se entiende de la planilla, con sus dos ingredientes
+   * separados en vez de solo el resultado.
+   *
+   * Antes de 2026-08-24, `ingresoMaternidadTipoARA`/`ingresoRATipoARA`/
+   * `excedenteTipoARA` se calculaban dentro de `liquidarVendedora()` y se
+   * descartaban en el mismo momento: solo `nivelTipoARA` y `comisionTipoARA`
+   * llegaban a `ResultadoComision`. El motor sabía "de dónde salía" el
+   * número exactamente una vez, al calcular, y lo olvidaba enseguida — ni la
+   * pantalla ni ningún informe podían explicarlo después. Ahora esos tres
+   * números se PERSISTEN junto al resultado, así que esta hoja siempre
+   * muestra la derivación real de lo que se pagó, no una que se recalcula
+   * (y podría no coincidir si la configuración cambió después de liquidar).
+   */
+  private hojaTipoARA(libro: Workbook, consolidado: ConsolidadoPeriodo): void {
+    const foto = consolidado.periodo.configuracionUsada as unknown as FotoConfiguracion | null;
+    const nivelesPorNumero = new Map((foto?.nivelesTipoARA ?? []).map(n => [n.nivel, n]));
+
+    const columnas: ColumnaInforme[] = [
+      { titulo: 'Vendedora', clave: 'nombre', ancho: 32 },
+      { titulo: 'Código', clave: 'codigo', ancho: 10 },
+      { titulo: 'Ingreso planes maternidad (USD)', clave: 'ingresoMaternidad', ancho: 26, formato: FORMATO.usd },
+      { titulo: 'Ingreso RA — consulta/lab/eco/otros (USD)', clave: 'ingresoRA', ancho: 32, formato: FORMATO.usd },
+      { titulo: 'Ingreso combinado (USD)', clave: 'combinado', ancho: 20, formato: FORMATO.usd },
+      { titulo: 'Objetivo mensual (USD)', clave: 'objetivo', ancho: 18, formato: FORMATO.usd },
+      { titulo: 'Excedente sobre el objetivo (USD)', clave: 'excedente', ancho: 24, formato: FORMATO.usd },
+      { titulo: 'Nivel', clave: 'nivel', ancho: 10 },
+      { titulo: '% Empresa del nivel', clave: 'pctEmpresa', ancho: 16, formato: FORMATO.pct },
+      { titulo: '% Propio del nivel', clave: 'pctPropio', ancho: 16, formato: FORMATO.pct },
+      { titulo: 'Comisión Tipo A (RA) (USD)', clave: 'comisionTipoARA', ancho: 22, formato: FORMATO.usd },
+    ];
+
+    const hoja = this.hojaConCabecera(libro, 'Tipo A (RA)', columnas);
+
+    this.nota(
+      hoja,
+      'combinado',
+      'Ingreso planes de maternidad + ingreso RA. En el Excel de administración es la columna ' +
+        '"SUMA MONTO COMISIONABLE" de la hoja BDEjecutivas.',
+    );
+    this.nota(
+      hoja,
+      'objetivo',
+      'El mismo objetivo mensual en $ que usa el bono de jefatura (columna "MONTOBJETIVO" del Excel de ' +
+        'administración) — NO el objetivo de CANTIDAD de planes, que es un número aparte.',
+    );
+    this.nota(
+      hoja,
+      'excedente',
+      'Combinado − objetivo mensual. Negativo = todavía no llega ("NA" en el Excel de administración): ' +
+        'el nivel queda vacío y la comisión en $0, aunque haya ventas RA.',
+    );
+    this.nota(
+      hoja,
+      'nivel',
+      'Sale de ubicar el excedente en la escala de niveles (misma escala que usa Tipo B, tabla aparte). ' +
+        'Columna "Asignación NIVEL (A)" en el Excel de administración.',
+    );
+    this.nota(
+      hoja,
+      'comisionTipoARA',
+      'El % del nivel se aplica SOLO sobre el ingreso RA, no sobre el combinado: los planes ya cobran su ' +
+        'propia comisión aparte (columna "Tipo A ($)" de la hoja Liquidación). Columna "COMISIÓN TIPO A (RA)" ' +
+        'en el Excel de administración.',
+    );
+
+    let totalMaternidad = 0;
+    let totalRA = 0;
+    let totalComision = 0;
+    let algunoConNivel = false;
+
+    for (const f of consolidado.filas) {
+      const combinado = f.ingresoMaternidadTipoARA + f.ingresoRATipoARA;
+      const objetivo = redondear(combinado - f.excedenteTipoARA);
+      const escala = f.nivelTipoARA !== null ? nivelesPorNumero.get(f.nivelTipoARA) : undefined;
+      if (f.nivelTipoARA !== null) algunoConNivel = true;
+
+      hoja.addRow({
+        nombre: f.nombre,
+        codigo: f.codigo,
+        ingresoMaternidad: f.ingresoMaternidadTipoARA,
+        ingresoRA: f.ingresoRATipoARA,
+        combinado: redondear(combinado),
+        objetivo,
+        excedente: f.excedenteTipoARA,
+        nivel: f.nivelTipoARA ? `NIVEL ${f.nivelTipoARA}` : 'NA',
+        pctEmpresa: escala ? Number(escala.pctEmpresa) * 100 : null,
+        pctPropio: escala ? Number(escala.pctPropio) * 100 : null,
+        comisionTipoARA: f.comisionTipoARA,
+      });
+
+      totalMaternidad += f.ingresoMaternidadTipoARA;
+      totalRA += f.ingresoRATipoARA;
+      totalComision += f.comisionTipoARA;
+    }
+
+    const totales = hoja.addRow({
+      nombre: 'TOTALES',
+      ingresoMaternidad: redondear(totalMaternidad),
+      ingresoRA: redondear(totalRA),
+      combinado: redondear(totalMaternidad + totalRA),
+      comisionTipoARA: redondear(totalComision),
+    });
+    this.marcarTotales(totales, columnas.length);
+
+    if (!algunoConNivel) {
+      const aviso = hoja.addRow([
+        'Ninguna vendedora superó su objetivo mensual combinado este periodo: el cubo Tipo A (RA) pagó $0 en total.',
+      ]);
+      aviso.font = { italic: true, size: 10, color: { argb: 'FF64748B' } };
+      hoja.mergeCells(aviso.number, 1, aviso.number, columnas.length);
+    }
+  }
+
+  /* ── Hoja 4: todos los planes, por vendedora, con el motivo de cada uno ── */
+
+  /**
+   * Cada plan de maternidad o varios vendido en el mes, agrupado por
+   * vendedora, con **por qué** comisiona o no — no solo el número final de
+   * "6 comisionan".
+   *
+   * Reutiliza `seleccionarPlanesComisionables` (la misma función pura que usa
+   * el motor de cálculo) en vez de reproducir el criterio a mano: así esta
+   * hoja no puede divergir del que decide qué se paga. El objetivo se lee de
+   * `configuracionUsada`, la foto CONGELADA del periodo — no de la
+   * configuración actual, que puede haber cambiado desde que se calculó.
+   */
+  private async hojaPlanesPorVendedora(libro: Workbook, consolidado: ConsolidadoPeriodo): Promise<void> {
+    const foto = consolidado.periodo.configuracionUsada as unknown as FotoConfiguracion | null;
+    const objetivoPorTipo = new Map((foto?.objetivos ?? []).map(o => [o.tipo, o]));
+    const vendedorasLiquidadas = new Set(consolidado.filas.map(f => f.vendedoraId));
+
+    const columnas: ColumnaInforme[] = [
+      { titulo: 'Vendedora', clave: 'vendedora', ancho: 30 },
+      { titulo: 'Tipo de plan', clave: 'tipoPlan', ancho: 12 },
+      { titulo: 'Nivel', clave: 'nivel', ancho: 9 },
+      { titulo: 'Fecha', clave: 'fecha', ancho: 12 },
+      { titulo: 'Cod. Origen', clave: 'codOrigen', ancho: 12 },
+      { titulo: 'Paciente', clave: 'paciente', ancho: 28 },
+      { titulo: 'Plan', clave: 'detalle', ancho: 42 },
+      { titulo: 'Canal', clave: 'canal', ancho: 10 },
+      { titulo: 'Precio (USD)', clave: 'precio', ancho: 14, formato: FORMATO.usd },
+      { titulo: 'Base de cálculo (USD)', clave: 'ingresoNeto', ancho: 20, formato: FORMATO.usd },
+      { titulo: 'Anticipo pagado (USD)', clave: 'anticipoPlan', ancho: 20, formato: FORMATO.usd },
+      { titulo: 'Estado del plan', clave: 'estadoPlan', ancho: 14 },
+      { titulo: 'Comisiona', clave: 'comisiona', ancho: 11 },
+      { titulo: 'Motivo', clave: 'motivo', ancho: 46 },
+    ];
+
+    const hoja = this.hojaConCabecera(libro, 'Planes por Vendedora', columnas);
+    this.nota(
+      hoja,
+      'comisiona',
+      'Solo comisionan los planes que SUPERAN el objetivo del mes (igualarlo paga $0). Cuáles concretos: ' +
+        'los ÚLTIMOS vendidos por correlativo de registro, salvo que administración haya marcado uno a mano.',
+    );
+    this.nota(
+      hoja,
+      'ingresoNeto',
+      'Precio × 0,87, SIEMPRE — el anticipo no la cambia. El plan comisiona por su base completa, cobre lo ' +
+        'que cobre la paciente ese mes.',
+    );
+
+    const planes = await this.prisma.ventaImportada.findMany({
+      where: {
+        periodoId: consolidado.periodo.id,
+        comisionable: true,
+        clasif: { in: [ClasifComision.PLANPAQ, ClasifComision.PLANNIN] },
+        vendedoraId: { in: [...vendedorasLiquidadas] },
+      },
+      include: { vendedora: true },
+    });
+
+    if (planes.length === 0) {
+      const aviso = hoja.addRow(['No hay planes de maternidad ni varios comisionables en este periodo.']);
+      aviso.font = { italic: true, size: 10, color: { argb: 'FF64748B' } };
+      hoja.mergeCells(aviso.number, 1, aviso.number, columnas.length);
+      return;
+    }
+
+    // Agrupa por vendedora + tipo de plan: mismo agrupamiento que usa el
+    // motor para decidir el cupo (los dos objetivos —PLANPAQ y PLANNIN— son
+    // independientes, así que no se pueden mezclar en una sola selección).
+    const grupos = new Map<string, typeof planes>();
+    for (const p of planes) {
+      if (!p.vendedoraId) continue;
+      const clave = `${p.vendedoraId}|${p.clasif}`;
+      const lista = grupos.get(clave);
+      if (lista) lista.push(p);
+      else grupos.set(clave, [p]);
+    }
+
+    const clavesOrdenadas = [...grupos.keys()].sort((a, b) => {
+      const grupoA = grupos.get(a)![0];
+      const grupoB = grupos.get(b)![0];
+      const nombreA = grupoA.vendedora?.nombre ?? '';
+      const nombreB = grupoB.vendedora?.nombre ?? '';
+      return nombreA.localeCompare(nombreB) || grupoA.clasif.localeCompare(grupoB.clasif);
+    });
+
+    let totalPrecio = 0;
+    let totalBase = 0;
+    let totalComisionan = 0;
+
+    for (const clave of clavesOrdenadas) {
+      const filasGrupo = grupos.get(clave)!;
+      const primera = filasGrupo[0];
+      const vendedora = primera.vendedora!;
+      const esMaternidad = primera.clasif === ClasifComision.PLANPAQ;
+      const objetivo = objetivoPorTipo.get(vendedora.tipo);
+      const minimo = esMaternidad ? (objetivo?.planpaqMinimos ?? 0) : (objetivo?.planninMinimos ?? 0);
+
+      const candidatos: PlanCandidato[] = filasGrupo.map(p => ({
+        id: p.id,
+        codOrigen: p.codOrigen,
+        fecha: p.fecha,
+        comisionaPlan: p.comisionaPlan,
+      }));
+      const seleccion = seleccionarPlanesComisionables(candidatos, minimo);
+      totalComisionan += seleccion.elegidos.size;
+
+      this.seccion(
+        hoja,
+        `${vendedora.nombre} — ${esMaternidad ? 'Maternidad' : 'Varios'}: ` +
+          `${filasGrupo.length} vendido(s) · objetivo ${minimo} · comisionan ${seleccion.cupo}`,
+        columnas.length,
+      );
+
+      const ordenados = [...filasGrupo].sort(ultimoPrimero);
+      for (const p of ordenados) {
+        const elegido = seleccion.elegidos.has(p.id);
+        const descartado = seleccion.descartadosPorCupo.includes(p.id);
+
+        let motivo: string;
+        if (elegido && p.comisionaPlan === true) motivo = 'Elegido a mano por administración';
+        else if (elegido) motivo = 'Elegido: entre los últimos vendidos (correlativo de registro)';
+        else if (descartado) motivo = 'Marcado a mano, pero el cupo ya estaba lleno';
+        else if (p.comisionaPlan === false) motivo = 'Descartado a mano por administración';
+        else motivo = 'No alcanza el cupo (no está entre los últimos vendidos)';
+
+        const precio = Number(p.precio);
+        const ingresoNeto = Number(p.ingresoNeto);
+        totalPrecio += precio;
+        totalBase += ingresoNeto;
+
+        const fila = hoja.addRow({
+          vendedora: vendedora.nombre,
+          tipoPlan: esMaternidad ? 'Maternidad' : 'Varios',
+          nivel: p.nivel ?? '—',
+          fecha: p.fecha ? p.fecha.toISOString().slice(0, 10) : '—',
+          codOrigen: p.codOrigen ?? '—',
+          paciente: p.paciente ?? '—',
+          detalle: p.detalle,
+          canal: p.canal,
+          precio,
+          ingresoNeto,
+          anticipoPlan: p.anticipoPlan ? Number(p.anticipoPlan) : null,
+          estadoPlan: p.estadoPlan ?? '—',
+          comisiona: elegido ? 'Sí' : 'No',
+          motivo,
+        });
+
+        if (!elegido) {
+          fila.eachCell(celda => (celda.font = { color: { argb: 'FF94A3B8' } }));
+        }
+      }
+    }
+
+    hoja.addRow([]);
+    const totales = hoja.addRow({
+      vendedora: 'TOTALES',
+      precio: redondear(totalPrecio),
+      ingresoNeto: redondear(totalBase),
+      comisiona: `${totalComisionan} de ${planes.length}`,
+    });
+    this.marcarTotales(totales, columnas.length);
+  }
+
+  /* ── Hoja 5: de dónde sale la facturación ───────────────────────────── */
 
   private hojaDistribucion(libro: Workbook, informe: InformeAnalitica): void {
     const columnas: ColumnaInforme[] = [
@@ -209,7 +551,7 @@ export class ExportacionComisionesService {
       { titulo: 'Concepto', clave: 'etiqueta', ancho: 36 },
       { titulo: 'Ventas', clave: 'cantidad', ancho: 10, formato: FORMATO.entero },
       { titulo: 'Facturado (USD)', clave: 'montoVendido', ancho: 17, formato: FORMATO.usd },
-      { titulo: 'Base de cálculo (Bs)', clave: 'baseCalculo', ancho: 19, formato: FORMATO.bob },
+      { titulo: 'Base de cálculo (USD)', clave: 'baseCalculo', ancho: 19, formato: FORMATO.usd },
       { titulo: '% del mes', clave: 'pctMonto', ancho: 11, formato: FORMATO.pct },
     ];
 
@@ -230,7 +572,7 @@ export class ExportacionComisionesService {
     }
   }
 
-  /* ── Hoja 4: rankings y evolución ───────────────────────────────────── */
+  /* ── Hoja 6: rankings y evolución ────────────────────────────────────── */
 
   private hojaRankings(libro: Workbook, informe: InformeAnalitica): void {
     const columnas: ColumnaInforme[] = [
@@ -259,7 +601,7 @@ export class ExportacionComisionesService {
     }
   }
 
-  /* ── Hoja 5: detalle línea a línea (respaldo de auditoría) ──────────── */
+  /* ── Hoja 7: detalle línea a línea (respaldo de auditoría) ──────────── */
 
   private async hojaDetalle(libro: Workbook, periodoId: string): Promise<void> {
     const columnas: ColumnaInforme[] = [
@@ -274,8 +616,8 @@ export class ExportacionComisionesService {
       { titulo: 'Categoría', clave: 'clasif', ancho: 14 },
       { titulo: 'Tipo', clave: 'tipo', ancho: 7 },
       { titulo: 'Nivel', clave: 'nivel', ancho: 9 },
-      { titulo: 'Precio (Bs)', clave: 'precio', ancho: 14, formato: FORMATO.bob },
-      { titulo: 'Base (Bs)', clave: 'ingresoNeto', ancho: 14, formato: FORMATO.bob },
+      { titulo: 'Precio (USD)', clave: 'precio', ancho: 14, formato: FORMATO.usd },
+      { titulo: 'Base (USD)', clave: 'ingresoNeto', ancho: 14, formato: FORMATO.usd },
       { titulo: 'Comisiona', clave: 'comisiona', ancho: 11 },
       { titulo: 'Motivo de exclusión', clave: 'motivoExclusion', ancho: 38 },
     ];
@@ -329,7 +671,7 @@ export class ExportacionComisionesService {
     const cabecera = hoja.getRow(1);
     cabecera.height = 22;
     cabecera.font = { bold: true, color: { argb: COLOR.cabeceraTexto }, size: 11 };
-    cabecera.alignment = { vertical: 'middle', horizontal: 'left' };
+    cabecera.alignment = { vertical: 'middle', horizontal: 'left', wrapText: false };
     cabecera.eachCell(celda => {
       celda.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLOR.cabecera } };
       celda.border = { bottom: { style: 'thin', color: { argb: COLOR.borde } } };
@@ -345,6 +687,17 @@ export class ExportacionComisionesService {
     // Filtrar y ordenar desde el propio Excel, que es como se revisa el informe.
     hoja.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: columnas.length } };
     return hoja;
+  }
+
+  /**
+   * Nota de celda (▲ roja, aparece al pasar el mouse) sobre la cabecera de
+   * una columna — para explicar una fórmula sin gastar una fila entera ni
+   * romper el autofiltro de la fila 1, que solo funciona sobre una sola fila
+   * de cabecera.
+   */
+  private nota(hoja: Worksheet, clave: string, texto: string): void {
+    const columna = hoja.getColumn(clave);
+    hoja.getRow(1).getCell(columna.number).note = texto;
   }
 
   private titulo(hoja: Worksheet, texto: string, columnas: number): void {

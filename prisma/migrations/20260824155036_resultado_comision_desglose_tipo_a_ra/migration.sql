@@ -1,0 +1,5 @@
+-- AlterTable
+ALTER TABLE "ResultadoComision" ADD COLUMN     "excedenteTipoARA" DECIMAL(14,2) NOT NULL DEFAULT 0,
+ADD COLUMN     "ingresoMaternidadTipoARA" DECIMAL(14,2) NOT NULL DEFAULT 0,
+ADD COLUMN     "ingresoRATipoARA" DECIMAL(14,2) NOT NULL DEFAULT 0;
+

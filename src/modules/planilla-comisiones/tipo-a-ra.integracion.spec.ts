@@ -125,6 +125,12 @@ describe('Tipo A (RA): nivel por excedente combinado, comisión solo sobre la po
     expect(r.nivelTipoARA).toBe(1);
     // NIVEL 1 empresa = 1% sobre los 500 de la porción RA, no sobre los 13.500 combinados.
     expect(Number(r.comisionTipoARA)).toBeCloseTo(5.0, 2);
+    // Los dos sumandos que arman el excedente, guardados por separado — sin
+    // esto el reporte solo podía mostrar "1.500 de excedente" sin decir de
+    // dónde salió cada parte.
+    expect(Number(r.ingresoMaternidadTipoARA)).toBeCloseTo(13000, 2);
+    expect(Number(r.ingresoRATipoARA)).toBeCloseTo(500, 2);
+    expect(Number(r.excedenteTipoARA)).toBeCloseTo(1500, 2);
   });
 
   it('canal PROPIO cobra la tarifa propia del nivel, no la de empresa', async () => {
@@ -138,6 +144,10 @@ describe('Tipo A (RA): nivel por excedente combinado, comisión solo sobre la po
     expect(r.nivelTipoARA).toBe(1);
     // NIVEL 1 propio = 1,5 %.
     expect(Number(r.comisionTipoARA)).toBeCloseTo(7.5, 2);
+    // El canal cambia la tarifa, no los ingresos que arman el excedente.
+    expect(Number(r.ingresoMaternidadTipoARA)).toBeCloseTo(13000, 2);
+    expect(Number(r.ingresoRATipoARA)).toBeCloseTo(500, 2);
+    expect(Number(r.excedenteTipoARA)).toBeCloseTo(1500, 2);
   });
 
   it('no supera el objetivo combinado → NA → cero, aunque haya ventas RA', async () => {
@@ -151,6 +161,12 @@ describe('Tipo A (RA): nivel por excedente combinado, comisión solo sobre la po
 
     expect(r.nivelTipoARA).toBeNull();
     expect(Number(r.comisionTipoARA)).toBe(0);
+    // El excedente queda NEGATIVO y se guarda tal cual — no se recorta a
+    // cero — para que el reporte pueda decir "le faltaron 6.500" en vez de
+    // un "0" que no distingue "justo en el objetivo" de "lejísimos".
+    expect(Number(r.ingresoMaternidadTipoARA)).toBeCloseTo(5000, 2);
+    expect(Number(r.ingresoRATipoARA)).toBeCloseTo(500, 2);
+    expect(Number(r.excedenteTipoARA)).toBeCloseTo(-6500, 2);
   });
 
   it('supera el objetivo solo con planes (sin ventas RA) → nivel, pero cero comisión RA', async () => {
@@ -164,6 +180,11 @@ describe('Tipo A (RA): nivel por excedente combinado, comisión solo sobre la po
 
     expect(r.nivelTipoARA).toBe(1);
     expect(Number(r.comisionTipoARA)).toBe(0);
+    // El caso que el reporte tiene que dejar claro sin ambigüedad: hay nivel
+    // (por los planes) pero CERO ingreso RA, así que no hay nada que cobrar.
+    expect(Number(r.ingresoMaternidadTipoARA)).toBeCloseTo(13500, 2);
+    expect(Number(r.ingresoRATipoARA)).toBe(0);
+    expect(Number(r.excedenteTipoARA)).toBeCloseTo(1500, 2);
   });
 
   it('la cirugía del área RA va al pool de Tipo B, no a Tipo A (RA)', async () => {
@@ -182,6 +203,11 @@ describe('Tipo A (RA): nivel por excedente combinado, comisión solo sobre la po
     expect(Number(r.comisionTipoARA)).toBeCloseTo(5.0, 2);
     // La cirugía sí generó comisión Tipo B, por su propia escala (NA: 2.000 < 5.000 → NIVEL 1 → 1%).
     expect(Number(r.comisionB)).toBeCloseTo(20.0, 2);
+    // Los 2.000 de cirugía NO entran a `ingresoRATipoARA`: ya están en el
+    // pool de Tipo B, que es lo que este test verifica en `comisionB`.
+    expect(Number(r.ingresoMaternidadTipoARA)).toBeCloseTo(13000, 2);
+    expect(Number(r.ingresoRATipoARA)).toBeCloseTo(500, 2);
+    expect(Number(r.excedenteTipoARA)).toBeCloseTo(1500, 2);
   });
 
   it('campaña y promoción del área RA no comisionan, ni suman al excedente', async () => {
@@ -197,5 +223,10 @@ describe('Tipo A (RA): nivel por excedente combinado, comisión solo sobre la po
     expect(r.nivelTipoARA).toBe(1);
     expect(Number(r.comisionTipoARA)).toBe(0);
     expect(Number(r.comisionC)).toBe(0); // Campaña del área RA paga 0 también en Tipo C.
+    // Los 900 de campaña quedan fuera de `ingresoRATipoARA`: si entraran, el
+    // excedente sería 1.900 y no 1.000.
+    expect(Number(r.ingresoMaternidadTipoARA)).toBeCloseTo(13000, 2);
+    expect(Number(r.ingresoRATipoARA)).toBe(0);
+    expect(Number(r.excedenteTipoARA)).toBeCloseTo(1000, 2);
   });
 });
