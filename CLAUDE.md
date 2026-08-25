@@ -53,7 +53,9 @@ la base local.
 - **`npm run build` es la verdad.** Encadena `check:skills`, que compara los skills
   con el código y falla si mienten. Si te contradice, el equivocado es el skill:
   corrígelo en el mismo commit.
-- **Ningún `any`.** Tampoco `catch (e: any)` — usa `unknown` y estrecha.
+- **Ningún `any`.** Tampoco `catch (e: any)` — usa `unknown` y estrecha. Con
+  `strict` completo en `tsconfig` (`useUnknownInCatchVariables`), esto ya no es
+  solo convención: el compilador lo rechaza.
 - **Ningún módulo toca la tabla de otro dominio.** Se llama a su service.
 - **Todo listado se pagina.** Hay 15.000+ pacientes.
 - **Nunca compares roles a mano** (`rol === 'ADMIN'`): usa `alcanceAgente()` /
@@ -68,6 +70,27 @@ la base local.
   sale de `alcanceAgente()`; un filtro de la interfaz (`?soloMios=true`) se combina
   con AND y nunca lo sustituye. Fundirlos ya recortó en silencio lo que ven las
   agentes.
+
+## Autenticación
+
+`POST /auth/login` devuelve un `access_token` corto (payload mínimo — nunca la
+foto, que a ~2 MB en base64 disparaba 431 Request Header Fields Too Large en
+cada petición) y un `refresh_token` de 30 días **absolutos desde el login** en
+cookie `HttpOnly`. El frontend vive en Vercel y esta API en otro dominio: es
+**cross-site**, así que la cookie necesita `SameSite=None; Secure` en
+producción (`Lax` alcanza en local, mismo sitio) — condicionado a `NODE_ENV`
+en `opcionesCookieRefresh()` (`auth.controller.ts`). Esa misma función arma
+las opciones tanto del `res.cookie()` de login como del `res.clearCookie()` de
+logout **a propósito**: si divergen en `path`/`sameSite`/`secure`, el
+navegador no borra la cookie y el logout falla en silencio.
+
+**`POST /auth/logout` no revoca el JWT**, solo borra la cookie: una copia que
+ya salió del navegador sigue siendo válida hasta que expira — cierra el caso
+real (varias agentes comparten equipo), no un robo de token. Y en
+`refresh()`, solo un problema de credenciales responde 401: un parpadeo
+transitorio de la base no debe cerrarle la sesión a todo el mundo a la vez.
+Detalle completo, y el patrón para módulos nuevos con sesiones, en
+`crm-backend-module`.
 
 ## Notificaciones
 
@@ -98,7 +121,7 @@ Toda petición HTTP lleva un `requestId` (cabecera `X-Request-Id`), asignado por
 (global, en `main.ts`) registra los errores. Entre los dos, cada petición deja exactamente una
 línea de log con su `requestId`, que también viaja en el cuerpo de cualquier error — así se
 cruza lo que vio la agente con el log del servidor sin depender de la hora aproximada. Ninguno
-de los dos registra cuerpo ni cabeceras (son datos de pacientes).
+de los dos registra cuerpo, cabeceras ni query string (son datos de pacientes).
 
 `AllExceptionsFilter` no cambia la forma de un `HttpException` normal (400/401/404 siguen
 siendo `{ statusCode, message, error }`, igual que antes): solo le suma `requestId`. Es la red
@@ -117,6 +140,14 @@ vacío → 400, `/planilla-comisiones/periodos` sin token → 401), que prueban 
   tipo de cambio al final. Asumir bolivianos en la base rompe el cálculo de forma
   silenciosa — ya pasó. El razonamiento completo está en la cabecera de
   `calculo-comisiones.service.ts`; léelo antes de tocar ese módulo.
+- **Dos campos con "%" en el nombre pueden tener unidades distintas.** `pctMonto`
+  es fracción; `pctEmpresa`/`pctPropio` de `NivelTipoARA` y hermanos ya nacen en
+  puntos porcentuales (`configuracion-por-defecto.ts`), mismo criterio que el
+  motor (`comisionUsd = base * porcentaje / 100`). Asumir fracción y multiplicar
+  por 100 de más infló un 4,5% hasta 450% en el Excel exportado — ya pasó, ver
+  la cabecera de `exportacion-comisiones.service.ts`. Antes de tocar un `%`,
+  confirma la unidad contra el sembrado o el motor, nunca contra el nombre del
+  campo.
 - **La UI muestra Bs (es-BO)**; el dólar es interno al cálculo de comisiones.
 - **`prisma/schema.prisma` es la fuente de verdad de los enums del frontend**, que
   los genera desde aquí. Añadir un valor a un enum obliga a correr `npm run sync:tipos`

@@ -129,6 +129,52 @@ no pasan `soloAgenteId` — son lógica de negocio legítima, no el agente naveg
 parámetro es opcional y por defecto `undefined` (sin restricción) exactamente para no romper esos
 casos.
 
+## Autenticación: access token corto + refresh token en cookie cross-site
+
+`AuthService.login()` firma dos JWT distintos. El `access_token` viaja en el
+header `Authorization` de cada petición y por eso lleva payload mínimo (`sub`,
+`email`, `nombre`, `rol`) — la foto del usuario **nunca** va ahí: en base64
+llegó a pesar ~2,7 MB y disparaba 431 (Request Header Fields Too Large) en
+todo lo autenticado; se devuelve aparte, en el cuerpo de la respuesta. El
+`refresh_token` dura 30 días **absolutos desde el login** — no rota ni desliza
+con el uso, `refresh()` solo emite un `access_token` nuevo — y viaja en una
+cookie `HttpOnly` que arma `opcionesCookieRefresh()` (`auth.controller.ts`).
+
+**Por qué la cookie depende de `NODE_ENV`:** el frontend vive en Vercel y esta
+API en otro dominio — es cross-site, no cross-origin del mismo sitio. Con
+`SameSite=Lax` el navegador nunca manda la cookie en el POST a `/auth/refresh`
+(`Lax` solo la deja viajar en navegaciones de nivel superior), así que el
+refresco silencioso queda muerto en producción aunque el endpoint esté bien.
+Cross-site exige `SameSite=None`, que a su vez exige `Secure`; en local
+(mismo sitio) basta `Lax`.
+
+**`res.cookie()` y `res.clearCookie()` tienen que compartir las mismas
+opciones** (`path`, `sameSite`, `secure`): el navegador solo borra una cookie
+si esos atributos coinciden byte a byte con los que la crearon. Por eso
+`opcionesCookieRefresh()` es una función compartida por login y logout, no dos
+literales copiados — si divergen, `logout` responde 204 igual pero la cookie
+sigue viva.
+
+**En `refresh()`, solo un problema real de credenciales responde 401.** El
+`try` cubre nada más la verificación de la firma; releer al usuario en la
+base va fuera de ese `try` (o, si falla por algo que no es "no existe", el
+error se relanza tal cual, sin convertirlo en 401). Envolver también la
+consulta convertía un parpadeo transitorio de Postgres en "token inválido" —
+el interceptor del frontend reacciona a cualquier 401 de `/auth/refresh`
+cerrando la sesión, así que una caída de un segundo en la base echaba a
+**todas** las agentes conectadas a la vez, en vez de dejar que el fetch se
+reintentara con un 500.
+
+**`POST /auth/logout` borra la cookie, no revoca el JWT.** Es sin estado: una
+copia que ya salió del navegador (otra pestaña, otro dispositivo) sigue siendo
+válida hasta que expira. Esto resuelve el caso real y frecuente en la clínica
+—varias agentes comparten equipo, y sin logout el `refresh_token` de la
+anterior seguía siendo canjeable— no una revocación de verdad; eso exigiría
+guardar algo en la base (ej. `sesionesValidasDesde` contra el `iat` del token)
+y no existe todavía. `@Public()` en los tres endpoints (`login`, `refresh`,
+`logout`) es intencional: quien cierra sesión puede tener el `access_token`
+ya vencido, y no poder salir por eso sería absurdo.
+
 ## Llamadas externas lentas: nunca bloquear la respuesta al cliente
 
 Si un endpoint dispara una llamada a un servicio de terceros que no determina
@@ -147,6 +193,21 @@ const mensaje = await this.prisma.mensaje.create({ ... });
 void this.enviarPorWhatsApp(telefono, contenido); // sin await, a propósito
 return mensaje;
 ```
+
+**Esto no contradice la regla — distingue red de local.** Antes de ese
+`await this.prisma.mensaje.create(...)`, `enviarMensaje()` sí espera
+`verificarVentana24h()`: una consulta LOCAL a Postgres (no de red a Meta) que
+confirma que el último mensaje ENTRANTE del paciente tiene menos de 24h — la
+ventana de servicio al cliente (CSW) de WhatsApp. Fuera de esa ventana Meta
+rechaza igual el texto libre, pero tarda un webhook de `statuses` en
+avisarlo; adelantar el rechazo con un `BadRequestException` local le ahorra
+al agente esperar un tick que nunca llega. Lo que la regla prohíbe bloquear
+es la llamada de RED a un tercero, no cualquier `await`. (La ventana de 72h
+de Free Entry Point por anuncio es independiente y no entra en este chequeo:
+solo habilita plantillas sin costo, nunca texto libre.) Ver
+`fueraDeVentana24h` en el frontend — es el mismo cálculo duplicado a
+propósito para pintarlo en la UI antes de que la agente escriba; si se toca
+uno, se toca el otro.
 
 ## Tiempo real: push por WebSocket en vez de que el frontend haga polling
 
@@ -226,6 +287,19 @@ devuelve `esNueva: true`, y como la conversación es única por cliente,
 exactamente una petición concurrente lo dispara. Verifica siempre con una
 prueba real de N webhooks en paralelo (`curl … &` × N) que los conteos
 resultantes son 1/1/N/1, no confíes en que "debería" estar bien.
+
+### Reclamar un recurso "del pool": UPDATE condicionado, no lectura-y-escritura
+
+Distinto del get-or-create de arriba: acá el registro YA existe y dos agentes
+pueden intentar quedárselo a la vez (ej. responder la misma conversación sin
+asignar). No lo resuelvas leyendo si está libre (`findUnique`) y recién
+después escribiendo — dos peticiones concurrentes pueden leer "libre" a la
+vez y las dos escriben, la segunda pisando a la primera. Condiciona el propio
+`where` del `update` al estado que asumís que tiene ahora (`agenteId: null`) y
+usa `updateMany`, no `update` (que exige que el registro exista con ESE
+`where` exacto, o lanza). De dos escrituras concurrentes, exactamente una
+afecta una fila; la otra afecta cero filas y no necesita saber por qué. Ver
+`enviarMensaje()` en `conversaciones.service.ts`.
 
 ## Rate-limit tras un proxy inverso: `trust proxy` o el límite es global
 

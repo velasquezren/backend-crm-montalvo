@@ -146,6 +146,11 @@ Conversacion       257
 Venta                0   ← el módulo Ventas existe pero casi no tiene datos reales
 ```
 
+`TipoCambioDiario` (módulo `tipo-cambio`, agregado después de esta medición)
+no está en la tabla: es un valor por día, así que su techo natural es ~365
+filas/año aunque nunca se pierda una sincronización — no hace falta remedirlo
+para saber que no es un problema de escala.
+
 Base completa: **58 MB**. Esto importa para calibrar cualquier conversación sobre
 "performance": **no es un problema de volumen de datos** — 58 MB entra entero en
 RAM varias veces. El cuello de botella de este sistema es la máquina de un solo
@@ -248,6 +253,26 @@ Cada una de estas resuelve algo específico del contexto de §2 (una sola CPU,
   Client ya hace de repository; una capa extra de indirección no compra nada y si
   agrega la superficie que hay que mantener. Si el día de mañana el volumen o el
   equipo crecen 10x, ahí sí vale reabrir esta conversación — hoy no.
+- **TypeScript en `strict` completo, sin `declaration`** (`23f8acd`, 2026-08-20)
+  — antes eran tres banderas sueltas de la familia `strict`; con `strict`
+  entero, `useUnknownInCatchVariables` volvió regla de compilador lo que hasta
+  entonces era solo convención escrita (`catch (e: unknown)`, nunca `any`).
+  Sacar `declaration` —nadie importa este backend como librería, y generaba
+  113 `.d.ts` de más— bajó el build de 3,0 a 2,7s y el `dist/` de 2,1 a 1,5 MB
+  (mediana de 3 builds limpios, medido en el commit). 10% menos en la máquina
+  de un solo core que también corre el build (§2).
+- **Cachear sin medir salió caro, y se revirtió** (`695d9d0`/`c9d2b72`,
+  2026-08-19, revertidos en `69f80bc`, 2026-08-20) — caché en memoria para
+  `dashboard`/`demografia`/`historialPaciente`/`perfilMedico` de `servicios`.
+  Medido después: 1-3 ms de ahorro sobre un round-trip de ~190 ms (1,5%), y
+  ninguna de las cuatro se invalidaba al reimportar la planilla o corregir una
+  clasificación — de paso anulaba la invalidación del interceptor de caché del
+  frontend, que sí funciona. Costo real, ganancia casi nula. Confirma la regla
+  que el frontend ya fuerza con `check:skills` (`crm-rendimiento`: "un cambio
+  de `perf` sin medición antes/después no se commitea") — **acá todavía es
+  solo disciplina, no hay validador que la revise.** Antes de cachear algo en
+  `servicios` o en cualquier módulo cuyos datos se reescriben al importar, mide
+  el ahorro real y confirma cómo se invalida antes de usar el prefijo `perf`.
 
 ## 6. Credenciales y acceso — deliberadamente NO están en este archivo
 
@@ -341,7 +366,7 @@ cierre de esta sección).
 ## 8. Antes de dar por terminada cualquier tarea de este tipo
 
 - `npm run build` (incluye `check:skills`) sin errores.
-- `npm test` (274 tests hoy) en verde.
+- `npm test` (302 tests hoy, 2026-08-25) en verde.
 - Si tocaste algo con lógica de negocio real (no solo observabilidad/infra):
   `npm run test:integracion:preparar && npm run test:integracion` contra
   Postgres real — necesita un Postgres en `:5433`. Si no hay uno a mano, se
