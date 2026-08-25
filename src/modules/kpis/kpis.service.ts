@@ -169,12 +169,16 @@ export class KpisService {
       }),
     ]);
 
-    /* Nombres de agentes para el ranking (una sola consulta) */
+    /* Nombre + foto de los agentes del ranking (una sola consulta).
+       `foto` es un data URL en base64 (~10 KB por persona, ver `AvatarComponent`
+       y crm-design-system) — cruzada por `agenteId`, la FK real de `Venta`, nunca
+       por nombre: eso es lo que hace que una ficha termine con la cara de otra. */
     const agentes = await this.prisma.usuario.findMany({
       where: { id: { in: ventasPorAgente.map(v => v.agenteId) } },
-      select: { id: true, nombre: true },
+      select: { id: true, nombre: true, foto: true },
     });
     const nombrePorId = new Map(agentes.map(a => [a.id, a.nombre]));
+    const fotoPorId = new Map(agentes.map(a => [a.id, a.foto]));
 
     const actividadVentas = ultimasVentas.map(v => ({
       id: v.id,
@@ -214,6 +218,7 @@ export class KpisService {
           .map(v => ({
             agenteId: v.agenteId,
             agente: nombrePorId.get(v.agenteId) ?? 'Desconocido',
+            foto: fotoPorId.get(v.agenteId) ?? null,
             cantidad: v._count,
             monto: Number(v._sum.monto ?? 0),
           }))
