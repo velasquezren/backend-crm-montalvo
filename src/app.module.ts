@@ -19,6 +19,7 @@ import { PlanillaComisionesModule } from './modules/planilla-comisiones/planilla
 import { PlantillasAgenteModule } from './modules/plantillas-agente/plantillas-agente.module';
 import { UsuariosModule } from './modules/usuarios/usuarios.module';
 import { ServiciosModule } from './modules/servicios/servicios.module';
+import { TipoCambioModule } from './modules/tipo-cambio/tipo-cambio.module';
 import { VentasModule } from './modules/ventas/ventas.module';
 import { PrismaModule } from './prisma/prisma.module';
 
@@ -43,6 +44,7 @@ import { PrismaModule } from './prisma/prisma.module';
     PlantillasAgenteModule,
     MemoriaAgenteModule,
     PlanillaComisionesModule,
+    TipoCambioModule,
   ],
   providers: [
     /* RNF-01: límite de peticiones → JWT (salvo @Public) → validación de roles */

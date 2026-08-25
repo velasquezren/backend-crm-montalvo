@@ -77,6 +77,7 @@ model Usuario {
   plantillas        PlantillaAgente[]
   recursosMemoria   RecursoMemoriaAgente[]
   pushSubscriptions PushSubscription[]
+  tiposCambioCorregidos TipoCambioDiario[]
   createdAt         DateTime               @default(now())
   updatedAt         DateTime               @updatedAt
 }
@@ -871,4 +872,32 @@ model PushSubscription {
   createdAt DateTime @default(now())
 
   @@index([usuarioId])
+}
+
+enum FuenteTipoCambio {
+  /// Traído solo de un espejo público del BCB (no es el BCB en sí — bcb.gob.bo
+  /// no publica API, solo Excel/PDF para descargar a mano). Ver `TipoCambioService`.
+  AUTOMATICO
+  /// Cargado o corregido a mano por un ADMIN — siempre gana sobre un valor automático.
+  MANUAL
+}
+
+/// Serie histórica del tipo de cambio oficial USD→BOB, un valor por día
+/// (`fecha` es la que el BCB marca como vigente, no la fecha en que se guardó
+/// la fila). Es la referencia GLOBAL para mostrar montos en dólares en toda la
+/// app — el selector Bs/$us del navbar, KPIs, la tabla de Ventas.
+///
+/// NO es lo mismo que `PeriodoComision.tipoCambio`: ese es el TC de un mes de
+/// liquidación ya cerrado (columna del Excel de FileMaker), fijo para siempre
+/// aunque este historial seguya creciendo. No unificar los dos: uno liquida
+/// comisiones ya calculadas, el otro es la cotización del día a día, y este
+/// sigue creciendo aunque aquel se quede fijo.
+model TipoCambioDiario {
+  fecha             DateTime         @id @db.Date
+  valor             Decimal          @db.Decimal(10, 4)
+  fuente            FuenteTipoCambio
+  actualizadoPor    Usuario?         @relation(fields: [actualizadoPorId], references: [id])
+  actualizadoPorId  String?
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
 }

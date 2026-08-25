@@ -167,6 +167,15 @@ async function crearChat(opciones: {
   return { cliente, conversacion };
 }
 
+/**
+ * `enviarMensaje` exige un ENTRANTE dentro de las últimas 24h (CSW de WhatsApp,
+ * ver `verificarVentana24h`). `crearChat` no siembra ningún mensaje, así que
+ * cualquier prueba que responda un chat recién creado necesita esto antes.
+ */
+async function crearMensajeEntrante(conversacionId: string, contenido = 'Hola, tengo una consulta'): Promise<void> {
+  await prisma.mensaje.create({ data: { conversacionId, direccion: 'ENTRANTE', contenido } });
+}
+
 describe('Conversaciones contra Postgres real', () => {
   describe('visibilidad por rol', () => {
     it('el AGENTE ve las suyas, las del pool y las de sus clientes — y ninguna más', async () => {
@@ -276,6 +285,7 @@ describe('Conversaciones contra Postgres real', () => {
       const b = await crearAgente('agente-b');
       const admin = await crearAgente('jefa', 'ADMIN');
       const { conversacion } = await crearChat({ telefono: '+59171000005', agenteConversacion: b.id });
+      await crearMensajeEntrante(conversacion.id);
 
       await service.enviarMensaje(conversacion.id, 'Reviso este caso', admin.id, undefined);
 
@@ -286,6 +296,7 @@ describe('Conversaciones contra Postgres real', () => {
     it('un chat del pool sí se asigna al que responde primero', async () => {
       const a = await crearAgente('agente-a');
       const { conversacion } = await crearChat({ telefono: '+59171000006' });
+      await crearMensajeEntrante(conversacion.id);
 
       await service.enviarMensaje(conversacion.id, 'Hola, le atiendo', a.id, a.id);
 
@@ -299,6 +310,7 @@ describe('Conversaciones contra Postgres real', () => {
       const a = await crearAgente('agente-a');
       const b = await crearAgente('agente-b');
       const { conversacion } = await crearChat({ telefono: '+59171000007' });
+      await crearMensajeEntrante(conversacion.id);
 
       await Promise.all([
         service.enviarMensaje(conversacion.id, 'yo lo tomo', a.id, a.id),
@@ -307,7 +319,8 @@ describe('Conversaciones contra Postgres real', () => {
 
       const despues = await prisma.conversacion.findUniqueOrThrow({ where: { id: conversacion.id } });
       expect([a.id, b.id]).toContain(despues.agenteId);
-      expect(await prisma.mensaje.count({ where: { conversacionId: conversacion.id } })).toBe(2);
+      /* 3, no 2: el entrante sembrado para pasar la ventana de 24h + los dos salientes en pugna. */
+      expect(await prisma.mensaje.count({ where: { conversacionId: conversacion.id } })).toBe(3);
     });
 
     /* Contestar reparte lo que no es de nadie, y NADA más. Esto decide de quién
@@ -320,6 +333,7 @@ describe('Conversaciones contra Postgres real', () => {
         const lead = await prisma.lead.create({
           data: { clienteId: cliente.id, origen: 'PRESENCIAL', estado: 'NUEVO' },
         });
+        await crearMensajeEntrante(conversacion.id);
 
         await service.enviarMensaje(conversacion.id, 'le atiendo', a.id, a.id);
 
@@ -334,6 +348,7 @@ describe('Conversaciones contra Postgres real', () => {
           telefono: '+59178000002',
           agenteCliente: b.id,
         });
+        await crearMensajeEntrante(conversacion.id);
 
         await service.enviarMensaje(conversacion.id, 'contesto yo', a.id, a.id);
 
@@ -351,6 +366,7 @@ describe('Conversaciones contra Postgres real', () => {
         const convertido = await prisma.lead.create({
           data: { clienteId: cliente.id, origen: 'PRESENCIAL', estado: 'CONVERTIDO' },
         });
+        await crearMensajeEntrante(conversacion.id);
 
         await service.enviarMensaje(conversacion.id, 'hola', a.id, a.id);
 
@@ -361,6 +377,7 @@ describe('Conversaciones contra Postgres real', () => {
       it('queda auditado, porque cambia quién cobra', async () => {
         const a = await crearAgente('agente-a');
         const { cliente, conversacion } = await crearChat({ telefono: '+59178000004' });
+        await crearMensajeEntrante(conversacion.id);
 
         await service.enviarMensaje(conversacion.id, 'hola', a.id, a.id);
 
@@ -374,6 +391,7 @@ describe('Conversaciones contra Postgres real', () => {
       it('contestar por segunda vez no vuelve a auditar', async () => {
         const a = await crearAgente('agente-a');
         const { cliente, conversacion } = await crearChat({ telefono: '+59178000005' });
+        await crearMensajeEntrante(conversacion.id);
 
         await service.enviarMensaje(conversacion.id, 'uno', a.id, a.id);
         await service.enviarMensaje(conversacion.id, 'dos', a.id, a.id);
@@ -389,6 +407,7 @@ describe('Conversaciones contra Postgres real', () => {
     it('el mensaje sube el chat al tope del inbox (updatedAt)', async () => {
       const a = await crearAgente('agente-a');
       const { conversacion } = await crearChat({ telefono: '+59171000008', agenteConversacion: a.id });
+      await crearMensajeEntrante(conversacion.id);
       const antes = conversacion.updatedAt;
 
       await new Promise(r => setTimeout(r, 5));
@@ -617,6 +636,7 @@ describe('Conversaciones contra Postgres real', () => {
     it('que responda la agente refresca el inbox pero NO notifica a nadie', async () => {
       const a = await crearAgente('agente-a');
       const chat = await crearChat({ telefono: '+59172000013', agenteConversacion: a.id });
+      await crearMensajeEntrante(chat.conversacion.id);
 
       const enviado = await service.enviarMensaje(chat.conversacion.id, 'Buenas tardes', a.id);
       await esperarDespacho(enviado.id);
