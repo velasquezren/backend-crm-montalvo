@@ -556,6 +556,7 @@ export class PlanillaComisionesService {
       ...(query.clasif ? { clasif: query.clasif } : {}),
       ...(query.canal ? { canal: query.canal } : {}),
       ...(query.tipo ? { tipo: query.tipo } : {}),
+      ...(query.unidadNegocio ? { unidadNegocio: query.unidadNegocio } : {}),
       ...(query.modulo ? { modulo: query.modulo } : {}),
       ...(query.soloExcluidas ? { comisionable: false } : {}),
       ...(query.soloSinClasificar ? { requiereRevision: true } : {}),
@@ -773,6 +774,9 @@ export class PlanillaComisionesService {
       sinClasificar,
       vendedorasPendientes,
       serviciosSinClasificar,
+      porUnidadNegocio,
+      porClasif,
+      porTipo,
     ] = await Promise.all([
       this.prisma.ventaImportada.count({ where: { periodoId, comisionable: false } }),
       this.prisma.vendedoraComision.count({
@@ -804,6 +808,29 @@ export class PlanillaComisionesService {
         orderBy: { _sum: { precio: 'desc' } },
         take: 50,
       }),
+      /* Los tres agregados de abajo alimentan los contadores de los chips de
+         filtro (Unidad de Negocio, Clasificación, Tipo). Van SIN filtro de
+         `comisionable` a propósito: administración necesita ver el total real
+         del mes por RA/clasificación/tipo, excluidas incluidas, para poder
+         encontrarlas — es la misma razón por la que "Excluidas" ya se cuenta
+         aparte más arriba. Del período entero, no del filtro activo en
+         pantalla: así el chip nunca cambia de número mientras se usa a sí
+         mismo para decidir dónde hacer clic. */
+      this.prisma.ventaImportada.groupBy({
+        by: ['unidadNegocio'],
+        where: { periodoId },
+        _count: { _all: true },
+      }),
+      this.prisma.ventaImportada.groupBy({
+        by: ['clasif'],
+        where: { periodoId },
+        _count: { _all: true },
+      }),
+      this.prisma.ventaImportada.groupBy({
+        by: ['tipo'],
+        where: { periodoId },
+        _count: { _all: true },
+      }),
     ]);
 
     return {
@@ -826,6 +853,9 @@ export class PlanillaComisionesService {
         montoAfectado: Number(s._sum.precio ?? 0),
       })),
       vendedorasPendientes,
+      porUnidadNegocio: porUnidadNegocio.map(u => ({ unidadNegocio: u.unidadNegocio, filas: u._count._all })),
+      porClasif: porClasif.map(c => ({ clasif: c.clasif, filas: c._count._all })),
+      porTipo: porTipo.map(t => ({ tipo: t.tipo, filas: t._count._all })),
     };
   }
 

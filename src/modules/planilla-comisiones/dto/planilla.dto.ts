@@ -53,6 +53,11 @@ export class QueryVentasImportadasDto extends PaginationDto {
   @IsEnum(TipoComision)
   tipo?: TipoComision;
 
+  /** Maternidad / RA / Varios — para aislar, por ejemplo, todo lo del área RA. */
+  @IsOptional()
+  @IsEnum(UnidadNegocio)
+  unidadNegocio?: UnidadNegocio;
+
   @IsOptional()
   @IsString()
   @Length(1, 40)

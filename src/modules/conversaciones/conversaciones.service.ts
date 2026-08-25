@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Prisma, TipoMensaje } from '@prisma/client';
 
 import { CacheMemoria } from '../../common/cache/cache-memoria';
@@ -418,6 +418,39 @@ export class ConversacionesService {
   }
 
   /**
+   * Ventana de servicio al cliente (CSW): WhatsApp solo entrega texto libre
+   * hasta 24h después del último mensaje ENTRANTE del paciente. Pasada esa
+   * hora, Meta rechaza el envío igual (queda como FALLIDO tras el webhook de
+   * `statuses`) — esto solo evita gastar el viaje y avisa al agente al toque
+   * en vez de dejarlo esperando un tick que nunca llega.
+   *
+   * La ventana de 72h por anuncio Click-to-WhatsApp (Free Entry Point) NO
+   * cuenta acá: esa solo habilita mandar PLANTILLAS sin costo (`enviarPlantilla`),
+   * nunca texto libre. Son independientes — mismo criterio que
+   * `fueraDeVentana24h` del frontend; si se toca uno, se toca el otro.
+   */
+  private async verificarVentana24h(conversacionId: string): Promise<void> {
+    const ultimoEntrante = await this.prisma.mensaje.findFirst({
+      where: { conversacionId, direccion: 'ENTRANTE' },
+      orderBy: { createdAt: 'desc' },
+      select: { createdAt: true },
+    });
+
+    if (!ultimoEntrante) {
+      throw new BadRequestException(
+        'El paciente todavía no escribió en este chat: para iniciar contacto hay que usar una Plantilla de WhatsApp.',
+      );
+    }
+
+    const haceHoras = (Date.now() - ultimoEntrante.createdAt.getTime()) / (1000 * 60 * 60);
+    if (haceHoras >= 24) {
+      throw new BadRequestException(
+        'Han pasado más de 24h desde el último mensaje del paciente. Usa una Plantilla de WhatsApp.',
+      );
+    }
+  }
+
+  /**
    * `soloAgenteId` — ver la nota de `findOne`. Si la conversación estaba sin
    * asignar, el envío la asigna al agente que responde primero.
    *
@@ -436,6 +469,7 @@ export class ConversacionesService {
     adjunto?: { mediaKey?: string; mediaMime?: string; mediaNombre?: string },
   ) {
     const conversacion = await this.obtenerConversacionPropia(conversacionId, soloAgenteId);
+    await this.verificarVentana24h(conversacionId);
 
     /* Un solo round-trip a la base para ambos writes, y atómico: si el update
        de la conversación falla, no queda un mensaje huérfano sin reflejarse
