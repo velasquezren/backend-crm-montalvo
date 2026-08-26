@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import {
   ClasifComision,
   NivelCirugia,
@@ -416,15 +416,86 @@ export class ConfiguracionComisionesService {
   /* ── Diccionario de clasificación ───────────────────────────────────── */
 
   async crearRegla(dto: CrearReglaDto): Promise<ReglaClasificacion> {
+    await this.verificarSinColision({
+      patron: dto.patron,
+      modulo: dto.modulo,
+      prioridad: dto.prioridad ?? 100, // mismo default que el schema (`@default(100)`)
+      activa: dto.activa,
+    });
     return this.prisma.reglaClasificacion.create({ data: dto });
   }
 
   async actualizarRegla(id: string, dto: Partial<CrearReglaDto>): Promise<ReglaClasificacion> {
-    await this.exigirExistencia(
-      this.prisma.reglaClasificacion.count({ where: { id } }),
-      `Regla ${id}`,
+    const actual = await this.prisma.reglaClasificacion.findUnique({ where: { id } });
+    if (!actual) {
+      throw new NotFoundException(`Regla ${id} no encontrado`);
+    }
+
+    /* La colisión se evalúa contra el estado RESULTANTE, no solo contra lo que
+       trae este PATCH: un update que solo cambia `prioridad` (sin tocar el
+       patrón) puede chocar igual con una regla que ya existía. */
+    await this.verificarSinColision(
+      {
+        patron: dto.patron ?? actual.patron,
+        modulo: dto.modulo !== undefined ? dto.modulo : actual.modulo,
+        prioridad: dto.prioridad ?? actual.prioridad,
+        activa: dto.activa !== undefined ? dto.activa : actual.activa,
+      },
+      id,
     );
+
     return this.prisma.reglaClasificacion.update({ where: { id }, data: dto });
+  }
+
+  /**
+   * Evita repetir el caso real que sigue abierto en `ReglaClasificacion`: dos
+   * reglas ACTIVAS con la misma prioridad y el mismo módulo (o ambas sin
+   * módulo, que significa "aplica a cualquiera") cuyo patrón se solapa —el
+   * patrón "Colocación de T de Cobre o DIU" existe hoy dos veces, con
+   * clasificaciones distintas—. Cuál gana lo decide el orden en que Postgres
+   * devuelve las filas, no nada que se pueda razonar: `buscarRegla()`
+   * (`clasificador.ts`) solo ordena por prioridad, y entre dos iguales el
+   * orden queda sin definir.
+   *
+   * No detecta toda ambigüedad semántica posible, pero si el patrón
+   * normalizado es igual o uno contiene al otro, definitivamente compiten
+   * por la misma fila — y ese es exactamente el caso que ya rompió.
+   */
+  private async verificarSinColision(
+    regla: { patron: string; modulo?: string | null; prioridad: number; activa?: boolean },
+    idAExcluir?: string,
+  ): Promise<void> {
+    if (regla.activa === false) return; // una regla inactiva no compite por nada
+
+    const candidatas = await this.prisma.reglaClasificacion.findMany({
+      where: {
+        activa: true,
+        prioridad: regla.prioridad,
+        ...(idAExcluir ? { id: { not: idAExcluir } } : {}),
+      },
+    });
+
+    const patronNuevo = normalizar(regla.patron);
+    const moduloNuevo = normalizar(regla.modulo);
+
+    const choque = candidatas.find(c => {
+      if (normalizar(c.modulo) !== moduloNuevo) return false;
+      const patronExistente = normalizar(c.patron);
+      return (
+        patronExistente === patronNuevo ||
+        patronExistente.includes(patronNuevo) ||
+        patronNuevo.includes(patronExistente)
+      );
+    });
+
+    if (choque) {
+      throw new ConflictException(
+        `La regla "${regla.patron}" (prioridad ${regla.prioridad}) choca con la regla existente ` +
+          `"${choque.patron}" (id ${choque.id}, clasifica ${choque.clasif}): misma prioridad, ` +
+          'mismo módulo y patrones que se solapan — cuál gana quedaría al azar. Cambiá la ' +
+          'prioridad de una de las dos, o ajustá el patrón para que no se superpongan.',
+      );
+    }
   }
 
   async eliminarRegla(id: string): Promise<{ eliminada: true }> {

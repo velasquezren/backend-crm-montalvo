@@ -354,19 +354,26 @@ cierre de esta sección).
   Postgres (`pg_stat_statements` si está habilitada) para las queries más lentas
   de verdad. Optimizar sin medir es tan fácil de hacer para el lado equivocado
   como de hacerlo bien.
-- **No hay Swagger/OpenAPI ni tests de `kpis`/`usuarios`** — no es
-  "velocidad" pero sí es de las cosas que quedaron pendientes de la revisión de
-  arquitectura del 2026-08-20; `kpis.service.ts` es justo donde ya hubo una fuga
-  real de datos entre agentes (ver `crm-backend-module`), así que es el módulo
-  con menos red de seguridad hoy. `leads` **ya tiene** `leads.integracion.spec.ts`
-  (2026-08-21): la falta de tests ahí no era solo hipotética — escondía el bug de
-  escopado que describe `crm-backend-module` §"La regla de findAll…", y las
-  pruebas nuevas son justamente las que lo hubieran atrapado antes de producción.
+- **Swagger/OpenAPI sigue sin existir** — no es "velocidad", pero si algún día
+  se conecta un tercero o cambia el equipo, ayuda. `kpis`, `usuarios` y `auth`
+  **ya tienen suite unitaria** (2026-08-25), cerrando el hueco que este mismo
+  punto señalaba: `kpis.service.spec.ts` fija el escopado por agente
+  (`kpis.service.ts` es justo donde ya hubo una fuga real de datos entre
+  agentes, ver `crm-backend-module`) y que la caché no sirva el resumen de un
+  agente a otro; `usuarios.service.spec.ts` fija la protección del último
+  `SUPER_ADMIN` activo y que nadie se toque sus propios privilegios;
+  `auth.service.spec.ts` fija que `refresh()` solo dé 401 por un problema real
+  de credenciales, nunca por un fallo transitorio de la base. `leads` **ya
+  tenía** `leads.integracion.spec.ts` (2026-08-21): la falta de tests ahí no
+  era solo hipotética — escondía el bug de escopado que describe
+  `crm-backend-module` §"La regla de findAll…", y las pruebas nuevas son
+  justamente las que lo hubieran atrapado antes de producción. Mismo
+  razonamiento detrás de las tres suites nuevas.
 
 ## 8. Antes de dar por terminada cualquier tarea de este tipo
 
 - `npm run build` (incluye `check:skills`) sin errores.
-- `npm test` (302 tests hoy, 2026-08-25) en verde.
+- `npm test` (348 tests hoy, 2026-08-25) en verde.
 - Si tocaste algo con lógica de negocio real (no solo observabilidad/infra):
   `npm run test:integracion:preparar && npm run test:integracion` contra
   Postgres real — necesita un Postgres en `:5433`. Si no hay uno a mano, se
