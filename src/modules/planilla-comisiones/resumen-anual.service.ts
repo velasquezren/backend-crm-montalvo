@@ -16,6 +16,16 @@ export interface MesVendedora {
   comisionUsd: number;
   bonoTrimestralUsd: number;
   totalBob: number;
+  /**
+   * El TC de ESTE mes, no el vigente hoy.
+   *
+   * Sin esto, el frontend no tenía forma de convertir `montoVendido` a Bs sin
+   * usar el TC en vivo del selector global — que en agosto de 2026 ronda 10,
+   * contra el 6,97 con el que se liquidó a principios de año. Un mismo monto
+   * vendido en enero se mostraba distinto según el día en que alguien abriera
+   * esta pantalla.
+   */
+  tipoCambio: number;
   /** false = ese mes no está importado todavía. */
   importado: boolean;
   /** false = importado pero sin liquidar; el vendido sí es fiable. */
@@ -103,6 +113,7 @@ export class ResumenAnualService {
     anio: number;
     filas: FilaAnual[];
     totalesPorMes: number[];
+    tcReferencia: number;
   }> {
     const clave = `${anio}_${soloVendedoraId ?? 'ALL'}`;
     return this.cache.resolver(clave, () => this.calcular(anio, soloVendedoraId));
@@ -117,6 +128,7 @@ export class ResumenAnualService {
     anio: number;
     filas: FilaAnual[];
     totalesPorMes: number[];
+    tcReferencia: number;
   }> {
     const periodos = await this.prisma.periodoComision.findMany({
       where: { anio },
@@ -130,12 +142,16 @@ export class ResumenAnualService {
     });
 
     if (periodos.length === 0 || vendedoras.length === 0) {
-      return { anio, filas: [], totalesPorMes: Array.from({ length: 12 }, () => 0) };
+      return { anio, filas: [], totalesPorMes: Array.from({ length: 12 }, () => 0), tcReferencia: 1 };
     }
 
     const idsPeriodo = periodos.map(p => p.id);
     const mesDePeriodo = new Map(periodos.map(p => [p.id, p.mes]));
     const tcDePeriodo = new Map(periodos.map(p => [p.id, Number(p.tipoCambio) || 1]));
+    /* Mismo dato que `tcDePeriodo`, indexado por mes en vez de por id: es lo
+       que necesita cada celda de la matriz para convertir SU mes sin pedir
+       prestado el TC de otro. */
+    const tcPorMes = new Map(periodos.map(p => [p.mes, Number(p.tipoCambio) || 1]));
 
     /* Dos agregados, ambos resueltos en la base: lo vendido (siempre disponible)
        y lo liquidado (solo si el mes se calculó). Nada se suma en memoria salvo
@@ -211,6 +227,10 @@ export class ResumenAnualService {
           comisionUsd: redondear(liq?.comision ?? 0),
           bonoTrimestralUsd: redondear(liq?.trimestral ?? 0),
           totalBob: redondear(liq?.totalBob ?? 0),
+          /* Si el mes no está importado no hay periodo, y por tanto no hay TC
+             propio: se cae al de referencia, aunque `importado: false` ya le
+             dice al frontend que no muestre esta celda igual. */
+          tipoCambio: tcPorMes.get(mes) ?? tcReferencia,
           importado: mesesImportados.has(mes),
           liquidado: mesesLiquidados.has(mes) && liq !== undefined,
         };
@@ -261,6 +281,6 @@ export class ResumenAnualService {
       };
     });
 
-    return { anio, filas, totalesPorMes: totalesPorMes.map(redondear) };
+    return { anio, filas, totalesPorMes: totalesPorMes.map(redondear), tcReferencia };
   }
 }
