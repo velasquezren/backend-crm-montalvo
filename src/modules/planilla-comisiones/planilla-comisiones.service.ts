@@ -5,7 +5,14 @@ import { AuditService } from '../../common/audit/audit.service';
 import { terminoBusqueda } from '../../common/dto/busqueda';
 import { calcularPaginacion, paginar } from '../../common/dto/pagination.dto';
 import { PrismaService } from '../../prisma/prisma.service';
-import { clasificarFila, determinarTipo, FilaExcel, normalizar } from './clasificador';
+import {
+  buscarRegla,
+  clasificarFila,
+  determinarTipo,
+  FilaExcel,
+  normalizar,
+  ReglaDiccionario,
+} from './clasificador';
 import { CatalogoClinicoService } from './catalogo-clinico.service';
 import { ConfiguracionComisionesService } from './configuracion-comisiones.service';
 import { EQUIPO_OFICIAL, TIPO_CAMBIO_POR_DEFECTO } from './configuracion-por-defecto';
@@ -754,6 +761,99 @@ export class PlanillaComisionesService {
 
     await this.audit.registrar('VentaImportada', id, 'AJUSTAR', usuarioId, { ...dto });
     return actualizada;
+  }
+
+  /**
+   * Aplica una regla del diccionario RECIÉN CREADA a las filas que ya están
+   * importadas y siguen `requiereRevision: true` — no solo a la próxima
+   * importación.
+   *
+   * **El bug que esto arregla:** "Clasificar como…" en el panel de alertas
+   * (`crearReglaDesdeServicio`, frontend) solo creaba la regla y avisaba
+   * "reimporta el mes para aplicarlo" — pero recalcular el MISMO periodo no
+   * vuelve a leer el Excel ni a correr `clasificarFila`, así que la fila
+   * seguía en OTROSS con `requiereRevision: true` para siempre, salvo que de
+   * verdad se reimportara. Administración clasificaba y recalculaba sin que
+   * cambiara nada, sin ningún error que lo explicara.
+   *
+   * No reclasifica desde cero (eso reabriría casos ya resueltos a mano por
+   * otras vías): solo toca filas que HOY siguen sin clasificar y calzan con
+   * ESTA regla. `canal`/`ingresoNeto` no dependen de la clasificación —ya
+   * estaban bien desde la importación— así que se dejan intactos; solo se
+   * tocan los campos que de verdad dependen de `clasif`.
+   */
+  async reclasificarConRegla(regla: ReglaDiccionario): Promise<number> {
+    const candidatas = await this.prisma.ventaImportada.findMany({
+      where: {
+        requiereRevision: true,
+        periodo: { estado: { not: EstadoPeriodo.CERRADO } },
+        ...(regla.modulo ? { modulo: regla.modulo } : {}),
+      },
+      select: {
+        id: true,
+        detalle: true,
+        modulo: true,
+        precio: true,
+        promocion: true,
+        vendedoraPk: true,
+        vendedoraNombre: true,
+        unidadNegocio: true,
+      },
+    });
+
+    let actualizadas = 0;
+    for (const fila of candidatas) {
+      const filaExcel: FilaExcel = {
+        fecha: null,
+        modulo: fila.modulo,
+        codOrigen: null,
+        estadoPlan: null,
+        codItem: null,
+        detalle: fila.detalle,
+        pac: null,
+        paciente: null,
+        medicoPk: null,
+        medico: null,
+        // No persistido en `VentaImportada` (el export tampoco lo trae hoy):
+        // `determinarUnidadNegocio` solo lo mira si la regla no fuerza una,
+        // y en ese caso se conserva la que ya tenía la fila, más abajo.
+        area: null,
+        vendedoraPk: fila.vendedoraPk,
+        vendedoraNombre: fila.vendedoraNombre,
+        captacion: null,
+        seguro: null,
+        promocion: fila.promocion,
+        precio: Number(fila.precio),
+        anticipoPlan: null,
+        tc: null,
+        obs: null,
+        clasificacionPlan: null,
+        clasificacionServicio: null,
+      };
+
+      // Mismo criterio de match que usaría una importación nueva — si esta
+      // regla no es la que cruzaría, no se toca.
+      if (!buscarRegla(filaExcel, [regla])) continue;
+
+      const resultado = clasificarFila(filaExcel, [regla]);
+      const unidadNegocio = regla.unidadNegocio ?? fila.unidadNegocio;
+
+      await this.prisma.ventaImportada.update({
+        where: { id: fila.id },
+        data: {
+          clasif: resultado.clasif,
+          unidadNegocio,
+          tipo: determinarTipo(resultado.clasif, unidadNegocio),
+          nivel: resultado.nivel,
+          comisionable: resultado.comisionable,
+          motivoExclusion: resultado.motivoExclusion,
+          requiereRevision: false,
+        },
+      });
+      actualizadas++;
+    }
+
+    return actualizadas;
   }
 
   /* ── Alertas ────────────────────────────────────────────────────────── */

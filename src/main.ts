@@ -65,6 +65,18 @@ async function bootstrap(): Promise<void> {
     origin: origenes,
     credentials: true,
     /**
+     * Sin esto, `respuesta.headers.get('content-disposition')` en el
+     * navegador SIEMPRE devuelve `null` — a diferencia de `curl`, que no
+     * aplica CORS y por eso el bug no se veía probándolo así. El navegador
+     * solo expone al JavaScript un puñado de cabeceras "simples"
+     * (`Content-Type`, `Cache-Control`…); cualquier otra, aunque el
+     * servidor la mande, se descarta salvo que esté aquí. Sin
+     * `Content-Disposition`, la descarga del Excel de comisiones
+     * (`ApiService.getBlob()`) caía siempre al nombre genérico de respaldo
+     * en vez de `comisiones-2026-01.xlsx`.
+     */
+    exposedHeaders: ['Content-Disposition'],
+    /**
      * Cachea el preflight en el navegador. Sin esto, CADA petición va precedida
      * de un `OPTIONS`: el frontend vive en Vercel y la API en otro dominio, y
      * todas las llamadas llevan `Authorization`, así que ninguna es una
