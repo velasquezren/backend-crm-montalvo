@@ -27,7 +27,10 @@ export interface Porcion {
   pctMonto: number;
 }
 
-const ETIQUETA_CLASIF: Record<ClasifComision, string> = {
+/** Exportadas: `exportacion-comisiones.service.ts` reutiliza el mismo vocabulario
+ *  en la hoja de detalle por vendedora en vez de inventar un segundo mapa que
+ *  podría divergir del que ya ve la analítica en pantalla. */
+export const ETIQUETA_CLASIF: Record<ClasifComision, string> = {
   PLANPAQ: 'Plan Maternidad',
   PLANNIN: 'Plan Varios',
   CIRUGIA: 'Cirugía',
@@ -39,12 +42,12 @@ const ETIQUETA_CLASIF: Record<ClasifComision, string> = {
   PROMOCION: 'Promoción',
 };
 
-const ETIQUETA_CANAL: Record<string, string> = {
+export const ETIQUETA_CANAL: Record<string, string> = {
   EMPRESA: 'Empresa (recursos de la clínica)',
   PROPIO: 'Propio (gestión de la vendedora)',
 };
 
-const ETIQUETA_UNIDAD: Record<string, string> = {
+export const ETIQUETA_UNIDAD: Record<string, string> = {
   MATERNIDAD: 'Maternidad',
   RA: 'Reproducción Asistida',
   VARIOS: 'Varios',

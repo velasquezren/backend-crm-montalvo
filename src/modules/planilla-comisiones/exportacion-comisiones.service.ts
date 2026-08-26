@@ -1,11 +1,16 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { ClasifComision } from '@prisma/client';
-import { Workbook, Worksheet } from 'exceljs';
+import { TableColumnProperties, Workbook, Worksheet } from 'exceljs';
 import { Writable } from 'stream';
 
 import { PrismaService } from '../../prisma/prisma.service';
-import { AnaliticaComisionesService } from './analitica-comisiones.service';
-import { CalculoComisionesService, FotoConfiguracion } from './calculo-comisiones.service';
+import {
+  AnaliticaComisionesService,
+  ETIQUETA_CANAL,
+  ETIQUETA_CLASIF,
+  ETIQUETA_UNIDAD,
+} from './analitica-comisiones.service';
+import { CalculoComisionesService, FotoConfiguracion, LineaDesglose } from './calculo-comisiones.service';
 import { redondear } from './clasificador';
 import { PlanCandidato, seleccionarPlanesComisionables, ultimoPrimero } from './reglas-calculo';
 
@@ -104,10 +109,14 @@ export class ExportacionComisionesService {
   /**
    * Escribe el libro completo sobre el stream de salida.
    *
-   * Siete hojas, en el orden en que se leen: el resumen para la firma, la
-   * planilla para pagar, el desglose de los dos cubos que tienen más de un
+   * Siete hojas fijas, en el orden en que se leen: el resumen para la firma,
+   * la planilla para pagar, el desglose de los dos cubos que tienen más de un
    * paso (Tipo A (RA) y los planes elegidos), y el resto como respaldo de
-   * cómo se llegó a esas cifras.
+   * cómo se llegó a esas cifras. **Más una hoja por vendedora (2026-08-26)**
+   * con el cálculo completo de esa persona — ver `hojasPorVendedora()`, la
+   * respuesta a que la tabla web (`tabla-liquidacion.component.ts`) resume
+   * cada vendedora en 14 columnas por falta de ancho, cuando el cálculo real
+   * tiene más de 20 números por persona.
    */
   async exportar(periodoId: string, salida: Writable): Promise<void> {
     const [informe, consolidado] = await Promise.all([
@@ -124,6 +133,7 @@ export class ExportacionComisionesService {
       this.hojaLiquidacion(libro, consolidado);
       this.hojaTipoARA(libro, consolidado);
       await this.hojaPlanesPorVendedora(libro, consolidado);
+      await this.hojasPorVendedora(libro, consolidado);
     }
     this.hojaDistribucion(libro, informe);
     this.hojaRankings(libro, informe);
@@ -565,6 +575,286 @@ export class ExportacionComisionesService {
     this.marcarTotales(totales, columnas.length);
   }
 
+  /* ── Una hoja por vendedora: TODAS las columnas, sin resumir ─────────── */
+
+  /**
+   * La tabla web (`tabla-liquidacion.component.ts`) resume cada vendedora en
+   * una fila de 14 columnas — es lo que cabe en pantalla —, pero el cálculo
+   * real guarda más de 20 números por persona: los tres ingredientes de Tipo
+   * A (RA) por separado, los dos objetivos de planes (paquetes/varios) sin
+   * sumar, los tres bonos sueltos, el % efectivo de comisión… Ninguna vista
+   * los muestra todos a la vez. Aquí sí, uno por hoja: el resumen completo de
+   * esa persona, el desglose por tipo/canal/unidad de negocio (el mismo
+   * agrupamiento — `clasif|canal|unidadNegocio|nivel` — que usa el motor
+   * para decidir cuánto paga cada grupo, `calculo-comisiones.service.ts:agrupar`)
+   * y cada venta del mes que le corresponde. Con esto se audita el pago de
+   * una vendedora sin cruzar cinco pantallas ni sumar filas a mano.
+   *
+   * Reutiliza `consolidado.filas` (siete columnas fijas ya la trajeron) y
+   * pide aparte el `desglose` guardado en `ResultadoComision` — es JSON
+   * congelado con el que se pagó, no algo que se recalcule aquí.
+   */
+  private async hojasPorVendedora(libro: Workbook, consolidado: ConsolidadoPeriodo): Promise<void> {
+    const resultados = await this.prisma.resultadoComision.findMany({
+      where: { periodoId: consolidado.periodo.id },
+      select: { vendedoraId: true, desglose: true },
+    });
+    const desglosePorVendedora = new Map(
+      resultados.map(r => [r.vendedoraId, (r.desglose ?? []) as unknown as LineaDesglose[]]),
+    );
+
+    const nombresUsados = new Set<string>();
+
+    for (const f of consolidado.filas) {
+      const hoja = libro.addWorksheet(this.nombreHojaUnico(f.nombre, nombresUsados), {
+        views: [{ showGridLines: false }],
+      });
+      hoja.getColumn(1).width = 34;
+      for (let c = 2; c <= 14; c++) hoja.getColumn(c).width = 18;
+
+      this.escribirResumenVendedora(hoja, f);
+      hoja.addRow([]);
+      hoja.addRow([]);
+      this.escribirDesgloseVendedora(hoja, f, desglosePorVendedora.get(f.vendedoraId) ?? []);
+      hoja.addRow([]);
+      hoja.addRow([]);
+      await this.escribirVentasVendedora(hoja, consolidado.periodo.id, f);
+    }
+  }
+
+  /**
+   * Nombre de hoja válido para Excel (máx. 31 caracteres, sin `: \ / ? * [ ]`)
+   * y único dentro del libro — dos vendedoras con nombre largo pueden truncar
+   * al mismo texto, y Excel rechaza el archivo entero si dos hojas coinciden.
+   */
+  private nombreHojaUnico(nombre: string, usados: Set<string>): string {
+    const base = nombre.replace(/[:\\/?*[\]]/g, ' ').trim().slice(0, 31) || 'Vendedora';
+    let candidato = base;
+    let sufijo = 2;
+    while (usados.has(candidato.toLowerCase())) {
+      const marca = ` (${sufijo})`;
+      candidato = base.slice(0, 31 - marca.length) + marca;
+      sufijo++;
+    }
+    usados.add(candidato.toLowerCase());
+    return candidato;
+  }
+
+  private escribirResumenVendedora(hoja: Worksheet, f: FilaConsolidado): void {
+    this.titulo(hoja, `Liquidación completa — ${f.nombre} (${f.codigo})`, 14);
+    hoja.addRow([]);
+
+    this.seccion(hoja, 'Datos de la vendedora', 14);
+    this.dato(hoja, 'Tipo', f.tipo);
+    this.dato(hoja, 'Área', f.area);
+
+    hoja.addRow([]);
+    this.seccion(hoja, 'Facturación (USD)', 14);
+    this.dato(hoja, 'Facturado', f.montoVendido, FORMATO.usd);
+    this.dato(hoja, 'Base de cálculo (facturado × 0,87)', f.baseCalculo, FORMATO.usd);
+
+    hoja.addRow([]);
+    this.seccion(hoja, 'Planes de maternidad y varios — el objetivo es una franquicia', 14);
+    this.dato(hoja, 'Paquetes de maternidad vendidos', f.planpaqVendidos, FORMATO.entero);
+    this.dato(hoja, 'Paquetes de maternidad que comisionan', f.planpaqComisionables, FORMATO.entero);
+    this.dato(hoja, 'Planes varios vendidos', f.planninVendidos, FORMATO.entero);
+    this.dato(hoja, 'Planes varios que comisionan', f.planninComisionables, FORMATO.entero);
+    this.dato(hoja, 'Total planes vendidos', f.planesVendidos, FORMATO.entero);
+    this.dato(hoja, 'Cumple objetivo de planes', f.cumpleObjetivoPlanes ? 'Sí' : 'No');
+
+    hoja.addRow([]);
+    this.seccion(hoja, 'Cirugías e internaciones — Tipo B', 14);
+    this.dato(hoja, 'Acumulado de cirugías del mes', f.acumuladoCirugias, FORMATO.usd);
+    this.dato(hoja, 'Nivel de cirugía', f.nivelCirugia ? `NIVEL ${f.nivelCirugia}` : 'NA');
+
+    hoja.addRow([]);
+    this.seccion(hoja, 'Tipo A (RA) — consulta/laboratorio/ecografía/otros del área RA', 14);
+    this.dato(hoja, 'Ingreso planes de maternidad', f.ingresoMaternidadTipoARA, FORMATO.usd);
+    this.dato(hoja, 'Ingreso RA (sin cirugía)', f.ingresoRATipoARA, FORMATO.usd);
+    this.dato(
+      hoja,
+      'Ingreso combinado',
+      redondear(f.ingresoMaternidadTipoARA + f.ingresoRATipoARA),
+      FORMATO.usd,
+    );
+    this.dato(hoja, 'Excedente sobre el objetivo mensual', f.excedenteTipoARA, FORMATO.usd);
+    this.dato(hoja, 'Nivel Tipo A (RA)', f.nivelTipoARA ? `NIVEL ${f.nivelTipoARA}` : 'NA');
+
+    hoja.addRow([]);
+    this.seccion(hoja, 'Comisiones por cubo (USD)', 14);
+    this.dato(hoja, 'Tipo A · Planes de maternidad y varios', f.comisionA, FORMATO.usd);
+    this.dato(hoja, 'Tipo A (RA) · Consultas y análisis del área RA', f.comisionTipoARA, FORMATO.usd);
+    this.dato(hoja, 'Tipo B · Cirugías e internaciones', f.comisionB, FORMATO.usd);
+    this.dato(hoja, 'Tipo C · Consultas, laboratorios y otros', f.comisionC, FORMATO.usd);
+
+    hoja.addRow([]);
+    this.seccion(hoja, 'Bonos (USD)', 14);
+    this.dato(hoja, 'Bono de jefatura', f.bonoJefatura, FORMATO.usd);
+    this.dato(hoja, 'Bono de publicidad', f.bonoPublicidad, FORMATO.usd);
+    this.dato(hoja, 'Bono trimestral', f.bonoTrimestral, FORMATO.usd);
+    this.dato(hoja, 'Total de bonos', f.totalBonos, FORMATO.usd);
+
+    hoja.addRow([]);
+    const totalUsd = this.dato(hoja, 'TOTAL COMISIÓN (USD)', f.totalUsd, FORMATO.usd);
+    const totalBob = this.dato(hoja, 'TOTAL COMISIÓN (Bs)', f.totalBob, FORMATO.bob);
+    const sueldo = this.dato(hoja, 'Sueldo base (Bs)', f.sueldoBase, FORMATO.bob);
+    const aPagar = this.dato(hoja, 'A PAGAR (Bs)', f.totalGanado, FORMATO.bob);
+    this.dato(hoja, '% efectivo de comisión sobre lo vendido', f.pctComision, FORMATO.pct);
+
+    for (const fila of [totalUsd, totalBob, sueldo, aPagar]) fila.font = { bold: true };
+    aPagar.font = { bold: true, size: 12 };
+    for (const col of [1, 2]) {
+      aPagar.getCell(col).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLOR.totales } };
+    }
+  }
+
+  private escribirDesgloseVendedora(hoja: Worksheet, f: FilaConsolidado, desglose: LineaDesglose[]): void {
+    this.seccion(hoja, 'Desglose por tipo y sección — de dónde sale cada comisión', 14);
+
+    if (desglose.length === 0) {
+      const aviso = hoja.addRow(['Sin ventas comisionables agrupadas este periodo.']);
+      aviso.font = { italic: true, size: 10, color: { argb: 'FF64748B' } };
+      return;
+    }
+
+    const filaTabla = hoja.rowCount + 1;
+    const columnas: TableColumnProperties[] = [
+      { name: 'Categoría', filterButton: true },
+      { name: 'Canal', filterButton: true },
+      { name: 'Unidad de negocio', filterButton: true },
+      { name: 'Tipo', filterButton: true },
+      { name: 'Cantidad', filterButton: true },
+      { name: 'Facturado (USD)', filterButton: true },
+      { name: 'Base de cálculo (USD)', filterButton: true },
+      { name: '% aplicado', filterButton: true },
+      { name: 'Comisión (USD)', filterButton: true },
+    ];
+    const filas = desglose.map(d => [
+      ETIQUETA_CLASIF[d.clasif] ?? d.clasif,
+      ETIQUETA_CANAL[d.canal] ?? d.canal,
+      ETIQUETA_UNIDAD[d.unidadNegocio] ?? d.unidadNegocio,
+      d.tipo,
+      d.cantidad,
+      d.montoVendido,
+      d.baseCalculo,
+      d.porcentaje,
+      d.comisionUsd,
+    ]);
+
+    hoja.addTable({
+      name: `Desglose_${this.claveTabla(f.codigo)}`,
+      ref: `A${filaTabla}`,
+      headerRow: true,
+      style: { theme: 'TableStyleMedium9', showRowStripes: true },
+      columns: columnas,
+      rows: filas,
+    });
+
+    const inicio = filaTabla + 1;
+    const fin = filaTabla + filas.length;
+    this.formatoRangoColumna(hoja, inicio, fin, 6, FORMATO.usd);
+    this.formatoRangoColumna(hoja, inicio, fin, 7, FORMATO.usd);
+    this.formatoRangoColumna(hoja, inicio, fin, 8, FORMATO.pct);
+    this.formatoRangoColumna(hoja, inicio, fin, 9, FORMATO.usd);
+  }
+
+  private async escribirVentasVendedora(hoja: Worksheet, periodoId: string, f: FilaConsolidado): Promise<void> {
+    this.seccion(hoja, 'Ventas del mes que le corresponden a esta vendedora', 14);
+
+    const ventas = await this.prisma.ventaImportada.findMany({
+      where: { periodoId, vendedoraId: f.vendedoraId },
+      orderBy: [{ fecha: 'asc' }, { detalle: 'asc' }],
+      select: {
+        fecha: true, modulo: true, detalle: true, paciente: true, medico: true,
+        captacion: true, canal: true, clasif: true, tipo: true, nivel: true,
+        precio: true, ingresoNeto: true, comisionable: true, motivoExclusion: true,
+      },
+    });
+
+    if (ventas.length === 0) {
+      const aviso = hoja.addRow(['Sin ventas asociadas a esta vendedora en el periodo.']);
+      aviso.font = { italic: true, size: 10, color: { argb: 'FF64748B' } };
+      return;
+    }
+
+    const filaTabla = hoja.rowCount + 1;
+    const columnas: TableColumnProperties[] = [
+      { name: 'Fecha', filterButton: true },
+      { name: 'Módulo', filterButton: true },
+      { name: 'Servicio', filterButton: true },
+      { name: 'Paciente', filterButton: true },
+      { name: 'Médico', filterButton: true },
+      { name: 'Captación', filterButton: true },
+      { name: 'Canal', filterButton: true },
+      { name: 'Categoría', filterButton: true },
+      { name: 'Tipo', filterButton: true },
+      { name: 'Nivel', filterButton: true },
+      { name: 'Precio (USD)', filterButton: true },
+      { name: 'Base (USD)', filterButton: true },
+      { name: 'Comisiona', filterButton: true },
+      { name: 'Motivo de exclusión', filterButton: true },
+    ];
+    const filas = ventas.map(v => [
+      v.fecha ? v.fecha.toISOString().slice(0, 10) : '—',
+      v.modulo ?? '—',
+      v.detalle,
+      v.paciente ?? '—',
+      v.medico ?? '—',
+      v.captacion ?? '—',
+      ETIQUETA_CANAL[v.canal] ?? v.canal,
+      ETIQUETA_CLASIF[v.clasif] ?? v.clasif,
+      v.tipo,
+      v.nivel ?? '—',
+      Number(v.precio),
+      Number(v.ingresoNeto),
+      v.comisionable ? 'Sí' : 'No',
+      v.motivoExclusion ?? '—',
+    ]);
+
+    hoja.addTable({
+      name: `Ventas_${this.claveTabla(f.codigo)}`,
+      ref: `A${filaTabla}`,
+      headerRow: true,
+      style: { theme: 'TableStyleMedium9', showRowStripes: true },
+      columns: columnas,
+      rows: filas,
+    });
+
+    const inicio = filaTabla + 1;
+    const fin = filaTabla + filas.length;
+    this.formatoRangoColumna(hoja, inicio, fin, 11, FORMATO.usd);
+    this.formatoRangoColumna(hoja, inicio, fin, 12, FORMATO.usd);
+  }
+
+  /** Nombre de tabla Excel válido (letras/números/guión bajo) y único en el
+   *  libro — el código de la vendedora ya es su clave de negocio, así que
+   *  sirve de sufijo sin arriesgar colisión entre `Desglose_*`/`Ventas_*`. */
+  private claveTabla(codigo: string): string {
+    return codigo.replace(/[^A-Za-z0-9_]/g, '_');
+  }
+
+  /**
+   * Aplica un formato numérico a un rango puntual de celdas, nunca a la
+   * columna entera: en esta hoja la misma columna sirve al bloque de resumen,
+   * al desglose y a las ventas, cada uno con su propio tipo de dato — un
+   * `getColumn().numFmt` se filtraría hacia arriba o hacia abajo del bloque
+   * que lo necesita. Es el mismo bug de fondo que ya rompió el % de Tipo A
+   * (RA) en la hoja "Tipo A (RA)" (ver la cabecera de este archivo).
+   */
+  private formatoRangoColumna(
+    hoja: Worksheet,
+    filaDesde: number,
+    filaHasta: number,
+    columna: number,
+    formato: string,
+  ): void {
+    for (let r = filaDesde; r <= filaHasta; r++) {
+      const celda = hoja.getCell(r, columna);
+      celda.numFmt = formato;
+      celda.alignment = { horizontal: 'right' };
+    }
+  }
+
   /* ── Hoja 5: de dónde sale la facturación ───────────────────────────── */
 
   private hojaDistribucion(libro: Workbook, informe: InformeAnalitica): void {
@@ -778,3 +1068,4 @@ interface PorcionInforme {
 
 type InformeAnalitica = Awaited<ReturnType<AnaliticaComisionesService['analitica']>>;
 type ConsolidadoPeriodo = Awaited<ReturnType<CalculoComisionesService['reporteConsolidado']>>;
+type FilaConsolidado = ConsolidadoPeriodo['filas'][number];
