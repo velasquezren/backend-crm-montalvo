@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { ClasifComision } from '@prisma/client';
+import { ClasifComision, UnidadNegocio } from '@prisma/client';
 import { TableColumnProperties, Workbook, Worksheet } from 'exceljs';
 import { Writable } from 'stream';
 
@@ -733,7 +733,7 @@ export class ExportacionComisionesService {
       ETIQUETA_CLASIF[d.clasif] ?? d.clasif,
       ETIQUETA_CANAL[d.canal] ?? d.canal,
       ETIQUETA_UNIDAD[d.unidadNegocio] ?? d.unidadNegocio,
-      d.tipo,
+      this.etiquetaTipo(d),
       d.cantidad,
       d.montoVendido,
       d.baseCalculo,
@@ -824,6 +824,22 @@ export class ExportacionComisionesService {
     const fin = filaTabla + filas.length;
     this.formatoRangoColumna(hoja, inicio, fin, 11, FORMATO.usd);
     this.formatoRangoColumna(hoja, inicio, fin, 12, FORMATO.usd);
+  }
+
+  /**
+   * `LineaDesglose.tipo` sale de la misma letra 'A' tanto para un plan de
+   * maternidad/varios como para una consulta/lab/eco/otros del área RA — son
+   * dos bolsas con reglas de tarifa distintas (por plan elegido vs. por
+   * nivel mensual combinado) que comparten letra porque así las marca
+   * `PARAMETROS` en la planilla de administración (columna `TIPO COMISION`).
+   * Mostrar "A" a secas en esta hoja invita a sumar peras con manzanas —
+   * aquí se separan por `unidadNegocio`, la única pista que las distingue.
+   */
+  private etiquetaTipo(d: LineaDesglose): string {
+    if (d.tipo === 'A' && d.unidadNegocio === UnidadNegocio.RA) return 'Tipo A (RA)';
+    if (d.tipo === 'A') return 'Tipo A · Planes';
+    if (d.tipo === 'B') return 'Tipo B · Cirugías';
+    return 'Tipo C · Servicios';
   }
 
   /** Nombre de tabla Excel válido (letras/números/guión bajo) y único en el

@@ -63,6 +63,15 @@ export interface LineaDesglose {
   tipo: 'A' | 'B' | 'C';
 }
 
+/** Una `LineaDesglose` con la vendedora a la que pertenece y el subtipo que
+ *  separa Tipo A (planes) de Tipo A (RA) — ver `reporteDesglose()`. */
+export interface LineaDesgloseVendedora extends LineaDesglose {
+  vendedoraId: string;
+  vendedoraNombre: string;
+  vendedoraCodigo: string;
+  subtipo: 'A' | 'A_RA' | 'B' | 'C';
+}
+
 /**
  * Foto de las reglas con las que se liquidó un mes.
  *
@@ -989,6 +998,46 @@ export class CalculoComisionesService {
       },
       desglose: (resultado.desglose ?? []) as unknown as LineaDesglose[],
     };
+  }
+
+  /**
+   * Todas las líneas de desglose (por tipo/canal/unidad de negocio) de TODAS
+   * las vendedoras liquidadas, en una sola lista — la misma fuente que la
+   * hoja "Desglose por tipo y sección" del Excel (`exportacion-comisiones.
+   * service.ts`), para que administración pueda filtrar por un cubo
+   * concreto ("¿cuánto cobramos de Tipo B este mes?") y ver la sumatoria sin
+   * abrir el archivo.
+   *
+   * `subtipo` resuelve aquí, no en el frontend, la ambigüedad real de
+   * `LineaDesglose.tipo`: 'A' sale tanto de un plan de maternidad/varios
+   * como de una consulta/lab/eco/otros del área RA — son dos bolsas con
+   * reglas de tarifa distintas (por plan elegido vs. por nivel mensual) que
+   * comparten letra porque así las marca `PARAMETROS` en la planilla de
+   * administración (columna `TIPO COMISION`). Confundirlas al filtrar es
+   * exactamente el tipo de error que esta lista existe para evitar.
+   */
+  async reporteDesglose(periodoId: string): Promise<{ filas: LineaDesgloseVendedora[] }> {
+    const resultados = await this.prisma.resultadoComision.findMany({
+      where: { periodoId },
+      include: { vendedora: true },
+      orderBy: { vendedora: { nombre: 'asc' } },
+    });
+
+    const filas: LineaDesgloseVendedora[] = [];
+    for (const r of resultados) {
+      const desglose = (r.desglose ?? []) as unknown as LineaDesglose[];
+      for (const d of desglose) {
+        filas.push({
+          ...d,
+          vendedoraId: r.vendedoraId,
+          vendedoraNombre: r.vendedora.nombre,
+          vendedoraCodigo: r.vendedora.codigo,
+          subtipo: d.tipo === 'A' && d.unidadNegocio === UnidadNegocio.RA ? 'A_RA' : d.tipo,
+        });
+      }
+    }
+
+    return { filas };
   }
 
   /** Planilla final lista para pagar: comisiones + bonos + sueldo, por persona. */

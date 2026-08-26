@@ -227,6 +227,16 @@ export class PlanillaComisionesController {
     return this.calculo.reporteBonos(id);
   }
 
+  /**
+   * Todas las líneas de desglose (tipo/canal/unidad de negocio) de todas las
+   * vendedoras liquidadas, en una sola lista filtrable — para responder
+   * "¿cuánto cobramos de Tipo B este mes?" sin abrir el Excel.
+   */
+  @Get('periodos/:id/reporte/desglose')
+  reporteDesglose(@Param('id') id: string) {
+    return this.calculo.reporteDesglose(id);
+  }
+
   @Get('periodos/:periodoId/reporte/vendedora/:vendedoraId')
   reportePorVendedora(
     @Param('periodoId') periodoId: string,
