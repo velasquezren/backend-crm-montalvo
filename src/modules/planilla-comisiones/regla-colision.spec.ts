@@ -80,6 +80,29 @@ describe('ConfiguracionComisionesService · colisión de ReglaClasificacion', ()
     expect(creadas).toHaveLength(0);
   });
 
+  /*
+   * Caso real (2026-08-26): "Cultivo de secreción vaginal" ya tenía regla
+   * activa clasificando LAB, pero unas filas de un periodo que había estado
+   * CERRADO cuando se creó la regla se quedaron sin reclasificar. Volver a
+   * "Clasificar como… Laboratorio" desde el panel de alertas creaba una
+   * regla IDÉNTICA a la existente, y chocaba consigo misma sin ninguna
+   * forma de reintentar — la única salida era cambiar patrón o prioridad,
+   * que habría creado un diccionario con dos entradas para lo mismo.
+   */
+  it('crear una regla que clasifica IGUAL que la existente: no choca, devuelve la existente sin duplicar', async () => {
+    const { servicio, creadas } = montar([REGLA_DIU]);
+
+    const resultado = await servicio.crearRegla({
+      patron: 'Colocación de T de Cobre o DIU',
+      modulo: 'CONSULTA',
+      clasif: 'CONSULTA', // mismo clasif que REGLA_DIU
+      prioridad: 50,
+    } as never);
+
+    expect(resultado).toEqual(REGLA_DIU);
+    expect(creadas).toHaveLength(0); // nunca se llega a crear el duplicado
+  });
+
   /* Mismo caso, ignorando mayúsculas/acentos/espacios — la comparación usa la
      misma normalización que el motor de clasificación real. */
   it('detecta la colisión aunque el patrón nuevo venga con otra capitalización', async () => {
@@ -177,6 +200,21 @@ describe('ConfiguracionComisionesService · colisión de ReglaClasificacion', ()
   });
 
   describe('actualizarRegla', () => {
+    /* La excepción de crearRegla (mismo clasif → devolver la existente) NO
+       aplica acá: editar r2 para que termine idéntica a r1 no es "reintentar
+       una clasificación", es dejar el diccionario con dos filas iguales. */
+    it('editar una regla para que termine clasificando IGUAL que otra activa: sigue rechazado', async () => {
+      const otra: ReglaFalsa = { ...REGLA_DIU, id: 'r2', prioridad: 90, clasif: REGLA_DIU.clasif };
+      const { servicio, actualizadas } = montar([REGLA_DIU, otra]);
+
+      await expect(
+        servicio.actualizarRegla('r2', { prioridad: 50 } as never),
+      ).rejects.toThrow(ConflictException);
+
+      expect(actualizadas).toHaveLength(0);
+    });
+
+
     it('editar SOLO la prioridad para que choque con otra regla activa: rechazado', async () => {
       // mismo patrón/módulo que REGLA_DIU, prioridad distinta: hoy no chocan
       const otra: ReglaFalsa = { ...REGLA_DIU, id: 'r2', prioridad: 90 };

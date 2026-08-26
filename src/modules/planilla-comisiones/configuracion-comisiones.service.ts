@@ -416,12 +416,32 @@ export class ConfiguracionComisionesService {
   /* ── Diccionario de clasificación ───────────────────────────────────── */
 
   async crearRegla(dto: CrearReglaDto): Promise<ReglaClasificacion> {
-    await this.verificarSinColision({
+    const colision = await this.buscarColision({
       patron: dto.patron,
       modulo: dto.modulo,
       prioridad: dto.prioridad ?? 100, // mismo default que el schema (`@default(100)`)
       activa: dto.activa,
     });
+
+    if (colision) {
+      /*
+       * Si la regla que ya existe clasifica IGUAL que la que se pide crear,
+       * no es un conflicto: es "Clasificar como…" (panel de alertas) vuelto
+       * a intentar sobre un servicio que YA tiene regla — pasó de verdad
+       * (2026-08-26): un periodo que estaba CERRADO cuando se creó la regla
+       * la primera vez y se reabrió después dejó filas suyas sin
+       * reclasificar, sin ninguna forma de reintentarlo porque una regla
+       * nueva SIEMPRE chocaba con la vieja. Se devuelve la existente sin
+       * crear un duplicado, y el controller la reaplica igual
+       * (`PlanillaComisionesService.reclasificarConRegla`) — así las filas
+       * que se escaparon la primera vez tienen una segunda oportunidad.
+       */
+      if (colision.clasif === dto.clasif) {
+        return colision;
+      }
+      throw new ConflictException(this.mensajeColision(dto.patron, dto.prioridad ?? 100, colision));
+    }
+
     return this.prisma.reglaClasificacion.create({ data: dto });
   }
 
@@ -433,8 +453,11 @@ export class ConfiguracionComisionesService {
 
     /* La colisión se evalúa contra el estado RESULTANTE, no solo contra lo que
        trae este PATCH: un update que solo cambia `prioridad` (sin tocar el
-       patrón) puede chocar igual con una regla que ya existía. */
-    await this.verificarSinColision(
+       patrón) puede chocar igual con una regla que ya existía. Aquí SÍ se
+       lanza siempre que hay choque, sin la excepción de `crearRegla`: editar
+       una regla para que termine siendo idéntica a otra ya existente no es
+       un reintento, es dejar dos filas iguales en el diccionario. */
+    const colision = await this.buscarColision(
       {
         patron: dto.patron ?? actual.patron,
         modulo: dto.modulo !== undefined ? dto.modulo : actual.modulo,
@@ -443,6 +466,11 @@ export class ConfiguracionComisionesService {
       },
       id,
     );
+    if (colision) {
+      throw new ConflictException(
+        this.mensajeColision(dto.patron ?? actual.patron, dto.prioridad ?? actual.prioridad, colision),
+      );
+    }
 
     return this.prisma.reglaClasificacion.update({ where: { id }, data: dto });
   }
@@ -460,12 +488,16 @@ export class ConfiguracionComisionesService {
    * No detecta toda ambigüedad semántica posible, pero si el patrón
    * normalizado es igual o uno contiene al otro, definitivamente compiten
    * por la misma fila — y ese es exactamente el caso que ya rompió.
+   *
+   * No lanza: devuelve la regla que choca (o `null`) para que cada caller
+   * decida qué hacer con ella — `crearRegla` la reaprovecha cuando clasifica
+   * igual, `actualizarRegla` siempre la rechaza.
    */
-  private async verificarSinColision(
+  private async buscarColision(
     regla: { patron: string; modulo?: string | null; prioridad: number; activa?: boolean },
     idAExcluir?: string,
-  ): Promise<void> {
-    if (regla.activa === false) return; // una regla inactiva no compite por nada
+  ): Promise<ReglaClasificacion | null> {
+    if (regla.activa === false) return null; // una regla inactiva no compite por nada
 
     const candidatas = await this.prisma.reglaClasificacion.findMany({
       where: {
@@ -478,24 +510,26 @@ export class ConfiguracionComisionesService {
     const patronNuevo = normalizar(regla.patron);
     const moduloNuevo = normalizar(regla.modulo);
 
-    const choque = candidatas.find(c => {
-      if (normalizar(c.modulo) !== moduloNuevo) return false;
-      const patronExistente = normalizar(c.patron);
-      return (
-        patronExistente === patronNuevo ||
-        patronExistente.includes(patronNuevo) ||
-        patronNuevo.includes(patronExistente)
-      );
-    });
+    return (
+      candidatas.find(c => {
+        if (normalizar(c.modulo) !== moduloNuevo) return false;
+        const patronExistente = normalizar(c.patron);
+        return (
+          patronExistente === patronNuevo ||
+          patronExistente.includes(patronNuevo) ||
+          patronNuevo.includes(patronExistente)
+        );
+      }) ?? null
+    );
+  }
 
-    if (choque) {
-      throw new ConflictException(
-        `La regla "${regla.patron}" (prioridad ${regla.prioridad}) choca con la regla existente ` +
-          `"${choque.patron}" (id ${choque.id}, clasifica ${choque.clasif}): misma prioridad, ` +
-          'mismo módulo y patrones que se solapan — cuál gana quedaría al azar. Cambiá la ' +
-          'prioridad de una de las dos, o ajustá el patrón para que no se superpongan.',
-      );
-    }
+  private mensajeColision(patron: string, prioridad: number, choque: ReglaClasificacion): string {
+    return (
+      `La regla "${patron}" (prioridad ${prioridad}) choca con la regla existente ` +
+      `"${choque.patron}" (id ${choque.id}, clasifica ${choque.clasif}): misma prioridad, ` +
+      'mismo módulo y patrones que se solapan, con una clasificación DISTINTA — cuál gana ' +
+      'quedaría al azar. Cambiá la prioridad de una de las dos, o ajustá el patrón para que no se superpongan.'
+    );
   }
 
   async eliminarRegla(id: string): Promise<{ eliminada: true }> {
