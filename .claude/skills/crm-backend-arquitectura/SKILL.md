@@ -136,15 +136,23 @@ a nivel servidor; Prisma se conecta con `connection_limit=25&pool_timeout=10` en
 
 ## 3. Escala real de datos (medida en producción, no estimada)
 
+Remedido el **2026-08-26** (`pg_stat_user_tables`); entre paréntesis, lo que
+había el 2026-08-21, para que se vea la pendiente y no solo la foto:
+
 ```
-Lead            15.552
-Cliente         15.542
-Mensaje          1.659
-VentaImportada   1.287
-AuditLog           375
-Conversacion       257
-Venta                0   ← el módulo Ventas existe pero casi no tiene datos reales
+Lead            15.620  (15.552)
+Cliente         15.608  (15.542)   33 MB — 21 MB tabla + 11 MB índices
+Mensaje          2.186   (1.659)   ← +32 % en cinco días
+VentaImportada   1.287   (1.287)
+AuditLog           473     (375)
+Conversacion       325     (257)   ← +26 % en cinco días
+Venta                3       (0)
 ```
+
+**Las dos que crecen rápido son justo las del inbox**, y eso cambia una
+conclusión que este archivo daba por cerrada (ver §7, `LIMITE_INBOX`). Las dos
+tablas grandes, en cambio, están planas: `Cliente` y `Lead` sumaron ~66 filas
+cada una en esos cinco días (+0,4 %). Las grandes no crecen; las chicas sí.
 
 `TipoCambioDiario` (módulo `tipo-cambio`, agregado después de esta medición)
 no está en la tabla: es un valor por día, así que su techo natural es ~365
@@ -181,14 +189,16 @@ pg_dump -h localhost -p 5432 -U crm_app -d crm | gzip > /root/backup-crm-$(date 
 # Verificar que el backup pesa algo de verdad (no un gzip vacío por un error de auth):
 ls -la /root/backup-crm-*.sql.gz   # varios MB, no unos bytes
 
-# 4. Deploy
+# 4. Deploy — encadenado con && A PROPÓSITO (ver la trampa de abajo)
 cd /opt/crm-backend
-sudo -u crmapp git pull --ff-only origin main
-sudo -u crmapp npm install
-sudo -u crmapp npx prisma migrate deploy    # revisa el SQL antes si hay migración nueva
-sudo -u crmapp npx prisma generate
-sudo -u crmapp npm run build                # incluye check:skills
-systemctl restart crm_backend.service
+chown -R crmapp:crmapp /opt/crm-backend && \
+sudo -u crmapp git pull --ff-only origin main && \
+sudo -u crmapp npm install && \
+sudo -u crmapp npx prisma migrate deploy && \
+sudo -u crmapp npx prisma generate && \
+sudo -u crmapp npm run build && \
+systemctl restart crm_backend.service && \
+echo "DEPLOY OK"
 
 # 5. Verificar — no dar por hecho que "systemctl is-active" alcanza
 journalctl -u crm_backend.service -n 30 --no-pager   # sin errores, "successfully started"
@@ -204,6 +214,37 @@ así, `pg_dump -U postgres crm` sin la contraseña correcta falló en silencio
 (`2>/dev/null` se come el error) y el gzip resultante tenía **20 bytes** — un
 backup vacío que parecía exitoso. `ls -la` del archivo y confirmar que pesa MB,
 no bytes, es lo único que lo hubiera atrapado antes de necesitarlo.
+
+**Por qué va el `chown -R` antes de todo** (2026-08-26): varios archivos de
+`/opt/crm-backend` habían quedado con dueño `root` en vez de `crmapp` —
+`dist/`, `package-lock.json`, `tsconfig.json`, `CLAUDE.md`— de alguna vez que
+algo se corrió como root sin bajar de privilegios. Consecuencia: `sudo -u
+crmapp npm install` muere con `EACCES ... package-lock.json` y `npm run build`
+no puede escribir en `dist/`. El `chown` deja el directorio consistente antes
+de empezar y cuesta nada.
+
+**Por qué el `&&` no es cosmético — la trampa que de verdad mordió ese día.**
+Los siete comandos se pegaron en la terminal como líneas sueltas. `npm install`
+falló por el `EACCES` de arriba... y bash ejecutó igual las cuatro líneas
+siguientes, incluido `systemctl restart`. Resultado: el servicio se reinició
+**con el binario viejo**, `git log` decía el commit nuevo, `systemctl is-active`
+decía `active`, el `/health` respondía 200 y los curl de 400/401 pasaban. Todo
+verde, nada desplegado. Encadenar con `&&` y cerrar con `echo "DEPLOY OK"` hace
+que un fallo intermedio corte la cadena y se note.
+
+**Corolario para la verificación**: `is-active` + `/health` + 400/401 **no
+prueban que el deploy ocurrió** — prueban que el proceso está sano, sea cual
+sea el código que corre. Lo que sí lo prueba son estas dos líneas:
+
+```bash
+date -r /opt/crm-backend/dist/main.js                      # ¿se recompiló recién?
+systemctl show crm_backend.service -p ActiveEnterTimestamp # ¿arrancó después?
+```
+
+Si el binario compilado del servidor es más viejo que el `git pull`, no se
+desplegó nada por más que el commit sea el correcto y el servicio esté arriba.
+(Ese artefacto vive solo en `/opt/crm-backend` y está gitignorado — no lo cites
+como ruta del repo o `check:skills` lo marca, con razón, como inexistente.)
 
 Si `schema.prisma` cambió: la migración se genera con `--create-only`, se revisa
 el SQL a mano (hay datos reales), y recién ahí se aplica. Ver `crm-backend-module`
@@ -282,12 +323,28 @@ historial de git para siempre, aunque se borren después.
 
 Lo que sí conviene dejar anotado (sin el secreto):
 
-- **Acceso al servidor**: hoy es **contraseña de `root` por SSH**, no una llave.
-  Funciona, pero es lo primero que convendría endurecer: una llave SSH dedicada
-  para despliegue (usuario `crmapp`, sin privilegios de `root`) en vez de
-  compartir la contraseña de root. Si en algún momento se genera esa llave,
-  documentar acá **dónde vive** (ej. "en el gestor de contraseñas del equipo",
-  nunca el contenido).
+- **Acceso al servidor**: hay **llave SSH para `root`** y funciona sin
+  contraseña — verificado el 2026-08-26 con `ssh -o BatchMode=yes root@…`,
+  que desactiva por completo el prompt de contraseña y aun así conecta. (Este
+  archivo afirmaba lo contrario —"hoy es contraseña de root, no una llave"—
+  hasta esa fecha.) **`crmapp` NO tiene llave**: `ssh crmapp@…` responde
+  `Permission denied (publickey)`, así que todo despliegue entra como `root` y
+  baja de privilegios con `sudo -u crmapp` comando a comando.
+
+  **Lo que sigue abierto, y ahora con números** (`sshd -T`, 2026-08-26):
+
+  ```
+  permitrootlogin yes
+  passwordauthentication yes    ← contraseña de root, expuesta a internet
+  pubkeyauthentication yes
+  fail2ban: inactive
+  ```
+
+  El banner del login reporta **82.723 intentos fallidos** desde el último
+  acceso exitoso. La llave ya existe, así que `passwordauthentication no` no
+  rompería el despliegue — deja fuera al ataque por fuerza bruta sin costo. Un
+  `fail2ban` activo sería el segundo paso. Endurecer esto no es hipotético:
+  es una puerta que ya está siendo golpeada 80 mil veces entre logins.
 - **Credenciales de la base** (`crm_app` / password real): están en
   `/opt/crm-backend/.env` en el servidor, y en `.env` local (gitignorado, no
   confundir con `.env.example` que sí está en git y no lleva secretos).
@@ -317,15 +374,67 @@ cierre de esta sección).
   se nota; no asumas que seguirá sin notarse.
 - **55 índices ya existen en `schema.prisma`**, incluyendo GIN trigram para
   búsqueda difusa en `Cliente` y `VentaImportada` — no es un punto de partida
-  típico, ya está bastante trabajado. Lo que no verifiqué: si todos se usan de
-  verdad. `SELECT * FROM pg_stat_user_indexes WHERE idx_scan = 0` en producción
-  dice cuáles nunca se tocan — un índice sin uso solo paga costo de escritura.
-- **`LIMITE_INBOX = 500`** en `conversaciones.service.ts`: el inbox de
-  conversaciones no pagina de verdad, corta en 500 y el frontend filtra en
-  memoria sobre eso. Está documentado en el propio código como deuda técnica
-  consciente (con la razón de por qué no se resolvió: paginar de verdad exige
-  mover pestañas y búsqueda al servidor). Vale revisar si sigue siendo
-  suficiente a medida que crece `Mensaje`/`Conversacion`.
+  típico, ya está bastante trabajado. **Ya verificado cuáles se usan de verdad**
+  (2026-08-26, `pg_stat_user_indexes`; `stats_reset` es `NULL`, o sea que los
+  contadores cubren toda la vida de la base, no una ventana corta):
+
+  ```
+  Cliente_nombre_idx      1264 kB   0 scans
+  Cliente_email_idx        440 kB   0 scans
+  Cliente_saldoTotal_idx   384 kB   0 scans
+  Lead_agenteId_idx        224 kB   0 scans
+  ```
+
+  Son ~2,3 MB que solo pagan costo de escritura. `Cliente_nombre_idx` es el caso
+  más claro: nunca se usa porque la búsqueda por nombre la resuelve el índice
+  **GIN trigram**, no el B-tree — está duplicando trabajo con el que sí sirve.
+
+  **Pero no los borres en bloque, y sobre todo no toques `Lead_agenteId_idx`.**
+  Que tenga 0 scans no significa que sobre: significa que las consultas que lo
+  usarían (`findAll` escopado por agente) hoy las hace casi siempre un ADMIN,
+  que ve todo y por tanto no filtra por `agenteId`. En cuanto haya tráfico real
+  de agentes, ese índice pasa a ser el que sostiene el escopado. Un índice sin
+  uso es una pregunta ("¿quién debería estar usándolo?"), no una conclusión.
+
+  Ignorá también los `_pkey` que aparecen con 0 scans en tablas de 5-20 filas:
+  Postgres hace seq scan porque es más barato, y el índice sigue siendo
+  obligatorio para la restricción de unicidad. Nunca son candidatos a borrar.
+
+- **`pg_stat_statements` NO está instalada** (verificado 2026-08-26). Es la
+  razón por la que este archivo no puede listar "las 5 queries más lentas": no
+  hay histórico que consultar, solo `EXPLAIN ANALYZE` puntual sobre una query
+  que ya sospechás. Si alguna vez hace falta diagnosticar lentitud de verdad y
+  no de oído, habilitarla es el primer paso (`shared_preload_libraries`, exige
+  reiniciar Postgres — que en este VPS es compartido, así que no es gratis).
+- **`LIMITE_INBOX = 500` es el único problema de escala REAL del sistema, y
+  tiene fecha estimada de vencimiento: ~8 de septiembre de 2026.** Ya no es un
+  "vale revisar algún día" — esa era la redacción de este archivo hasta el
+  2026-08-26, cuando se midió el crecimiento y dejó de ser hipotético:
+
+  ```
+  Conversacion hoy (2026-08-26):        325
+  Tope del inbox:                       500
+  Margen:                               175
+  Altas nuevas, 14 días (13→26 ago):    186  →  13,3/día  (rango 4–23)
+  175 / 13,3  ≈  13 días
+  ```
+
+  **Qué pasa exactamente al cruzarlo**, según el comentario del propio
+  `conversaciones.service.ts` (que ya lo vivió una vez "al cruzar las 100"): el
+  backend corta en las 500 más recientes por `updatedAt` y **el frontend filtra
+  las pestañas y busca en memoria sobre lo que recibió**. Así que una
+  conversación fuera del corte no es solo "está más abajo en la lista": es
+  invisible para las pestañas *y para el buscador*. Una agente que busque a una
+  paciente con un chat antiguo obtiene cero resultados y concluye que no existe.
+
+  No es degradación gradual, es un acantilado: a 499 conversaciones todo
+  funciona, a 501 empiezan a desaparecer chats en silencio. Lo único que avisa
+  es un `logger.warn` que nadie está mirando.
+
+  Paginar de verdad exige mover pestañas y búsqueda al servidor — por eso se
+  difirió, y la razón sigue siendo válida. Lo que cambió es que ahora hay una
+  fecha. Subir el número a 2.000 es un parche de una línea que compra ~4 meses;
+  la solución real es servidor-primero. Elegir a conciencia, no por defecto.
 - **N+1 en los services grandes** — auditado el 2026-08-21, línea por línea:
   `planilla-comisiones.service.ts` resuelve TODOS sus agregados en SQL dentro de
   una sola `$transaction` (`aggregate` + dos `groupBy` en `listarVentas`), y el N+1
@@ -373,7 +482,7 @@ cierre de esta sección).
 ## 8. Antes de dar por terminada cualquier tarea de este tipo
 
 - `npm run build` (incluye `check:skills`) sin errores.
-- `npm test` (348 tests hoy, 2026-08-25) en verde.
+- `npm test` (350 tests en 21 suites, 2026-08-26) en verde.
 - Si tocaste algo con lógica de negocio real (no solo observabilidad/infra):
   `npm run test:integracion:preparar && npm run test:integracion` contra
   Postgres real — necesita un Postgres en `:5433`. Si no hay uno a mano, se
