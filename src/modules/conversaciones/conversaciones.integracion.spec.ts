@@ -195,7 +195,7 @@ describe('Conversaciones contra Postgres real', () => {
         agenteCliente: b.id,
       });
 
-      const visibles = (await service.findAll(a.id)).map(c => c.id).sort();
+      const visibles = (await service.findAll(a.id, a.id)).datos.map(c => c.id).sort();
 
       expect(visibles).toEqual([suya.conversacion.id, pool.conversacion.id, suCliente.conversacion.id].sort());
       expect(visibles).not.toContain(ajena.conversacion.id);
@@ -221,7 +221,9 @@ describe('Conversaciones contra Postgres real', () => {
         });
 
         /* Un ADMIN no lleva alcance (ve todo); solo pide "míos". */
-        const visibles = (await service.findAll(undefined, admin.id)).map(c => c.id).sort();
+        const visibles = (await service.findAll(undefined, admin.id, { soloMios: true })).datos
+          .map(c => c.id)
+          .sort();
 
         expect(visibles).toEqual([suyo.conversacion.id, pool.conversacion.id].sort());
         expect(visibles).not.toContain(ajeno.conversacion.id);
@@ -239,7 +241,7 @@ describe('Conversaciones contra Postgres real', () => {
 
         /* Pedir "solo míos" con el id de otra no puede servir de puerta trasera:
            el permiso va por AND y sigue mandando. */
-        const visibles = (await service.findAll(a.id, b.id)).map(c => c.id);
+        const visibles = (await service.findAll(a.id, b.id, { soloMios: true })).datos.map(c => c.id);
 
         expect(visibles).not.toContain(ajena.conversacion.id);
       });
@@ -250,7 +252,7 @@ describe('Conversaciones contra Postgres real', () => {
       await crearChat({ telefono: '+59171000001', agenteConversacion: b.id, agenteCliente: b.id });
       await crearChat({ telefono: '+59171000002' });
 
-      expect(await service.findAll(undefined)).toHaveLength(2);
+      expect((await service.findAll(undefined, b.id)).datos).toHaveLength(2);
     });
 
     /* Este es el desajuste que había: lo que el listado devuelve, el detalle
@@ -262,7 +264,7 @@ describe('Conversaciones contra Postgres real', () => {
       await crearChat({ telefono: '+59171000002' });
       await crearChat({ telefono: '+59171000003', agenteConversacion: b.id, agenteCliente: a.id });
 
-      for (const c of await service.findAll(a.id)) {
+      for (const c of (await service.findAll(a.id, a.id)).datos) {
         await expect(service.findOne(c.id, a.id)).resolves.toBeDefined();
       }
     });
@@ -708,12 +710,12 @@ describe('Conversaciones contra Postgres real', () => {
       const conv = await prisma.conversacion.findFirstOrThrow();
       await prisma.conversacion.update({ where: { id: conv.id }, data: { agenteId: a.id } });
 
-      expect((await service.findAll(a.id))[0].noLeidosCount).toBe(2);
+      expect((await service.findAll(a.id, a.id)).datos[0].noLeidosCount).toBe(2);
 
       await service.marcarLeido(conv.id, a.id, false);
 
       expect(await prisma.mensaje.count({ where: { direccion: 'ENTRANTE', leidoEn: null } })).toBe(0);
-      expect((await service.findAll(a.id))[0].noLeidosCount).toBe(0);
+      expect((await service.findAll(a.id, a.id)).datos[0].noLeidosCount).toBe(0);
     });
 
     it('no marca nada si la conversación es de otro agente', async () => {
@@ -767,6 +769,61 @@ describe('Conversaciones contra Postgres real', () => {
         service.obtenerMensajesAnteriores(conversacion.id, '2026-08-04T00:00:00.000Z', 50, a.id),
       ).rejects.toThrow(NotFoundException);
     });
+  });
+
+  /**
+   * `Conversacion.esperandoRespuesta` es la pestaña "Sin responder", y está
+   * desnormalizado: no se deduce del último mensaje al leer, se ESCRIBE al
+   * crearlo. Eso lo vuelve rápido y filtrable en SQL —que es lo que permitió
+   * quitar el tope de 500— a cambio de una regla que hay que sostener: los
+   * cuatro caminos que crean un Mensaje tienen que dejarlo bien.
+   *
+   * Estas cuatro pruebas son ese contrato. Si alguien agrega un quinto camino y
+   * se olvida del campo, la pestaña miente en silencio: una paciente esperando
+   * que no aparece, o una ya atendida que sí. Ninguna de las dos se nota
+   * mirando la pantalla.
+   */
+  describe('la pestaña "Sin responder" se mantiene al crear cada mensaje', () => {
+    async function esperandoRespuestaDe(conversacionId: string): Promise<boolean> {
+      const c = await prisma.conversacion.findUniqueOrThrow({ where: { id: conversacionId } });
+      return c.esperandoRespuesta;
+    }
+
+    it('un mensaje ENTRANTE la deja esperando', async () => {
+      await ingesta.procesarEntrante('+59173000001', 'Hola, quiero información', 'wamid.e1');
+      const conv = await prisma.conversacion.findFirstOrThrow();
+
+      expect(await esperandoRespuestaDe(conv.id)).toBe(true);
+    });
+
+    it('que responda una persona la saca de la pestaña', async () => {
+      const a = await crearAgente('agente-a');
+      await ingesta.procesarEntrante('+59173000002', 'Hola', 'wamid.e2');
+      const conv = await prisma.conversacion.findFirstOrThrow();
+
+      await service.enviarMensaje(conv.id, 'Buenas, le ayudo', a.id);
+
+      expect(await esperandoRespuestaDe(conv.id)).toBe(false);
+    });
+
+    it('una plantilla también cuenta como respuesta', async () => {
+      const a = await crearAgente('agente-a');
+      await ingesta.procesarEntrante('+59173000003', 'Hola', 'wamid.e3');
+      const conv = await prisma.conversacion.findFirstOrThrow();
+
+      await service.enviarPlantilla(
+        conv.id,
+        { plantilla: 'saludo', idioma: 'es', parametros: [], contenido: 'Buenas tardes' },
+        a.id,
+      );
+
+      expect(await esperandoRespuestaDe(conv.id)).toBe(false);
+    });
+
+    /* El cuarto camino —el acuse automático fuera de horario— se prueba en el
+       bloque de más abajo, que es el único que tiene el reloj falso necesario
+       para que la clínica esté cerrada: "un domingo, el acuse deja la
+       conversación esperando igual". */
   });
 
 describe('Acuse automático fuera de horario', () => {
@@ -848,6 +905,24 @@ describe('Acuse automático fuera de horario', () => {
     expect(enviados[0].contenido).toContain('Urgencias');
   });
 
+  /**
+   * El cuarto camino de escritura de `esperandoRespuesta` (ver el contrato en
+   * "la pestaña Sin responder se mantiene al crear cada mensaje").
+   *
+   * El acuse es SALIENTE pero NO es una respuesta. Si lo contara como tal, todo
+   * lo que entra un fin de semana saldría de la pestaña y el lunes nadie sabría
+   * quién quedó esperando — que es justo lo que la marca `automatico` existe
+   * para evitar en `estaSinResponder()`.
+   */
+  it('el acuse del domingo deja la conversación esperando igual', async () => {
+    const s = servicioCon(conConfig(), DOMINGO);
+    await s.procesarEntrante('+59176000010', 'Hola', 'wamid.d10');
+    await esperarSalientes(1);
+
+    const conv = await prisma.conversacion.findFirstOrThrow();
+    expect(conv.esperandoRespuesta).toBe(true);
+  });
+
   it('en horario de atención no responde nada', async () => {
     const s = servicioCon(conConfig(), MARTES);
     await s.procesarEntrante('+59176000002', 'Hola', 'wamid.m1');
@@ -879,7 +954,7 @@ describe('Acuse automático fuera de horario', () => {
     await s.procesarEntrante('+59176000004', 'Hola', 'wamid.s1');
     await esperarSalientes(1);
 
-    const [conv] = await service.findAll(undefined);
+    const [conv] = (await service.findAll(undefined, 'admin-cualquiera')).datos;
     const ultimo = conv.mensajes[0];
 
     expect(ultimo.direccion).toBe('SALIENTE');

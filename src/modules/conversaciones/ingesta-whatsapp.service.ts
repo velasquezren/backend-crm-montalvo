@@ -161,7 +161,9 @@ export class IngestaWhatsappService {
       }),
       this.prisma.conversacion.update({
         where: { id: conversacion.id },
-        data: { updatedAt: new Date() },
+        /* Escribió la paciente: queda esperando a una persona, que es lo que
+           alimenta la pestaña "Sin responder" del inbox. */
+        data: { updatedAt: new Date(), esperandoRespuesta: true },
       }),
     ]);
 
@@ -364,7 +366,11 @@ export class IngestaWhatsappService {
       }),
       this.prisma.conversacion.update({
         where: { id: conversacionId },
-        data: { updatedAt: new Date() },
+        /* `true`, no `false`: el acuse NO es una respuesta. Si esto lo pusiera
+           en `false`, todo lo que entra un fin de semana saldría de "Sin
+           responder" y el lunes nadie sabría quién quedó esperando — el mismo
+           caso que ya cubre `automatico` en `estaSinResponder()`. */
+        data: { updatedAt: new Date(), esperandoRespuesta: true },
       }),
     ]);
 

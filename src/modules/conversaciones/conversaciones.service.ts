@@ -2,38 +2,40 @@ import { BadRequestException, Injectable, Logger, NotFoundException } from '@nes
 import { Prisma, TipoMensaje } from '@prisma/client';
 
 import { CacheMemoria } from '../../common/cache/cache-memoria';
-import { escaparComodinesLike } from '../../common/dto/busqueda';
+import { escaparComodinesLike, terminoBusqueda } from '../../common/dto/busqueda';
+import { calcularPaginacion, paginar, RespuestaPaginada } from '../../common/dto/pagination.dto';
 import { R2Service } from '../../common/storage/r2.service';
 import { WhatsappCloudService } from '../../common/whatsapp/whatsapp-cloud.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ClientesService } from '../clientes/clientes.service';
 import { ConversacionesGateway } from './conversaciones.gateway';
 import { DespachadorSalienteService } from './despachador-saliente.service';
+import { QueryConversacionesDto, TabInbox } from './dto/query-conversaciones.dto';
 
 /** Mensajes que trae el detalle inicial de una conversación (más recientes primero, luego se reordenan).
  *  Se acota a 50 para máxima velocidad inicial; los anteriores se cargan por cursor al hacer scroll. */
 const LIMITE_MENSAJES_DETALLE = 50;
 
 /**
- * Techo de conversaciones que devuelve el inbox.
+ * Conversaciones por página del inbox.
  *
- * **No es paginación, es un corte**, y por eso importa el número. El frontend
- * resuelve las pestañas, el filtro por agente y el buscador **en memoria sobre
- * lo que recibe**: una conversación fuera de este tope no está "en la página
- * siguiente", simplemente no existe para la interfaz — tampoco al buscar a esa
- * paciente por nombre.
+ * Sustituye al viejo `LIMITE_INBOX = 500`, que **no era paginación sino un
+ * corte**: el frontend resolvía pestañas, filtro por agente y buscador en
+ * memoria sobre lo recibido, así que una conversación fuera del tope no estaba
+ * "en la página siguiente" — no existía para la interfaz, tampoco al buscar a
+ * esa paciente por nombre. Ya había pasado al cruzar las 100 (siete chats
+ * desaparecidos sin que nada lo dijera) y volvía a pasar al cruzar las 500,
+ * proyectado para el 8 de septiembre de 2026 al ritmo medido de +13,3/día.
  *
- * Estaba en 100 desde el primer commit y se cruzó ese umbral en agosto de 2026:
- * siete chats habían desaparecido del inbox sin que nada lo dijera. Subirlo a
- * 500 no cuesta nada —la consulta va por índice en 0,2 ms y cada conversación
- * pesa unos 155 bytes— y da margen de años al ritmo actual.
+ * Ahora las cuatro operaciones viven en Postgres (ver `findAll`), así que este
+ * número ya no decide qué se puede encontrar, solo cuánto viaja por página.
  *
- * La solución de verdad es paginar por cursor, pero exige mover las pestañas y
- * la búsqueda al servidor: hoy filtrar en memoria es lo que hace que cambiar de
- * pestaña sea instantáneo. Mientras tanto, alcanzar el tope deja un WARN en el
- * log en vez de esconder chats en silencio.
+ * 50 y no los 25 por defecto de `PaginationDto` porque acá lo caro es el viaje,
+ * no los bytes: ~155 bytes por conversación son ~7,7 kB por página contra los
+ * ~190 ms que cuesta cada ida y vuelta desde Bolivia (ver `crm-rendimiento`).
+ * Duplicar la página para partir a la mitad los "cargar más" sale a cuenta.
  */
-const LIMITE_INBOX = 500;
+const POR_PAGINA_INBOX = 50;
 
 /* Estas dos cachés guardan un único valor cada una, así que la clave es
    simbólica: existe porque `CacheMemoria` está pensada para varias entradas. */
@@ -121,6 +123,142 @@ function whereSoloMios(usuarioId: string): Prisma.ConversacionWhereInput {
   return { OR: [{ agenteId: usuarioId }, { agenteId: null }] };
 }
 
+/**
+ * La pestaña activa, traducida a SQL.
+ *
+ * Las cuatro se resolvían en el navegador sobre las conversaciones ya cargadas,
+ * que es exactamente lo que obligaba a cargarlas todas. `SIN_RESPONDER` es la
+ * única que no se puede expresar con los datos de la propia fila —depende del
+ * ÚLTIMO mensaje— y por eso `Conversacion.esperandoRespuesta` existe.
+ *
+ * Igual que `whereSoloMios`, esto es **preferencia de vista, no permiso**: se
+ * combina con AND sobre `whereVisibilidad` y jamás lo amplía.
+ */
+function whereTab(tab: TabInbox | undefined, usuarioId: string): Prisma.ConversacionWhereInput | undefined {
+  switch (tab) {
+    case 'SIN_ASIGNAR':
+      return { agenteId: null };
+    case 'MIS_CHATS':
+      return { agenteId: usuarioId };
+    case 'SIN_RESPONDER':
+      return { esperandoRespuesta: true };
+    default:
+      return undefined;
+  }
+}
+
+/**
+ * Buscador del inbox: nombre o teléfono de la paciente, sobre el conjunto
+ * COMPLETO.
+ *
+ * Antes esto vivía en el navegador y solo veía las 500 cargadas, así que buscar
+ * a una paciente con un chat antiguo devolvía cero y la agente concluía que no
+ * existía. Los dos `contains` van contra los índices GIN trigram que ya tiene
+ * `Cliente` (`Cliente_nombre_trgm_idx`, `Cliente_telefono_trgm_idx`).
+ *
+ * El teléfono no lleva `mode: 'insensitive'` a propósito: son dígitos, y pedir
+ * insensibilidad a mayúsculas ahí solo descarta el uso del índice.
+ *
+ * Pasa por `terminoBusqueda()` como todo buscador del backend: Prisma traduce
+ * `contains` a `LIKE '%…%'` **sin escapar**, así que teclear `%` devolvería el
+ * inbox entero y `20%` haría match con cualquier "20".
+ */
+function whereBusqueda(texto: string | undefined): Prisma.ConversacionWhereInput | undefined {
+  const q = terminoBusqueda(texto);
+  if (!q) return undefined;
+  return {
+    cliente: {
+      OR: [{ nombre: { contains: q, mode: 'insensitive' } }, { telefono: { contains: q } }],
+    },
+  };
+}
+
+/** Filtro del admin por agente asignado (solo aplica en la pestaña TODAS). */
+function whereAgente(agenteId: string | undefined): Prisma.ConversacionWhereInput | undefined {
+  return agenteId ? { agenteId } : undefined;
+}
+
+/**
+ * Las columnas de una fila del inbox, en un solo sitio.
+ *
+ * Lo usan el listado (`findAll`) y el refresco de una sola fila por WebSocket
+ * (`resumenParaInbox`). Estaban destinados a divergir si se escribían dos veces,
+ * y una fila del inbox con menos campos que sus vecinas se ve como un bug de
+ * pintado, no como dos `select` distintos.
+ */
+const SELECT_INBOX = {
+  id: true,
+  updatedAt: true,
+  esperandoRespuesta: true,
+  cliente: {
+    select: {
+      id: true,
+      nombre: true,
+      telefono: true,
+      categoria: true,
+      agente: { select: { id: true, nombre: true } },
+    },
+  },
+  agente: { select: { id: true, nombre: true } },
+  mensajes: {
+    /* `automatico` viaja aunque el listado no lo pinte: es lo que permite
+       al inbox distinguir "ya le contestó alguien" de "solo salió el
+       acuse fuera de horario". */
+    select: {
+      id: true,
+      contenido: true,
+      direccion: true,
+      estadoEnvio: true,
+      tipo: true,
+      automatico: true,
+      createdAt: true,
+    },
+    orderBy: { createdAt: 'desc' },
+    take: 1,
+  },
+  _count: {
+    select: {
+      mensajes: {
+        where: { direccion: 'ENTRANTE' as const, leidoEn: null },
+      },
+    },
+  },
+} satisfies Prisma.ConversacionSelect;
+
+type FilaCruda = Prisma.ConversacionGetPayload<{ select: typeof SELECT_INBOX }>;
+
+/** Una fila del inbox tal como la consume el frontend. */
+export type ConversacionDeInbox = Omit<FilaCruda, '_count'> & {
+  agente: { id: string; nombre: string } | null;
+  noLeidosCount: number;
+};
+
+/** Los números de las cuatro pestañas del inbox. */
+export interface ContadoresInbox {
+  total: number;
+  sinAsignar: number;
+  misChats: number;
+  sinResponder: number;
+}
+
+/**
+ * Normaliza una fila cruda: expone el contador de no leídos con nombre propio y
+ * resuelve el agente mostrado.
+ *
+ * El `?? cliente.agente` no es cosmético: una conversación del pool que atiende
+ * cualquiera sigue perteneciendo a la dueña de la paciente, y es la razón por la
+ * que `whereVisibilidad` la deja ver. Sin esta línea, la fila aparecería como
+ * "sin asignar" para quien sí es su dueña.
+ */
+function aFilaDeInbox(fila: FilaCruda): ConversacionDeInbox {
+  const { _count, ...resto } = fila;
+  return {
+    ...resto,
+    agente: fila.agente ?? fila.cliente?.agente ?? null,
+    noLeidosCount: _count.mensajes,
+  };
+}
+
 /** Combina filtros opcionales con AND; `undefined` si no hay ninguno. */
 function combinar(
   ...filtros: (Prisma.ConversacionWhereInput | undefined)[]
@@ -193,75 +331,133 @@ export class ConversacionesService {
     maxEntradas: 1,
   });
 
-  /** Visibilidad por rol: AGENTE ve sus conversaciones + las sin asignar; ADMIN todo. */
   /**
+   * Visibilidad por rol: AGENTE ve sus conversaciones + las sin asignar; ADMIN todo.
+   *
+   * **Paginado y filtrado en Postgres desde 2026-08-27.** Antes devolvía las 500
+   * más recientes de golpe y el navegador resolvía pestañas, filtro por agente y
+   * buscador en memoria sobre ese corte. Con eso, una conversación en el puesto
+   * 501 no estaba "en la página siguiente": no existía para la interfaz, y sobre
+   * todo **no aparecía al buscar a esa paciente por nombre** — la agente leía
+   * "sin resultados" y concluía que la paciente no estaba en el sistema. Al
+   * ritmo medido (+13,3 conversaciones/día sobre 325) el tope caía el 8 de
+   * septiembre de 2026.
+   *
+   * Subir el número solo movía la fecha. Lo que se arregló es la causa: las
+   * cuatro operaciones —ordenar, filtrar por pestaña, filtrar por agente y
+   * buscar— ahora ocurren donde están todos los datos.
+   *
    * @param soloAgenteId Permiso: a qué agente se acota. `undefined` = ve todo.
-   * @param soloMiosDe   Vista: id del usuario que pidió "solo míos". Se combina
-   *                     con el permiso, nunca lo amplía.
+   * @param usuarioId    Quién pregunta. Solo para las vistas que se definen
+   *                     respecto de uno mismo ("solo míos", pestaña "Mis chats").
+   * @param query        Preferencias de vista y paginación. Nunca amplían el permiso.
    */
-  async findAll(soloAgenteId?: string, soloMiosDe?: string) {
-    const conversaciones = await this.prisma.conversacion.findMany({
+  async findAll(
+    soloAgenteId: string | undefined,
+    usuarioId: string,
+    query: QueryConversacionesDto = {},
+  ): Promise<RespuestaPaginada<ConversacionDeInbox> & { contadores: ContadoresInbox }> {
+    /* El permiso va primero y siempre; lo demás son preferencias de vista que
+       se le suman con AND. Fundirlos es cómo un interruptor de la interfaz
+       termina redefiniendo quién ve los datos de qué paciente. */
+    const where = combinar(
+      whereVisibilidad(soloAgenteId),
+      query.soloMios ? whereSoloMios(usuarioId) : undefined,
+      whereTab(query.tab, usuarioId),
+      whereBusqueda(query.busqueda),
+      whereAgente(query.agenteId),
+    );
+
+    const dto = { pagina: query.pagina, limite: query.limite ?? POR_PAGINA_INBOX };
+    const { skip, take } = calcularPaginacion(dto);
+
+    /* Página y total en un solo viaje, como manda `crm-backend-module`. */
+    const [conversaciones, total] = await this.prisma.$transaction([
+      this.prisma.conversacion.findMany({
+        where,
+        orderBy: { updatedAt: 'desc' },
+        select: SELECT_INBOX,
+        skip,
+        take,
+      }),
+      this.prisma.conversacion.count({ where }),
+    ]);
+
+    return {
+      ...paginar(conversaciones.map(aFilaDeInbox), total, dto),
+      contadores: await this.contadoresInbox(soloAgenteId, usuarioId, query.soloMios),
+    };
+  }
+
+  /**
+   * Los números de las cuatro pestañas.
+   *
+   * Se calculan sobre el ALCANCE del usuario, no sobre la pestaña ni la búsqueda
+   * activas — igual que hacía el `stats` del frontend, que contaba sobre la lista
+   * completa cargada y no sobre la filtrada. Si dependieran del filtro activo,
+   * la pestaña "Sin responder" mostraría "0" mientras estás dentro de ella
+   * habiendo escrito algo en el buscador.
+   *
+   * Cuatro `count` indexados en una sola transacción: `agenteId` sostiene dos y
+   * `esperandoRespuesta` el tercero.
+   */
+  private async contadoresInbox(
+    soloAgenteId: string | undefined,
+    usuarioId: string,
+    soloMios?: boolean,
+  ): Promise<ContadoresInbox> {
+    const base = combinar(
+      whereVisibilidad(soloAgenteId),
+      soloMios ? whereSoloMios(usuarioId) : undefined,
+    );
+
+    const conBase = (extra?: Prisma.ConversacionWhereInput) => combinar(base, extra);
+
+    const [total, sinAsignar, misChats, sinResponder] = await this.prisma.$transaction([
+      this.prisma.conversacion.count({ where: base }),
+      this.prisma.conversacion.count({ where: conBase({ agenteId: null }) }),
+      this.prisma.conversacion.count({ where: conBase({ agenteId: usuarioId }) }),
+      this.prisma.conversacion.count({ where: conBase({ esperandoRespuesta: true }) }),
+    ]);
+
+    return { total, sinAsignar, misChats, sinResponder };
+  }
+
+  /**
+   * Una sola fila del inbox, para el aviso de tiempo real.
+   *
+   * Cuando llega un mensaje, el frontend necesita refrescar ESA conversación,
+   * no las 500 (ni la página entera). Devuelve `null` si la conversación ya no
+   * pertenece a la vista activa —le contestaron y estabas en "Sin responder",
+   * te la reasignaron y estabas en "Mis chats"— para que el navegador la quite
+   * en vez de dejar una fila que ya no corresponde.
+   *
+   * El `where` se arma con los MISMOS constructores que `findAll`, así que el
+   * permiso se aplica igual: nadie recibe por esta vía una conversación que no
+   * podría ver en el listado.
+   */
+  async resumenParaInbox(
+    id: string,
+    soloAgenteId: string | undefined,
+    usuarioId: string,
+    query: QueryConversacionesDto = {},
+  ): Promise<{ conversacion: ConversacionDeInbox | null; contadores: ContadoresInbox }> {
+    const fila = await this.prisma.conversacion.findFirst({
       where: combinar(
+        { id },
         whereVisibilidad(soloAgenteId),
-        soloMiosDe ? whereSoloMios(soloMiosDe) : undefined,
+        query.soloMios ? whereSoloMios(usuarioId) : undefined,
+        whereTab(query.tab, usuarioId),
+        whereBusqueda(query.busqueda),
+        whereAgente(query.agenteId),
       ),
-      orderBy: { updatedAt: 'desc' },
-      select: {
-        id: true,
-        updatedAt: true,
-        cliente: {
-          select: {
-            id: true,
-            nombre: true,
-            telefono: true,
-            categoria: true,
-            agente: { select: { id: true, nombre: true } },
-          },
-        },
-        agente: { select: { id: true, nombre: true } },
-        mensajes: {
-          /* `automatico` viaja aunque el listado no lo pinte: es lo que permite
-             al inbox distinguir "ya le contestó alguien" de "solo salió el
-             acuse fuera de horario". Sin él, la pestaña "Sin responder" daría
-             por atendido todo lo que llegó un fin de semana. */
-          select: {
-            id: true,
-            contenido: true,
-            direccion: true,
-            estadoEnvio: true,
-            tipo: true,
-            automatico: true,
-            createdAt: true,
-          },
-          orderBy: { createdAt: 'desc' },
-          take: 1,
-        },
-        _count: {
-          select: {
-            mensajes: {
-              where: { direccion: 'ENTRANTE', leidoEn: null },
-            },
-          },
-        },
-      },
-      take: LIMITE_INBOX,
+      select: SELECT_INBOX,
     });
 
-    /* Si se alcanza el tope, hay conversaciones que el inbox NO está mostrando
-       y nadie se entera: el frontend filtra las pestañas y busca sobre lo que
-       recibió, así que una conversación fuera de este corte es invisible
-       también para el buscador. Pasó de verdad al cruzar las 100. */
-    if (conversaciones.length === LIMITE_INBOX) {
-      this.logger.warn(
-        `El inbox alcanzó el tope de ${LIMITE_INBOX} conversaciones: hay chats antiguos que no se están mostrando. Toca paginar de verdad.`,
-      );
-    }
-
-    return conversaciones.map(c => ({
-      ...c,
-      agente: c.agente ?? c.cliente?.agente ?? null,
-      noLeidosCount: c._count.mensajes,
-    }));
+    return {
+      conversacion: fila ? aFilaDeInbox(fila) : null,
+      contadores: await this.contadoresInbox(soloAgenteId, usuarioId, query.soloMios),
+    };
   }
 
   /**
@@ -503,7 +699,10 @@ export class ConversacionesService {
       }),
       this.prisma.conversacion.update({
         where: { id: conversacionId },
-        data: { updatedAt: new Date() },
+        /* Contestó una persona: sale de la pestaña "Sin responder". Va en la
+           MISMA transacción que el mensaje a propósito — si se separara, un
+           fallo entre las dos dejaría la pestaña mintiendo. */
+        data: { updatedAt: new Date(), esperandoRespuesta: false },
       }),
     ]);
 
@@ -664,7 +863,10 @@ export class ConversacionesService {
       }),
       this.prisma.conversacion.update({
         where: { id: conversacionId },
-        data: { updatedAt: new Date() },
+        /* Contestó una persona: sale de la pestaña "Sin responder". Va en la
+           MISMA transacción que el mensaje a propósito — si se separara, un
+           fallo entre las dos dejaría la pestaña mintiendo. */
+        data: { updatedAt: new Date(), esperandoRespuesta: false },
       }),
     ]);
 

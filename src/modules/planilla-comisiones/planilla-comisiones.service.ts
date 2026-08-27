@@ -27,10 +27,15 @@ const TAMANO_LOTE = 500;
 /**
  * Techo del mes completo de una vendedora (`?mesCompleto=true`).
  *
- * **No es paginación, es un corte**, igual que `LIMITE_INBOX` en Conversaciones
- * y por el mismo motivo: la vista de desempeño busca y filtra en memoria sobre
- * lo que recibe, así que una fila fuera del tope no está en la página
- * siguiente, sencillamente no existe para el buscador.
+ * **No es paginación, es un corte**: la vista de desempeño busca y filtra en
+ * memoria sobre lo que recibe, así que una fila fuera del tope no está en la
+ * página siguiente, sencillamente no existe para el buscador.
+ *
+ * Es el mismo patrón que tenía el inbox de Conversaciones (`LIMITE_INBOX`) y
+ * que allí **terminó escondiendo chats en silencio**: se resolvió el 2026-08-27
+ * moviendo orden, filtros y búsqueda a Postgres. Acá el corte se sostiene por
+ * los números de abajo —un mes cabe de sobra en 500— pero si algún día dejan de
+ * cumplirse, la salida es esa y no subir el número. Ver `crm-backend-module`.
  *
  * 500 sale de los datos, no de la intuición: el mes más cargado de las 67
  * combinaciones vendedora-mes importadas tiene 423 ventas, y la mediana 117.

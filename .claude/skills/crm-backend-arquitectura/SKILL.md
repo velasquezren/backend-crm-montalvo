@@ -406,35 +406,43 @@ cierre de esta sección).
   que ya sospechás. Si alguna vez hace falta diagnosticar lentitud de verdad y
   no de oído, habilitarla es el primer paso (`shared_preload_libraries`, exige
   reiniciar Postgres — que en este VPS es compartido, así que no es gratis).
-- **`LIMITE_INBOX = 500` es el único problema de escala REAL del sistema, y
-  tiene fecha estimada de vencimiento: ~8 de septiembre de 2026.** Ya no es un
-  "vale revisar algún día" — esa era la redacción de este archivo hasta el
-  2026-08-26, cuando se midió el crecimiento y dejó de ser hipotético:
+- **`LIMITE_INBOX = 500` era el único problema de escala REAL del sistema.
+  RESUELTO el 2026-08-27**, trece días antes de la fecha en que iba a estallar.
+
+  Se deja escrito porque la FORMA del fallo se repite. El backend cortaba en las
+  500 más recientes y **el frontend filtraba las pestañas y buscaba en memoria
+  sobre ese corte**. Una conversación fuera del corte no estaba "más abajo": era
+  invisible para las pestañas *y para el buscador*. La agente buscaba a una
+  paciente con chat antiguo, leía "sin resultados" y concluía que no existía.
+  No era degradación gradual sino un acantilado —a 499 todo bien, a 501 empiezan
+  a desaparecer chats— y lo único que avisaba era un `logger.warn` que nadie
+  mira. Ya había pasado una vez al cruzar las 100.
 
   ```
-  Conversacion hoy (2026-08-26):        325
-  Tope del inbox:                       500
-  Margen:                               175
-  Altas nuevas, 14 días (13→26 ago):    186  →  13,3/día  (rango 4–23)
-  175 / 13,3  ≈  13 días
+  Conversacion el 2026-08-26:           325
+  Altas nuevas, 14 días (13→26 ago):    186  →  13,3/día
+  (500 - 325) / 13,3  ≈  13 días        →  ~8 de septiembre de 2026
   ```
 
-  **Qué pasa exactamente al cruzarlo**, según el comentario del propio
-  `conversaciones.service.ts` (que ya lo vivió una vez "al cruzar las 100"): el
-  backend corta en las 500 más recientes por `updatedAt` y **el frontend filtra
-  las pestañas y busca en memoria sobre lo que recibió**. Así que una
-  conversación fuera del corte no es solo "está más abajo en la lista": es
-  invisible para las pestañas *y para el buscador*. Una agente que busque a una
-  paciente con un chat antiguo obtiene cero resultados y concluye que no existe.
+  **Qué se hizo, y por qué no fue subir el número**: las cuatro operaciones
+  —ordenar, filtrar por pestaña, filtrar por agente y buscar— se movieron a
+  Postgres, y el listado pasa `RespuestaPaginada` como el resto del CRM. La
+  pestaña "Sin responder" necesitó una columna desnormalizada
+  (`Conversacion.esperandoRespuesta`) porque "el último mensaje es ENTRANTE o
+  automático" no se puede expresar en un `where` de Prisma; se escribe en las
+  cuatro transacciones que crean un Mensaje, y hay tests que fijan las cuatro.
 
-  No es degradación gradual, es un acantilado: a 499 conversaciones todo
-  funciona, a 501 empiezan a desaparecer chats en silencio. Lo único que avisa
-  es un `logger.warn` que nadie está mirando.
+  Medido sobre 1.000 conversaciones sembradas:
 
-  Paginar de verdad exige mover pestañas y búsqueda al servidor — por eso se
-  difirió, y la razón sigue siendo válida. Lo que cambió es que ahora hay una
-  fecha. Subir el número a 2.000 es un parche de una línea que compra ~4 meses;
-  la solución real es servidor-primero. Elegir a conciencia, no por defecto.
+  | | antes | después |
+  |---|---|---|
+  | Carga inicial | 500 filas · 277,7 kB · 47 ms | 50 filas · 27,8 kB · 18 ms |
+  | Un mensaje nuevo (WebSocket) | recargaba las 500 · 277,7 kB | 1 fila · 0,6 kB |
+  | Buscar a la paciente del puesto 1.000 | **0 resultados** | 1 resultado · 5,9 ms |
+
+  Cubierto por `inbox-escala.integracion.spec.ts`: 499/500/501/1.000, búsqueda
+  de la más antigua por nombre y por teléfono, permisos por agente y refresco de
+  una sola fila.
 - **N+1 en los services grandes** — auditado el 2026-08-21, línea por línea:
   `planilla-comisiones.service.ts` resuelve TODOS sus agregados en SQL dentro de
   una sola `$transaction` (`aggregate` + dos `groupBy` en `listarVentas`), y el N+1

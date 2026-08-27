@@ -144,10 +144,34 @@ export class DespachadorSalienteService {
     { mensajeId, conversacionId }: Destino,
     metaMsgId: string | null,
   ): Promise<void> {
-    await this.prisma.mensaje.update({
+    /*
+     * `updateMany` y no `update` porque esto corre en un `void` sin `.catch()`
+     * (ver `enviarMensaje`): `update` LANZA si la fila ya no está, y una
+     * promesa rechazada sin manejar no la ve nadie hasta que tumba el proceso.
+     *
+     * Y la fila puede no estar: entre que el mensaje se guarda y que Meta
+     * contesta (300-900 ms, a veces más) alguien pudo borrar la conversación,
+     * que arrastra sus mensajes en cascada. `updateMany` afecta cero filas y
+     * sigue, que es exactamente lo correcto para una anotación en segundo
+     * plano — el mismo criterio que ya usa la reclamación del pool.
+     *
+     * No es teórico: la suite de integración lo provocaba de verdad. Once de
+     * sus tests mandan un mensaje sin esperar al despacho, el `afterEach`
+     * limpiaba las tablas con el envío todavía en vuelo, y el rechazo caía
+     * sobre el test siguiente — un fallo intermitente (1 de cada 4 corridas)
+     * que acusaba a una prueba que no tenía nada que ver.
+     */
+    const { count } = await this.prisma.mensaje.updateMany({
       where: { id: mensajeId },
       data: metaMsgId ? { whatsappMsgId: metaMsgId } : { estadoEnvio: 'FALLIDO' },
     });
+
+    if (count === 0) {
+      /* `debug` y no `warn`: en producción es rarísimo, pero en la suite pasa
+         once veces por corrida y un warn que sale siempre enseña a ignorarlos. */
+      this.logger.debug(`El mensaje ${mensajeId} ya no existe al anotar el resultado del envío.`);
+    }
+
     this.gateway.emitirActividad(conversacionId);
   }
 }

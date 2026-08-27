@@ -56,9 +56,21 @@ Respuesta: `{ datos, total, pagina, limite, totalPaginas }`.
 Por defecto 25 por página, tope duro 100 (`common/dto/pagination.dto.ts`).
 El frontend consume este sobre con `RespuestaPaginada<T>` y el átomo `<app-paginator>`.
 
-**Excepción documentada:** el inbox de conversaciones no se pagina (la UI filtra por
-pestañas sobre el conjunto cargado); se acota a las 500 más recientes
-(`LIMITE_INBOX`, con un WARN en el log si se alcanza).
+**Ya no hay excepciones. El inbox era la última, y salió cara** (2026-08-27).
+Devolvía las 500 conversaciones más recientes sin paginar y la UI filtraba por
+pestañas y **buscaba** sobre ese conjunto. El fallo no era lentitud: una
+conversación en el puesto 501 no aparecía al buscar a esa paciente por nombre,
+así que la agente leía "sin resultados" y concluía que no estaba en el sistema.
+
+Es la forma más peligrosa de este bug, porque **un corte se lee como un dato**.
+Con un `take` fijo la pantalla no dice "hay más": dice "no hay". Y el WARN que
+avisaba del tope estaba en el log del servidor, donde nadie lo mira.
+
+Lo que costó arreglarlo, por si tienta repetirlo: mover las cuatro operaciones
+—ordenar, filtrar por pestaña, filtrar por agente, buscar— a Postgres, más una
+columna desnormalizada (`Conversacion.esperandoRespuesta`) porque "el último
+mensaje es ENTRANTE" no se puede expresar en un `where` de Prisma. **Habría
+sido más barato paginar desde el principio.**
 
 ## Visibilidad por rol
 

@@ -229,10 +229,30 @@ model Conversacion {
   mensajes  Mensaje[]
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
+  /// True mientras la paciente espera respuesta de una PERSONA: lo último que
+  /// pasó fue un mensaje suyo, o el acuse automático fuera de horario (que no
+  /// cuenta como respuesta). Es la pestaña "Sin responder" del inbox.
+  ///
+  /// Está desnormalizado a propósito. La condición real —"el ÚLTIMO mensaje es
+  /// ENTRANTE o automático"— no se puede expresar en un `where` de Prisma sin
+  /// una subconsulta correlacionada por fila, así que la pestaña se resolvía en
+  /// el navegador sobre las conversaciones ya cargadas. Eso obligaba a cargarlas
+  /// TODAS, que es la raíz del tope de 500 que escondía chats en silencio.
+  ///
+  /// Se escribe en las mismas cuatro transacciones que ya bumpean `updatedAt`
+  /// al crear un mensaje (enviarMensaje, enviarPlantilla, procesarEntrante,
+  /// guardarMensajeAutomatico). Si alguna vez agregas un quinto camino que
+  /// cree un Mensaje, escribe también este campo o la pestaña mentirá en
+  /// silencio. Los cuatro casos están fijados en
+  /// `conversaciones.integracion.spec.ts`, bloque "la pestaña Sin responder se
+  /// mantiene al crear cada mensaje".
+  esperandoRespuesta Boolean @default(false)
 
   @@index([agenteId])
   @@index([updatedAt])
   @@index([agenteId, updatedAt])
+  /// Sirve al filtro y al contador de la pestaña "Sin responder" a la vez.
+  @@index([esperandoRespuesta, updatedAt])
 }
 
 model Mensaje {

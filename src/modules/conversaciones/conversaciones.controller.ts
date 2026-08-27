@@ -24,9 +24,29 @@ export class ConversacionesController {
    */
   @Get()
   findAll(@CurrentUser() usuario: UsuarioJwt, @Query() query: QueryConversacionesDto) {
-    return this.conversacionesService.findAll(
+    return this.conversacionesService.findAll(alcanceAgente(usuario), usuario.sub, query);
+  }
+
+  /**
+   * Una sola fila del inbox, para refrescar por WebSocket lo que cambió sin
+   * recargar la página entera.
+   *
+   * Recibe los mismos filtros de vista que el listado porque la respuesta
+   * depende de ellos: si la conversación ya no encaja en la pestaña activa
+   * —le contestaron y estás en "Sin responder"— devuelve `conversacion: null`
+   * y el navegador la quita, en vez de dejar una fila que ya no corresponde.
+   */
+  @Get(':id/resumen')
+  resumenParaInbox(
+    @Param('id') id: string,
+    @CurrentUser() usuario: UsuarioJwt,
+    @Query() query: QueryConversacionesDto,
+  ) {
+    return this.conversacionesService.resumenParaInbox(
+      id,
       alcanceAgente(usuario),
-      query.soloMios ? usuario.sub : undefined,
+      usuario.sub,
+      query,
     );
   }
 
