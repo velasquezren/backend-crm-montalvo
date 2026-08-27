@@ -494,8 +494,24 @@ cierre de esta sección).
 - Si tocaste algo con lógica de negocio real (no solo observabilidad/infra):
   `npm run test:integracion:preparar && npm run test:integracion` contra
   Postgres real — necesita un Postgres en `:5433`. Si no hay uno a mano, se
-  puede levantar uno descartable sin Docker ni systemd (`initdb` + `pg_ctl` de
-  usuario, ver el historial de este chat del 2026-08-20 para la receta exacta).
+  levanta uno descartable sin Docker ni systemd, como usuario normal (probado
+  el 2026-08-27; antes esto decía "ver el historial de aquel chat", que es un
+  puntero a nada):
+
+  ```bash
+  PG=/usr/lib/postgresql/16/bin          # los binarios están aquí aunque no haya servicio
+  DATA=/tmp/pgdata-crm                   # cualquier ruta escribible
+  $PG/initdb -D "$DATA" -U crm_app --auth=trust -E UTF8
+  $PG/pg_ctl -D "$DATA" -o "-p 5433 -k /tmp -c listen_addresses=localhost" -l "$DATA/log" start
+  psql -h localhost -p 5433 -U crm_app -d postgres -c "ALTER USER crm_app PASSWORD 'crm_dev_local';"
+  # …trabajar…
+  $PG/pg_ctl -D "$DATA" stop              # y borrar $DATA cuando sobre
+  ```
+
+  `--auth=trust` es aceptable porque escucha solo en loopback y muere con el
+  directorio; la contraseña se fija igual porque es la que traen cableada las
+  suites (`crm_app:crm_dev_local`). Vale la pena montarlo aunque sea para una
+  sola prueba: sin base real, "compila" es todo lo que se puede afirmar.
 - Si el cambio va a producción: seguir §4 completo, sin saltarse el backup ni
   la verificación posterior. "Compiló" no es "funciona" — este proyecto lo
   usan agentes reales sobre datos de pacientes reales, todos los días, sin red
