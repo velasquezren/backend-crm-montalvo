@@ -768,6 +768,7 @@ export class ExportacionComisionesService {
         fecha: true, modulo: true, detalle: true, paciente: true, medico: true,
         captacion: true, canal: true, clasif: true, tipo: true, nivel: true,
         precio: true, ingresoNeto: true, comisionable: true, motivoExclusion: true,
+        codOrigen: true,
       },
     });
 
@@ -780,6 +781,7 @@ export class ExportacionComisionesService {
     const filaTabla = hoja.rowCount + 1;
     const columnas: TableColumnProperties[] = [
       { name: 'Fecha', filterButton: true },
+      { name: 'Cod. Origen', filterButton: true },
       { name: 'Módulo', filterButton: true },
       { name: 'Servicio', filterButton: true },
       { name: 'Paciente', filterButton: true },
@@ -796,6 +798,7 @@ export class ExportacionComisionesService {
     ];
     const filas = ventas.map(v => [
       v.fecha ? v.fecha.toISOString().slice(0, 10) : '—',
+      v.codOrigen ?? '—',
       v.modulo ?? '—',
       v.detalle,
       v.paciente ?? '—',
@@ -822,8 +825,9 @@ export class ExportacionComisionesService {
 
     const inicio = filaTabla + 1;
     const fin = filaTabla + filas.length;
-    this.formatoRangoColumna(hoja, inicio, fin, 11, FORMATO.usd);
+    // Precio y Base se corrieron una columna por la nueva "Cod. Origen" en la posición 2.
     this.formatoRangoColumna(hoja, inicio, fin, 12, FORMATO.usd);
+    this.formatoRangoColumna(hoja, inicio, fin, 13, FORMATO.usd);
   }
 
   /**
@@ -934,6 +938,7 @@ export class ExportacionComisionesService {
   private async hojaDetalle(libro: Workbook, periodoId: string): Promise<void> {
     const columnas: ColumnaInforme[] = [
       { titulo: 'Fecha', clave: 'fecha', ancho: 12 },
+      { titulo: 'Cod. Origen', clave: 'codOrigen', ancho: 12 },
       { titulo: 'Módulo', clave: 'modulo', ancho: 14 },
       { titulo: 'Servicio', clave: 'detalle', ancho: 44 },
       { titulo: 'Paciente', clave: 'paciente', ancho: 30 },
@@ -964,7 +969,7 @@ export class ExportacionComisionesService {
           fecha: true, modulo: true, detalle: true, paciente: true, medico: true,
           vendedoraNombre: true, captacion: true, canal: true, clasif: true, tipo: true,
           nivel: true, precio: true, ingresoNeto: true, comisionable: true,
-          motivoExclusion: true,
+          motivoExclusion: true, codOrigen: true,
         },
       });
       if (filas.length === 0) break;
@@ -978,6 +983,7 @@ export class ExportacionComisionesService {
           ingresoNeto: Number(f.ingresoNeto),
           comisiona: f.comisionable ? 'Sí' : 'No',
           motivoExclusion: f.motivoExclusion ?? '',
+          codOrigen: f.codOrigen ?? '—',
         });
       }
 
