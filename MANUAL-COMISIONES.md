@@ -567,31 +567,38 @@ con lo que está encima.
 
 ---
 
-## 12a. El informe PDF (el que se firma)
+## 12a. El informe de liquidación (el que se firma)
 
-Botón **«Informe PDF»** junto a «Descargar Excel», en la barra del periodo.
+Botón **«Informe Word»** en la barra del periodo, y **«Informe»** en cada fila
+de *Planillas cargadas en el sistema* — desde ahí se bajan varios meses seguidos
+sin abrirlos.
 
-Es una página apaisada con la planilla del mes, el bloque de marketing y las
-tres firmas — **Elaborado por** y **Revisado por** salen del usuario que lo
-genera; **Autorizado por** es siempre la dirección de la clínica.
+Sale un **.docx de una hoja vertical**: la planilla del mes, el bloque de
+marketing y las tres firmas. **Elaborado por** y **Revisado por** salen del
+usuario que lo genera; **Autorizado por** es siempre la dirección de la clínica.
+
+Es Word y no PDF para que administración pueda **corregir o anotar** antes de
+firmarlo, y exportarlo a PDF desde Word cuando toque archivarlo.
 
 No es el Excel en otro formato, y conviene no confundirlos:
 
 | | Para qué |
 |---|---|
 | **Excel** | Auditar: 20 columnas, hoja por vendedora, cada venta del mes |
-| **PDF** | Pagar: 13 columnas, una página, listo para firmar y archivar |
+| **Informe Word** | Pagar: 7 columnas, una hoja vertical, listo para firmar |
 
-En el PDF se quitan Tipo, Área, Planes, Cumple objetivo, Cirugías acumuladas y
-los dos niveles: explican **cómo se llegó** a la cifra, y para eso está el
-Excel. Cada columna de más le quita ancho a las que importan.
+En el informe van Vendedora, Facturado, Comisiones, Bonos, Total Bs, Sueldo y
+A PAGAR. Las cuatro comisiones (Tipo A, A RA, B y C) van **sumadas en una sola
+columna**: el desglose por tipo, los niveles y los planes están en el Excel, que
+es donde se audita. Tampoco lleva «Total $us», porque es exactamente
+*Comisiones + Bonos*, que están en la misma fila.
 
-> **Si el periodo no está cerrado, la cabecera dice «PRELIMINAR».** Las cifras
-> de un mes sin cerrar pueden cambiar al día siguiente, y sin ese aviso el
-> informe de un borrador sale idéntico al definitivo.
+> **Si el periodo no está cerrado, el documento dice «DOCUMENTO PRELIMINAR».**
+> Las cifras de un mes sin cerrar pueden cambiar al día siguiente, y este
+> archivo es editable y va a circular.
 
 Respeta el mismo interruptor de «incluir dadas de baja» que la pantalla y el
-Excel: lo que ves es lo que se imprime.
+Excel: lo que ves es lo que se firma.
 
 ---
 

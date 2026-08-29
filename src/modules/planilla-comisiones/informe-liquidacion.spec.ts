@@ -1,22 +1,21 @@
-import { PassThrough } from 'stream';
-
 import { CalculoComisionesService } from './calculo-comisiones.service';
-import { ExportacionPdfService } from './exportacion-pdf.service';
+import { ExportacionWordService } from './exportacion-word.service';
 import {
   armarInforme,
   AUTORIZA_PLANILLA,
+  comisionesDe,
   FilaInforme,
   firmantesPara,
   formatearNumero,
-} from './informe-pdf';
+} from './informe-liquidacion';
 
 /**
- * El informe de comisiones en PDF: el documento que se imprime y se firma.
+ * El informe de liquidación: el documento que administración revisa y firma.
  *
  * Las reglas (qué fila va en qué bloque, cuánto suma cada pie, quién firma) se
- * prueban sobre el módulo puro. Del PDF en sí se comprueba lo que de verdad
- * puede romperse sin que nadie lo note: que quepa en una página y que crezca
- * cuando toca.
+ * prueban sobre el módulo puro, que no depende del formato. Del .docx en sí se
+ * comprueba que se genere y que sea un Word de verdad — el contenido visible ya
+ * está fijado por las pruebas de arriba.
  */
 
 function fila(nombre: string, area: string, valores: Partial<FilaInforme> = {}): FilaInforme {
@@ -118,6 +117,16 @@ describe('formatearNumero', () => {
   });
 });
 
+describe('comisionesDe', () => {
+  /* El informe vertical no tiene ancho para una columna por tipo —son cuatro—
+     y el desglose por tipo es justo lo que se va a mirar al Excel. */
+  it('suma los cuatro tipos en un solo número', () => {
+    expect(
+      comisionesDe({ comisionA: 98.08, comisionTipoARA: 2.91, comisionB: 551.24, comisionC: 24.6 }),
+    ).toBeCloseTo(676.83, 2);
+  });
+});
+
 describe('firmantesPara', () => {
   it('elaborado y revisado son quien genera el informe', () => {
     const f = firmantesPara({ nombre: 'Lic. Sara Bueno' });
@@ -139,7 +148,7 @@ describe('firmantesPara', () => {
   });
 });
 
-/* ── El PDF generado ─────────────────────────────────────────────────── */
+/* ── El documento generado ───────────────────────────────────────────── */
 
 function montarServicio(cantidadVendedoras: number, estado = 'CERRADO') {
   const resultados = Array.from({ length: cantidadVendedoras }, (_, i) => ({
@@ -197,45 +206,35 @@ function montarServicio(cantidadVendedoras: number, estado = 'CERRADO') {
     {} as never,
     {} as never,
   );
-  return new ExportacionPdfService(prisma as never, calculo);
+  return new ExportacionWordService(prisma as never, calculo);
 }
 
-async function generar(cantidadVendedoras: number): Promise<Buffer> {
-  const trozos: Buffer[] = [];
-  const salida = new PassThrough();
-  salida.on('data', c => trozos.push(c as Buffer));
-  const cerrado = new Promise<void>(r => salida.on('end', () => r()));
+describe('documento Word generado', () => {
+  /* Un .docx es un ZIP: empieza por la firma PK. Si `Packer` devolviera otra
+     cosa —un stream, un string— Word abriría un archivo corrupto y el fallo
+     solo se vería al abrirlo. */
+  it('es un .docx válido', async () => {
+    const doc = await montarServicio(4).generar('p1', { usuarioId: 'u1' });
 
-  await montarServicio(cantidadVendedoras).exportar('p1', salida, { usuarioId: 'u1' });
-  await cerrado;
-  return Buffer.concat(trozos);
-}
-
-/** El nodo `/Pages` del PDF declara cuántas páginas tiene. */
-function paginas(pdf: Buffer): number {
-  return Number(/\/Count (\d+)/.exec(pdf.toString('latin1'))?.[1] ?? 0);
-}
-
-describe('PDF generado', () => {
-  it('es un PDF válido', async () => {
-    const pdf = await generar(4);
-
-    expect(pdf.subarray(0, 5).toString()).toBe('%PDF-');
-    expect(pdf.length).toBeGreaterThan(2000);
+    expect(doc.subarray(0, 2).toString()).toBe('PK');
+    expect(doc.length).toBeGreaterThan(3000);
   });
 
   /*
-   * La primera versión salía SIEMPRE con una segunda hoja en blanco: la
-   * aclaración del pie se escribía por debajo del margen inferior y PDFKit abre
-   * una página nueva él solo cuando eso pasa. No fallaba nada y el contenido
-   * era correcto — solo que el informe que se archiva tenía una hoja de más.
+   * El documento se arma entero en memoria (un ZIP no se puede escribir a
+   * medias), así que conviene tener a la vista cuánto ocupa: el servicio corre
+   * con MemoryMax=400M. Diez filas y tres firmas no llegan a 20 KB, y aunque el
+   * equipo creciera diez veces sigue siendo irrelevante.
    */
-  it('la planilla del equipo cabe en UNA página', async () => {
-    expect(paginas(await generar(4))).toBe(1);
+  it('pesa poco aunque el equipo crezca', async () => {
+    const doc = await montarServicio(40).generar('p1', { usuarioId: 'u1' });
+
+    expect(doc.length).toBeLessThan(200_000);
   });
 
-  /* Y cuando de verdad no cabe, pagina en vez de superponer filas. */
-  it('con muchas vendedoras crece a más páginas', async () => {
-    expect(paginas(await generar(40))).toBeGreaterThan(1);
+  it('se genera igual sin usuario que lo firme', async () => {
+    const doc = await montarServicio(4).generar('p1');
+
+    expect(doc.subarray(0, 2).toString()).toBe('PK');
   });
 });

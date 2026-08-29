@@ -1,10 +1,14 @@
 /**
- * Armado del informe de comisiones en PDF: la parte que decide QUÉ se imprime.
+ * Armado del informe de liquidación: la parte que decide QUÉ se imprime.
  *
- * Está separada del dibujo (`exportacion-pdf.service.ts`) a propósito: las
- * reglas —qué columnas entran, qué fila va en qué bloque, cuánto suma cada
- * pie— se pueden probar sin generar un PDF ni montar Nest. Lo que queda al otro
- * lado es solo geometría.
+ * Está separada del documento (`exportacion-word.service.ts`) a propósito: las
+ * reglas —qué fila va en qué bloque, cuánto suma cada pie, quién firma— se
+ * pueden probar sin generar un archivo ni montar Nest. Lo que queda al otro
+ * lado es maquetación.
+ *
+ * El nombre no menciona el formato porque no depende de él: esto mismo alimentó
+ * una versión en PDF antes de que administración pidiera poder editar el
+ * informe.
  */
 
 /** Una fila del consolidado, en lo que este informe necesita de ella. */
@@ -23,6 +27,22 @@ export interface FilaInforme {
   totalBob: number;
   sueldoBase: number;
   totalGanado: number;
+}
+
+/**
+ * Las cuatro comisiones sumadas.
+ *
+ * El informe vertical no tiene ancho para una columna por tipo —son cuatro— y
+ * el desglose por tipo es justamente lo que se va a mirar al Excel. Acá lo que
+ * hace falta es cuánto comisionó en total.
+ */
+export function comisionesDe(f: {
+  comisionA: number;
+  comisionTipoARA: number;
+  comisionB: number;
+  comisionC: number;
+}): number {
+  return redondear(f.comisionA + f.comisionTipoARA + f.comisionB + f.comisionC);
 }
 
 /** Los totales de un bloque. Mismas claves que una fila, sin los datos de identidad. */

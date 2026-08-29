@@ -24,7 +24,7 @@ import { CalculoComisionesService } from './calculo-comisiones.service';
 import { ConfiguracionComisionesService } from './configuracion-comisiones.service';
 import { ResumenAnualService } from './resumen-anual.service';
 import { ExportacionComisionesService } from './exportacion-comisiones.service';
-import { ExportacionPdfService } from './exportacion-pdf.service';
+import { ExportacionWordService } from './exportacion-word.service';
 import {
   ActualizarNivelCirugiaDto,
   ActualizarNivelTipoARADto,
@@ -82,7 +82,7 @@ export class PlanillaComisionesController {
     private readonly configuracion: ConfiguracionComisionesService,
     private readonly analitica: AnaliticaComisionesService,
     private readonly exportacion: ExportacionComisionesService,
-    private readonly exportacionPdf: ExportacionPdfService,
+    private readonly exportacionWord: ExportacionWordService,
     private readonly resumenAnual: ResumenAnualService,
   ) {}
 
@@ -280,25 +280,36 @@ export class PlanillaComisionesController {
   }
 
   /**
-   * El mismo informe, en PDF: el documento que se imprime y se firma.
+   * El informe del mes en Word: el documento que administración revisa, edita
+   * si hace falta y firma.
    *
    * Lleva las tres firmas, y `Elaborado`/`Revisado` salen del usuario que lo
    * genera — por eso hace falta el `@CurrentUser()` que el Excel no necesita.
+   *
+   * A diferencia del Excel no va en streaming: un .docx es un ZIP y se arma
+   * entero antes de poder escribirse. No es un problema de memoria porque el
+   * documento pesa unos 10 KB — son diez filas y tres firmas, no las 500 del
+   * detalle.
    */
-  @Get('periodos/:id/exportar-pdf')
-  async exportarPdf(
+  @Get('periodos/:id/exportar-word')
+  async exportarWord(
     @Param('id') id: string,
     @Query() query: QueryInformeDto,
     @CurrentUser() usuario: UsuarioJwt,
     @Res({ passthrough: false }) res: Response,
   ) {
-    const nombre = await this.exportacionPdf.nombreArchivo(id);
-    res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `attachment; filename="${nombre}"`);
-    await this.exportacionPdf.exportar(id, res, {
+    const nombre = await this.exportacionWord.nombreArchivo(id);
+    const documento = await this.exportacionWord.generar(id, {
       incluirOcultas: query.incluirOcultas ?? false,
       usuarioId: usuario.sub,
     });
+
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    );
+    res.setHeader('Content-Disposition', `attachment; filename="${nombre}"`);
+    res.end(documento);
   }
 
   @Get('periodos/:id/reporte/consolidado')
