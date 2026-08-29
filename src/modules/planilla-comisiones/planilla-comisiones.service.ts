@@ -1,5 +1,12 @@
 import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { EstadoPeriodo, Prisma, VendedoraComision } from '@prisma/client';
+import {
+  AreaVendedora,
+  EstadoPeriodo,
+  Prisma,
+  Rol,
+  TipoVendedora,
+  VendedoraComision,
+} from '@prisma/client';
 
 import { AuditService } from '../../common/audit/audit.service';
 import { terminoBusqueda } from '../../common/dto/busqueda';
@@ -16,7 +23,15 @@ import {
 import { CatalogoClinicoService } from './catalogo-clinico.service';
 import { ConfiguracionComisionesService } from './configuracion-comisiones.service';
 import { EQUIPO_OFICIAL, TIPO_CAMBIO_POR_DEFECTO } from './configuracion-por-defecto';
-import { ActualizarVendedoraDto } from './dto/configuracion.dto';
+import {
+  Aprobador,
+  bloqueosParaRevision,
+  calcularEstadoRevision,
+  esEditable,
+  MOTIVO_BLOQUEO,
+  transicionPermitida,
+} from './estados-periodo';
+import { ActualizarVendedoraDto, CrearVendedoraDto } from './dto/configuracion.dto';
 import { AjustarVentaDto, ImportarExcelDto, QueryPeriodosDto, QueryVentasImportadasDto } from './dto/planilla.dto';
 import { deducirPeriodo, leerExcel } from './excel-parser';
 import { ResumenAnualService } from './resumen-anual.service';
@@ -162,9 +177,9 @@ export class PlanillaComisionesService {
     const tipoCambio = dto.tipoCambio ?? deducido.tipoCambio;
 
     const existente = await this.prisma.periodoComision.findUnique({ where: { anio_mes: { anio, mes } } });
-    if (existente?.estado === EstadoPeriodo.CERRADO) {
+    if (existente && !esEditable(existente.estado)) {
       throw new ConflictException(
-        `El periodo ${mes}/${anio} está CERRADO. Reábrelo antes de volver a importar.`,
+        `No se puede reimportar ${mes}/${anio}. ${MOTIVO_BLOQUEO[existente.estado]}`,
       );
     }
 
@@ -525,8 +540,8 @@ export class PlanillaComisionesService {
 
   async eliminarPeriodo(id: string, usuarioId: string) {
     const periodo = await this.obtenerPeriodo(id);
-    if (periodo.estado === EstadoPeriodo.CERRADO) {
-      throw new ConflictException('No se puede eliminar un periodo CERRADO');
+    if (!esEditable(periodo.estado)) {
+      throw new ConflictException(`No se puede eliminar este periodo. ${MOTIVO_BLOQUEO[periodo.estado]}`);
     }
     // Las ventas y resultados caen por onDelete: Cascade.
     await this.prisma.periodoComision.delete({ where: { id } });
@@ -540,15 +555,256 @@ export class PlanillaComisionesService {
     return { eliminado: true };
   }
 
-  /** Cierra el periodo para que no se pueda reimportar ni recalcular por accidente. */
-  async cambiarEstado(id: string, estado: EstadoPeriodo, usuarioId: string) {
-    await this.obtenerPeriodo(id);
-    const periodo = await this.prisma.periodoComision.update({ where: { id }, data: { estado } });
-    /* BORRADOR ↔ CALCULADO mueve qué meses cuentan como liquidados en la vista
-       anual: hay que reflejarlo en el momento, no un minuto después. */
+  /* ── Ciclo de vida del mes ─────────────────────────────────────────────
+   *
+   * No hay un `cambiarEstado(estado)` genérico, y su ausencia es la mitad del
+   * arreglo. El que había aceptaba el valor que llegara sin comprobar nada:
+   * `CERRADO → BORRADOR` era un salto legal, así que el candado de un mes
+   * pagado dependía de que nadie eligiera mal en un desplegable.
+   *
+   * Ahora cada salto es un método con su propia intención, sus permisos, los
+   * datos que exige y su línea de auditoría. La tabla de `estados-periodo.ts`
+   * los valida a todos por igual: el nombre del método dice qué se quiere
+   * hacer, la tabla dice si se puede desde donde está.
+   */
+
+  /** Lo que la pantalla necesita para pintar el panel de cierre. */
+  async revision(periodoId: string) {
+    const periodo = await this.obtenerPeriodo(periodoId);
+    const [superAdmins, aprobaciones] = await Promise.all([
+      this.superAdminsActivos(),
+      this.prisma.aprobacionPeriodo.findMany({ where: { periodoId } }),
+    ]);
+
+    /*
+     * Los bloqueos se calculan ANTES de que alguien pulse —enterarse por un 409
+     * obliga a adivinar dónde ir— pero solo donde significan algo: en CALCULADO,
+     * que es el único estado desde el que se manda a revisar.
+     *
+     * No es una micro-optimización: `alertas()` son once consultas agregadas
+     * sobre las ventas del mes, y en un mes ya cerrado la respuesta no cambiaría
+     * ni un botón de la pantalla. Pedirlas igual sería trabajo para nadie.
+     */
+    const bloqueos =
+      periodo.estado === EstadoPeriodo.CALCULADO
+        ? bloqueosParaRevision({
+            ...(await this.alertas(periodoId)).totales,
+            vendedorasLiquidadas: periodo._count.resultados,
+          })
+        : [];
+
+    return {
+      estado: periodo.estado,
+      ...calcularEstadoRevision(superAdmins, aprobaciones),
+      bloqueos,
+      cerradoEn: periodo.cerradoEn,
+      cerradoPor: periodo.cerradoPor,
+      pagadoEn: periodo.pagadoEn,
+      pagadoPor: periodo.pagadoPor,
+      enRevisionDesde: periodo.enRevisionDesde,
+    };
+  }
+
+  /** CALCULADO → EN_REVISION. A partir de aquí el mes no se toca. */
+  async enviarARevision(id: string, usuarioId: string) {
+    const periodo = await this.exigirTransicion(id, EstadoPeriodo.EN_REVISION);
+
+    const alertas = await this.alertas(id);
+    const bloqueos = bloqueosParaRevision({
+      ...alertas.totales,
+      vendedorasLiquidadas: periodo._count.resultados,
+    });
+    if (bloqueos.length > 0) {
+      /* La compuerta. Un flujo de aprobaciones que deja revisar un mes con
+         filas sin clasificar no protege nada: solo reparte la firma de un
+         número que ya estaba mal. */
+      throw new ConflictException(
+        `El periodo todavía no se puede revisar: ${bloqueos.map(b => b.detalle).join(' ')}`,
+      );
+    }
+
+    const actualizado = await this.prisma.periodoComision.update({
+      where: { id },
+      data: {
+        estado: EstadoPeriodo.EN_REVISION,
+        enRevisionDesde: new Date(),
+        enviadoARevisionPor: usuarioId,
+      },
+    });
+
     this.resumenAnual.invalidar();
-    await this.audit.registrar('PeriodoComision', id, `ESTADO_${estado}`, usuarioId);
+    await this.audit.registrar('PeriodoComision', id, 'ENVIAR_A_REVISION', usuarioId);
+    return actualizado;
+  }
+
+  /**
+   * Registra el visto bueno de un SUPER_ADMIN y, si ya no falta nadie, cierra.
+   *
+   * El cierre NO es un botón aparte: es la consecuencia de que se complete el
+   * conjunto. Si fuera un paso manual habría un hueco entre "todos aprobaron" y
+   * "alguien pulsó cerrar" en el que el mes está aprobado y editable a la vez.
+   */
+  async aprobar(id: string, usuarioId: string, comentario?: string) {
+    const periodo = await this.obtenerPeriodo(id);
+    if (periodo.estado !== EstadoPeriodo.EN_REVISION) {
+      throw new ConflictException(
+        `Solo se puede aprobar un periodo EN REVISIÓN (este está ${periodo.estado}).`,
+      );
+    }
+
+    await this.prisma.aprobacionPeriodo.upsert({
+      where: { periodoId_usuarioId: { periodoId: id, usuarioId } },
+      create: { periodoId: id, usuarioId, comentario: comentario?.trim() || null },
+      update: { comentario: comentario?.trim() || null },
+    });
+    await this.audit.registrar('PeriodoComision', id, 'APROBAR', usuarioId, { comentario });
+
+    const [superAdmins, aprobaciones] = await Promise.all([
+      this.superAdminsActivos(),
+      this.prisma.aprobacionPeriodo.findMany({ where: { periodoId: id } }),
+    ]);
+    const revision = calcularEstadoRevision(superAdmins, aprobaciones);
+
+    if (!revision.completa) {
+      this.resumenAnual.invalidar();
+      return { cerrado: false, ...revision };
+    }
+
+    await this.prisma.periodoComision.update({
+      where: { id },
+      data: {
+        estado: EstadoPeriodo.CERRADO,
+        cerradoEn: new Date(),
+        // Quien completó el conjunto: el último visto bueno que faltaba.
+        cerradoPor: usuarioId,
+      },
+    });
+    this.resumenAnual.invalidar();
+    await this.audit.registrar('PeriodoComision', id, 'CERRAR', usuarioId, {
+      aprobaron: revision.aprobaron.map(a => a.nombre),
+    });
+
+    return { cerrado: true, ...revision };
+  }
+
+  /** EN_REVISION → CALCULADO. Devuelve el mes a edición y borra las firmas. */
+  async rechazar(id: string, usuarioId: string, motivo: string) {
+    await this.exigirTransicion(id, EstadoPeriodo.CALCULADO, EstadoPeriodo.EN_REVISION);
+
+    const actualizado = await this.prisma.$transaction(async tx => {
+      /* Las aprobaciones se borran ENTERAS, también las de quien no rechazó.
+         Una firma vale para las cifras que se firmaron: si el mes vuelve a
+         edición, lo que aprobaron los demás ya no describe lo que va a
+         cerrarse. Conservarlas sería arrastrar un visto bueno a números que
+         esa persona nunca vio. */
+      await tx.aprobacionPeriodo.deleteMany({ where: { periodoId: id } });
+      return tx.periodoComision.update({
+        where: { id },
+        data: { estado: EstadoPeriodo.CALCULADO, enRevisionDesde: null, enviadoARevisionPor: null },
+      });
+    });
+
+    this.resumenAnual.invalidar();
+    await this.audit.registrar('PeriodoComision', id, 'RECHAZAR', usuarioId, { motivo });
+    return actualizado;
+  }
+
+  /**
+   * CERRADO → CALCULADO. Solo SUPER_ADMIN y con motivo.
+   *
+   * **Guarda la foto de configuración que está a punto de perderse.**
+   * `configuracionUsada` se pisa en cada cálculo (ver el schema), así que
+   * reabrir y recalcular borraba la única respuesta a "¿con qué reglas se pagó
+   * este mes?". El schema ya dice dónde vive el historial de intentos —en
+   * `AuditLog`—, así que la foto viaja con esta entrada en vez de en una
+   * columna nueva.
+   */
+  async reabrir(id: string, usuarioId: string, motivo: string) {
+    const periodo = await this.exigirTransicion(id, EstadoPeriodo.CALCULADO, EstadoPeriodo.CERRADO);
+
+    const actualizado = await this.prisma.$transaction(async tx => {
+      await tx.aprobacionPeriodo.deleteMany({ where: { periodoId: id } });
+      return tx.periodoComision.update({
+        where: { id },
+        data: {
+          estado: EstadoPeriodo.CALCULADO,
+          cerradoEn: null,
+          cerradoPor: null,
+          enRevisionDesde: null,
+          enviadoARevisionPor: null,
+        },
+      });
+    });
+
+    this.resumenAnual.invalidar();
+    await this.audit.registrar('PeriodoComision', id, 'REABRIR', usuarioId, {
+      motivo,
+      cerradoEn: periodo.cerradoEn,
+      cerradoPor: periodo.cerradoPor,
+      configuracionConLaQueSeCerro: periodo.configuracionUsada,
+    });
+    return actualizado;
+  }
+
+  /** CERRADO → PAGADO. Terminal: desde aquí ya no se vuelve. */
+  async registrarPago(id: string, usuarioId: string) {
+    await this.exigirTransicion(id, EstadoPeriodo.PAGADO, EstadoPeriodo.CERRADO);
+
+    const actualizado = await this.prisma.periodoComision.update({
+      where: { id },
+      data: { estado: EstadoPeriodo.PAGADO, pagadoEn: new Date(), pagadoPor: usuarioId },
+    });
+
+    this.resumenAnual.invalidar();
+    await this.audit.registrar('PeriodoComision', id, 'PAGAR', usuarioId);
+    return actualizado;
+  }
+
+  /**
+   * Comprueba el salto contra la tabla y devuelve el periodo.
+   *
+   * `desdeEsperado` es una segunda cerradura para las acciones que solo tienen
+   * sentido desde un estado concreto: sin ella, "reabrir" sobre un mes
+   * EN_REVISION pasaría —EN_REVISION → CALCULADO es un salto legal— pero por la
+   * puerta equivocada, sin borrar aprobaciones ni pedir el motivo que sí exige
+   * un rechazo.
+   */
+  private async exigirTransicion(
+    id: string,
+    hasta: EstadoPeriodo,
+    desdeEsperado?: EstadoPeriodo,
+  ) {
+    const periodo = await this.obtenerPeriodo(id);
+
+    if (desdeEsperado && periodo.estado !== desdeEsperado) {
+      throw new ConflictException(
+        `Esta acción solo se puede hacer sobre un periodo ${desdeEsperado} ` +
+          `(este está ${periodo.estado}).`,
+      );
+    }
+
+    if (!transicionPermitida(periodo.estado, hasta)) {
+      throw new ConflictException(
+        `No se puede pasar de ${periodo.estado} a ${hasta}. ${MOTIVO_BLOQUEO[periodo.estado]}`.trim(),
+      );
+    }
+
     return periodo;
+  }
+
+  /**
+   * Quién puede aprobar hoy.
+   *
+   * Se consulta en cada lectura y no se congela al abrir la revisión: un
+   * SUPER_ADMIN puede bajar a ADMIN en cualquier momento, y una lista congelada
+   * dejaría el mes esperando para siempre una firma que ya nadie puede dar.
+   */
+  private superAdminsActivos(): Promise<Aprobador[]> {
+    return this.prisma.usuario.findMany({
+      where: { rol: Rol.SUPER_ADMIN, activo: true },
+      select: { id: true, nombre: true },
+      orderBy: { nombre: 'asc' },
+    });
   }
 
   /* ── Vista previa de la clasificación ───────────────────────────────── */
@@ -718,8 +974,8 @@ export class PlanillaComisionesService {
     }
 
     const periodo = await this.obtenerPeriodo(venta.periodoId);
-    if (periodo.estado === EstadoPeriodo.CERRADO) {
-      throw new ConflictException('El periodo está CERRADO: no admite ajustes');
+    if (!esEditable(periodo.estado)) {
+      throw new ConflictException(`No se puede ajustar esta venta. ${MOTIVO_BLOQUEO[periodo.estado]}`);
     }
 
     if (dto.vendedoraId) {
@@ -791,7 +1047,10 @@ export class PlanillaComisionesService {
     const candidatas = await this.prisma.ventaImportada.findMany({
       where: {
         requiereRevision: true,
-        periodo: { estado: { not: EstadoPeriodo.CERRADO } },
+        /* Solo meses todavía editables: reclasificar toca filas, y un mes en
+           revisión o cerrado no puede cambiar bajo los pies de quien lo firma.
+           Antes solo excluía CERRADO, así que EN_REVISION habría entrado. */
+        periodo: { estado: { in: [EstadoPeriodo.BORRADOR, EstadoPeriodo.CALCULADO] } },
         ...(regla.modulo ? { modulo: regla.modulo } : {}),
       },
       select: {
@@ -974,8 +1233,12 @@ export class PlanillaComisionesService {
    * mantener ni vincular a mano: si el agente tiene su código puesto, aparece.
    */
   async listarVendedoras() {
+    /* Las ocultas van al final —no se esconden de ESTE endpoint— porque el
+       directorio de configuración es el único sitio desde donde se las puede
+       volver a mostrar: filtrarlas aquí las dejaría enterradas para siempre.
+       Quien decide no pintarlas es la pantalla, y con un contador a la vista. */
     const vendedoras = await this.prisma.vendedoraComision.findMany({
-      orderBy: [{ configurada: 'asc' }, { nombre: 'asc' }],
+      orderBy: [{ oculta: 'asc' }, { configurada: 'asc' }, { nombre: 'asc' }],
     });
 
     /* `foto` viaja porque la ficha de desempeño pone la cara de la ejecutiva en
@@ -992,24 +1255,69 @@ export class PlanillaComisionesService {
     return vendedoras.map(v => ({ ...v, agente: porCodigo.get(v.codigo) ?? null }));
   }
 
+  /**
+   * Da de alta a alguien que cobra por planilla pero no vende.
+   *
+   * Nace `configurada: true` porque el alta manual ES el acto de configurarla:
+   * quien la crea está eligiendo su tipo, su área y su sueldo en ese momento.
+   * El `configurada: false` existe para las que se autocrean al importar, que
+   * son las que nadie ha mirado todavía.
+   */
+  async crearVendedora(datos: CrearVendedoraDto, usuarioId: string) {
+    const codigo = datos.codigo.trim();
+    const yaExiste = await this.prisma.vendedoraComision.findUnique({ where: { codigo } });
+    if (yaExiste) {
+      /* Un 409 con el nombre de quien ocupa el código, no un choque de índice:
+         el caso típico es teclear el código de alguien que ya está y no
+         entender por qué falla. */
+      throw new ConflictException(
+        `El código ${codigo} ya lo tiene "${yaExiste.nombre}". Los códigos no se repiten.`,
+      );
+    }
+
+    const vendedora = await this.prisma.vendedoraComision.create({
+      data: {
+        codigo,
+        nombre: datos.nombre.trim().slice(0, 200),
+        tipo: datos.tipo ?? TipoVendedora.VENDEDORA,
+        area: datos.area ?? AreaVendedora.EJECUTIVA,
+        sueldoBase: datos.sueldoBase ?? 0,
+        configurada: true,
+      },
+    });
+
+    this.resumenAnual.invalidar();
+    await this.audit.registrar('VendedoraComision', vendedora.id, 'CREAR', usuarioId, {
+      codigo,
+      nombre: vendedora.nombre,
+      area: vendedora.area,
+    });
+    return vendedora;
+  }
+
   async actualizarVendedora(
     id: string,
     datos: ActualizarVendedoraDto,
     usuarioId: string,
   ) {
-    const existe = await this.prisma.vendedoraComision.count({ where: { id } });
-    if (existe === 0) {
+    const actual = await this.prisma.vendedoraComision.findUnique({ where: { id } });
+    if (!actual) {
       throw new NotFoundException(`Vendedora ${id} no encontrada`);
     }
+
+    /* `oculta`/`motivoOculta` NO se copian del DTO: los resuelve
+       `cambiosDeVisibilidad()` entero, con su regla y su fecha. Dejarlos pasar
+       por el spread permitiría escribir un motivo sin ocultar a nadie. */
+    const { oculta: _oculta, motivoOculta: _motivo, ...resto } = datos;
 
     const vendedora = await this.prisma.vendedoraComision.update({
       where: { id },
       // Editarla desde el panel es exactamente el acto de configurarla.
-      data: { ...datos, configurada: true },
+      data: { ...resto, configurada: true, ...this.cambiosDeVisibilidad(actual, datos) },
     });
 
-    /* Tipo y área deciden objetivo y bonos de la vista anual; `activa` decide
-       si la vendedora aparece en ella. */
+    /* Tipo y área deciden objetivo y bonos de la vista anual; `activa` y
+       `oculta` deciden si la vendedora aparece en ella. */
     this.resumenAnual.invalidar();
 
     await this.audit.registrar('VendedoraComision', id, 'ACTUALIZAR', usuarioId, {
@@ -1018,4 +1326,40 @@ export class PlanillaComisionesService {
     return vendedora;
   }
 
+  /**
+   * Los campos que acompañan a un cambio de `oculta`, y la regla que lo protege.
+   *
+   * Ocultar exige motivo por la misma razón que excluir una venta del cálculo
+   * (ver `ajustarVenta`): el efecto es que una persona desaparece de la planilla
+   * que administración firma, y meses después nadie recuerda si fue un despido,
+   * una renuncia o un clic equivocado. El motivo y la fecha quedan en la propia
+   * fila —no solo en la auditoría— para que la pantalla pueda explicarlo sin
+   * cruzar tablas.
+   *
+   * Volver a mostrarla limpia los dos: dejarlos puestos haría que apareciera en
+   * los informes y "oculta desde marzo por despido" a la vez, que es la misma
+   * incoherencia que se arregló en las ventas reincluidas.
+   */
+  private cambiosDeVisibilidad(
+    actual: VendedoraComision,
+    datos: ActualizarVendedoraDto,
+  ): Prisma.VendedoraComisionUpdateInput {
+    if (datos.oculta === undefined || datos.oculta === actual.oculta) {
+      /* Un PATCH que no toca la visibilidad no puede arrastrar `motivoOculta`
+         suelto: sin `oculta` no significa nada. */
+      return {};
+    }
+
+    if (datos.oculta) {
+      const motivo = datos.motivoOculta?.trim();
+      if (!motivo) {
+        throw new BadRequestException(
+          'Para ocultar una vendedora de los informes hay que indicar el motivo.',
+        );
+      }
+      return { oculta: true, ocultaDesde: new Date(), motivoOculta: motivo };
+    }
+
+    return { oculta: false, ocultaDesde: null, motivoOculta: null };
+  }
 }

@@ -117,18 +117,39 @@ export class ExportacionComisionesService {
    * respuesta a que la tabla web (`tabla-liquidacion.component.ts`) resume
    * cada vendedora en 14 columnas por falta de ancho, cuando el cálculo real
    * tiene más de 20 números por persona.
+   *
+   * ## Vendedoras dadas de baja (`incluirOcultas`)
+   *
+   * Este archivo es el que sale de la clínica: se imprime, se firma y se
+   * archiva. Por eso las vendedoras marcadas como ocultas **no salen por
+   * defecto** en las hojas que van por persona — es exactamente para lo que
+   * sirve la marca.
+   *
+   * Dos reglas que no son negociables, y conviene no "simplificarlas":
+   *
+   * 1. **Se oculta la persona, nunca el dinero.** Las hojas de facturación
+   *    (Resumen, Distribución, Rankings y el Detalle línea a línea) siguen
+   *    contando sus ventas: eso es ingreso de la clínica y borrarlo dejaría el
+   *    informe mintiendo sobre cuánto se facturó el mes.
+   * 2. **La exclusión se declara.** El Resumen dice cuántas y cuáles se
+   *    dejaron fuera. Un informe al que le falta gente sin avisar es peor que
+   *    uno completo: quien lo cuadra contra su propio Excel no encuentra la
+   *    diferencia y termina desconfiando de todo el archivo.
+   *
+   * `incluirOcultas: true` las devuelve al libro, para reeditar un mes en el
+   * que la persona sí trabajaba.
    */
-  async exportar(periodoId: string, salida: Writable): Promise<void> {
+  async exportar(periodoId: string, salida: Writable, incluirOcultas = false): Promise<void> {
     const [informe, consolidado] = await Promise.all([
       this.analitica.analitica(periodoId),
-      this.calculo.reporteConsolidado(periodoId).catch(() => null),
+      this.calculo.reporteConsolidado(periodoId, incluirOcultas).catch(() => null),
     ]);
 
     const libro = new Workbook();
     libro.creator = 'CRM — Clínica Montalvo';
     libro.created = new Date();
 
-    this.hojaResumen(libro, informe);
+    this.hojaResumen(libro, informe, consolidado);
     if (consolidado) {
       this.hojaLiquidacion(libro, consolidado);
       this.hojaTipoARA(libro, consolidado);
@@ -144,7 +165,11 @@ export class ExportacionComisionesService {
 
   /* ── Hoja 1: resumen ejecutivo ──────────────────────────────────────── */
 
-  private hojaResumen(libro: Workbook, informe: InformeAnalitica): void {
+  private hojaResumen(
+    libro: Workbook,
+    informe: InformeAnalitica,
+    consolidado: ConsolidadoPeriodo | null,
+  ): void {
     const hoja = libro.addWorksheet('Resumen', { views: [{ showGridLines: false }] });
     hoja.columns = [{ width: 38 }, { width: 20 }, { width: 30 }];
 
@@ -183,6 +208,28 @@ export class ExportacionComisionesService {
     hoja.addRow([]);
     this.seccion(hoja, 'Comisiones a pagar (en dólares)', 3);
     this.dato(hoja, 'Vendedoras liquidadas', resumen.vendedorasLiquidadas, FORMATO.entero);
+    /*
+     * Va pegada al número que descuadra, no en un pie al final: quien cuadra
+     * este informe contra su Excel mira "Vendedoras liquidadas", cuenta las
+     * filas de la hoja "Liquidación" y le salen menos. La explicación tiene que
+     * estar ahí mismo o el archivo entero pierde credibilidad.
+     */
+    const ocultasFuera = consolidado?.incluyeOcultas ? [] : (consolidado?.ocultas ?? []);
+    if (ocultasFuera.length > 0) {
+      this.dato(
+        hoja,
+        'De ellas, dadas de baja y NO listadas',
+        ocultasFuera.length,
+        FORMATO.entero,
+      );
+      for (const v of ocultasFuera) {
+        this.dato(
+          hoja,
+          `   · ${v.nombre} (${v.codigo})`,
+          v.motivoOculta ?? 'Sin motivo registrado',
+        );
+      }
+    }
     this.dato(hoja, 'Tipo A · Planes de maternidad y varios', resumen.comisionTipoAUsd, FORMATO.usd);
     /*
      * Antes de 2026-08-24 esta sección no tenía línea propia para Tipo A
@@ -258,13 +305,23 @@ export class ExportacionComisionesService {
     );
 
     for (const f of consolidado.filas) {
-      hoja.addRow({
+      const fila = hoja.addRow({
         ...f,
         cumpleObjetivo: f.cumpleObjetivoPlanes ? 'Sí' : 'No',
         nivelCirugia: f.nivelCirugia ?? '—',
         nivelTipoARA: f.nivelTipoARA ? `NIVEL ${f.nivelTipoARA}` : 'NA',
         bonos: f.totalBonos,
       });
+      /* Solo aparecen si se pidió incluirlas; en cursiva porque son de alguien
+         que ya no está en el equipo y quien lea la hoja tiene que notarlo sin
+         cruzar con otro documento. El nombre NO se decora con un sufijo: es la
+         clave con la que se cruza contra el Excel de administración. */
+      if (f.oculta) {
+        fila.font = { italic: true };
+        fila.getCell(1).note = `Dada de baja${
+          f.ocultaDesde ? ` el ${f.ocultaDesde.toLocaleDateString('es-BO')}` : ''
+        }. Se incluye porque se exportó con "incluir dadas de baja".`;
+      }
     }
 
     const t = consolidado.totales;
@@ -282,6 +339,22 @@ export class ExportacionComisionesService {
       totalGanado: t['totalGanado'],
     });
     this.marcarTotales(totales, columnas.length);
+
+    /* El pie de la hoja que se firma. Los TOTALES de arriba son la suma exacta
+       de las filas listadas —se recalculan en `reporteConsolidado()`— así que
+       sin esta línea cuadran perfectamente y aun así les falta gente. */
+    const fuera = consolidado.incluyeOcultas ? [] : consolidado.ocultas;
+    if (fuera.length > 0) {
+      hoja.addRow([]);
+      const aviso = hoja.addRow([
+        `No se listan ${fuera.length} vendedora(s) dada(s) de baja: ` +
+          `${fuera.map(v => `${v.nombre} (${v.codigo})`).join(', ')}. ` +
+          'Sus ventas siguen contando en las hojas de facturación; lo que no figura ' +
+          'aquí es su liquidación. Para incluirlas, exporta marcando "incluir dadas de baja".',
+      ]);
+      aviso.font = { italic: true, size: 10, color: { argb: 'FF64748B' } };
+      hoja.mergeCells(aviso.number, 1, aviso.number, columnas.length);
+    }
   }
 
   /* ── Hoja 3: de dónde sale Tipo A (RA), paso a paso ─────────────────── */

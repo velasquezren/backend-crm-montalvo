@@ -1,3 +1,5 @@
+import { AreaVendedora, TipoVendedora } from '@prisma/client';
+
 import { normalizar } from './clasificador';
 
 /**
@@ -292,6 +294,71 @@ export function bonoTrimestralUsd(
  * veces —íntegro a la jefatura y otro tanto repartido entre publicidad—, y
  * quien lo genera no cobra nada de él.
  */
+/**
+ * Quién entra en la planilla del mes aunque no haya vendido nada.
+ *
+ * El equipo de marketing (`AreaVendedora.PUBLICIDAD`) no vende: no tiene
+ * `vendedora_pk` ni aparece nunca en el export de FileMaker. Su pago es la
+ * mitad del pote de jefatura, que sale del excedente de LAS OTRAS. Si el
+ * cálculo las descarta por no tener filas, el pote de publicidad se reparte
+ * entre cero personas y se pierde sin que nada falle.
+ *
+ * La jefa está por la misma razón y no por simetría: su bono también sale del
+ * pote del equipo, así que un mes en el que no venda tampoco puede dejarla
+ * fuera de la planilla.
+ *
+ * Todo lo demás sigue igual: quien no vendió sale con ceros en las columnas de
+ * comisión —los ayudantes de cálculo devuelven 0 cuando no se supera el
+ * objetivo— y cobra solo su bono y su sueldo. Es la fila que la planilla de
+ * administración ya tiene: hoja "GRAL COM", filas 75-76 de diciembre 2025.
+ */
+export function cobraSinVender(vendedora: {
+  tipo: TipoVendedora;
+  area: AreaVendedora;
+}): boolean {
+  return vendedora.area === AreaVendedora.PUBLICIDAD || vendedora.tipo === TipoVendedora.JEFA;
+}
+
+/** Cuánto le toca a cada persona del pote de jefatura. */
+export interface RepartoPote {
+  /** Lo que cobra cada jefa. El pote ÍNTEGRO, dividido entre las jefas que haya. */
+  porJefa: number;
+  /** Lo que cobra cada persona de marketing. Otro pote íntegro, repartido. */
+  porPublicidad: number;
+}
+
+/**
+ * El pote se paga DOS VECES: entero a la jefatura y otro tanto igual repartido
+ * entre el equipo de marketing. No se parte en dos mitades.
+ *
+ * Verificado contra `CALCULO COMISION DICIEMBRE 2025.xlsx`. El pote que generan
+ * las cuatro ejecutivas con su excedente suma 66,69 USD (Viviana 23,28, Yelca
+ * 17,52, Zuany 13,69, Claudia 12,20 — hoja "CALCULO BONOS", filas 18-22), y ese
+ * mismo número aparece dos veces en el pago:
+ *
+ *   fila 23      JEFA Guzman Flores Viviana ....... 66,69 USD = 464,83 Bs
+ *   filas 47-51  EQUIPO DE PUBLICIDAD ............. 33,35 + 33,35 = 66,69
+ *
+ * Las que lo generan cobran CERO por este concepto: en la planilla su columna
+ * de bonos está vacía.
+ *
+ * **Un lado vacío no le regala su parte al otro.** Si no hay nadie en
+ * marketing, la jefa cobra su pote igual y el de publicidad no se paga — no se
+ * acumula ni se reparte entre las ejecutivas. Son dos pagos independientes que
+ * salen del mismo número, no un reparto de una bolsa común.
+ */
+export function repartirPote(
+  pote: number,
+  cantidadJefas: number,
+  cantidadPublicidad: number,
+): RepartoPote {
+  if (pote <= 0) return { porJefa: 0, porPublicidad: 0 };
+  return {
+    porJefa: cantidadJefas > 0 ? pote / cantidadJefas : 0,
+    porPublicidad: cantidadPublicidad > 0 ? pote / cantidadPublicidad : 0,
+  };
+}
+
 export function aporteAlPoteJefatura(
   montoVendidoUsd: number,
   objetivoMensualUsd: number,

@@ -34,13 +34,16 @@ import {
   ActualizarTarifaRaDto,
   ActualizarTarifaServicioDto,
   ActualizarVendedoraDto,
+  CrearVendedoraDto,
   CrearReglaDto,
 } from './dto/configuracion.dto';
 import { QueryAnualDto } from './dto/query-anual.dto';
 import {
   AjustarVentaDto,
-  CambiarEstadoPeriodoDto,
+  AprobarPeriodoDto,
   ImportarExcelDto,
+  MotivoPeriodoDto,
+  QueryInformeDto,
   QueryPeriodosDto,
   QueryVentasImportadasDto,
 } from './dto/planilla.dto';
@@ -135,13 +138,71 @@ export class PlanillaComisionesController {
     return this.planilla.obtenerPeriodo(id);
   }
 
-  @Patch('periodos/:id/estado')
-  cambiarEstado(
+  /* ── Cierre del mes ─────────────────────────────────────────────────────
+   *
+   * **No hay un endpoint que reciba el estado destino.** El que había
+   * (`PATCH /periodos/:id/estado`) aceptaba cualquier valor del enum sin
+   * comprobar el salto: `CERRADO → BORRADOR` entraba, y con él la posibilidad
+   * de recalcular un mes ya pagado. Cada paso es ahora su propia ruta, con sus
+   * permisos y los datos que exige.
+   *
+   * Criterio de permisos, y no es cosmético:
+   *
+   * - **Preparar es ADMIN** (`revision`): administración arma el mes y lo manda
+   *   a revisar.
+   * - **Decidir es SUPER_ADMIN** (aprobar, rechazar, reabrir, pagar). Rechazar
+   *   también, aunque devuelva el mes a un estado más laxo: invalida las firmas
+   *   de los demás, y eso no puede quedar en manos de quien preparó la planilla.
+   * - **Reabrir era ADMIN y ahora es SUPER_ADMIN.** Estaba al revés: borrar un
+   *   periodo pedía SUPER_ADMIN pero reabrirlo no, así que cualquier ADMIN podía
+   *   reabrir un mes cerrado y desde ahí recalcularlo o borrarlo.
+   */
+
+  /** Quién aprobó, quién falta y qué impide avanzar. */
+  @Get('periodos/:id/revision')
+  revision(@Param('id') id: string) {
+    return this.planilla.revision(id);
+  }
+
+  @Post('periodos/:id/revision')
+  enviarARevision(@Param('id') id: string, @CurrentUser() usuario: UsuarioJwt) {
+    return this.planilla.enviarARevision(id, usuario.sub);
+  }
+
+  @Post('periodos/:id/aprobar')
+  @Roles('SUPER_ADMIN')
+  aprobar(
     @Param('id') id: string,
-    @Body() dto: CambiarEstadoPeriodoDto,
+    @Body() dto: AprobarPeriodoDto,
     @CurrentUser() usuario: UsuarioJwt,
   ) {
-    return this.planilla.cambiarEstado(id, dto.estado, usuario.sub);
+    return this.planilla.aprobar(id, usuario.sub, dto.comentario);
+  }
+
+  @Post('periodos/:id/rechazar')
+  @Roles('SUPER_ADMIN')
+  rechazar(
+    @Param('id') id: string,
+    @Body() dto: MotivoPeriodoDto,
+    @CurrentUser() usuario: UsuarioJwt,
+  ) {
+    return this.planilla.rechazar(id, usuario.sub, dto.motivo);
+  }
+
+  @Post('periodos/:id/reabrir')
+  @Roles('SUPER_ADMIN')
+  reabrir(
+    @Param('id') id: string,
+    @Body() dto: MotivoPeriodoDto,
+    @CurrentUser() usuario: UsuarioJwt,
+  ) {
+    return this.planilla.reabrir(id, usuario.sub, dto.motivo);
+  }
+
+  @Post('periodos/:id/pagar')
+  @Roles('SUPER_ADMIN')
+  registrarPago(@Param('id') id: string, @CurrentUser() usuario: UsuarioJwt) {
+    return this.planilla.registrarPago(id, usuario.sub);
   }
 
   @Delete('periodos/:id')
@@ -201,20 +262,24 @@ export class PlanillaComisionesController {
    * respuesta, así que el libro no pasa entero por memoria.
    */
   @Get('periodos/:id/exportar')
-  async exportar(@Param('id') id: string, @Res({ passthrough: false }) res: Response) {
+  async exportar(
+    @Param('id') id: string,
+    @Query() query: QueryInformeDto,
+    @Res({ passthrough: false }) res: Response,
+  ) {
     const nombre = await this.exportacion.nombreArchivo(id);
     res.setHeader(
       'Content-Type',
       'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     );
     res.setHeader('Content-Disposition', `attachment; filename="${nombre}"`);
-    await this.exportacion.exportar(id, res);
+    await this.exportacion.exportar(id, res, query.incluirOcultas ?? false);
     res.end();
   }
 
   @Get('periodos/:id/reporte/consolidado')
-  reporteConsolidado(@Param('id') id: string) {
-    return this.calculo.reporteConsolidado(id);
+  reporteConsolidado(@Param('id') id: string, @Query() query: QueryInformeDto) {
+    return this.calculo.reporteConsolidado(id, query.incluirOcultas ?? false);
   }
 
   @Get('periodos/:id/reporte/planilla')
@@ -233,8 +298,8 @@ export class PlanillaComisionesController {
    * "¿cuánto cobramos de Tipo B este mes?" sin abrir el Excel.
    */
   @Get('periodos/:id/reporte/desglose')
-  reporteDesglose(@Param('id') id: string) {
-    return this.calculo.reporteDesglose(id);
+  reporteDesglose(@Param('id') id: string, @Query() query: QueryInformeDto) {
+    return this.calculo.reporteDesglose(id, query.incluirOcultas ?? false);
   }
 
   @Get('periodos/:periodoId/reporte/vendedora/:vendedoraId')
@@ -250,6 +315,16 @@ export class PlanillaComisionesController {
   @Get('vendedoras')
   listarVendedoras() {
     return this.planilla.listarVendedoras();
+  }
+
+  /**
+   * Alta manual. Es SUPER_ADMIN por lo mismo que importar: se está creando una
+   * fila de planilla, y `codigo` es la clave que cruza con el agente del CRM.
+   */
+  @Post('vendedoras')
+  @Roles('SUPER_ADMIN')
+  crearVendedora(@Body() dto: CrearVendedoraDto, @CurrentUser() usuario: UsuarioJwt) {
+    return this.planilla.crearVendedora(dto, usuario.sub);
   }
 
   @Patch('vendedoras/:id')

@@ -56,30 +56,31 @@ enum DireccionMensaje {
 }
 
 model Usuario {
-  id                String                 @id @default(uuid())
-  nombre            String
-  email             String                 @unique
-  passwordHash      String
-  rol               Rol                    @default(AGENTE)
-  activo            Boolean                @default(true)
-  foto              String?
+  id                    String                 @id @default(uuid())
+  nombre                String
+  email                 String                 @unique
+  passwordHash          String
+  rol                   Rol                    @default(AGENTE)
+  activo                Boolean                @default(true)
+  foto                  String?
   /// Identificador que usa la empresa para esta persona (el `vendedora_pk` de
   /// FileMaker, ej. Pe2455). Es la ÚNICA vía por la que la planilla de comisiones
   /// reconoce a qué agente pertenece cada venta: al ser único y venir en el propio
   /// Excel, no hace falta vincular nada a mano ni adivinar por el nombre.
   /// Solo un SUPER_ADMIN puede asignarlo.
-  codigo            String?                @unique @db.VarChar(40)
-  clientes          Cliente[]              @relation("AgenteAsignado")
-  intereses         Interes[]
-  leads             Lead[]
-  conversaciones    Conversacion[]
-  ventas            Venta[]
-  plantillas        PlantillaAgente[]
-  recursosMemoria   RecursoMemoriaAgente[]
-  pushSubscriptions PushSubscription[]
+  codigo                String?                @unique @db.VarChar(40)
+  clientes              Cliente[]              @relation("AgenteAsignado")
+  intereses             Interes[]
+  leads                 Lead[]
+  conversaciones        Conversacion[]
+  ventas                Venta[]
+  plantillas            PlantillaAgente[]
+  recursosMemoria       RecursoMemoriaAgente[]
+  pushSubscriptions     PushSubscription[]
   tiposCambioCorregidos TipoCambioDiario[]
-  createdAt         DateTime               @default(now())
-  updatedAt         DateTime               @updatedAt
+  aprobacionesPeriodo   AprobacionPeriodo[]
+  createdAt             DateTime               @default(now())
+  updatedAt             DateTime               @updatedAt
 }
 
 model Cliente {
@@ -178,15 +179,15 @@ model Interes {
 }
 
 model Lead {
-  id         String     @id @default(uuid())
-  cliente    Cliente    @relation(fields: [clienteId], references: [id], onDelete: Cascade)
-  clienteId  String
-  origen     OrigenLead
-  estado     EstadoLead @default(NUEVO)
+  id            String     @id @default(uuid())
+  cliente       Cliente    @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  clienteId     String
+  origen        OrigenLead
+  estado        EstadoLead @default(NUEVO)
   /// `leadgen_id` de Meta Lead Ads: **uno por persona que rellena el formulario**.
   /// Es único porque es la clave de idempotencia con la que `procesarLeadMeta`
   /// deduplica los reintentos del webhook. NO metas aquí el id de un anuncio.
-  metaLeadId String?    @unique
+  metaLeadId    String?    @unique
   /// Anuncio por el que entró: `referral.source_id` en Click-to-WhatsApp, o
   /// `ad_id` de Graph API en un Lead Ad de formulario instantáneo — mismo
   /// significado en los dos casos ("qué anuncio trajo a esta persona"), así que
@@ -194,19 +195,19 @@ model Lead {
   /// **No es único a propósito**: un mismo anuncio trae a muchas pacientes, que
   /// es justo para lo que se paga una campaña. Indexado para poder contar
   /// cuántos leads trajo cada anuncio.
-  anuncioId  String?    @db.VarChar(64)
+  anuncioId     String?    @db.VarChar(64)
   /// Por qué se perdió. Solo tiene sentido con `estado = PERDIDO`; se limpia si
   /// el lead vuelve a moverse a otro estado — mismo criterio que
   /// `VentaImportada.motivoExclusion`: mover (o dejar de mover) una oportunidad
   /// sin dejar dicho el motivo es irrecuperable a los tres meses.
-  motivoPerdida String? @db.VarChar(200)
-  agente     Usuario?   @relation(fields: [agenteId], references: [id])
-  agenteId   String?
+  motivoPerdida String?    @db.VarChar(200)
+  agente        Usuario?   @relation(fields: [agenteId], references: [id])
+  agenteId      String?
   /// Ventas que citan a este lead como su origen (`Venta.leadId`). No toda
   /// venta nace de un lead trabajado en el pipeline, así que la relación es
   /// opcional del lado de `Venta`.
-  ventas     Venta[]
-  createdAt  DateTime   @default(now())
+  ventas        Venta[]
+  createdAt     DateTime   @default(now())
 
   @@index([anuncioId])
   @@index([clienteId])
@@ -218,17 +219,17 @@ model Lead {
 }
 
 model Conversacion {
-  id        String    @id @default(uuid())
-  cliente   Cliente   @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  id                 String    @id @default(uuid())
+  cliente            Cliente   @relation(fields: [clienteId], references: [id], onDelete: Cascade)
   /// Único: un inbox de WhatsApp tiene UN hilo por contacto (igual que la app
   /// de WhatsApp). Además cierra la race de dos webhooks entrantes simultáneos
   /// creando dos conversaciones para el mismo cliente — ver procesarEntrante.
-  clienteId String    @unique
-  agente    Usuario?  @relation(fields: [agenteId], references: [id])
-  agenteId  String?
-  mensajes  Mensaje[]
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
+  clienteId          String    @unique
+  agente             Usuario?  @relation(fields: [agenteId], references: [id])
+  agenteId           String?
+  mensajes           Mensaje[]
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
   /// True mientras la paciente espera respuesta de una PERSONA: lo último que
   /// pasó fue un mensaje suyo, o el acuse automático fuera de horario (que no
   /// cuenta como respuesta). Es la pestaña "Sin responder" del inbox.
@@ -246,7 +247,7 @@ model Conversacion {
   /// silencio. Los cuatro casos están fijados en
   /// `conversaciones.integracion.spec.ts`, bloque "la pestaña Sin responder se
   /// mantiene al crear cada mensaje".
-  esperandoRespuesta Boolean @default(false)
+  esperandoRespuesta Boolean   @default(false)
 
   @@index([agenteId])
   @@index([updatedAt])
@@ -477,10 +478,25 @@ enum AreaVendedora {
   PUBLICIDAD
 }
 
+//
+// * Ciclo de vida de un mes de liquidación.
+// *
+// * Las transiciones legales viven en `estados-periodo.ts` y las valida el
+// * servicio: este enum solo enumera, no ordena. Antes de 2026-08-28 no había
+// * tabla de transiciones y `PATCH /estado` aceptaba cualquier salto —incluido
+// * CERRADO → BORRADOR—, así que el candado de un mes pagado era un badén.
+//
 enum EstadoPeriodo {
+  /// Importado. Se puede reimportar, reclasificar y corregir filas.
   BORRADOR
+  /// Tiene números. Se sigue ajustando y recalculando.
   CALCULADO
+  /// Congelado para edición pero todavía no cerrado: se está revisando.
+  EN_REVISION
+  /// Cifras firmes. Reabrir exige SUPER_ADMIN y motivo.
   CERRADO
+  /// Ya se pagó. Terminal: un error se corrige con un ajuste del mes siguiente.
+  PAGADO
 }
 
 // Un mes de liquidación. Único por año+mes: reimportar reemplaza sus filas.
@@ -496,6 +512,16 @@ model PeriodoComision {
   filasValidas  Int           @default(0)
   importadoPor  String?
   calculadoEn   DateTime?
+
+  /// Quién lo mandó a revisar y cuándo. A partir de aquí no se toca una fila.
+  enRevisionDesde     DateTime?
+  enviadoARevisionPor String?
+  /// Quién dio el cierre definitivo (el último SUPER_ADMIN que aprobó) y cuándo.
+  cerradoEn           DateTime?
+  cerradoPor          String?
+  /// Quién registró el pago y cuándo. Con esto puesto el mes ya no vuelve atrás.
+  pagadoEn            DateTime?
+  pagadoPor           String?
   /// Foto de las reglas con las que se liquidó este mes.
   ///
   /// Tarifas, niveles, parámetros y objetivos son GLOBALES: cambiarlos hoy
@@ -505,17 +531,49 @@ model PeriodoComision {
   ///
   /// Se escribe en cada cálculo y se pisa al recalcular: describe el resultado
   /// que hay ahora, no el historial de intentos —eso vive en AuditLog—.
-  configuracionUsada Json?
+  configuracionUsada  Json?
 
-  ventas     VentaImportada[]
-  resultados ResultadoComision[]
-  objetivos  ObjetivoComision[]
+  ventas       VentaImportada[]
+  resultados   ResultadoComision[]
+  objetivos    ObjetivoComision[]
+  aprobaciones AprobacionPeriodo[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@unique([anio, mes])
   @@index([anio, mes])
+}
+
+//
+// * El visto bueno de UNA persona sobre la revisión en curso de un mes.
+// *
+// * Es una tabla y no un estado del periodo, y la diferencia importa: si
+// * "aprobado por la mitad del equipo" fuera un valor del enum, no habría forma
+// * de responder *quién falta*, y el día que entra o sale un SUPER_ADMIN el
+// * enum mentiría. Acá el estado es siempre `EN_REVISION` y lo que cambia es
+// * cuántas filas hay.
+// *
+// * **Solo cuentan las de quien es SUPER_ADMIN activo AHORA** (ver
+// * `estadoRevision()`): un SUPER_ADMIN que baja a ADMIN deja de sumar y
+// * también de bloquear, y uno nuevo que entra a mitad de revisión vuelve a
+// * dejar el mes pendiente — no ha visto las cifras.
+// *
+// * Se borran enteras al rechazar y al reabrir: una aprobación vale para las
+// * cifras que se aprobaron, no para las siguientes.
+//
+model AprobacionPeriodo {
+  id         String          @id @default(uuid())
+  periodo    PeriodoComision @relation(fields: [periodoId], references: [id], onDelete: Cascade)
+  periodoId  String
+  usuario    Usuario         @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  usuarioId  String
+  comentario String?         @db.VarChar(300)
+  createdAt  DateTime        @default(now())
+
+  /// Una persona aprueba una vez: repetir el clic no suma otro visto bueno.
+  @@unique([periodoId, usuarioId])
+  @@index([periodoId])
 }
 
 // Una fila del Excel: columnas crudas + lo que dedujo el clasificador.
@@ -647,9 +705,31 @@ model VendedoraComision {
   tipo        TipoVendedora @default(VENDEDORA)
   area        AreaVendedora @default(EJECUTIVA)
   sueldoBase  Decimal       @default(0) @db.Decimal(12, 2)
+  /// false = deja de liquidarse a partir del próximo cálculo.
   activa      Boolean       @default(true)
   /// false = autocreada al importar y aún sin revisar por administración.
   configurada Boolean       @default(false)
+
+  //
+  // * Dada de baja: se fue de la clínica y no queremos volver a verla en los
+  // * informes que se firman. NO es lo mismo que `activa`:
+  // *
+  // *   activa = false  → el motor deja de liquidarla; recalcular un mes en el
+  // *                     que SÍ trabajó le borra la comisión de ese mes.
+  // *   oculta = true   → no se toca ni un dato. Sus ventas siguen contando
+  // *                     para la facturación de la clínica y sus liquidaciones
+  // *                     pasadas siguen intactas y recalculables; solo deja de
+  // *                     salir en los informes donde la protagonista es ella.
+  // *
+  // * Por eso ocultar es reversible y no destruye historia, que es justo lo que
+  // * hace falta cuando alguien se va: sus números siguen sirviendo, su nombre
+  // * ya no interesa en la planilla del mes que viene.
+  //
+  oculta       Boolean   @default(false)
+  /// Cuándo se la ocultó. Solo informativo: el filtro es `oculta`, no la fecha.
+  ocultaDesde  DateTime?
+  /// Obligatorio al ocultar, igual que el motivo de excluir una venta.
+  motivoOculta String?   @db.VarChar(200)
 
   ventas     VentaImportada[]
   resultados ResultadoComision[]
@@ -658,6 +738,7 @@ model VendedoraComision {
   updatedAt DateTime @updatedAt
 
   @@index([activa])
+  @@index([oculta])
 }
 
 //
@@ -847,8 +928,8 @@ model ResultadoComision {
   /// DISTINTA de `comisionA` (planes GOLD/SILVER/BRONCE): esta es la
   /// columna del Excel "COMISIÓN TIPO A (RA)", un cubo aparte que hasta
   /// 2026-08-22 no se calculaba.
-  nivelTipoARA     Int?
-  comisionTipoARA  Decimal @default(0) @db.Decimal(12, 2)
+  nivelTipoARA             Int?
+  comisionTipoARA          Decimal @default(0) @db.Decimal(12, 2)
 
   // ── Comisiones, en USD ───────────────────────────────────────────────
   comisionA Decimal @default(0) @db.Decimal(12, 2)
@@ -913,11 +994,11 @@ enum FuenteTipoCambio {
 /// comisiones ya calculadas, el otro es la cotización del día a día, y este
 /// sigue creciendo aunque aquel se quede fijo.
 model TipoCambioDiario {
-  fecha             DateTime         @id @db.Date
-  valor             Decimal          @db.Decimal(10, 4)
-  fuente            FuenteTipoCambio
-  actualizadoPor    Usuario?         @relation(fields: [actualizadoPorId], references: [id])
-  actualizadoPorId  String?
-  createdAt         DateTime         @default(now())
-  updatedAt         DateTime         @updatedAt
+  fecha            DateTime         @id @db.Date
+  valor            Decimal          @db.Decimal(10, 4)
+  fuente           FuenteTipoCambio
+  actualizadoPor   Usuario?         @relation(fields: [actualizadoPorId], references: [id])
+  actualizadoPorId String?
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
 }

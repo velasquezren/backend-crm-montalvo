@@ -141,6 +141,45 @@ export class CrearReglaDto {
   notas?: string;
 }
 
+/**
+ * Alta a mano de alguien que cobra por planilla pero **nunca vende**.
+ *
+ * Existe por el equipo de marketing. Todas las demás se dan de alta solas al
+ * importar el Excel, porque traen su `vendedora_pk` en cada fila de venta;
+ * Cristel y Araceli no venden, así que no tienen `vendedora_pk` ni aparecen en
+ * ninguna fila — y sin embargo cobran la mitad del pote de jefatura cada una
+ * (hoja "GRAL COM" de la planilla, filas 75-76). Sin esta puerta la única forma
+ * de meterlas era un INSERT a mano en la base.
+ *
+ * `codigo` sigue siendo la clave que cruza con `Usuario.codigo`. Para quien no
+ * tiene `vendedora_pk`, sirve cualquier identificador estable que ya use la
+ * empresa —el número de carnet, que es lo que la propia planilla lista en su
+ * bloque de sueldos— siempre que no se repita.
+ */
+export class CrearVendedoraDto {
+  @IsString()
+  @Length(1, 40)
+  codigo!: string;
+
+  @IsString()
+  @Length(1, 200)
+  nombre!: string;
+
+  @IsOptional()
+  @IsEnum(TipoVendedora)
+  tipo?: TipoVendedora;
+
+  @IsOptional()
+  @IsEnum(AreaVendedora)
+  area?: AreaVendedora;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  sueldoBase?: number;
+}
+
 /** Alta/edición de una persona que comisiona. */
 export class ActualizarVendedoraDto {
   @IsOptional()
@@ -189,6 +228,31 @@ export class ActualizarVendedoraDto {
   @IsBoolean()
   configurada?: boolean;
 
+  /**
+   * true = dada de baja: desaparece de los informes sin que se toque un dato.
+   *
+   * **No confundir con `activa`.** `activa: false` la saca del motor de cálculo,
+   * así que recalcular un mes en el que sí trabajó le borra la comisión de ese
+   * mes. `oculta: true` no cambia ningún número: sus ventas siguen sumando a la
+   * facturación de la clínica y sus liquidaciones pasadas se pueden recalcular
+   * igual — solo deja de listarse donde la protagonista es la persona.
+   */
+  @IsOptional()
+  @IsBoolean()
+  oculta?: boolean;
+
+  /**
+   * Por qué se la oculta. **El servicio lo exige al ocultar** y lo guarda en la
+   * auditoría; al volver a mostrarla lo borra él solo.
+   *
+   * Mismo criterio que `motivoExclusion` de una venta: sin él, dentro de seis
+   * meses nadie sabe si una vendedora falta del informe porque renunció, porque
+   * la despidieron o porque alguien se equivocó de fila.
+   */
+  @IsOptional()
+  @IsString()
+  @Length(3, 200)
+  motivoOculta?: string;
 }
 
 /**

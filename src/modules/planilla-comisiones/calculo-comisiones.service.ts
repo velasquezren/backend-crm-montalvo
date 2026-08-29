@@ -15,10 +15,13 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { AnaliticaComisionesService } from './analitica-comisiones.service';
 import { ResumenAnualService } from './resumen-anual.service';
 import { redondear } from './clasificador';
+import { esEditable, MOTIVO_BLOQUEO } from './estados-periodo';
 import {
   aporteAlPoteJefatura,
   bonoTrimestralUsd,
   cierraTrimestre,
+  cobraSinVender,
+  repartirPote,
   PlanCandidato,
   seleccionarPlanesComisionables,
   mesesAnteriores,
@@ -216,8 +219,14 @@ export class CalculoComisionesService {
     if (!periodo) {
       throw new ConflictException(`Periodo ${periodoId} no encontrado`);
     }
-    if (periodo.estado === EstadoPeriodo.CERRADO) {
-      throw new ConflictException('El periodo está CERRADO: reábrelo para recalcular');
+    /* Recalcular reescribe `ResultadoComision` y pisa la foto de configuración,
+       así que solo se permite mientras el mes siga siendo editable. Antes esto
+       solo miraba CERRADO: al aparecer EN_REVISION, un recálculo habría podido
+       cambiar bajo los pies las cifras que alguien estaba firmando. */
+    if (!esEditable(periodo.estado)) {
+      throw new ConflictException(
+        `No se puede recalcular este periodo. ${MOTIVO_BLOQUEO[periodo.estado]}`,
+      );
     }
 
     // La config se pide POR PERIODO: trae ya resueltas las metas que rigen este
@@ -283,7 +292,27 @@ export class CalculoComisionesService {
     const resultados = [];
     for (const vendedora of vendedoras) {
       const suyas = porVendedora.get(vendedora.id) ?? [];
-      if (suyas.length === 0) continue;
+      /*
+       * "Sin ventas" no es lo mismo que "no cobra".
+       *
+       * Este `continue` se saltaba a todo el que no vendiera, y con eso se
+       * perdía **entero el pago del equipo de marketing**: Cristel y Araceli no
+       * venden nunca —no tienen `vendedora_pk` ni una fila en el Excel de
+       * FileMaker— pero cobran la mitad del pote de jefatura cada una. Como no
+       * llegaban a `resultados`, el filtro por área de `aplicarBonos()` no
+       * encontraba a nadie y el pote de publicidad se pagaba a cero, en
+       * silencio, sin fallar ni aparecer en ningún aviso.
+       *
+       * En diciembre de 2025 eso son 66,69 USD (464,83 Bs) que la planilla real
+       * SÍ paga: hoja "CALCULO BONOS" filas 47-51 y hoja "GRAL COM" filas 75-76,
+       * donde las dos figuran con comisión 0, bono 232,41 Bs y su sueldo.
+       *
+       * La regla correcta es "se liquida a quien puede cobrar algo este mes", y
+       * eso incluye a quien cobra un bono que NO sale de sus propias ventas.
+       * Sale con ceros en todas las columnas de comisión, que es exactamente lo
+       * que muestra la planilla de administración.
+       */
+      if (suyas.length === 0 && !cobraSinVender(vendedora)) continue;
 
       if (!vendedora.configurada) {
         const vendido = redondear(suyas.reduce((s, f) => s + f.precio, 0));
@@ -725,22 +754,29 @@ export class CalculoComisionesService {
      * Antes el pote iba entero a publicidad y la jefa no cobraba nada, leyendo
      * la planilla de 2024 donde las dos jefas figuraban en cero.
      */
-    if (pote > 0) {
-      const jefas = resultados.filter(r => r.vendedora.tipo === TipoVendedora.JEFA);
-      if (jefas.length > 0) {
-        const porJefa = redondear(pote / jefas.length);
-        for (const { registro } of jefas) {
-          registro.bonoJefatura = porJefa;
-        }
-      }
+    const jefas = resultados.filter(r => r.vendedora.tipo === TipoVendedora.JEFA);
+    const publicidad = resultados.filter(r => r.vendedora.area === AreaVendedora.PUBLICIDAD);
+    const reparto = repartirPote(pote, jefas.length, publicidad.length);
 
-      const publicidad = resultados.filter(r => r.vendedora.area === AreaVendedora.PUBLICIDAD);
-      if (publicidad.length > 0) {
-        const porPersona = redondear(pote / publicidad.length);
-        for (const { registro } of publicidad) {
-          registro.bonoPublicidad = porPersona;
-        }
-      }
+    for (const { registro } of jefas) {
+      registro.bonoJefatura = redondear(reparto.porJefa);
+    }
+    for (const { registro } of publicidad) {
+      registro.bonoPublicidad = redondear(reparto.porPublicidad);
+    }
+
+    /*
+     * Marketing existe en la planilla pero no en el Excel de ventas, así que
+     * "no hay nadie a quien pagarle" es un estado posible y silencioso: el
+     * dinero no se pierde en ningún sitio visible, sencillamente no se paga.
+     * Este aviso es la única señal de que falta darlas de alta.
+     */
+    if (pote > 0 && publicidad.length === 0) {
+      this.logger.warn(
+        `El pote de jefatura de este periodo (${redondear(pote)} USD) no se pagó al equipo de ` +
+          'marketing: no hay ninguna persona con área PUBLICIDAD en la liquidación. ' +
+          'Dala de alta en Configuración → Vendedoras si corresponde.',
+      );
     }
 
     // Recalcular totales ya con los bonos incluidos.
@@ -857,8 +893,8 @@ export class CalculoComisionesService {
   /* ── Reportes ───────────────────────────────────────────────────────── */
 
   /** Consolidado del periodo: una fila por vendedora + totales del equipo. */
-  async reporteConsolidado(periodoId: string) {
-    const [periodo, resultados] = await Promise.all([
+  async reporteConsolidado(periodoId: string, incluirOcultas = false) {
+    const [periodo, todos] = await Promise.all([
       this.prisma.periodoComision.findUnique({ where: { id: periodoId } }),
       this.prisma.resultadoComision.findMany({
         where: { periodoId },
@@ -870,6 +906,36 @@ export class CalculoComisionesService {
     if (!periodo) {
       throw new ConflictException(`Periodo ${periodoId} no encontrado`);
     }
+
+    /*
+     * Vendedoras dadas de baja: se quitan de la LISTA, no de la base.
+     *
+     * El filtro se aplica aquí y no en la consulta a propósito. Este método es
+     * el único origen de las cuatro hojas del Excel que van por persona
+     * (Liquidación, Tipo A (RA), Planes por Vendedora y la hoja de cada una) y
+     * de la planilla en pantalla: filtrando en un solo punto, ninguna de esas
+     * vistas se puede olvidar de hacerlo. Y trayéndolas igual se puede decir
+     * CUÁNTAS y CUÁLES se dejaron fuera, que es lo que evita que un total
+     * parezca cuadrar cuando en realidad falta gente.
+     *
+     * Los totales se recalculan sobre lo que de verdad se devuelve: un informe
+     * cuyo pie no sea la suma de sus filas es peor que uno incompleto.
+     *
+     * `oculta` NO toca el cálculo (ver `calcular()`, que sigue liquidando a
+     * todo el mundo activo): las liquidaciones de los meses en que sí trabajó
+     * siguen guardadas y se pueden recuperar marcando "incluir ocultas".
+     */
+    const ocultas = todos
+      .filter(r => r.vendedora.oculta)
+      .map(r => ({
+        vendedoraId: r.vendedoraId,
+        nombre: r.vendedora.nombre,
+        codigo: r.vendedora.codigo,
+        motivoOculta: r.vendedora.motivoOculta,
+        totalGanado: Number(r.totalGanado),
+      }));
+
+    const resultados = incluirOcultas ? todos : todos.filter(r => !r.vendedora.oculta);
 
     const totales = resultados.reduce(
       (acc, r) => ({
@@ -916,12 +982,20 @@ export class CalculoComisionesService {
 
     return {
       periodo,
+      /** Las que están dadas de baja y tienen liquidación en ESTE periodo. */
+      ocultas,
+      /** true = las de arriba van incluidas en `filas` y en `totales`. */
+      incluyeOcultas: incluirOcultas,
       filas: resultados.map(r => ({
         vendedoraId: r.vendedoraId,
         nombre: r.vendedora.nombre,
         codigo: r.vendedora.codigo,
         tipo: r.vendedora.tipo,
         area: r.vendedora.area,
+        /** Solo puede venir en true si se pidió incluirlas. */
+        oculta: r.vendedora.oculta,
+        ocultaDesde: r.vendedora.ocultaDesde,
+        motivoOculta: r.vendedora.motivoOculta,
         montoVendido: Number(r.montoVendido),
         baseCalculo: Number(r.baseCalculo),
         planesVendidos: r.planesVendidos,
@@ -1016,9 +1090,16 @@ export class CalculoComisionesService {
    * administración (columna `TIPO COMISION`). Confundirlas al filtrar es
    * exactamente el tipo de error que esta lista existe para evitar.
    */
-  async reporteDesglose(periodoId: string): Promise<{ filas: LineaDesgloseVendedora[] }> {
+  async reporteDesglose(
+    periodoId: string,
+    incluirOcultas = false,
+  ): Promise<{ filas: LineaDesgloseVendedora[] }> {
+    /* Cada línea lleva el nombre de su vendedora, así que esta lista también es
+       un informe "por persona" y respeta la baja igual que el consolidado. Si no
+       lo hiciera, la vendedora oculta desaparecería de la planilla de arriba y
+       seguiría apareciendo en el desglose de la misma pantalla. */
     const resultados = await this.prisma.resultadoComision.findMany({
-      where: { periodoId },
+      where: { periodoId, ...(incluirOcultas ? {} : { vendedora: { oculta: false } }) },
       include: { vendedora: true },
       orderBy: { vendedora: { nombre: 'asc' } },
     });

@@ -61,6 +61,19 @@ export interface FilaAnual {
   totalBob: number;
 }
 
+/**
+ * Una vendedora dada de baja que el año SÍ tiene pero la matriz no lista.
+ *
+ * Viaja para que la pantalla pueda decirlo. Un informe que esconde filas sin
+ * avisar hace que quien lo cuadra contra su Excel busque un error de cálculo
+ * que no existe.
+ */
+export interface VendedoraOculta {
+  vendedoraId: string;
+  nombre: string;
+  codigo: string;
+}
+
 const TRIMESTRES: ReadonlyArray<{ trimestre: 1 | 2 | 3 | 4; meses: readonly number[] }> = [
   { trimestre: 1, meses: [1, 2, 3] },
   { trimestre: 2, meses: [4, 5, 6] },
@@ -114,6 +127,7 @@ export class ResumenAnualService {
     filas: FilaAnual[];
     totalesPorMes: number[];
     tcReferencia: number;
+    ocultas: VendedoraOculta[];
   }> {
     const clave = `${anio}_${soloVendedoraId ?? 'ALL'}`;
     return this.cache.resolver(clave, () => this.calcular(anio, soloVendedoraId));
@@ -129,6 +143,7 @@ export class ResumenAnualService {
     filas: FilaAnual[];
     totalesPorMes: number[];
     tcReferencia: number;
+    ocultas: VendedoraOculta[];
   }> {
     const periodos = await this.prisma.periodoComision.findMany({
       where: { anio },
@@ -136,13 +151,36 @@ export class ResumenAnualService {
       orderBy: { mes: 'asc' },
     });
 
-    const vendedoras = await this.prisma.vendedoraComision.findMany({
+    /*
+     * Esta matriz es un informe, no un buscador: las dadas de baja no salen.
+     *
+     * **Salvo cuando se pide UNA vendedora concreta** (`soloVendedoraId`), que
+     * es como la ficha de desempeño trae el año de una persona. Filtrar también
+     * ahí devolvería una ficha vacía en cuanto se la ocultara, y ocultar no
+     * puede significar "dejar de existir en el CRM": sus doce meses tienen que
+     * seguir consultables desde su propia ficha, que es donde se los busca a
+     * propósito y no donde aparecen sin pedirlos.
+     */
+    const todas = await this.prisma.vendedoraComision.findMany({
       where: { activa: true, configurada: true, ...(soloVendedoraId ? { id: soloVendedoraId } : {}) },
       orderBy: [{ tipo: 'asc' }, { nombre: 'asc' }],
     });
 
+    const vendedoras = soloVendedoraId ? todas : todas.filter(v => !v.oculta);
+    const ocultas: VendedoraOculta[] = soloVendedoraId
+      ? []
+      : todas
+          .filter(v => v.oculta)
+          .map(v => ({ vendedoraId: v.id, nombre: v.nombre, codigo: v.codigo }));
+
     if (periodos.length === 0 || vendedoras.length === 0) {
-      return { anio, filas: [], totalesPorMes: Array.from({ length: 12 }, () => 0), tcReferencia: 1 };
+      return {
+        anio,
+        filas: [],
+        totalesPorMes: Array.from({ length: 12 }, () => 0),
+        tcReferencia: 1,
+        ocultas,
+      };
     }
 
     const idsPeriodo = periodos.map(p => p.id);
@@ -281,6 +319,6 @@ export class ResumenAnualService {
       };
     });
 
-    return { anio, filas, totalesPorMes: totalesPorMes.map(redondear), tcReferencia };
+    return { anio, filas, totalesPorMes: totalesPorMes.map(redondear), tcReferencia, ocultas };
   }
 }

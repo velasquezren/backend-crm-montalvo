@@ -14,7 +14,6 @@ import {
 import {
   CanalVenta,
   ClasifComision,
-  EstadoPeriodo,
   NivelPlan,
   TipoComision,
   UnidadNegocio,
@@ -31,6 +30,21 @@ function aBooleano({ value }: TransformFnParams): boolean | undefined {
   if (value === undefined || value === null || value === '') return undefined;
   if (typeof value === 'boolean') return value;
   return ['true', '1', 'si', 'sí'].includes(String(value).trim().toLowerCase());
+}
+
+/**
+ * Único parámetro de los informes por persona: si las vendedoras dadas de baja
+ * entran o no.
+ *
+ * Por defecto **no** entran — para eso se las oculta. Se marca a mano para
+ * reeditar un mes en el que la persona sí trabajaba, así que la decisión es
+ * siempre explícita y nunca la que trae el sistema por defecto.
+ */
+export class QueryInformeDto {
+  @IsOptional()
+  @Transform(aBooleano)
+  @IsBoolean()
+  incluirOcultas?: boolean;
 }
 
 /** Filtros de la vista previa de clasificación de un periodo. */
@@ -198,7 +212,25 @@ export class ImportarExcelDto {
 }
 
 /** Cambio de estado del periodo de comisiones. */
-export class CambiarEstadoPeriodoDto {
-  @IsEnum(EstadoPeriodo)
-  estado!: EstadoPeriodo;
+/**
+ * Motivo de un rechazo o de una reapertura.
+ *
+ * Obligatorio, y con la misma razón que `motivoExclusion` en una venta: los dos
+ * saltos deshacen algo que otra persona ya había dado por bueno. Sin motivo,
+ * dentro de tres meses nadie sabe si un mes se reabrió por un error del Excel,
+ * por una devolución o por un clic equivocado — y en el caso de reabrir, además,
+ * se descartó la foto de las reglas con las que se había cerrado.
+ */
+export class MotivoPeriodoDto {
+  @IsString()
+  @Length(3, 300)
+  motivo!: string;
+}
+
+/** El visto bueno de un SUPER_ADMIN. El comentario es opcional. */
+export class AprobarPeriodoDto {
+  @IsOptional()
+  @IsString()
+  @Length(0, 300)
+  comentario?: string;
 }

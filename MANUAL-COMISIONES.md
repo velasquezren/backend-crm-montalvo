@@ -500,6 +500,89 @@ No es un descarte silencioso: cada una deja un aviso en el log con lo que vendi�
 > no aparece en ninguna hoja de pago de la planilla real. Pagarle porque su nombre
 > salió en el Excel sería inventar una comisión.
 
+### El equipo de marketing
+
+Cristel y Araceli **no venden**, así que no tienen código en FileMaker y no
+aparecen solas al importar. Se añaden desde **Configuración → Vendedoras →
+Añadir persona**, con área **Marketing**.
+
+Cobran solo **su parte del bono de jefatura**: el bono se paga dos veces —
+íntegro a la jefa y otro tanto repartido entre marketing—, así que con dos
+personas les toca la mitad a cada una. En diciembre de 2025 fueron 33,35 USD
+(232,41 Bs) por persona.
+
+Salen en la planilla como una fila más, con las comisiones en cero, su bono y su
+sueldo base — igual que en la hoja `GRAL COM` del Excel.
+
+> **Si no hay nadie en el área de Marketing, esa mitad del bono no se paga.**
+> No falla nada ni sale ningún error: sencillamente no se emite. Por eso el
+> directorio de vendedoras avisa cuando el área está vacía.
+
+### Quien ya no trabaja en la clínica: darla de baja
+
+En **Liquidación → Configuración → Vendedoras** cada persona tiene el botón
+*Dar de baja*. Es para quien se fue —renuncia o despido— y pide un motivo, que
+queda registrado y se imprime en el informe.
+
+Lo que cambia y lo que no:
+
+| | |
+|---|---|
+| Deja de salir en | la planilla del mes, el desglose por tipo, el Excel del informe (incluida su hoja individual) y la matriz anual |
+| **No** cambia | sus ventas, que siguen contando en la facturación de la clínica, ni sus liquidaciones pasadas, que quedan guardadas y se pueden recalcular |
+
+Es **reversible** en un clic, y en la pestaña Reportes hay un interruptor para
+volver a mostrarla en un mes concreto — útil para reeditar un mes en el que sí
+trabajaba. **Lo que se ve en pantalla es lo que sale en el Excel**: si el
+informe la incluye, el archivo descargado también.
+
+Cuando falta alguien, el informe lo dice: el Resumen del Excel lista quiénes se
+dejaron fuera y por qué, y la hoja de Liquidación lo repite al pie. Los totales
+se recalculan sobre las filas que sí se listan, así que el pie siempre cuadra
+con lo que está encima.
+
+> **No es lo mismo que desactivar.** Desactivar (`activa`) la saca del motor de
+> cálculo: recalcular un mes en el que sí trabajó le borraría la comisión de ese
+> mes. Dar de baja no toca ni un número.
+
+---
+
+## 12b. Cerrar el mes
+
+Un mes recorre cinco estados. Cada paso tiene su botón en **Liquidación →
+Reportes**, arriba del consolidado.
+
+| Estado | Qué significa | Quién puede avanzar |
+|---|---|---|
+| **Borrador** | Importado y sin calcular | — |
+| **Calculado** | Tiene cifras; se siguen ajustando ventas | Admin: *Enviar a revisión* |
+| **En revisión** | Congelado: no admite ajustes ni recálculo | Super admin: *Aprobar* o *Rechazar* |
+| **Cerrado** | Cifras firmes | Super admin: *Registrar pago* o *Reabrir* |
+| **Pagado** | Ya se pagó. No se modifica | — |
+
+**Antes de revisar hay que dejar el mes limpio.** El botón *Enviar a revisión*
+está deshabilitado —y dice por qué— mientras queden ventas sin clasificar,
+ventas sin vendedora asignada, vendedoras con ventas del mes pero sin tipo/área
+ni sueldo, o si el mes no se ha calculado. Es a propósito: aprobar un mes con
+filas sin clasificar solo reparte la firma de un número que ya estaba mal.
+
+**Aprobar cierra el mes cuando ya no falta nadie.** Firman todos los super
+admin activos: si hay uno, su visto bueno cierra; si hay dos, hace falta el de
+los dos, y la pantalla dice quién falta. La lista se ajusta sola — si a un
+super admin se le baja a admin deja de hacer falta su firma, y si entra uno
+nuevo el mes vuelve a quedar pendiente porque no ha visto esas cifras.
+
+**Rechazar** devuelve el mes a *Calculado* para corregirlo. Pide motivo y
+**borra todas las aprobaciones**, también las de quien ya había firmado: una
+firma vale para las cifras que se firmaron, no para las que vengan después.
+
+**Reabrir** un mes ya cerrado es de super admin y pide motivo. Queda registrado
+quién, cuándo, por qué y con qué reglas se había cerrado.
+
+**Pagado no se reabre.** Si aparece un error en un mes ya pagado, se corrige con
+un ajuste en el mes siguiente. Reescribir un mes pagado deja el historial sin
+poder citarse.
+
 ---
 
 ## 13. El total ganado
