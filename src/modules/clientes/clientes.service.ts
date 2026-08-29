@@ -122,6 +122,8 @@ export class ClientesService {
                 { nombre: { contains: busqueda, mode: 'insensitive' } },
                 { telefono: { contains: busqueda } },
                 { email: { contains: busqueda, mode: 'insensitive' } },
+                { ci: { contains: busqueda, mode: 'insensitive' } },
+                { pac: { contains: busqueda, mode: 'insensitive' } },
               ],
             },
           }

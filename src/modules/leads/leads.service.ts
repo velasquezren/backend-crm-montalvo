@@ -63,8 +63,8 @@ export class LeadsService {
         OR: [
           { cliente: { nombre: { contains: busqueda, mode: 'insensitive' } } },
           { cliente: { telefono: { contains: busqueda } } },
-          { campana: { contains: busqueda, mode: 'insensitive' } },
-          { notas: { contains: busqueda, mode: 'insensitive' } },
+          { cliente: { ci: { contains: busqueda, mode: 'insensitive' } } },
+          { anuncioId: { contains: busqueda, mode: 'insensitive' } },
         ],
       });
     }
