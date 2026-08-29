@@ -210,10 +210,8 @@ export class ServiciosService {
     const { skip, take } = calcularPaginacion(query);
     const busqueda = query.busqueda?.trim();
 
-    // Se agrupa por el paciente del propio Excel: así también salen los que
-    // todavía no tienen ficha en el CRM, que hoy son la mayoría.
     const filtro = Prisma.sql`
-      ${busqueda ? Prisma.sql`AND (v."paciente" ILIKE ${'%' + busqueda + '%'} OR v."pac" ILIKE ${'%' + busqueda + '%'})` : Prisma.empty}
+      ${busqueda ? Prisma.sql`AND (v."paciente" ILIKE ${'%' + busqueda + '%'} OR v."pac" ILIKE ${'%' + busqueda + '%'} OR c."nombre" ILIKE ${'%' + busqueda + '%'} OR c."ci" ILIKE ${'%' + busqueda + '%'} OR c."telefono" ILIKE ${'%' + busqueda + '%'})` : Prisma.empty}
     `;
 
     const [filas, total] = await Promise.all([
@@ -227,7 +225,7 @@ export class ServiciosService {
           clienteId: string | null;
         }>
       >`
-        SELECT v."pac", max(v."paciente") AS paciente, count(*) AS servicios,
+        SELECT v."pac", COALESCE(max(c."nombre"), max(v."paciente")) AS paciente, count(*) AS servicios,
                sum(v."precio") AS gastado, max(v."fecha") AS ultima,
                max(c."id") AS "clienteId"
         FROM "VentaImportada" v
@@ -239,6 +237,7 @@ export class ServiciosService {
       `,
       this.prisma.$queryRaw<Array<{ total: bigint }>>`
         SELECT count(DISTINCT v."pac") AS total FROM "VentaImportada" v
+        LEFT JOIN "Cliente" c ON c."pac" = v."pac"
         WHERE v."pac" IS NOT NULL ${filtro}
       `,
     ]);
