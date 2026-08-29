@@ -3,6 +3,7 @@ import {
   AreaVendedora,
   EstadoPeriodo,
   Prisma,
+  ModoTipoCambio,
   Rol,
   TipoVendedora,
   VendedoraComision,
@@ -35,6 +36,7 @@ import { ActualizarVendedoraDto, CrearVendedoraDto } from './dto/configuracion.d
 import { AjustarVentaDto, ImportarExcelDto, QueryPeriodosDto, QueryVentasImportadasDto } from './dto/planilla.dto';
 import { deducirPeriodo, leerExcel } from './excel-parser';
 import { ResumenAnualService } from './resumen-anual.service';
+import { TipoCambioService } from '../tipo-cambio/tipo-cambio.service';
 
 /** Cuántas filas se insertan por lote (el VPS tiene poca RAM: no cargar todo de golpe). */
 const TAMANO_LOTE = 500;
@@ -150,6 +152,7 @@ export class PlanillaComisionesService {
     private readonly audit: AuditService,
     private readonly catalogo: CatalogoClinicoService,
     private readonly resumenAnual: ResumenAnualService,
+    private readonly tipoCambio: TipoCambioService,
   ) {}
 
   /* ── Importación ────────────────────────────────────────────────────── */
@@ -174,7 +177,7 @@ export class PlanillaComisionesService {
 
     const anio = dto.anio ?? deducido.anio;
     const mes = dto.mes ?? deducido.mes;
-    const tipoCambio = dto.tipoCambio ?? deducido.tipoCambio;
+    const tipoCambio = await this.resolverTipoCambio(dto.tipoCambio, deducido.tipoCambio, mes, anio);
 
     const existente = await this.prisma.periodoComision.findUnique({ where: { anio_mes: { anio, mes } } });
     if (existente && !esEditable(existente.estado)) {
@@ -464,6 +467,48 @@ export class PlanillaComisionesService {
     });
 
     return new Map(vendedoras.map(v => [v.codigo, v]));
+  }
+
+  /**
+   * Con qué tipo de cambio se liquida el mes que se está importando.
+   *
+   * Prioridad: lo que pida quien importa > el criterio vigente del CRM > lo que
+   * traiga el Excel.
+   *
+   * **El Excel pasó de mandar a ser el último recurso**, y es el arreglo de un
+   * problema real: el `tc` de FileMaker es una celda que alguien teclea cada
+   * mes, y de ahí sale el número por el que se multiplica TODO lo que se paga.
+   * Un dedazo ahí no da error —da una planilla entera mal, en silencio—. La
+   * clínica opera a un valor pactado, así que ese valor lo decide el CRM, donde
+   * está escrito una sola vez y cambiarlo queda auditado.
+   *
+   * En modo AUTOMATICO se respeta el Excel como antes: ahí el TC sí varía mes a
+   * mes y el archivo es quien sabe con cuál se cerró.
+   */
+  private async resolverTipoCambio(
+    pedido: number | undefined,
+    delExcel: number,
+    mes: number,
+    anio: number,
+  ): Promise<number> {
+    /* Un valor explícito en la petición gana siempre: es alguien decidiendo a
+       mano para este archivo concreto. */
+    if (pedido) return pedido;
+
+    const config = await this.tipoCambio.configuracion();
+    if (config.modo !== ModoTipoCambio.FIJO) return delExcel;
+
+    /* Que no coincidan no es un error —el Excel puede traer el oficial del día
+       mientras la clínica liquida al pactado— pero tiene que verse: es la única
+       señal de que el archivo dice una cosa y se está pagando con otra. */
+    if (delExcel && Math.abs(delExcel - config.valorFijo) > 0.0001) {
+      this.logger.warn(
+        `El Excel de ${mes}/${anio} trae tc=${delExcel} y se liquidará a ${config.valorFijo}: ` +
+          'el CRM está en modo de tipo de cambio FIJO.',
+      );
+    }
+
+    return config.valorFijo;
   }
 
   private resolverVendedoraId(

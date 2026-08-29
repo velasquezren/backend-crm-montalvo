@@ -57,6 +57,7 @@ function montar(opciones: { estadoPeriodo?: string; venta?: VentaFalsa | null } 
     audit as never,
     { invalidar: () => undefined } as never,
     { invalidar: () => undefined } as never,
+    { configuracion: async () => ({ modo: 'FIJO', valorFijo: 6.97 }) } as never,
   );
 
   return { servicio, actualizaciones, auditorias };

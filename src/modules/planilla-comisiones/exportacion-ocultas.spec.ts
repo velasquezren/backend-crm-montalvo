@@ -1,3 +1,4 @@
+import { AreaVendedora } from '@prisma/client';
 import { Workbook, Worksheet } from 'exceljs';
 import { PassThrough } from 'stream';
 
@@ -30,11 +31,21 @@ import { ExportacionComisionesService } from './exportacion-comisiones.service';
 
 const TC = 6.97;
 
-function resultado(id: string, nombre: string, oculta: boolean, comisionUsd: number) {
+function resultado(
+  id: string,
+  nombre: string,
+  oculta: boolean,
+  comisionUsd: number,
+  area: AreaVendedora = AreaVendedora.EJECUTIVA,
+) {
+  /* Marketing no comisiona: todo su pago es bono. Se modela igual que lo hace
+     el motor —comisiones en cero y el importe en `bonoPublicidad`— para que la
+     hoja reciba exactamente la forma que produce producción. */
+  const esMarketing = area === AreaVendedora.PUBLICIDAD;
   return {
     vendedoraId: id,
-    montoVendido: comisionUsd * 10,
-    baseCalculo: comisionUsd * 8.7,
+    montoVendido: esMarketing ? 0 : comisionUsd * 10,
+    baseCalculo: esMarketing ? 0 : comisionUsd * 8.7,
     planesVendidos: 0,
     cumpleObjetivoPlanes: false,
     planpaqVendidos: 0,
@@ -47,12 +58,12 @@ function resultado(id: string, nombre: string, oculta: boolean, comisionUsd: num
     ingresoRATipoARA: 0,
     excedenteTipoARA: 0,
     nivelTipoARA: null,
-    comisionA: comisionUsd,
+    comisionA: esMarketing ? 0 : comisionUsd,
     comisionB: 0,
     comisionC: 0,
     comisionTipoARA: 0,
     bonoJefatura: 0,
-    bonoPublicidad: 0,
+    bonoPublicidad: esMarketing ? comisionUsd : 0,
     bonoTrimestral: 0,
     totalUsd: comisionUsd,
     totalBob: comisionUsd * TC,
@@ -64,7 +75,7 @@ function resultado(id: string, nombre: string, oculta: boolean, comisionUsd: num
       nombre,
       codigo: `C${id}`,
       tipo: 'VENDEDORA',
-      area: 'EJECUTIVA',
+      area,
       oculta,
       ocultaDesde: oculta ? new Date('2026-03-01') : null,
       motivoOculta: oculta ? 'Ya no trabaja en la clínica' : null,
@@ -84,13 +95,19 @@ const PERIODO = {
 };
 
 /** Zuany sigue en el equipo; Yelca está dada de baja. */
-function montar(): ExportacionComisionesService {
+function montar(conMarketing = false): ExportacionComisionesService {
   const prisma = {
     periodoComision: { findUnique: async () => PERIODO },
     resultadoComision: {
       findMany: async () => [
         resultado('v1', 'Zuany', false, 100),
         resultado('v2', 'Yelca', true, 40),
+        ...(conMarketing
+          ? [
+              resultado('v3', 'Cristel', false, 33.35, AreaVendedora.PUBLICIDAD),
+              resultado('v4', 'Araceli', false, 33.35, AreaVendedora.PUBLICIDAD),
+            ]
+          : []),
       ],
     },
     ventaImportada: { findMany: async () => [] },
@@ -144,13 +161,13 @@ function montar(): ExportacionComisionesService {
 }
 
 /** Genera el .xlsx de verdad y lo vuelve a leer. */
-async function libroDe(incluirOcultas: boolean): Promise<Workbook> {
+async function libroDe(incluirOcultas: boolean, conMarketing = false): Promise<Workbook> {
   const trozos: Buffer[] = [];
   const salida = new PassThrough();
   salida.on('data', c => trozos.push(c as Buffer));
   const cerrado = new Promise<void>(resolver => salida.on('end', () => resolver()));
 
-  await montar().exportar('p1', salida, incluirOcultas);
+  await montar(conMarketing).exportar('p1', salida, incluirOcultas);
   salida.end();
   await cerrado;
 
@@ -159,18 +176,28 @@ async function libroDe(incluirOcultas: boolean): Promise<Workbook> {
   return libro;
 }
 
-/** Los nombres de la primera columna, sin cabecera, TOTALES ni el pie del aviso. */
+/** Personas de la primera columna: sin cabecera, sin subtotales y sin avisos. */
 function vendedorasDe(hoja: Worksheet | undefined): string[] {
   const nombres: string[] = [];
   hoja?.eachRow((fila, numero) => {
     if (numero === 1) return;
     const nombre = fila.getCell(1).value;
-    if (typeof nombre !== 'string' || nombre === 'TOTALES' || nombre.startsWith('No se listan')) {
+    if (typeof nombre !== 'string') return;
+    if (nombre.startsWith('TOTAL') || nombre.startsWith('No se listan') || nombre.startsWith('EQUIPO')) {
       return;
     }
     nombres.push(nombre);
   });
   return nombres;
+}
+
+/** En qué fila está una etiqueta de la primera columna. */
+function filaDe_(hoja: Worksheet | undefined, etiqueta: string): number {
+  let encontrada = 0;
+  hoja?.eachRow((fila, numero) => {
+    if (fila.getCell(1).value === etiqueta) encontrada = numero;
+  });
+  return encontrada;
 }
 
 /**
@@ -182,7 +209,11 @@ function vendedorasDe(hoja: Worksheet | undefined): string[] {
  * del informe no convierte esta prueba en un falso verde comparando la de al
  * lado.
  */
-function total(hoja: Worksheet | undefined, titulo: string): unknown {
+function total(
+  hoja: Worksheet | undefined,
+  titulo: string,
+  etiqueta = 'TOTALES',
+): unknown {
   if (!hoja) return undefined;
   const cabecera = hoja.getRow(1).values as unknown[];
   const columna = cabecera.indexOf(titulo);
@@ -190,7 +221,7 @@ function total(hoja: Worksheet | undefined, titulo: string): unknown {
 
   let valor: unknown;
   hoja.eachRow(fila => {
-    if (fila.getCell(1).value === 'TOTALES') valor = fila.getCell(columna).value;
+    if (fila.getCell(1).value === etiqueta) valor = fila.getCell(columna).value;
   });
   return valor;
 }
@@ -269,6 +300,79 @@ describe('Excel del periodo · vendedoras dadas de baja', () => {
       const libro = await libroDe(true);
 
       expect(filaDe(libro.getWorksheet('Resumen'), 'De ellas, dadas de baja y NO listadas')).toBeUndefined();
+    });
+  });
+
+  /**
+   * El equipo de marketing va en un bloque aparte de la hoja "Liquidación".
+   *
+   * No es preferencia estética: su fila tiene 14 de las 20 columnas en cero
+   * —no vende, no tiene planes, no llega a ningún nivel— y mezclada entre las
+   * ejecutivas obliga a leer fila por fila para entender por qué. La planilla
+   * de administración ya lo resuelve así: el bloque "EQUIPO DE PUBLICIDAD" de
+   * la hoja "CALCULO BONOS", aparte de la tabla de vendedoras.
+   */
+  describe('equipo de marketing', () => {
+    it('va DEBAJO de la tabla de ventas, después de su subtotal', async () => {
+      const hoja = (await libroDe(false, true)).getWorksheet('Liquidación');
+
+      const zuany = filaDe_(hoja, 'Zuany');
+      const subtotalVentas = filaDe_(hoja, 'TOTAL EQUIPO DE VENTAS');
+      const cristel = filaDe_(hoja, 'Cristel');
+
+      expect(zuany).toBeLessThan(subtotalVentas);
+      expect(subtotalVentas).toBeLessThan(cristel);
+    });
+
+    it('las dos están listadas en su bloque', async () => {
+      const hoja = (await libroDe(false, true)).getWorksheet('Liquidación');
+
+      expect(vendedorasDe(hoja)).toEqual(['Zuany', 'Cristel', 'Araceli']);
+    });
+
+    /* Cada pie suma las filas que tiene ENCIMA. Si el subtotal de ventas
+       reutilizara el total del periodo diría 166,70 sobre una sola fila de 100. */
+    it('el subtotal de ventas no incluye a marketing', async () => {
+      const hoja = (await libroDe(false, true)).getWorksheet('Liquidación');
+
+      expect(total(hoja, 'Total ($)', 'TOTAL EQUIPO DE VENTAS')).toBeCloseTo(100, 2);
+    });
+
+    it('el subtotal de marketing suma solo a marketing', async () => {
+      const hoja = (await libroDe(false, true)).getWorksheet('Liquidación');
+
+      expect(total(hoja, 'Total ($)', 'TOTAL MARKETING')).toBeCloseTo(66.7, 2);
+    });
+
+    /* El único número que junta los dos bloques: lo que sale de caja. */
+    it('cierra con el total general de los dos bloques', async () => {
+      const hoja = (await libroDe(false, true)).getWorksheet('Liquidación');
+
+      expect(total(hoja, 'Total ($)', 'TOTAL GENERAL A PAGAR')).toBeCloseTo(166.7, 2);
+    });
+
+    /* Sin marketing la hoja no cambia de vocabulario: el pie sigue diciendo
+       "TOTALES", que es lo que administración ya conoce. */
+    it('sin marketing, el pie se sigue llamando TOTALES', async () => {
+      const hoja = (await libroDe(false)).getWorksheet('Liquidación');
+
+      expect(filaDe_(hoja, 'TOTALES')).toBeGreaterThan(0);
+      expect(filaDe_(hoja, 'TOTAL MARKETING')).toBe(0);
+    });
+
+    /* Su pestaña saldría vacía: no tiene ventas, ni desglose, ni planes. */
+    it('no se les crea hoja individual', async () => {
+      const hojas = (await libroDe(false, true)).worksheets.map(h => h.name);
+
+      expect(hojas).toContain('Zuany');
+      expect(hojas).not.toContain('Cristel');
+      expect(hojas).not.toContain('Araceli');
+    });
+
+    it('el Resumen dice cuántas son de marketing', async () => {
+      const resumen = (await libroDe(false, true)).getWorksheet('Resumen');
+
+      expect(filaDe(resumen, 'De ellas, equipo de marketing (cobra bono, no comisiona)')).toBe(2);
     });
   });
 });

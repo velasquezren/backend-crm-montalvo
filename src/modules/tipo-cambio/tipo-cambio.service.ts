@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
-import { FuenteTipoCambio } from '@prisma/client';
+import { FuenteTipoCambio, ModoTipoCambio } from '@prisma/client';
 
 import { AuditService } from '../../common/audit/audit.service';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -34,7 +34,16 @@ interface RespuestaEspejoBcb {
 export interface TipoCambioVigenteRespuesta {
   tipoCambio: number;
   fecha: string | null;
-  fuente: FuenteTipoCambio | 'RESPALDO';
+  fuente: FuenteTipoCambio | 'RESPALDO' | 'FIJO';
+}
+
+/** El criterio de conversión vigente y, si es FIJO, con qué valor. */
+export interface ConfiguracionTipoCambioRespuesta {
+  modo: ModoTipoCambio;
+  valorFijo: number;
+  /** El último valor de la serie del BCB, se use o no. Para poder compararlos. */
+  oficialDelDia: number | null;
+  actualizadoEn: string | null;
 }
 
 export interface ResultadoSincronizacion {
@@ -88,6 +97,24 @@ export class TipoCambioService implements OnModuleInit, OnModuleDestroy {
 
   /** El más reciente con fecha <= hoy. Si la tabla está vacía, el respaldo fijo. */
   async vigente(): Promise<TipoCambioVigenteRespuesta> {
+    /*
+     * El modo manda sobre la serie diaria.
+     *
+     * La clínica opera a un tipo de cambio PACTADO (6,97): así se liquidaron
+     * los seis periodos de 2026 y así viene el `tc` del Excel de FileMaker. El
+     * TCO oficial se despegó —11,92 en agosto de 2026— y mientras este método
+     * devolvía la serie diaria, el selector Bs/$us convertía TODA la app con un
+     * número un 71 % por encima de cualquier cifra realmente pagada.
+     *
+     * En modo FIJO la serie se sigue guardando igual (ver `sincronizar()`): no
+     * se apaga nada, solo deja de gobernar. El día que la clínica pase a operar
+     * al oficial, se cambia el modo desde la pantalla y esto vuelve solo.
+     */
+    const config = await this.configuracion();
+    if (config.modo === ModoTipoCambio.FIJO) {
+      return { tipoCambio: config.valorFijo, fecha: null, fuente: 'FIJO' };
+    }
+
     const fila = await this.prisma.tipoCambioDiario.findFirst({
       where: { fecha: { lte: new Date() } },
       orderBy: { fecha: 'desc' },
@@ -98,6 +125,60 @@ export class TipoCambioService implements OnModuleInit, OnModuleDestroy {
     }
 
     return { tipoCambio: Number(fila.valor), fecha: formatearFecha(fila.fecha), fuente: fila.fuente };
+  }
+
+  /**
+   * El criterio vigente. La fila es única (`id = 1`, con CHECK en la base).
+   *
+   * Si no existe todavía —base recién migrada— se devuelve el mismo defecto que
+   * siembra la migración en vez de crearla al vuelo: una lectura no debería
+   * escribir, y menos la que atiende cada carga de la app.
+   */
+  async configuracion(): Promise<ConfiguracionTipoCambioRespuesta> {
+    const [fila, ultimoOficial] = await Promise.all([
+      this.prisma.configuracionTipoCambio.findUnique({ where: { id: 1 } }),
+      this.prisma.tipoCambioDiario.findFirst({ orderBy: { fecha: 'desc' } }),
+    ]);
+
+    return {
+      modo: fila?.modo ?? ModoTipoCambio.FIJO,
+      valorFijo: Number(fila?.valorFijo ?? TIPO_CAMBIO_RESPALDO),
+      oficialDelDia: ultimoOficial ? Number(ultimoOficial.valor) : null,
+      actualizadoEn: fila?.updatedAt.toISOString() ?? null,
+    };
+  }
+
+  /**
+   * Cambia el criterio de conversión de todo el CRM.
+   *
+   * **No toca ninguna cifra ya guardada.** Cada liquidación conserva el
+   * `PeriodoComision.tipoCambio` con el que se calculó, y las vistas que
+   * muestran un mes concreto lo usan a él (ver `crm-finanzas` §6). Lo que
+   * cambia es con qué se convierte lo que NO pertenece a un periodo cerrado.
+   */
+  async actualizarConfiguracion(
+    datos: { modo?: ModoTipoCambio; valorFijo?: number },
+    usuarioId: string,
+  ): Promise<ConfiguracionTipoCambioRespuesta> {
+    const actual = await this.prisma.configuracionTipoCambio.findUnique({ where: { id: 1 } });
+
+    const modo = datos.modo ?? actual?.modo ?? ModoTipoCambio.FIJO;
+    const valorFijo = datos.valorFijo ?? Number(actual?.valorFijo ?? TIPO_CAMBIO_RESPALDO);
+
+    await this.prisma.configuracionTipoCambio.upsert({
+      where: { id: 1 },
+      create: { id: 1, modo, valorFijo, actualizadoPorId: usuarioId },
+      update: { modo, valorFijo, actualizadoPorId: usuarioId },
+    });
+
+    /* Queda en auditoría porque decide con qué se convierte todo lo que se ve
+       en pantalla: un cambio acá mueve cada cifra en Bs del CRM a la vez. */
+    await this.auditService.registrar('ConfiguracionTipoCambio', '1', 'ACTUALIZAR', usuarioId, {
+      modo,
+      valorFijo,
+    });
+
+    return this.configuracion();
   }
 
   /** Serie de un mes calendario completo, para la pantalla de administración. */

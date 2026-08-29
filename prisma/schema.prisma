@@ -975,6 +975,42 @@ model PushSubscription {
   @@index([usuarioId])
 }
 
+//
+// * Con qué criterio convierte el CRM entre dólares y bolivianos.
+//
+// * La clínica opera a un tipo de cambio PACTADO (6,97), no al oficial del día:
+// * las comisiones se liquidan así y el Excel de FileMaker trae ese valor. El
+// * TCO oficial se despegó —11,92 en agosto de 2026 contra 6,97— y con el modo
+// * AUTOMATICO el selector Bs/$us convertía con un número que no se corresponde
+// * con ninguna cifra pagada.
+//
+enum ModoTipoCambio {
+  /// Un valor pactado, el mismo para todo. Es como trabaja la clínica hoy.
+  FIJO
+  /// Sigue la serie diaria del BCB (`TipoCambioDiario`).
+  AUTOMATICO
+}
+
+//
+// * Fila ÚNICA (`id` siempre 1, con CHECK en la base) con el criterio vigente.
+// *
+// * Es una tabla y no una variable de entorno a propósito: cambiar de modo tiene
+// * que poder hacerse desde la pantalla de administración, sin desplegar y sin
+// * reiniciar el servicio. El día que la clínica pase a operar al oficial, es un
+// * clic.
+// *
+// * Cambiar el modo NO reescribe nada: las liquidaciones ya calculadas guardan
+// * su propio `PeriodoComision.tipoCambio` y se siguen leyendo con ese.
+//
+model ConfiguracionTipoCambio {
+  id               Int            @id @default(1)
+  modo             ModoTipoCambio @default(FIJO)
+  /// El valor pactado que se aplica cuando `modo` es FIJO.
+  valorFijo        Decimal        @default(6.97) @db.Decimal(10, 4)
+  actualizadoPorId String?
+  updatedAt        DateTime       @updatedAt
+}
+
 enum FuenteTipoCambio {
   /// Traído solo de un espejo público del BCB (no es el BCB en sí — bcb.gob.bo
   /// no publica API, solo Excel/PDF para descargar a mano). Ver `TipoCambioService`.

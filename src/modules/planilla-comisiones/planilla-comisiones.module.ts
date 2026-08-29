@@ -1,11 +1,14 @@
 import { Module } from '@nestjs/common';
 
+import { TipoCambioModule } from '../tipo-cambio/tipo-cambio.module';
+
 import { AnaliticaComisionesService } from './analitica-comisiones.service';
 import { CalculoComisionesService } from './calculo-comisiones.service';
 import { CatalogoClinicoService } from './catalogo-clinico.service';
 import { ConfiguracionComisionesService } from './configuracion-comisiones.service';
 import { ResumenAnualService } from './resumen-anual.service';
 import { ExportacionComisionesService } from './exportacion-comisiones.service';
+import { ExportacionPdfService } from './exportacion-pdf.service';
 import { PlanillaComisionesController } from './planilla-comisiones.controller';
 import { PlanillaComisionesService } from './planilla-comisiones.service';
 
@@ -17,6 +20,7 @@ import { PlanillaComisionesService } from './planilla-comisiones.service';
  * CRM (que modelan otra cosa: la venta puntual de un agente y su comisión).
  */
 @Module({
+  imports: [TipoCambioModule],
   controllers: [PlanillaComisionesController],
   providers: [
     ResumenAnualService,
@@ -26,6 +30,7 @@ import { PlanillaComisionesService } from './planilla-comisiones.service';
     ConfiguracionComisionesService,
     AnaliticaComisionesService,
     ExportacionComisionesService,
+    ExportacionPdfService,
   ],
   /* CatalogoClinicoService sale fuera porque Ventas lo necesita para
      autocompletar: es lectura derivada, no acceso a la planilla. */

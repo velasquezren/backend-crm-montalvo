@@ -3,6 +3,7 @@ import { Body, Controller, Get, HttpCode, HttpStatus, Param, Patch, Post, Query 
 import { CurrentUser, UsuarioJwt } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { ActualizarTipoCambioDto } from './dto/actualizar-tipo-cambio.dto';
+import { ActualizarConfiguracionTipoCambioDto } from './dto/configuracion-tipo-cambio.dto';
 import { QueryTipoCambioDto } from './dto/query-tipo-cambio.dto';
 import { TipoCambioService } from './tipo-cambio.service';
 
@@ -27,6 +28,36 @@ export class TipoCambioController {
   @Get('historial')
   historial(@Query() query: QueryTipoCambioDto) {
     return this.tipoCambioService.historial(query.anio, query.mes);
+  }
+
+  /**
+   * El criterio de conversión vigente (fijo o automático) y con qué valor.
+   *
+   * Lo lee AGENTE por lo mismo que `vigente`: la pantalla necesita poder decir
+   * "esto está en Bs a 6,97 fijo" junto al selector, y eso no expone nada.
+   */
+  @Get('configuracion')
+  @Roles('AGENTE')
+  configuracion() {
+    return this.tipoCambioService.configuracion();
+  }
+
+  /**
+   * Cambia el criterio de conversión de TODO el CRM. Solo SUPER_ADMIN: mueve a
+   * la vez cada cifra en bolivianos que se ve en pantalla.
+   *
+   * **Va antes que `@Patch(':fecha')` a propósito**: `configuracion` no es una
+   * fecha, y Nest resuelve por orden de declaración — declarado después, la
+   * ruta comodín se lo comería y esto acabaría intentando parsear
+   * "configuracion" como AAAA-MM-DD.
+   */
+  @Patch('configuracion')
+  @Roles('SUPER_ADMIN')
+  actualizarConfiguracion(
+    @Body() dto: ActualizarConfiguracionTipoCambioDto,
+    @CurrentUser() usuario: UsuarioJwt,
+  ) {
+    return this.tipoCambioService.actualizarConfiguracion(dto, usuario.sub);
   }
 
   /** Corrección manual de un día concreto (AAAA-MM-DD) — siempre gana sobre lo automático. */

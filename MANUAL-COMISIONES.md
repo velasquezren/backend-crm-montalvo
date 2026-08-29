@@ -511,8 +511,28 @@ Cobran solo **su parte del bono de jefatura**: el bono se paga dos veces —
 personas les toca la mitad a cada una. En diciembre de 2025 fueron 33,35 USD
 (232,41 Bs) por persona.
 
-Salen en la planilla como una fila más, con las comisiones en cero, su bono y su
-sueldo base — igual que en la hoja `GRAL COM` del Excel.
+En el **Excel del informe**, hoja «Liquidación», salen en un **bloque aparte
+debajo de la tabla de ventas** — igual que el bloque «EQUIPO DE PUBLICIDAD» de
+tu hoja `CALCULO BONOS`:
+
+```
+… las ejecutivas …
+TOTAL EQUIPO DE VENTAS
+
+EQUIPO DE MARKETING — cobra bono, no comisiona
+  Cespedes Soto Cristel Nedenka   …  bono  …  sueldo  …  a pagar
+  Paz Flores Araceli              …  bono  …  sueldo  …  a pagar
+TOTAL MARKETING
+
+TOTAL GENERAL A PAGAR
+```
+
+Las columnas de facturación, planes y niveles salen **vacías**, no en `$ 0,00`:
+un cero diría "vendió y no llegó", y el hueco dice "esto no le aplica". Cada
+subtotal suma solo las filas que tiene encima, y el total general es el único
+número que junta los dos bloques — lo que sale de caja ese mes.
+
+Tampoco se les crea hoja individual: no tienen ventas ni desglose que mostrar.
 
 > **Si no hay nadie en el área de Marketing, esa mitad del bono no se paga.**
 > No falla nada ni sale ningún error: sencillamente no se emite. Por eso el
@@ -544,6 +564,34 @@ con lo que está encima.
 > **No es lo mismo que desactivar.** Desactivar (`activa`) la saca del motor de
 > cálculo: recalcular un mes en el que sí trabajó le borraría la comisión de ese
 > mes. Dar de baja no toca ni un número.
+
+---
+
+## 12a. El informe PDF (el que se firma)
+
+Botón **«Informe PDF»** junto a «Descargar Excel», en la barra del periodo.
+
+Es una página apaisada con la planilla del mes, el bloque de marketing y las
+tres firmas — **Elaborado por** y **Revisado por** salen del usuario que lo
+genera; **Autorizado por** es siempre la dirección de la clínica.
+
+No es el Excel en otro formato, y conviene no confundirlos:
+
+| | Para qué |
+|---|---|
+| **Excel** | Auditar: 20 columnas, hoja por vendedora, cada venta del mes |
+| **PDF** | Pagar: 13 columnas, una página, listo para firmar y archivar |
+
+En el PDF se quitan Tipo, Área, Planes, Cumple objetivo, Cirugías acumuladas y
+los dos niveles: explican **cómo se llegó** a la cifra, y para eso está el
+Excel. Cada columna de más le quita ancho a las que importan.
+
+> **Si el periodo no está cerrado, la cabecera dice «PRELIMINAR».** Las cifras
+> de un mes sin cerrar pueden cambiar al día siguiente, y sin ese aviso el
+> informe de un borrador sale idéntico al definitivo.
+
+Respeta el mismo interruptor de «incluir dadas de baja» que la pantalla y el
+Excel: lo que ves es lo que se imprime.
 
 ---
 

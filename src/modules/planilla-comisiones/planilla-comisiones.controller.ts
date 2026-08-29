@@ -24,6 +24,7 @@ import { CalculoComisionesService } from './calculo-comisiones.service';
 import { ConfiguracionComisionesService } from './configuracion-comisiones.service';
 import { ResumenAnualService } from './resumen-anual.service';
 import { ExportacionComisionesService } from './exportacion-comisiones.service';
+import { ExportacionPdfService } from './exportacion-pdf.service';
 import {
   ActualizarNivelCirugiaDto,
   ActualizarNivelTipoARADto,
@@ -81,6 +82,7 @@ export class PlanillaComisionesController {
     private readonly configuracion: ConfiguracionComisionesService,
     private readonly analitica: AnaliticaComisionesService,
     private readonly exportacion: ExportacionComisionesService,
+    private readonly exportacionPdf: ExportacionPdfService,
     private readonly resumenAnual: ResumenAnualService,
   ) {}
 
@@ -275,6 +277,28 @@ export class PlanillaComisionesController {
     res.setHeader('Content-Disposition', `attachment; filename="${nombre}"`);
     await this.exportacion.exportar(id, res, query.incluirOcultas ?? false);
     res.end();
+  }
+
+  /**
+   * El mismo informe, en PDF: el documento que se imprime y se firma.
+   *
+   * Lleva las tres firmas, y `Elaborado`/`Revisado` salen del usuario que lo
+   * genera — por eso hace falta el `@CurrentUser()` que el Excel no necesita.
+   */
+  @Get('periodos/:id/exportar-pdf')
+  async exportarPdf(
+    @Param('id') id: string,
+    @Query() query: QueryInformeDto,
+    @CurrentUser() usuario: UsuarioJwt,
+    @Res({ passthrough: false }) res: Response,
+  ) {
+    const nombre = await this.exportacionPdf.nombreArchivo(id);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${nombre}"`);
+    await this.exportacionPdf.exportar(id, res, {
+      incluirOcultas: query.incluirOcultas ?? false,
+      usuarioId: usuario.sub,
+    });
   }
 
   @Get('periodos/:id/reporte/consolidado')

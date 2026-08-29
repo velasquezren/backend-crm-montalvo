@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { ClasifComision, UnidadNegocio } from '@prisma/client';
+import { AreaVendedora, ClasifComision, UnidadNegocio } from '@prisma/client';
 import { TableColumnProperties, Workbook, Worksheet } from 'exceljs';
 import { Writable } from 'stream';
 
@@ -214,6 +214,18 @@ export class ExportacionComisionesService {
      * filas de la hoja "Liquidación" y le salen menos. La explicación tiene que
      * estar ahí mismo o el archivo entero pierde credibilidad.
      */
+    /* Igual que con las dadas de baja: si el número de arriba no coincide con
+       las filas de la tabla de ventas, esta línea dice por qué. */
+    const enMarketing = (consolidado?.filas ?? []).filter(esMarketing);
+    if (enMarketing.length > 0) {
+      this.dato(
+        hoja,
+        'De ellas, equipo de marketing (cobra bono, no comisiona)',
+        enMarketing.length,
+        FORMATO.entero,
+      );
+    }
+
     const ocultasFuera = consolidado?.incluyeOcultas ? [] : (consolidado?.ocultas ?? []);
     if (ocultasFuera.length > 0) {
       this.dato(
@@ -304,7 +316,22 @@ export class ExportacionComisionesService {
       'Nivel del cubo Tipo A (RA) — distinto del nivel de cirugía. Ver el desglose completo en la hoja "Tipo A (RA)".',
     );
 
-    for (const f of consolidado.filas) {
+    /*
+     * Marketing va en su propio bloque, debajo. No es una preferencia estética:
+     * su fila tiene 14 de las 20 columnas en cero —no vende, no tiene planes, no
+     * llega a ningún nivel— y mezclada entre las ejecutivas obliga a leer fila
+     * por fila para entender por qué. La planilla de administración ya lo
+     * resuelve así: hoja "CALCULO BONOS", el bloque "EQUIPO DE PUBLICIDAD" de
+     * las filas 47-51, aparte de la tabla de vendedoras.
+     *
+     * Se queda en la MISMA cuadrícula de columnas, eso sí, para que "Bonos",
+     * "Sueldo base" y "A PAGAR" sigan alineadas de arriba abajo y se puedan
+     * leer de un vistazo para toda la planilla.
+     */
+    const equipoVentas = consolidado.filas.filter(f => !esMarketing(f));
+    const equipoMarketing = consolidado.filas.filter(esMarketing);
+
+    for (const f of equipoVentas) {
       const fila = hoja.addRow({
         ...f,
         cumpleObjetivo: f.cumpleObjetivoPlanes ? 'Sí' : 'No',
@@ -324,21 +351,19 @@ export class ExportacionComisionesService {
       }
     }
 
-    const t = consolidado.totales;
+    /* El pie suma las filas que están JUSTO ENCIMA, no el periodo entero: con
+       marketing en su propio bloque, usar el total del backend dejaría un
+       "TOTALES" que no es la suma de lo que se ve. Al final de la hoja va el
+       total general, que sí los junta. */
     const totales = hoja.addRow({
-      nombre: 'TOTALES',
-      montoVendido: t['montoVendido'],
-      baseCalculo: t['baseCalculo'],
-      comisionA: t['comisionA'],
-      comisionTipoARA: t['comisionTipoARA'],
-      comisionB: t['comisionB'],
-      comisionC: t['comisionC'],
-      bonos: t['bonos'],
-      totalUsd: t['totalUsd'],
-      totalBob: t['totalBob'],
-      totalGanado: t['totalGanado'],
+      nombre: equipoMarketing.length > 0 ? 'TOTAL EQUIPO DE VENTAS' : 'TOTALES',
+      ...this.sumarFilas(equipoVentas),
     });
     this.marcarTotales(totales, columnas.length);
+
+    if (equipoMarketing.length > 0) {
+      this.bloqueMarketing(hoja, columnas, equipoMarketing, consolidado.totales);
+    }
 
     /* El pie de la hoja que se firma. Los TOTALES de arriba son la suma exacta
        de las filas listadas —se recalculan en `reporteConsolidado()`— así que
@@ -355,6 +380,104 @@ export class ExportacionComisionesService {
       aviso.font = { italic: true, size: 10, color: { argb: 'FF64748B' } };
       hoja.mergeCells(aviso.number, 1, aviso.number, columnas.length);
     }
+  }
+
+  /**
+   * El bloque del equipo de marketing, debajo de la tabla de ventas.
+   *
+   * Cobra la mitad del pote de jefatura cada una y **no comisiona**: las
+   * columnas de facturación, planes y niveles se dejan VACÍAS en vez de en
+   * `$ 0,00`. Un cero dice "vendió y no llegó"; un hueco dice "esto no le
+   * aplica", que es lo cierto y es lo que evita que alguien busque por qué
+   * "no cumplió objetivo".
+   *
+   * Cierra con el total general, que es el único número que junta los dos
+   * bloques: sin él, quien firma la planilla tendría que sumar a mano las dos
+   * cifras de "A PAGAR" para saber cuánto sale de caja.
+   */
+  private bloqueMarketing(
+    hoja: Worksheet,
+    columnas: ColumnaInforme[],
+    marketing: FilaConsolidado[],
+    totalesDelPeriodo: Record<string, number>,
+  ): void {
+    hoja.addRow([]);
+    this.seccion(hoja, 'EQUIPO DE MARKETING — cobra bono, no comisiona', columnas.length);
+
+    for (const f of marketing) {
+      hoja.addRow({
+        nombre: f.nombre,
+        codigo: f.codigo,
+        tipo: f.tipo,
+        area: f.area,
+        bonos: f.totalBonos,
+        totalUsd: f.totalUsd,
+        totalBob: f.totalBob,
+        sueldoBase: f.sueldoBase,
+        totalGanado: f.totalGanado,
+      });
+    }
+
+    /* El pie repite las MISMAS columnas que las filas de arriba y ninguna más:
+       con `sumarFilas()` entero salían `$ 0,00` en Facturado, Tipo A, Tipo B…
+       justo en las columnas que las filas dejan en blanco por no aplicarles.
+       Un subtotal en cero bajo una columna vacía invita a buscar el error. */
+    const suma = this.sumarFilas(marketing);
+    const subtotal = hoja.addRow({
+      nombre: 'TOTAL MARKETING',
+      bonos: suma['bonos'],
+      totalUsd: suma['totalUsd'],
+      totalBob: suma['totalBob'],
+      sueldoBase: suma['sueldoBase'],
+      totalGanado: suma['totalGanado'],
+    });
+    this.marcarTotales(subtotal, columnas.length);
+
+    hoja.addRow([]);
+    const general = hoja.addRow({
+      nombre: 'TOTAL GENERAL A PAGAR',
+      bonos: totalesDelPeriodo['bonos'],
+      totalUsd: totalesDelPeriodo['totalUsd'],
+      totalBob: totalesDelPeriodo['totalBob'],
+      sueldoBase: totalesDelPeriodo['sueldoBase'],
+      totalGanado: totalesDelPeriodo['totalGanado'],
+    });
+    this.marcarTotales(general, columnas.length);
+    general.font = { bold: true, size: 12 };
+
+    const nota = hoja.getRow(general.number).getCell(1);
+    nota.note =
+      'Los dos bloques juntos: equipo de ventas + marketing. Es lo que sale de caja este mes.';
+  }
+
+  /**
+   * Subtotal de un grupo de filas, con las MISMAS claves que escribe la tabla.
+   *
+   * Se suma acá y no se reutiliza `consolidado.totales` porque ese número es el
+   * del periodo completo: con la hoja partida en dos bloques serviría para el
+   * total general y para ninguno de los dos subtotales. Un pie que no es la
+   * suma de las filas que tiene encima es peor que no tener pie.
+   */
+  private sumarFilas(filas: FilaConsolidado[]): Record<string, number> {
+    const sumar = (obtener: (f: FilaConsolidado) => number) =>
+      redondear(filas.reduce((acc, f) => acc + obtener(f), 0));
+
+    return {
+      montoVendido: sumar(f => f.montoVendido),
+      baseCalculo: sumar(f => f.baseCalculo),
+      comisionA: sumar(f => f.comisionA),
+      comisionTipoARA: sumar(f => f.comisionTipoARA),
+      comisionB: sumar(f => f.comisionB),
+      comisionC: sumar(f => f.comisionC),
+      bonos: sumar(f => f.totalBonos),
+      totalUsd: sumar(f => f.totalUsd),
+      totalBob: sumar(f => f.totalBob),
+      /* El sueldo faltaba en la fila de TOTALES: "A PAGAR" ya incluía los
+         sueldos pero su columna salía en blanco, así que el pie no cuadraba a
+         ojo (Total Bs + Sueldo ≠ A PAGAR) sobre la única hoja que se firma. */
+      sueldoBase: sumar(f => f.sueldoBase),
+      totalGanado: sumar(f => f.totalGanado),
+    };
   }
 
   /* ── Hoja 3: de dónde sale Tipo A (RA), paso a paso ─────────────────── */
@@ -430,7 +553,9 @@ export class ExportacionComisionesService {
     let totalComision = 0;
     let algunoConNivel = false;
 
-    for (const f of consolidado.filas) {
+    /* Marketing fuera: no tiene ingreso de maternidad ni de RA, así que su fila
+       sería once columnas en cero explicando un cubo que no le aplica. */
+    for (const f of consolidado.filas.filter(v => !esMarketing(v))) {
       const combinado = f.ingresoMaternidadTipoARA + f.ingresoRATipoARA;
       const objetivo = redondear(combinado - f.excedenteTipoARA);
       const escala = f.nivelTipoARA !== null ? nivelesPorNumero.get(f.nivelTipoARA) : undefined;
@@ -678,7 +803,11 @@ export class ExportacionComisionesService {
 
     const nombresUsados = new Set<string>();
 
-    for (const f of consolidado.filas) {
+    /* Sin hoja propia para marketing: no tiene ventas, ni desglose, ni planes —
+       la pestaña saldría vacía salvo el bono, que ya está en su bloque de la
+       hoja "Liquidación". Dos pestañas en blanco entre las de las ejecutivas
+       hacen más difícil encontrar la que sí tiene datos. */
+    for (const f of consolidado.filas.filter(v => !esMarketing(v))) {
       const hoja = libro.addWorksheet(this.nombreHojaUnico(f.nombre, nombresUsados), {
         views: [{ showGridLines: false }],
       });
@@ -1164,3 +1293,14 @@ interface PorcionInforme {
 type InformeAnalitica = Awaited<ReturnType<AnaliticaComisionesService['analitica']>>;
 type ConsolidadoPeriodo = Awaited<ReturnType<CalculoComisionesService['reporteConsolidado']>>;
 type FilaConsolidado = ConsolidadoPeriodo['filas'][number];
+
+/**
+ * Quién va en el bloque aparte de la planilla.
+ *
+ * Se decide por ÁREA y no por "tiene ventas en cero": una ejecutiva puede tener
+ * un mes malo y sigue perteneciendo a la tabla de ventas, con sus ceros, porque
+ * esos ceros son información. Marketing no comisiona por definición.
+ */
+function esMarketing(fila: FilaConsolidado): boolean {
+  return fila.area === AreaVendedora.PUBLICIDAD;
+}
