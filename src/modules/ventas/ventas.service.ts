@@ -187,6 +187,7 @@ export class VentasService {
   }
 
   async findAll(query: QueryVentaDto) {
+    const busqueda = query.q?.trim();
     const where: Prisma.VentaWhereInput = {
       estado: query.estado,
       agenteId: query.agenteId,
@@ -194,6 +195,19 @@ export class VentasService {
         gte: query.desde ? new Date(query.desde) : undefined,
         lte: query.hasta ? new Date(query.hasta) : undefined,
       },
+      ...(busqueda
+        ? {
+            OR: [
+              { cliente: { nombre: { contains: busqueda, mode: 'insensitive' } } },
+              { cliente: { telefono: { contains: busqueda } } },
+              { cliente: { ci: { contains: busqueda, mode: 'insensitive' } } },
+              { cliente: { pac: { contains: busqueda, mode: 'insensitive' } } },
+              { producto: { contains: busqueda, mode: 'insensitive' } },
+              { medico: { contains: busqueda, mode: 'insensitive' } },
+              { comprobante: { contains: busqueda, mode: 'insensitive' } },
+            ],
+          }
+        : {}),
     };
     const { skip, take } = calcularPaginacion(query);
 
