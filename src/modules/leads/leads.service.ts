@@ -54,21 +54,37 @@ export class LeadsService {
    */
   private construirWhere(query: QueryLeadDto, soloAgenteId?: string): Prisma.LeadWhereInput {
     const excluirHistorico = !query.incluirImportacion && !query.origen;
+    const busqueda = query.q?.trim();
+
+    const condiciones: Prisma.LeadWhereInput[] = [];
+
+    if (busqueda) {
+      condiciones.push({
+        OR: [
+          { cliente: { nombre: { contains: busqueda, mode: 'insensitive' } } },
+          { cliente: { telefono: { contains: busqueda } } },
+          { campana: { contains: busqueda, mode: 'insensitive' } },
+          { notas: { contains: busqueda, mode: 'insensitive' } },
+        ],
+      });
+    }
+
+    if (soloAgenteId) {
+      condiciones.push({
+        OR: [
+          { agenteId: soloAgenteId },
+          { agenteId: null },
+          { cliente: { agenteId: soloAgenteId } },
+        ],
+      });
+    }
 
     return {
       origen: query.origen ?? (excluirHistorico ? { not: 'IMPORTACION' } : undefined),
       estado: query.estado,
       agenteId: query.agenteId,
       clienteId: query.clienteId,
-      ...(soloAgenteId
-        ? {
-            OR: [
-              { agenteId: soloAgenteId },
-              { agenteId: null },
-              { cliente: { agenteId: soloAgenteId } },
-            ],
-          }
-        : {}),
+      ...(condiciones.length > 0 ? { AND: condiciones } : {}),
     };
   }
 

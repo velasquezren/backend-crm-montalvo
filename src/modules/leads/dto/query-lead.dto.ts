@@ -13,6 +13,11 @@ export class QueryLeadDto extends PaginationDto {
   @IsEnum(EstadoLead)
   estado?: EstadoLead;
 
+  /** Búsqueda por texto libre: nombre del paciente, teléfono o nombre de campaña. */
+  @IsOptional()
+  @IsString()
+  q?: string;
+
   @IsOptional()
   @IsString()
   agenteId?: string;
