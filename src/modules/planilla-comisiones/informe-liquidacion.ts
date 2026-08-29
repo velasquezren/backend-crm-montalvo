@@ -11,11 +11,15 @@
  * informe.
  */
 
-/** Una fila del consolidado, en lo que este informe necesita de ella. */
-export interface FilaInforme {
-  nombre: string;
-  codigo: string;
-  area: string;
+/**
+ * Lo que se suma en un pie de bloque: solo importes.
+ *
+ * Se declara explícito y no como `Omit<FilaInforme, …>`: con `Omit`, cualquier
+ * campo numérico que se añadiera a la fila entraba solo en los totales —los
+ * contadores de planes lo hicieron— y el sumatorio dejaba de compilar sin que
+ * quedara claro por qué. Acá lo que se totaliza está escrito.
+ */
+export interface TotalesBloque {
   montoVendido: number;
   baseCalculo: number;
   comisionA: number;
@@ -27,6 +31,21 @@ export interface FilaInforme {
   totalBob: number;
   sueldoBase: number;
   totalGanado: number;
+}
+
+/** Una fila del consolidado, en lo que estos informes necesitan de ella. */
+export interface FilaInforme extends TotalesBloque {
+  nombre: string;
+  codigo: string;
+  area: string;
+  /* Los planes, que solo usa el informe de métricas: el objetivo no se guarda
+     en la fila pero se deduce (`vendidos − comisionables`), y es lo que explica
+     un Tipo A en cero mucho mejor que el propio cero. Opcionales para no
+     obligar a las pruebas a rellenar campos que no miran. */
+  planpaqVendidos?: number;
+  planpaqComisionables?: number;
+  planninVendidos?: number;
+  planninComisionables?: number;
 }
 
 /**
@@ -45,8 +64,6 @@ export function comisionesDe(f: {
   return redondear(f.comisionA + f.comisionTipoARA + f.comisionB + f.comisionC);
 }
 
-/** Los totales de un bloque. Mismas claves que una fila, sin los datos de identidad. */
-export type TotalesBloque = Omit<FilaInforme, 'nombre' | 'codigo' | 'area'>;
 
 export interface InformeComisiones {
   /** Quien vende y comisiona. */
@@ -80,7 +97,20 @@ function redondear(valor: number): number {
 }
 
 export function sumar(filas: readonly FilaInforme[]): TotalesBloque {
-  const total = Object.fromEntries(CLAVES.map(c => [c, 0])) as TotalesBloque;
+  const total: TotalesBloque = {
+    montoVendido: 0,
+    baseCalculo: 0,
+    comisionA: 0,
+    comisionTipoARA: 0,
+    comisionB: 0,
+    comisionC: 0,
+    totalBonos: 0,
+    totalUsd: 0,
+    totalBob: 0,
+    sueldoBase: 0,
+    totalGanado: 0,
+  };
+
   for (const fila of filas) {
     for (const clave of CLAVES) total[clave] += fila[clave];
   }
@@ -124,6 +154,16 @@ export function formatearNumero(valor: number): string {
   const [entero, decimales] = Math.abs(redondear(valor)).toFixed(2).split('.');
   const conMiles = entero.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
   return `${negativo ? '-' : ''}${conMiles},${decimales}`;
+}
+
+/**
+ * Un porcentaje con coma decimal, como el resto de los números del informe.
+ *
+ * `toFixed()` devuelve siempre punto — "1.85 %" en un documento donde los
+ * importes dicen "42.725,33" mezcla dos convenciones en la misma línea.
+ */
+export function formatearPorcentaje(valor: number, decimales = 1): string {
+  return `${valor.toFixed(decimales).replace('.', ',')} %`;
 }
 
 export const usd = (valor: number): string => `$ ${formatearNumero(valor)}`;

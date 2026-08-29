@@ -24,6 +24,7 @@ import { CalculoComisionesService } from './calculo-comisiones.service';
 import { ConfiguracionComisionesService } from './configuracion-comisiones.service';
 import { ResumenAnualService } from './resumen-anual.service';
 import { ExportacionComisionesService } from './exportacion-comisiones.service';
+import { ExportacionMetricasService } from './exportacion-metricas.service';
 import { ExportacionWordService } from './exportacion-word.service';
 import {
   ActualizarNivelCirugiaDto,
@@ -83,6 +84,7 @@ export class PlanillaComisionesController {
     private readonly analitica: AnaliticaComisionesService,
     private readonly exportacion: ExportacionComisionesService,
     private readonly exportacionWord: ExportacionWordService,
+    private readonly exportacionMetricas: ExportacionMetricasService,
     private readonly resumenAnual: ResumenAnualService,
   ) {}
 
@@ -310,6 +312,26 @@ export class PlanillaComisionesController {
     );
     res.setHeader('Content-Disposition', `attachment; filename="${nombre}"`);
     res.end(documento);
+  }
+
+  /**
+   * Las métricas del mes en PDF: el acompañante del informe Word.
+   *
+   * No lleva firmas ni pide usuario — no se firma, se imprime y se adjunta. Va
+   * en streaming como el Excel: son gráficos, no un ZIP que haya que cerrar.
+   */
+  @Get('periodos/:id/exportar-metricas')
+  async exportarMetricas(
+    @Param('id') id: string,
+    @Query() query: QueryInformeDto,
+    @Res({ passthrough: false }) res: Response,
+  ) {
+    const nombre = await this.exportacionMetricas.nombreArchivo(id);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${nombre}"`);
+    await this.exportacionMetricas.exportar(id, res, {
+      incluirOcultas: query.incluirOcultas ?? false,
+    });
   }
 
   @Get('periodos/:id/reporte/consolidado')

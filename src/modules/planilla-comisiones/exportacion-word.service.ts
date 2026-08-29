@@ -19,7 +19,6 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { CalculoComisionesService } from './calculo-comisiones.service';
 import {
   armarInforme,
-  comisionesDe,
   FilaInforme,
   Firmantes,
   firmantesPara,
@@ -81,23 +80,28 @@ const ESTADO_LEGIBLE: Record<string, string> = {
 /**
  * Anchos en porcentaje del ancho de la tabla. Suman 100.
  *
- * La primera columna se lleva casi un tercio, y hace falta: con menos, "Canedo
- * Villamor Claudia Marcela" se partía en CUATRO líneas y la fila crecía tanto
- * que la tabla parecía un formulario a medio llenar.
+ * **Sin sueldo y sin "A PAGAR".** Este informe es de COMISIONES: los sueldos se
+ * pagan por otra vía y en otro momento —en agosto se está liquidando enero— así
+ * que mezclarlos en la misma fila invita a pagar dos veces lo mismo. La columna
+ * final es la comisión del mes convertida a bolivianos, y nada más.
  *
- * **No hay columna "Total ($us)" a propósito.** Es exactamente
- * `Comisiones + Bonos`, sus dos sumandos están justo al lado, y en vertical no
- * sobra ancho para repetir un número que ya se lee en la misma fila. El total
- * en dólares sí está en el Excel, junto al resto del desglose.
+ * **En cambio sí va el desglose por tipo**, que es lo que se discute cuando
+ * alguien revisa su liquidación: de dónde salió cada parte. Caben porque los
+ * importes de comisión son de tres cifras, no de seis como el facturado.
  */
 const COLUMNAS = [
-  { titulo: 'Vendedora', ancho: 31, numerica: false },
+  /* 30 % para el nombre: con 23 % "Canedo Villamor Claudia Marcela" volvía a
+     partirse en cuatro líneas. Se lo quitan las columnas de tipo, que muestran
+     importes de tres cifras ("136,80") y no necesitan casi nada. */
+  { titulo: 'Vendedora', ancho: 30, numerica: false },
   { titulo: 'Facturado\n($us)', ancho: 12, numerica: true },
-  { titulo: 'Comisiones\n($us)', ancho: 12, numerica: true },
-  { titulo: 'Bonos\n($us)', ancho: 11, numerica: true },
-  { titulo: 'Total\n(Bs)', ancho: 12, numerica: true },
-  { titulo: 'Sueldo\n(Bs)', ancho: 11, numerica: true },
-  { titulo: 'A PAGAR\n(Bs)', ancho: 11, numerica: true },
+  { titulo: 'Tipo A\n($us)', ancho: 8, numerica: true },
+  { titulo: 'Tipo A RA\n($us)', ancho: 8, numerica: true },
+  { titulo: 'Tipo B\n($us)', ancho: 8, numerica: true },
+  { titulo: 'Tipo C\n($us)', ancho: 8, numerica: true },
+  { titulo: 'Bonos\n($us)', ancho: 8, numerica: true },
+  { titulo: 'Total\n($us)', ancho: 9, numerica: true },
+  { titulo: 'Comisión\n(Bs)', ancho: 9, numerica: true },
 ] as const;
 
 @Injectable()
@@ -150,13 +154,17 @@ export class ExportacionWordService {
     ];
 
     if (informe.marketing.length > 0) {
-      hijos.push(
-        ...this.bloque('Equipo de marketing', informe.marketing, informe.totalMarketing, true),
-        ...this.totalGeneral(informe),
-      );
+      hijos.push(...this.bloque('Equipo de marketing', informe.marketing, informe.totalMarketing, true));
     }
 
-    hijos.push(...this.avisoOcultas(consolidado), ...this.firmas(firmantes));
+    /* El titular va SIEMPRE, haya marketing o no: es el número por el que se
+       abre este documento. Cuando hay un solo bloque repite su pie, y está
+       bien — se lee sin tener que buscarlo dentro de la tabla. */
+    hijos.push(
+      ...this.totalComisiones(informe),
+      ...this.avisoOcultas(consolidado),
+      ...this.firmas(firmantes),
+    );
 
     const doc = new Document({
       creator: 'Clínica Montalvo',
@@ -222,6 +230,11 @@ export class ExportacionWordService {
       this.lineaDato('Tipo de cambio', `Bs ${formatearNumero(tipoCambio)}`),
       this.lineaDato('Estado del periodo', ESTADO_LEGIBLE[estado] ?? estado),
       this.lineaDato('Fecha de emisión', new Date().toLocaleDateString('es-BO')),
+      /* Dicho arriba y no en una nota al pie: el sueldo se paga por otra vía y
+         en otro momento —en agosto se liquida enero—, así que quien reciba este
+         papel tiene que saber desde la primera línea que lo de aquí es SOLO
+         comisión. Es la diferencia entre pagar bien y pagar dos veces. */
+      this.lineaDato('Concepto', 'Comisiones y bonos del periodo. No incluye sueldos.'),
     ];
 
     if (firmantes.elaboradoPor) {
@@ -306,7 +319,7 @@ export class ExportacionWordService {
             width: { size: col.ancho, type: WidthType.PERCENTAGE },
             shading: { fill: GRIS_CABECERA },
             verticalAlign: VerticalAlign.CENTER,
-            margins: { top: 60, bottom: 60, left: 60, right: 60 },
+            margins: { top: 60, bottom: 60, left: 40, right: 40 },
             children: col.titulo.split('\n').map(
               linea =>
                 new Paragraph({
@@ -325,11 +338,13 @@ export class ExportacionWordService {
     const valores = [
       f.nombre,
       esMarketing ? '' : formatearNumero(f.montoVendido),
-      esMarketing ? '' : formatearNumero(comisionesDe(f)),
+      esMarketing ? '' : formatearNumero(f.comisionA),
+      esMarketing ? '' : formatearNumero(f.comisionTipoARA),
+      esMarketing ? '' : formatearNumero(f.comisionB),
+      esMarketing ? '' : formatearNumero(f.comisionC),
       formatearNumero(f.totalBonos),
+      formatearNumero(f.totalUsd),
       formatearNumero(f.totalBob),
-      formatearNumero(f.sueldoBase),
-      formatearNumero(f.totalGanado),
     ];
 
     return new TableRow({
@@ -341,11 +356,13 @@ export class ExportacionWordService {
     const valores = [
       'TOTAL',
       esMarketing ? '' : formatearNumero(totales.montoVendido),
-      esMarketing ? '' : formatearNumero(comisionesDe(totales)),
+      esMarketing ? '' : formatearNumero(totales.comisionA),
+      esMarketing ? '' : formatearNumero(totales.comisionTipoARA),
+      esMarketing ? '' : formatearNumero(totales.comisionB),
+      esMarketing ? '' : formatearNumero(totales.comisionC),
       formatearNumero(totales.totalBonos),
+      formatearNumero(totales.totalUsd),
       formatearNumero(totales.totalBob),
-      formatearNumero(totales.sueldoBase),
-      formatearNumero(totales.totalGanado),
     ];
 
     return new TableRow({
@@ -361,7 +378,7 @@ export class ExportacionWordService {
     return new TableCell({
       width: { size: col.ancho, type: WidthType.PERCENTAGE },
       verticalAlign: VerticalAlign.CENTER,
-      margins: { top: 50, bottom: 50, left: 60, right: 60 },
+      margins: { top: 50, bottom: 50, left: 40, right: 40 },
       children: [
         new Paragraph({
           alignment: col.numerica ? AlignmentType.RIGHT : AlignmentType.LEFT,
@@ -384,20 +401,20 @@ export class ExportacionWordService {
   }
 
   /**
-   * El único número que junta los dos bloques: lo que sale de caja.
+   * El titular del informe: lo que hay que pagar en comisiones este mes.
    *
    * Va como párrafo destacado y no como una tercera tabla de una fila — en
    * vertical, una tabla suelta con un solo dato se lee como si le faltara algo.
    */
-  private totalGeneral(informe: InformeComisiones): Paragraph[] {
+  private totalComisiones(informe: InformeComisiones): Paragraph[] {
     return [
       new Paragraph({
         spacing: { before: 280 },
         border: { top: { style: BorderStyle.SINGLE, size: 6, color: NEGRO, space: 6 } },
         children: [
-          new TextRun({ text: 'TOTAL GENERAL A PAGAR:  ', bold: true, size: 20 }),
+          new TextRun({ text: 'TOTAL COMISIONES A PAGAR:  ', bold: true, size: 20 }),
           new TextRun({
-            text: `Bs ${formatearNumero(informe.totalGeneral.totalGanado)}`,
+            text: `Bs ${formatearNumero(informe.totalGeneral.totalBob)}`,
             bold: true,
             size: 20,
           }),
@@ -407,7 +424,10 @@ export class ExportacionWordService {
         spacing: { after: 120 },
         children: [
           new TextRun({
-            text: 'Equipo de ventas y marketing juntos, sueldos incluidos.',
+            text:
+              informe.marketing.length > 0
+                ? 'Equipo de ventas y marketing juntos. No incluye sueldos.'
+                : 'No incluye sueldos.',
             italics: true,
             size: 15,
           }),

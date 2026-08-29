@@ -1,5 +1,8 @@
+import { PassThrough } from 'stream';
+
 import { CalculoComisionesService } from './calculo-comisiones.service';
 import { ExportacionWordService } from './exportacion-word.service';
+import { ExportacionMetricasService } from './exportacion-metricas.service';
 import {
   armarInforme,
   AUTORIZA_PLANILLA,
@@ -7,6 +10,7 @@ import {
   FilaInforme,
   firmantesPara,
   formatearNumero,
+  formatearPorcentaje,
 } from './informe-liquidacion';
 
 /**
@@ -127,6 +131,19 @@ describe('comisionesDe', () => {
   });
 });
 
+describe('formatearPorcentaje', () => {
+  /* `toFixed()` devuelve siempre punto, y "1.85 %" junto a "42.725,33" mezcla
+     dos convenciones en la misma línea del mismo documento. */
+  it('usa coma decimal, como el resto de los números', () => {
+    expect(formatearPorcentaje(1.85, 2)).toBe('1,85 %');
+    expect(formatearPorcentaje(19.24)).toBe('19,2 %');
+  });
+
+  it('un cero también sale con coma', () => {
+    expect(formatearPorcentaje(0)).toBe('0,0 %');
+  });
+});
+
 describe('firmantesPara', () => {
   it('elaborado y revisado son quien genera el informe', () => {
     const f = firmantesPara({ nombre: 'Lic. Sara Bueno' });
@@ -236,5 +253,99 @@ describe('documento Word generado', () => {
     const doc = await montarServicio(4).generar('p1');
 
     expect(doc.subarray(0, 2).toString()).toBe('PK');
+  });
+});
+
+/* ── El PDF de métricas ──────────────────────────────────────────────── */
+
+describe('PDF de métricas', () => {
+  async function generarMetricas(cantidad: number): Promise<Buffer> {
+    const resultados = Array.from({ length: cantidad }, (_, i) => ({
+      vendedoraId: `v${i}`,
+      montoVendido: 10000 + i * 1000,
+      baseCalculo: 8700,
+      planesVendidos: 5,
+      cumpleObjetivoPlanes: true,
+      planpaqVendidos: 5,
+      planpaqComisionables: 1,
+      planninVendidos: 3,
+      planninComisionables: 1,
+      acumuladoCirugias: 0,
+      nivelCirugia: null,
+      ingresoMaternidadTipoARA: 0,
+      ingresoRATipoARA: 0,
+      excedenteTipoARA: 0,
+      nivelTipoARA: null,
+      comisionA: 50,
+      comisionB: 30,
+      comisionC: 20,
+      comisionTipoARA: 10,
+      bonoJefatura: 5,
+      bonoPublicidad: 0,
+      bonoTrimestral: 0,
+      totalUsd: 115,
+      totalBob: 801.55,
+      sueldoBase: 0,
+      totalGanado: 801.55,
+      desglose: [],
+      vendedora: {
+        id: `v${i}`,
+        nombre: `Vendedora ${i}`,
+        codigo: `Pe${i}`,
+        tipo: 'VENDEDORA',
+        area: 'EJECUTIVA',
+        oculta: false,
+        ocultaDesde: null,
+        motivoOculta: null,
+      },
+    }));
+
+    const prisma = {
+      periodoComision: {
+        findUnique: async () => ({ id: 'p1', anio: 2026, mes: 1, tipoCambio: 6.97, estado: 'CALCULADO' }),
+      },
+      resultadoComision: { findMany: async () => resultados },
+    };
+    const calculo = new CalculoComisionesService(
+      prisma as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+    );
+
+    const trozos: Buffer[] = [];
+    const salida = new PassThrough();
+    salida.on('data', c => trozos.push(c as Buffer));
+    const cerrado = new Promise<void>(r => salida.on('end', () => r()));
+
+    await new ExportacionMetricasService(prisma as never, calculo).exportar('p1', salida);
+    await cerrado;
+    return Buffer.concat(trozos);
+  }
+
+  const paginas = (pdf: Buffer) => Number(/\/Count (\d+)/.exec(pdf.toString('latin1'))?.[1] ?? 0);
+
+  it('es un PDF válido', async () => {
+    const pdf = await generarMetricas(4);
+
+    expect(pdf.subarray(0, 5).toString()).toBe('%PDF-');
+  });
+
+  /* Panorama del equipo + una página por cada tres fichas. Con 4 vendedoras:
+     panorama, tres fichas, y la cuarta en su propia página. */
+  it('el panorama va aparte de las fichas, tres por página', async () => {
+    expect(paginas(await generarMetricas(3))).toBe(2);
+    expect(paginas(await generarMetricas(4))).toBe(3);
+    expect(paginas(await generarMetricas(6))).toBe(3);
+  });
+
+  /* Un mes sin liquidar no puede reventar el informe: sale el panorama en cero
+     y ninguna ficha. */
+  it('sin vendedoras no falla', async () => {
+    const pdf = await generarMetricas(0);
+
+    expect(pdf.subarray(0, 5).toString()).toBe('%PDF-');
+    expect(paginas(pdf)).toBe(1);
   });
 });

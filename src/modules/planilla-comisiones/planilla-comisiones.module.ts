@@ -8,6 +8,7 @@ import { CatalogoClinicoService } from './catalogo-clinico.service';
 import { ConfiguracionComisionesService } from './configuracion-comisiones.service';
 import { ResumenAnualService } from './resumen-anual.service';
 import { ExportacionComisionesService } from './exportacion-comisiones.service';
+import { ExportacionMetricasService } from './exportacion-metricas.service';
 import { ExportacionWordService } from './exportacion-word.service';
 import { PlanillaComisionesController } from './planilla-comisiones.controller';
 import { PlanillaComisionesService } from './planilla-comisiones.service';
@@ -31,6 +32,7 @@ import { PlanillaComisionesService } from './planilla-comisiones.service';
     AnaliticaComisionesService,
     ExportacionComisionesService,
     ExportacionWordService,
+    ExportacionMetricasService,
   ],
   /* CatalogoClinicoService sale fuera porque Ventas lo necesita para
      autocompletar: es lectura derivada, no acceso a la planilla. */

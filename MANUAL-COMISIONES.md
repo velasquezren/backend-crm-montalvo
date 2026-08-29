@@ -567,38 +567,51 @@ con lo que está encima.
 
 ---
 
-## 12a. El informe de liquidación (el que se firma)
+## 12a. Los dos documentos del mes
 
-Botón **«Informe Word»** en la barra del periodo, y **«Informe»** en cada fila
-de *Planillas cargadas en el sistema* — desde ahí se bajan varios meses seguidos
-sin abrirlos.
+En la barra del periodo y en cada fila de *Planillas cargadas en el sistema*
+hay dos botones. Se imprimen juntos.
 
-Sale un **.docx de una hoja vertical**: la planilla del mes, el bloque de
-marketing y las tres firmas. **Elaborado por** y **Revisado por** salen del
-usuario que lo genera; **Autorizado por** es siempre la dirección de la clínica.
+### Informe Word — el que se firma
+
+Un **.docx de una hoja vertical** con la planilla del mes y las tres firmas.
+**Elaborado por** y **Revisado por** salen del usuario que lo genera;
+**Autorizado por** es siempre la dirección.
 
 Es Word y no PDF para que administración pueda **corregir o anotar** antes de
 firmarlo, y exportarlo a PDF desde Word cuando toque archivarlo.
 
-No es el Excel en otro formato, y conviene no confundirlos:
+Columnas: Vendedora, Facturado, **Tipo A, Tipo A RA, Tipo B, Tipo C**, Bonos,
+Total $us y Comisión Bs.
+
+> **No incluye sueldos.** Es un informe de comisiones: el sueldo se paga por
+> otra vía y en otro momento. La cabecera lo dice en el campo «Concepto» para
+> que nadie pague dos veces.
+
+### Métricas PDF — el que acompaña
+
+Un **PDF** con lo que una tabla no cuenta:
+
+- **Panorama del equipo**: facturación del mes, comisiones a pagar, cuántas se
+  liquidaron y qué porcentaje representa la comisión sobre la venta.
+- **Barras por vendedora**: quién facturó más y quién ganó más comisión.
+- **De qué está hecha la comisión**: cuánto vino de Tipo A, B, C y bonos.
+- **Una ficha por vendedora** con sus tres cifras, la composición de su comisión
+  y si cumplió sus objetivos de planes.
+
+No se firma ni se edita: se imprime y se adjunta al informe Word.
+
+### Y el Excel, que no es ninguno de los dos
 
 | | Para qué |
 |---|---|
 | **Excel** | Auditar: 20 columnas, hoja por vendedora, cada venta del mes |
-| **Informe Word** | Pagar: 7 columnas, una hoja vertical, listo para firmar |
+| **Informe Word** | Pagar: una hoja, para firmar |
+| **Métricas PDF** | Explicar: gráficos por vendedora |
 
-En el informe van Vendedora, Facturado, Comisiones, Bonos, Total Bs, Sueldo y
-A PAGAR. Las cuatro comisiones (Tipo A, A RA, B y C) van **sumadas en una sola
-columna**: el desglose por tipo, los niveles y los planes están en el Excel, que
-es donde se audita. Tampoco lleva «Total $us», porque es exactamente
-*Comisiones + Bonos*, que están en la misma fila.
+> Si el periodo no está cerrado, el informe Word dice **«DOCUMENTO PRELIMINAR»**.
 
-> **Si el periodo no está cerrado, el documento dice «DOCUMENTO PRELIMINAR».**
-> Las cifras de un mes sin cerrar pueden cambiar al día siguiente, y este
-> archivo es editable y va a circular.
-
-Respeta el mismo interruptor de «incluir dadas de baja» que la pantalla y el
-Excel: lo que ves es lo que se firma.
+Los tres respetan el interruptor de «incluir dadas de baja».
 
 ---
 
