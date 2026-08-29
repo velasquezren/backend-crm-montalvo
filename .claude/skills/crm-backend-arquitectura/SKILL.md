@@ -232,6 +232,36 @@ decía `active`, el `/health` respondía 200 y los curl de 400/401 pasaban. Todo
 verde, nada desplegado. Encadenar con `&&` y cerrar con `echo "DEPLOY OK"` hace
 que un fallo intermedio corte la cadena y se note.
 
+**Dos cosas que rompen el `git pull` y el `npm install`, y cómo se ven**
+(2026-08-29, el despliegue que trajo `pdfkit`):
+
+1. **El lockfile del servidor se ensucia solo.** `npm install` le añade el
+   bloque `engines` a `package-lock.json`, y el siguiente `git pull --ff-only`
+   aborta con *"Your local changes would be overwritten by merge"*. Es ruido de
+   npm, no contenido: `sudo -u crmapp git checkout -- package-lock.json` antes
+   del pull y listo.
+
+2. **`crmapp` no tenía `/home/crmapp`**, aunque su entrada de `passwd` lo
+   declara. Ningún despliegue lo notó durante meses porque npm solo escribe su
+   caché cuando hay algo que DESCARGAR: mientras no entró una dependencia nueva,
+   `npm install` no tocaba `~/.npm`. El día que llegó `pdfkit` falló con
+   `EACCES: permission denied, mkdir '/home/crmapp'`. Arreglado creando el
+   directorio (`mkdir -p /home/crmapp && chown crmapp:crmapp`).
+
+**Y lo que de verdad duele: un `npm install` que muere a mitad deja
+`node_modules` corrupto.** Los avisos `npm warn cleanup ENOTEMPTY` no son
+cosméticos — quedan paquetes a medio borrar. El siguiente arranque muere con
+`Cannot find module '.../object-is/index.js'`, y como la unidad tiene
+`Restart=always`, **`systemctl is-active` sigue diciendo `active` mientras el
+proceso entra en bucle de caída**. El servicio estuvo abajo ~4 minutos con todos
+los indicadores en verde salvo el `curl`.
+
+La reparación es reinstalar limpio, no reintentar encima:
+
+```bash
+rm -rf node_modules && chown -R crmapp:crmapp /opt/crm-backend && sudo -u crmapp npm install && sudo -u crmapp npx prisma generate && sudo -u crmapp npm run build && systemctl restart crm_backend.service
+```
+
 **Corolario para la verificación**: `is-active` + `/health` + 400/401 **no
 prueban que el deploy ocurrió** — prueban que el proceso está sano, sea cual
 sea el código que corre. Lo que sí lo prueba son estas dos líneas:
@@ -239,7 +269,11 @@ sea el código que corre. Lo que sí lo prueba son estas dos líneas:
 ```bash
 date -r /opt/crm-backend/dist/main.js                      # ¿se recompiló recién?
 systemctl show crm_backend.service -p ActiveEnterTimestamp # ¿arrancó después?
+curl -s http://127.0.0.1:3001/health                       # ¿RESPONDE, no "está active"?
 ```
+
+Ese `curl` es el único que distingue "arriba" de "reiniciándose en bucle": con
+`Restart=always`, un proceso que muere al arrancar se ve `active` para siempre.
 
 Si el binario compilado del servidor es más viejo que el `git pull`, no se
 desplegó nada por más que el commit sea el correcto y el servicio esté arriba.
