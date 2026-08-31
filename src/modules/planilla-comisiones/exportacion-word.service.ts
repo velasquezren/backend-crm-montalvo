@@ -225,16 +225,13 @@ export class ExportacionWordService {
           new TextRun({ text: `${MESES[mes - 1] ?? mes} ${anio}`, bold: true, size: 24 }),
         ],
       }),
-      /* Los datos sin los que el informe no se puede auditar: con qué se
-         convirtió, en qué estado estaba el mes y quién lo sacó. */
-      this.lineaDato('Tipo de cambio', `Bs ${formatearNumero(tipoCambio)}`),
-      this.lineaDato('Estado del periodo', ESTADO_LEGIBLE[estado] ?? estado),
-      this.lineaDato('Fecha de emisión', new Date().toLocaleDateString('es-BO')),
-      /* Dicho arriba y no en una nota al pie: el sueldo se paga por otra vía y
-         en otro momento —en agosto se liquida enero—, así que quien reciba este
-         papel tiene que saber desde la primera línea que lo de aquí es SOLO
-         comisión. Es la diferencia entre pagar bien y pagar dos veces. */
-      this.lineaDato('Concepto', 'Comisiones y bonos del periodo. No incluye sueldos.'),
+      /* Con qué se convirtió y cuándo se emitió, en una sola línea: son el
+         mismo tipo de dato (metadatos del documento) y separarlos en dos
+         líneas de "Etiqueta: valor" no suma nada, solo alarga el encabezado. */
+      this.lineaDato(
+        'Tipo de cambio',
+        `Bs ${formatearNumero(tipoCambio)}   ·   Emitido el ${new Date().toLocaleDateString('es-BO')}`,
+      ),
     ];
 
     if (firmantes.elaboradoPor) {
@@ -242,12 +239,16 @@ export class ExportacionWordService {
     }
 
     /*
-     * El sello de preliminar, en texto y sin color.
+     * El estado del periodo no lleva línea propia: solo importa decirlo
+     * cuando el mes AÚN NO está cerrado, y ahí ya hace falta un aviso —así
+     * que el estado viaja dentro de ese mismo aviso en vez de duplicarse.
+     * Un "Estado del periodo: Cerrado" en cada informe definitivo no le dice
+     * nada nuevo a quien ya tiene el papel para firmar.
      *
-     * Las cifras de un mes sin cerrar pueden cambiar al día siguiente. Sin este
-     * aviso el informe de un borrador sale idéntico al definitivo, y este es un
-     * documento editable: quien lo reciba no tiene forma de saber de cuál se
-     * trata.
+     * Las cifras de un mes sin cerrar pueden cambiar al día siguiente. Sin
+     * este aviso el informe de un borrador sale idéntico al definitivo, y
+     * este es un documento editable: quien lo reciba no tiene forma de saber
+     * de cuál se trata.
      */
     if (!definitivo) {
       parrafos.push(
@@ -255,15 +256,19 @@ export class ExportacionWordService {
           spacing: { before: 160 },
           children: [
             new TextRun({
-              text: 'DOCUMENTO PRELIMINAR — el periodo aún no está cerrado y las cifras pueden cambiar.',
+              text: `Documento preliminar (${ESTADO_LEGIBLE[estado] ?? estado}): el periodo aún no está cerrado y las cifras pueden cambiar.`,
               bold: true,
-              size: 17,
+              size: 16,
             }),
           ],
         }),
       );
     }
 
+    /* El aviso de "no incluye sueldos" que antes vivía en una línea propia
+       ("Concepto") se dice una sola vez, junto al total que sí paga en este
+       documento (`totalComisiones`) — decirlo dos veces no lo refuerza, solo
+       ocupa una línea más antes de llegar a la tabla. */
     return parrafos;
   }
 
@@ -436,7 +441,14 @@ export class ExportacionWordService {
     ];
   }
 
-  /** La misma declaración que llevan el Excel y la pantalla. */
+  /**
+   * La misma declaración que llevan el Excel y la pantalla — la razón de
+   * fondo es la misma: un total que cuadra con sus filas y aun así le falta
+   * gente es peor que uno incompleto. Pero acá es una nota al pie, no una
+   * línea del cuerpo: chica, y con la gramática bien —"1 vendedora", no
+   * "vendedora(s)"—, que es la diferencia entre un aviso y una plantilla sin
+   * terminar.
+   */
   private avisoOcultas(consolidado: {
     incluyeOcultas: boolean;
     ocultas: ReadonlyArray<{ nombre: string; codigo: string }>;
@@ -444,18 +456,16 @@ export class ExportacionWordService {
     const fuera = consolidado.incluyeOcultas ? [] : consolidado.ocultas;
     if (fuera.length === 0) return [];
 
+    const nombres = fuera.map(v => `${v.nombre} (${v.codigo})`).join(', ');
+    const texto =
+      fuera.length === 1
+        ? `No incluye a la vendedora dada de baja ${nombres}.`
+        : `No incluye a las ${fuera.length} vendedoras dadas de baja: ${nombres}.`;
+
     return [
       new Paragraph({
         spacing: { before: 200 },
-        children: [
-          new TextRun({
-            text:
-              `No se listan ${fuera.length} vendedora(s) dada(s) de baja: ` +
-              `${fuera.map(v => `${v.nombre} (${v.codigo})`).join(', ')}.`,
-            italics: true,
-            size: 16,
-          }),
-        ],
+        children: [new TextRun({ text: texto, italics: true, size: 13 })],
       }),
     ];
   }
