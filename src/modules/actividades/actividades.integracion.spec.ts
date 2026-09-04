@@ -1,4 +1,6 @@
 import { ConfigService } from '@nestjs/config';
+import { plainToInstance } from 'class-transformer';
+import { validate } from 'class-validator';
 
 import { AuditService } from '../../common/audit/audit.service';
 import { PushService } from '../../common/push/push.service';
@@ -6,6 +8,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { ClientesService } from '../clientes/clientes.service';
 import { ServiciosService } from '../servicios/servicios.service';
 import { ActividadesService } from './actividades.service';
+import { RepetirActividadDto } from './dto/create-actividad.dto';
 
 /**
  * Contra PostgreSQL real (`crm_test` en el :5433 local) — ver `leads.integracion.spec.ts`.
@@ -313,5 +316,159 @@ describe('ActividadesService.barrerRecordatoriosPendientes', () => {
     );
 
     expect(actualizada.notificadaEn).toBeNull();
+  });
+});
+
+describe('ActividadesService.create — duración', () => {
+  it('usa el default del schema (30) si no llega duracionMinutos', async () => {
+    const yo = await usuario('Yo', 'yo@test.local');
+    const clienteYo = await cliente('Ana', '+59170000001', yo.id);
+
+    const creada = await service.create(
+      { tipo: 'LLAMADA', titulo: 'Llamar', fechaProgramada: new Date(), clienteId: clienteYo.id },
+      { sub: yo.id, email: yo.email, nombre: yo.nombre, rol: 'AGENTE' },
+    );
+
+    expect(creada.duracionMinutos).toBe(30);
+  });
+
+  it('respeta el duracionMinutos explícito', async () => {
+    const yo = await usuario('Yo', 'yo@test.local');
+    const clienteYo = await cliente('Ana', '+59170000001', yo.id);
+
+    const creada = await service.create(
+      {
+        tipo: 'REUNION',
+        titulo: 'Reunión con el paciente',
+        fechaProgramada: new Date(),
+        clienteId: clienteYo.id,
+        duracionMinutos: 60,
+      },
+      { sub: yo.id, email: yo.email, nombre: yo.nombre, rol: 'AGENTE' },
+    );
+
+    expect(creada.duracionMinutos).toBe(60);
+  });
+});
+
+describe('ActividadesService.create — repetir', () => {
+  it('sin repetir crea una sola fila', async () => {
+    const yo = await usuario('Yo', 'yo@test.local');
+    const clienteYo = await cliente('Ana', '+59170000001', yo.id);
+
+    await service.create(
+      { tipo: 'TAREA', titulo: 'Tarea suelta', fechaProgramada: new Date(), clienteId: clienteYo.id },
+      { sub: yo.id, email: yo.email, nombre: yo.nombre, rol: 'AGENTE' },
+    );
+
+    const total = await prisma.actividad.count({ where: { clienteId: clienteYo.id } });
+    expect(total).toBe(1);
+  });
+
+  it('con repetir SEMANAL x4 crea 4 filas independientes, una por semana', async () => {
+    const yo = await usuario('Yo', 'yo@test.local');
+    const clienteYo = await cliente('Ana', '+59170000001', yo.id);
+    const inicio = new Date('2026-09-07T15:00:00.000Z'); // lunes
+
+    await service.create(
+      {
+        tipo: 'LLAMADA',
+        titulo: 'Seguimiento semanal',
+        fechaProgramada: inicio,
+        clienteId: clienteYo.id,
+        repetir: { frecuencia: 'SEMANAL', veces: 4 },
+      },
+      { sub: yo.id, email: yo.email, nombre: yo.nombre, rol: 'AGENTE' },
+    );
+
+    const filas = await prisma.actividad.findMany({
+      where: { clienteId: clienteYo.id },
+      orderBy: { fechaProgramada: 'asc' },
+    });
+
+    expect(filas).toHaveLength(4);
+    expect(filas.map(f => f.fechaProgramada.toISOString())).toEqual([
+      '2026-09-07T15:00:00.000Z',
+      '2026-09-14T15:00:00.000Z',
+      '2026-09-21T15:00:00.000Z',
+      '2026-09-28T15:00:00.000Z',
+    ]);
+    // Independientes de verdad: cada una se puede completar por separado.
+    expect(new Set(filas.map(f => f.id)).size).toBe(4);
+    expect(filas.every(f => f.estado === 'PENDIENTE')).toBe(true);
+  });
+
+  it('con repetir MENSUAL x3 avanza mes a mes', async () => {
+    const yo = await usuario('Yo', 'yo@test.local');
+    const clienteYo = await cliente('Ana', '+59170000001', yo.id);
+    const inicio = new Date('2026-09-10T14:00:00.000Z');
+
+    await service.create(
+      {
+        tipo: 'RECORDATORIO',
+        titulo: 'Control mensual',
+        fechaProgramada: inicio,
+        clienteId: clienteYo.id,
+        repetir: { frecuencia: 'MENSUAL', veces: 3 },
+      },
+      { sub: yo.id, email: yo.email, nombre: yo.nombre, rol: 'AGENTE' },
+    );
+
+    const filas = await prisma.actividad.findMany({
+      where: { clienteId: clienteYo.id },
+      orderBy: { fechaProgramada: 'asc' },
+    });
+
+    expect(filas.map(f => f.fechaProgramada.toISOString())).toEqual([
+      '2026-09-10T14:00:00.000Z',
+      '2026-10-10T14:00:00.000Z',
+      '2026-11-10T14:00:00.000Z',
+    ]);
+  });
+
+  it('la repetición respeta duracionMinutos y el resto de campos comunes', async () => {
+    const yo = await usuario('Yo', 'yo@test.local');
+    const otro = await usuario('Otro', 'otro@test.local');
+    const clienteYo = await cliente('Ana', '+59170000001', yo.id);
+    const lead = await prisma.lead.create({
+      data: { clienteId: clienteYo.id, origen: 'WHATSAPP_DIRECTO', agenteId: yo.id },
+    });
+
+    await service.create(
+      {
+        tipo: 'LLAMADA',
+        titulo: 'Seguimiento',
+        notas: 'Preguntar por el resultado',
+        fechaProgramada: new Date(),
+        duracionMinutos: 15,
+        clienteId: clienteYo.id,
+        leadId: lead.id,
+        repetir: { frecuencia: 'SEMANAL', veces: 2 },
+      },
+      { sub: yo.id, email: yo.email, nombre: yo.nombre, rol: 'AGENTE' },
+    );
+
+    const filas = await prisma.actividad.findMany({ where: { clienteId: clienteYo.id } });
+    expect(filas).toHaveLength(2);
+    for (const fila of filas) {
+      expect(fila.duracionMinutos).toBe(15);
+      expect(fila.notas).toBe('Preguntar por el resultado');
+      expect(fila.leadId).toBe(lead.id);
+      expect(fila.agenteId).toBe(yo.id);
+      expect(fila.agenteId).not.toBe(otro.id);
+    }
+  });
+
+  it('el DTO rechaza veces fuera de 2-12 antes de llegar al service', async () => {
+    // El service confía en que `veces` ya viene validado — lo valida el
+    // ValidationPipe global (class-validator), no el service. Se prueba acá
+    // directamente contra el DTO para no montar todo Nest solo por esto.
+    const unaVezSola = plainToInstance(RepetirActividadDto, { frecuencia: 'SEMANAL', veces: 1 });
+    const trece = plainToInstance(RepetirActividadDto, { frecuencia: 'SEMANAL', veces: 13 });
+    const valida = plainToInstance(RepetirActividadDto, { frecuencia: 'SEMANAL', veces: 4 });
+
+    expect(await validate(unaVezSola)).not.toHaveLength(0);
+    expect(await validate(trece)).not.toHaveLength(0);
+    expect(await validate(valida)).toHaveLength(0);
   });
 });

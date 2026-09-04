@@ -1068,6 +1068,14 @@ model Actividad {
   titulo          String          @db.VarChar(200)
   notas           String?         @db.VarChar(1000)
   fechaProgramada DateTime
+  /// Cuánto dura de verdad — una llamada no es una reunión. El frontend
+  /// sugiere un valor por tipo al crear (LLAMADA 15, REUNION 60, TAREA 30,
+  /// RECORDATORIO 5) pero la persona puede cambiarlo; el `@default(30)` es
+  /// solo la red de seguridad si algún día algo la omite. Determina el alto
+  /// del bloque en las vistas de semana/día del calendario — antes todas las
+  /// actividades se pintaban del mismo tamaño sin importar el tipo, lo cual
+  /// no reflejaba la realidad.
+  duracionMinutos Int             @default(30)
   estado          EstadoActividad @default(PENDIENTE)
   cliente         Cliente         @relation(fields: [clienteId], references: [id], onDelete: Cascade)
   clienteId       String

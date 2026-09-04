@@ -13,7 +13,7 @@ import { calcularPaginacion, paginar } from '../../common/dto/pagination.dto';
 import { PushService } from '../../common/push/push.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ClientesService } from '../clientes/clientes.service';
-import { CreateActividadDto } from './dto/create-actividad.dto';
+import { CreateActividadDto, RepetirActividadDto } from './dto/create-actividad.dto';
 import { QueryActividadDto } from './dto/query-actividad.dto';
 import { UpdateActividadDto } from './dto/update-actividad.dto';
 
@@ -26,6 +26,41 @@ const INCLUYE_ACTIVIDAD = {
 
 const VENTANA_RECORDATORIO_MIN = 15;
 const INTERVALO_BARRIDO_MS = 5 * 60 * 1000;
+
+/**
+ * La primera fecha, más `veces - 1` más espaciadas por `frecuencia` — pura,
+ * sin tocar la base, para poder probarla sin Postgres. `setMonth`/`setDate`
+ * mutan una copia (`new Date(anterior)`) cada vuelta, nunca la fecha
+ * original.
+ *
+ * MENSUAL tiene un borde conocido y aceptado: `setMonth` no es "sumar 30
+ * días", es "mismo día del mes siguiente", y en meses cortos JS lo
+ * desborda al mes de después (31 de enero → 3 de marzo, no 28/29 de
+ * febrero). Es el mismo comportamiento que tiene cualquier calendario que
+ * agende "el mismo día cada mes" sin una librería de fechas de por medio;
+ * se documenta en vez de arrastrar una dependencia nueva solo para esto.
+ */
+function fechasDeRepeticion(inicio: Date, repetir?: RepetirActividadDto): Date[] {
+  if (!repetir) return [inicio];
+
+  const fechas = [inicio];
+  for (let i = 1; i < repetir.veces; i++) {
+    const siguiente = new Date(fechas[i - 1]!);
+    switch (repetir.frecuencia) {
+      case 'SEMANAL':
+        siguiente.setDate(siguiente.getDate() + 7);
+        break;
+      case 'QUINCENAL':
+        siguiente.setDate(siguiente.getDate() + 14);
+        break;
+      case 'MENSUAL':
+        siguiente.setMonth(siguiente.getMonth() + 1);
+        break;
+    }
+    fechas.push(siguiente);
+  }
+  return fechas;
+}
 
 /**
  * Seguimiento comercial: recordatorios y tareas que un agente se agenda sobre
@@ -180,17 +215,33 @@ export class ActividadesService implements OnModuleInit, OnModuleDestroy {
       }
     }
 
-    return this.prisma.actividad.create({
-      data: {
-        tipo: dto.tipo,
-        titulo: dto.titulo.trim(),
-        notas: dto.notas?.trim(),
-        fechaProgramada: dto.fechaProgramada,
-        clienteId: dto.clienteId,
-        leadId: dto.leadId,
-        agenteId,
-      },
-      include: INCLUYE_ACTIVIDAD,
+    const datosComunes = {
+      tipo: dto.tipo,
+      titulo: dto.titulo.trim(),
+      notas: dto.notas?.trim(),
+      duracionMinutos: dto.duracionMinutos,
+      clienteId: dto.clienteId,
+      leadId: dto.leadId,
+      agenteId,
+    };
+
+    const [primeraFecha, ...siguientesFechas] = fechasDeRepeticion(dto.fechaProgramada, dto.repetir);
+
+    // Todo en una sola transacción: o quedan las `veces` filas, o ninguna —
+    // nunca una "repetición" a medias por un fallo a mitad de camino.
+    return this.prisma.$transaction(async tx => {
+      const primera = await tx.actividad.create({
+        data: { ...datosComunes, fechaProgramada: primeraFecha },
+        include: INCLUYE_ACTIVIDAD,
+      });
+
+      if (siguientesFechas.length > 0) {
+        await tx.actividad.createMany({
+          data: siguientesFechas.map(fechaProgramada => ({ ...datosComunes, fechaProgramada })),
+        });
+      }
+
+      return primera;
     });
   }
 
@@ -221,6 +272,7 @@ export class ActividadesService implements OnModuleInit, OnModuleDestroy {
         titulo: dto.titulo?.trim(),
         notas: dto.notas?.trim(),
         fechaProgramada: dto.fechaProgramada,
+        duracionMinutos: dto.duracionMinutos,
         clienteId: dto.clienteId,
         leadId: dto.leadId,
         // Reprogramar limpia el aviso ya mandado: si la nueva fecha vuelve a
