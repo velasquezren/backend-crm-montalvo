@@ -13,6 +13,7 @@ import { calcularPaginacion, paginar } from '../../common/dto/pagination.dto';
 import { PushService } from '../../common/push/push.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ClientesService } from '../clientes/clientes.service';
+import { ConversacionesGateway } from '../conversaciones/conversaciones.gateway';
 import { CreateActividadDto, RepetirActividadDto } from './dto/create-actividad.dto';
 import { QueryActividadDto } from './dto/query-actividad.dto';
 import { UpdateActividadDto } from './dto/update-actividad.dto';
@@ -83,6 +84,7 @@ export class ActividadesService implements OnModuleInit, OnModuleDestroy {
     private readonly prisma: PrismaService,
     private readonly clientesService: ClientesService,
     private readonly pushService: PushService,
+    private readonly realtimeGateway: ConversacionesGateway,
   ) {}
 
   onModuleInit(): void {
@@ -339,12 +341,17 @@ export class ActividadesService implements OnModuleInit, OnModuleDestroy {
 
     for (const actividad of pendientes) {
       try {
+        // Dos canales independientes, a propósito: el push llega aunque la
+        // pestaña esté cerrada; el WebSocket es instantáneo si la agente ya
+        // tiene el CRM abierto (no espera al service worker) y dispara el
+        // toast en vivo con la acción de completar. Uno no reemplaza al otro.
         await this.pushService.enviarAUsuario(actividad.agenteId, {
           titulo: 'Recordatorio',
           mensaje: `${actividad.titulo} — ${actividad.cliente.nombre}`,
           url: '/actividades',
           tag: `actividad-${actividad.id}`,
         });
+        this.realtimeGateway.emitirRecordatorioActividad(actividad.id, actividad.agenteId);
         await this.prisma.actividad.update({
           where: { id: actividad.id },
           data: { notificadaEn: ahora },

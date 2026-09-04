@@ -29,7 +29,7 @@ import { WhatsappWebhookController } from './webhooks/whatsapp-webhook.controlle
     WhatsappCloudService,
     AlertasWhatsappService,
   ],
-  exports: [ConversacionesService],
+  exports: [ConversacionesService, ConversacionesGateway],
 })
 export class ConversacionesModule {}
 

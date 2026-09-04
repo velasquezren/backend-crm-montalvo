@@ -88,6 +88,25 @@ export class ConversacionesGateway implements OnGatewayConnection, OnGatewayDisc
       ? this.pushService.enviarAUsuario(info.agenteId, aviso)
       : this.pushService.enviarATodosLosAgentes(aviso));
   }
+
+  /**
+   * Un recordatorio de `Actividad` entró en la ventana de aviso (ver
+   * `ActividadesService.barrerRecordatoriosPendientes`). Broadcast global,
+   * igual que `emitirActividad`: la seguridad real la pone el REST escopado
+   * cuando el frontend pida el detalle (`GET /actividades/:id`), esto es
+   * solo el "algo pasó". `agenteId` viaja para que el frontend descarte sin
+   * pedir nada si el aviso no es suyo — ninguna otra agente necesita hacer
+   * un fetch (aunque fallaría en 404) por cada recordatorio ajeno.
+   *
+   * Este gateway ya no es solo de Conversaciones — es el canal `/realtime`
+   * compartido de toda la sesión (un socket, todo lo que empuja el backend).
+   * Se queda en este módulo por ahora: moverlo de carpeta es un refactor
+   * aparte y lo que importa de verdad es que sea UN solo socket compartido,
+   * no dos conexiones por pestaña.
+   */
+  emitirRecordatorioActividad(actividadId: string, agenteId: string): void {
+    this.server?.emit('actividad:recordatorio', { actividadId, agenteId });
+  }
 }
 
 /** Primera línea del mensaje, acotada a lo que cabe en una notificación. */

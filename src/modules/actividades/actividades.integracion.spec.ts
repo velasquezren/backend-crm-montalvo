@@ -6,6 +6,7 @@ import { AuditService } from '../../common/audit/audit.service';
 import { PushService } from '../../common/push/push.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ClientesService } from '../clientes/clientes.service';
+import { ConversacionesGateway } from '../conversaciones/conversaciones.gateway';
 import { ServiciosService } from '../servicios/servicios.service';
 import { ActividadesService } from './actividades.service';
 import { RepetirActividadDto } from './dto/create-actividad.dto';
@@ -30,6 +31,15 @@ const prisma = new PrismaService({ datasources: { db: { url: URL_TEST } } });
 let service: ActividadesService;
 let push: PushService;
 const enviosSimulados: Array<{ usuarioId: string; tag?: string }> = [];
+const avisosRealtimeSimulados: Array<{ actividadId: string; agenteId: string }> = [];
+/* Stub, no un ConversacionesGateway real: ese exige JwtService + un
+   @WebSocketServer inyectado por Nest, que no existe fuera del bootstrap
+   completo. Alcanza con la única forma que usa ActividadesService. */
+const realtimeGatewayStub = {
+  emitirRecordatorioActividad: (actividadId: string, agenteId: string) => {
+    avisosRealtimeSimulados.push({ actividadId, agenteId });
+  },
+} as unknown as ConversacionesGateway;
 
 beforeAll(async () => {
   await prisma.$connect();
@@ -53,9 +63,10 @@ beforeEach(async () => {
     new ServiciosService(prisma),
   );
   push = new PushService(prisma, new ConfigService({}));
-  service = new ActividadesService(prisma, clientesService, push);
+  service = new ActividadesService(prisma, clientesService, push, realtimeGatewayStub);
 
   enviosSimulados.length = 0;
+  avisosRealtimeSimulados.length = 0;
   // `habilitado` queda en false sin llaves VAPID (no se llama a onModuleInit),
   // así que `enviarAUsuario` real ya no golpea la red — igual se espía para
   // confirmar A QUIÉN se hubiera notificado, sin depender de webpush.
@@ -266,6 +277,8 @@ describe('ActividadesService.barrerRecordatoriosPendientes', () => {
     const notificadas = await service.barrerRecordatoriosPendientes();
     expect(notificadas).toBe(1);
     expect(enviosSimulados).toEqual([{ usuarioId: yo.id, tag: `actividad-${actividad.id}` }]);
+    // Los dos canales, con los mismos datos — ni push sin socket ni al revés.
+    expect(avisosRealtimeSimulados).toEqual([{ actividadId: actividad.id, agenteId: yo.id }]);
 
     const actualizada = await prisma.actividad.findUniqueOrThrow({ where: { id: actividad.id } });
     expect(actualizada.notificadaEn).not.toBeNull();
@@ -274,6 +287,7 @@ describe('ActividadesService.barrerRecordatoriosPendientes', () => {
     const segundaPasada = await service.barrerRecordatoriosPendientes();
     expect(segundaPasada).toBe(0);
     expect(enviosSimulados).toHaveLength(1);
+    expect(avisosRealtimeSimulados).toHaveLength(1);
   });
 
   it('ignora una actividad fuera de la ventana de 15 minutos', async () => {
