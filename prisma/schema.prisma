@@ -79,6 +79,7 @@ model Usuario {
   pushSubscriptions     PushSubscription[]
   tiposCambioCorregidos TipoCambioDiario[]
   aprobacionesPeriodo   AprobacionPeriodo[]
+  actividades           Actividad[]
   createdAt             DateTime               @default(now())
   updatedAt             DateTime               @updatedAt
 }
@@ -136,6 +137,7 @@ model Cliente {
   leads          Lead[]
   conversaciones Conversacion[]
   ventas         Venta[]
+  actividades    Actividad[]
   createdAt      DateTime       @default(now())
   updatedAt      DateTime       @updatedAt
   // `Cliente_saldoTotal_idx` es parcial (`WHERE "saldoTotal" > 0`) y el lenguaje de
@@ -207,6 +209,7 @@ model Lead {
   /// venta nace de un lead trabajado en el pipeline, así que la relación es
   /// opcional del lado de `Venta`.
   ventas        Venta[]
+  actividades   Actividad[]
   createdAt     DateTime   @default(now())
 
   @@index([anuncioId])
@@ -1037,4 +1040,59 @@ model TipoCambioDiario {
   actualizadoPorId String?
   createdAt        DateTime         @default(now())
   updatedAt        DateTime         @updatedAt
+}
+
+enum TipoActividad {
+  LLAMADA
+  REUNION
+  TAREA
+  RECORDATORIO
+}
+
+enum EstadoActividad {
+  PENDIENTE
+  COMPLETADA
+  CANCELADA
+}
+
+/// Seguimiento comercial: recordatorios y tareas que un agente se agenda sobre
+/// un Cliente/Lead — "llamar el jueves", "recordar la cotización". NO es una
+/// cita médica de horario clínico: eso lo resuelve la app Agenda Médica
+/// (repo/base independientes, ver decisión 2026-07-27). Por eso este modelo NO
+/// tiene la regla dura de "no dos citas encimadas" del médico: acá no se
+/// reserva ningún recurso físico, así que dos actividades del mismo agente
+/// pueden caer a la misma hora sin que sea un conflicto real.
+model Actividad {
+  id              String          @id @default(uuid())
+  tipo            TipoActividad   @default(TAREA)
+  titulo          String          @db.VarChar(200)
+  notas           String?         @db.VarChar(1000)
+  fechaProgramada DateTime
+  estado          EstadoActividad @default(PENDIENTE)
+  cliente         Cliente         @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  clienteId       String
+  /// Lead puntual del pipeline al que se ata esta actividad, si aplica —
+  /// opcional porque también se agenda seguimiento sobre un cliente ya
+  /// convertido, fuera del pipeline. `SetNull` (no Cascade): perder el lead no
+  /// debe borrar el recordatorio, solo desvincularlo.
+  lead            Lead?           @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  leadId          String?
+  agente          Usuario         @relation(fields: [agenteId], references: [id])
+  agenteId        String
+  completadaEn    DateTime?
+  /// Cuándo se mandó el push de recordatorio (barrido periódico en
+  /// `ActividadesService`, cada 5 min). Evita notificar dos veces la misma
+  /// actividad si el barrido la vuelve a ver antes de que pase a COMPLETADA.
+  notificadaEn    DateTime?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  @@index([agenteId, fechaProgramada])
+  @@index([agenteId, estado])
+  @@index([clienteId])
+  @@index([leadId])
+  // Usado por el barrido de recordatorios: actividades pendientes, sin
+  // notificar, cuya hora ya está cerca — sin este índice compuesto es un
+  // Seq Scan cada 5 minutos.
+  @@index([estado, notificadaEn, fechaProgramada])
 }

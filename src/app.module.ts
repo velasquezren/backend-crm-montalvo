@@ -8,6 +8,7 @@ import { HealthModule } from './common/health/health.module';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { LoggingInterceptor } from './common/logging/logging.interceptor';
 import { RolesGuard } from './common/guards/roles.guard';
+import { ActividadesModule } from './modules/actividades/actividades.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { ClientesModule } from './modules/clientes/clientes.module';
 import { ConversacionesModule } from './modules/conversaciones/conversaciones.module';
@@ -37,6 +38,7 @@ import { PrismaModule } from './prisma/prisma.module';
     UsuariosModule,
     ClientesModule,
     LeadsModule,
+    ActividadesModule,
     ConversacionesModule,
     ServiciosModule,
     VentasModule,
