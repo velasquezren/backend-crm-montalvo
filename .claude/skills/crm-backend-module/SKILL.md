@@ -300,6 +300,29 @@ exactamente una petición concurrente lo dispara. Verifica siempre con una
 prueba real de N webhooks en paralelo (`curl … &` × N) que los conteos
 resultantes son 1/1/N/1, no confíes en que "debería" estar bien.
 
+### El mismo razonamiento vale para VALIDAR unicidad, no solo para crear
+
+Comprobar con un `findUnique` que un código no está usado y crear después es la
+misma carrera con otro nombre, y falla peor: entre el SELECT y el INSERT cabe
+otra petición, así que bajo carrera real uno de los dos rebota igual — pero como
+nadie esperaba el rebote, sale un **500 "error del servidor"** donde debía leerse
+"ese PAC ya es de otra paciente". Y son dos viajes a la base por alta que no
+hacen falta: el índice único ya sabe la respuesta.
+
+Entró exactamente así el 2026-09-05 con `Cliente.pac`, en el mismo archivo que
+200 líneas más abajo documenta por qué ese patrón no sirve. Que la lección esté
+escrita al lado no basta: **si el campo tiene índice único, la validación es el
+catch del P2002**, y el `meta.target` del error dice qué columna chocó.
+
+```ts
+try {
+  return await this.prisma.cliente.create({ data });
+} catch (error: unknown) {
+  this.traducirChoqueUnico(error, { telefono: dto.telefono, pac: pacNormalizado });
+  throw error;
+}
+```
+
 ### Reclamar un recurso "del pool": UPDATE condicionado, no lectura-y-escritura
 
 Distinto del get-or-create de arriba: acá el registro YA existe y dos agentes
@@ -374,6 +397,56 @@ try/catch, y el catch registra el id para poder rastrearlo. Ver `procesarWebhook
 
 Corolario para probarlo: si el handler dispara el procesamiento con `void`, expón el método
 asíncrono (no `private`) para que la prueba pueda esperar su promesa.
+
+## Barridos de fondo: concurrencia ACOTADA, nunca `Promise.all` sobre el lote
+
+Un `setInterval` que despacha notificaciones, correos o llamadas externas es la
+tentación clásica de cambiar el `for await` por un `Promise.all(lote.map(…))`
+"para que vaya más rápido". En este servidor eso es una regresión, no una
+optimización:
+
+- el VPS tiene **un núcleo y 1,7 GB**, y el pool de Prisma se dimensiona solo a
+  `núcleos × 2 + 1` → **tres conexiones**;
+- el barrido comparte ese pool con las peticiones de las agentes. Cincuenta
+  `update()` a la vez contra tres conexiones, con `pool_timeout` de 10 s, no
+  ralentizan el barrido: hacen fallar el chat que alguien estaba abriendo;
+- cada push firma un JWT VAPID (ECDSA), que es CPU en un core que no sobra.
+
+El patrón es tandas pequeñas, con el try/catch **por elemento** de la sección
+anterior dentro de cada una:
+
+```ts
+for (let i = 0; i < pendientes.length; i += CONCURRENCIA) {
+  await Promise.all(pendientes.slice(i, i + CONCURRENCIA).map(x => this.notificarUno(x, ahora)));
+}
+```
+
+Ver `barrerRecordatoriosPendientes()` en `actividades.service.ts` (CONCURRENCIA 5).
+Dos corolarios que costaron lo mismo:
+
+- **`Promise.allSettled` sobre funciones que ya tienen try/catch no aísla nada**
+  — ninguna promesa rechaza. Dice una intención que el catch ya cumple, y de paso
+  disimula que la concurrencia no está acotada.
+- **Un `take: N` en la consulta del barrido es un tope, y un tope que se alcanza
+  significa avisos sin mandar.** Loguéalo, o el día que pase se descubre porque
+  una agente no recibió el suyo.
+
+## Un campo de DTO con valores cerrados lleva `@IsIn`/`@IsEnum`, no `@IsString`
+
+`@IsString()` en un campo que el service compara contra literales
+(`'CON_COMPROBANTE'`, `'SIN_COMPROBANTE'`) deja pasar cualquier otra cosa hasta el
+`else`, que casi siempre significa "sin filtro". El resultado no es un error: es
+**la lista entera**, y en una pantalla titulada "Pendientes de comprobante" eso se
+lee como un dato ("están todas pendientes"), no como el fallo que es.
+
+Y al revés: **un centinela de la interfaz no cruza la API.** "Sin filtro" se dice
+omitiendo el parámetro, no mandando un `TODOS` que el service tenga que conocer.
+Exporta el conjunto (`export const FILTROS_X = [...] as const`) y valida con
+`@IsIn(FILTROS_X)`; el tipo sale del mismo sitio y no hay dos listas que sincronizar.
+
+`check:skills` exige un decorador **por campo**, no uno por clase: un campo nuevo
+en un DTO que ya estaba validado llega `undefined` al service, sin lanzar y sin
+log, y es así como entra de verdad este fallo.
 
 ## Consultas: agregar en SQL, no en JS
 

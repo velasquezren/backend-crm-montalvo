@@ -195,23 +195,41 @@ function verificarDtos() {
       /export class (\w+)\s*{([\s\S]*?)\n}/g,
     )) {
       /* Propiedades declaradas: `nombre!: tipo` o `nombre?: tipo`. */
-      const propiedades = [...cuerpo.matchAll(/^\s{2}(\w+)[!?]?:\s/gm)].map(m => m[1]);
-      if (propiedades.length === 0) continue;
+      const declaraciones = [...cuerpo.matchAll(/^\s{2}(\w+)[!?]?:\s/gm)];
+      if (declaraciones.length === 0) continue;
 
       /* La familia entera de class-validator, no solo `@IsAlgo`: `@Matches`,
          `@MaxLength`, `@Min`… también registran metadatos y por tanto también
          salvan a la propiedad del `whitelist`. Con el patrón anterior un DTO
          validado solo con `@Matches` se marcaba como sin validar — pasó con
-         `DescargarMediaDto`. */
+         `DescargarMediaDto`.
+
+         `@Type()` de class-transformer NO cuenta: transforma, no registra
+         metadatos de validación, así que un campo con solo `@Type(() => Date)`
+         se sigue vaciando. */
       const DECORADORES_VALIDOS =
         /@(Is[A-Z]\w*|Matches|Length|MaxLength|MinLength|Min|Max|Contains|NotContains|Equals|NotEquals|ArrayNotEmpty|ArrayMinSize|ArrayMaxSize|ValidateNested|ValidateIf|Allow)\s*\(/;
 
-      if (!DECORADORES_VALIDOS.test(cuerpo)) {
+      /* Campo por campo, no clase por clase.
+         La versión anterior se conformaba con UN decorador en toda la clase, y
+         eso deja pasar el caso más probable: un campo nuevo añadido a un DTO que
+         ya estaba validado. Ese campo llega `undefined` al service —el resto del
+         objeto llega bien, así que nada se rompe de forma visible— y lo que sea
+         que dependía de él simplemente no ocurre. Es el mismo fallo mudo de
+         `SuscribirPushDto`, pero de a un campo, que es como entra de verdad. */
+      let desde = 0;
+      for (const declaracion of declaraciones) {
+        const propiedad = declaracion[1];
+        const preambulo = cuerpo.slice(desde, declaracion.index);
+        desde = declaracion.index + declaracion[0].length;
+
+        if (DECORADORES_VALIDOS.test(preambulo)) continue;
+
         señala(
           'crm-backend-module',
-          `${rel}: la clase ${nombre} no tiene ni un decorador de class-validator. ` +
-            'Con `whitelist: true` el ValidationPipe vacía el objeto entero y el ' +
-            'endpoint recibe {} sin avisar. Pon @IsString()/@IsInt()/… en cada campo.',
+          `${rel}: ${nombre}.${propiedad} no lleva decorador de class-validator. ` +
+            'Con `whitelist: true` el ValidationPipe lo borra del objeto y el service ' +
+            'lo recibe como undefined, sin lanzar y sin log. Pon @IsString()/@IsInt()/…',
         );
       }
     }
