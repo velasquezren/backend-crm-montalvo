@@ -12,6 +12,36 @@ import { QueryClienteDto } from './dto/query-cliente.dto';
 import { UpdateClienteDto } from './dto/update-cliente.dto';
 
 /**
+ * Prefijo del nombre con el que se da de alta a quien escribe por WhatsApp sin
+ * que Meta mande su nombre de perfil.
+ *
+ * Vive aquí, y no en `IngestaWhatsappService`, porque el nombre de un `Cliente`
+ * es de este módulo: el otro lo construía con una plantilla propia y este
+ * comprobaba el resultado con `startsWith('WhatsApp +')` — dos literales en dos
+ * archivos que tenían que coincidir sin que nada lo verificara. El día que la
+ * normalización de teléfonos deje de anteponer el `+`, el alta seguiría
+ * funcionando y el ascenso del nombre provisional al real dejaría de ocurrir,
+ * en silencio y para siempre.
+ */
+const PREFIJO_NOMBRE_PROVISIONAL = 'WhatsApp ';
+
+/** Nombre de relleno mientras no se sepa cómo se llama de verdad. */
+export function nombreProvisional(telefono: string): string {
+  return `${PREFIJO_NOMBRE_PROVISIONAL}${telefono}`;
+}
+
+/** ¿Este nombre es el marcador de arriba y no el de una persona? */
+export function esNombreProvisional(nombre: string): boolean {
+  return nombre.startsWith(PREFIJO_NOMBRE_PROVISIONAL);
+}
+
+/** Qué decirle a la agente cuando un índice único de `Cliente` rebota. */
+const MENSAJE_UNICO: Record<string, (valor: string) => string> = {
+  telefono: valor => `Ya existe un cliente con el teléfono ${valor}`,
+  pac: valor => `Ya existe un cliente con el código PAC ${valor}`,
+};
+
+/**
  * Módulo Clientes — dueño exclusivo de la entidad Cliente/Interes y de la
  * categorización (CRM_MANIFESTO.md §5). Otros módulos (ventas, leads,
  * conversaciones) deben llamar a estos métodos públicos, nunca tocar
@@ -77,12 +107,32 @@ export class ClientesService {
     private readonly serviciosService: ServiciosService,
   ) {}
 
-  async create(dto: CreateClienteDto) {
-    const existente = await this.prisma.cliente.findUnique({ where: { telefono: dto.telefono } });
-    if (existente) {
-      throw new ConflictException(`Ya existe un cliente con el teléfono ${dto.telefono}`);
-    }
+  /**
+   * Convierte el rebote de un índice único en el 409 que corresponde, con el
+   * campo que chocó de verdad.
+   *
+   * **No se comprueba antes con un `findUnique`.** Ese patrón lo desmiente el
+   * comentario de `obtenerOCrearPorTelefono` unas líneas más abajo, escrito
+   * tras probarlo: entre el SELECT y el INSERT cabe otra petición, y bajo
+   * carrera real uno de los dos choca igual — con la diferencia de que
+   * entonces sale un 500 en vez de un 409, y la agente ve "error del
+   * servidor" donde debería leer "ese PAC ya es de otra paciente". Además son
+   * dos viajes a la base por alta que no hacen falta: el índice ya sabe la
+   * respuesta.
+   */
+  private traducirChoqueUnico(error: unknown, valores: Record<string, string | null | undefined>): void {
+    if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2002') return;
 
+    const objetivo = error.meta?.['target'];
+    const campos = Array.isArray(objetivo) ? objetivo.map(String) : [String(objetivo ?? '')];
+
+    for (const campo of campos) {
+      const mensaje = MENSAJE_UNICO[campo];
+      if (mensaje) throw new ConflictException(mensaje(valores[campo] ?? ''));
+    }
+  }
+
+  async create(dto: CreateClienteDto) {
     // `fechaNacimiento` NO entra en datosExtra: es columna propia. Meterla en
     // el JSON era lo que hacía que editarla no cambiara nada en pantalla.
     const { empresa, fechaNacimiento, lugarNacimiento, datosExtra, pac, ci, ...restoDto } = dto;
@@ -91,24 +141,23 @@ export class ClientesService {
     };
 
     const pacNormalizado = pac ? pac.trim().toUpperCase() : null;
-    if (pacNormalizado) {
-      const pacExistente = await this.prisma.cliente.findUnique({ where: { pac: pacNormalizado } });
-      if (pacExistente) {
-        throw new ConflictException(`Ya existe un cliente con el código PAC ${pacNormalizado}`);
-      }
-    }
 
-    return this.prisma.cliente.create({
-      data: {
-        ...restoDto,
-        pac: pacNormalizado,
-        ci: ci ? ci.trim() : null,
-        ...(fechaNacimiento !== undefined ? { fechaNacimiento: new Date(fechaNacimiento) } : {}),
-        ...(empresa !== undefined ? { empresaTrabajo: empresa || null } : {}),
-        ...(lugarNacimiento !== undefined ? { ciLugar: lugarNacimiento || null } : {}),
-        datosExtra: Object.keys(datosExtraCombinados).length > 0 ? (datosExtraCombinados as Prisma.InputJsonValue) : undefined,
-      },
-    });
+    try {
+      return await this.prisma.cliente.create({
+        data: {
+          ...restoDto,
+          pac: pacNormalizado,
+          ci: ci ? ci.trim() : null,
+          ...(fechaNacimiento !== undefined ? { fechaNacimiento: new Date(fechaNacimiento) } : {}),
+          ...(empresa !== undefined ? { empresaTrabajo: empresa || null } : {}),
+          ...(lugarNacimiento !== undefined ? { ciLugar: lugarNacimiento || null } : {}),
+          datosExtra: Object.keys(datosExtraCombinados).length > 0 ? (datosExtraCombinados as Prisma.InputJsonValue) : undefined,
+        },
+      });
+    } catch (error: unknown) {
+      this.traducirChoqueUnico(error, { telefono: dto.telefono, pac: pacNormalizado });
+      throw error;
+    }
   }
 
   /**
@@ -235,14 +284,10 @@ export class ClientesService {
   async obtenerOCrearPorTelefono(nombre: string, telefono: string) {
     const existente = await this.findByTelefono(telefono);
     if (existente) {
-      /* Si el cliente se dio de alta originalmente con el marcador "WhatsApp +591…"
-         y ahora Meta nos entrega un nombre de perfil real del paciente, lo actualizamos.
-         Nunca sobreescribe nombres legítimos (como los importados de FileMaker). */
-      if (
-        nombre &&
-        !nombre.startsWith('WhatsApp +') &&
-        existente.nombre.startsWith('WhatsApp +')
-      ) {
+      /* Si el cliente se dio de alta con el marcador ("WhatsApp +591…") y ahora
+         Meta nos entrega el nombre de perfil real, lo ascendemos. Nunca pisa un
+         nombre legítimo, como los importados de FileMaker. */
+      if (nombre && !esNombreProvisional(nombre) && esNombreProvisional(existente.nombre)) {
         return this.prisma.cliente.update({
           where: { id: existente.id },
           data: { nombre },
@@ -280,24 +325,12 @@ export class ClientesService {
 
     const { empresa, fechaNacimiento, lugarNacimiento, datosExtra, pac, ci, ...restoDto } = dto;
 
-    let pacData: { pac?: string | null } = {};
-    if (pac !== undefined) {
-      const pacNormalizado = pac ? pac.trim().toUpperCase() : null;
-      if (pacNormalizado) {
-        const pacExistente = await this.prisma.cliente.findFirst({
-          where: { pac: pacNormalizado, NOT: { id } },
-        });
-        if (pacExistente) {
-          throw new ConflictException(`El código PAC ${pacNormalizado} ya pertenece a otro paciente`);
-        }
-      }
-      pacData = { pac: pacNormalizado };
-    }
-
-    let ciData: { ci?: string | null } = {};
-    if (ci !== undefined) {
-      ciData = { ci: ci ? ci.trim() : null };
-    }
+    /* `pac` y `ci` solo se tocan si venían en el cuerpo: `undefined` significa
+       "no lo mandaron", que no es lo mismo que `null` ("bórralo"). La colisión
+       de `pac` la resuelve el índice único al escribir, no un SELECT previo —
+       ver `traducirChoqueUnico`. */
+    const pacData = pac !== undefined ? { pac: pac ? pac.trim().toUpperCase() : null } : {};
+    const ciData = ci !== undefined ? { ci: ci ? ci.trim() : null } : {};
 
     /* `empresa`, `lugarNacimiento` y `fechaNacimiento` tienen columna propia y
        van ahí, no al JSON: escribir en los dos sitios es lo que hacía que la
@@ -308,7 +341,7 @@ export class ClientesService {
       ...(datosExtra || {}),
     };
 
-    const [actualizado] = await this.prisma.$transaction([
+    const [actualizado] = await this.ejecutarActualizacion([
       this.prisma.cliente.update({
         where: { id },
         data: {
@@ -336,10 +369,27 @@ export class ClientesService {
             }),
           ]
         : []),
-    ]);
+    ], { pac: pacData.pac });
 
     await this.audit.registrar('Cliente', id, 'ACTUALIZADO', usuarioId, { ...dto });
     return actualizado;
+  }
+
+  /**
+   * `$transaction` de la edición, con el rebote del índice único traducido a
+   * 409 igual que en el alta. Aparte para que el `try` no envuelva las 30
+   * líneas de armado del `data`, donde nada puede lanzar un P2002.
+   */
+  private async ejecutarActualizacion(
+    operaciones: Prisma.PrismaPromise<unknown>[],
+    valores: Record<string, string | null | undefined>,
+  ): Promise<unknown[]> {
+    try {
+      return await this.prisma.$transaction(operaciones);
+    } catch (error: unknown) {
+      this.traducirChoqueUnico(error, valores);
+      throw error;
+    }
   }
 
   /**

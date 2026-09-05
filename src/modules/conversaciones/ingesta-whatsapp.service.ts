@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { OrigenLead, Prisma } from '@prisma/client';
 
 import { PrismaService } from '../../prisma/prisma.service';
-import { ClientesService } from '../clientes/clientes.service';
+import { ClientesService, nombreProvisional } from '../clientes/clientes.service';
 import { AcuseAutomaticoService } from './acuse-automatico.service';
 import { ConversacionesGateway } from './conversaciones.gateway';
 import { DespachadorSalienteService } from './despachador-saliente.service';
@@ -88,7 +88,7 @@ export class IngestaWhatsappService {
        deben pelearse por el índice único de telefono (antes: 500 + reintento
        de Meta). Ver ClientesService.obtenerOCrearPorTelefono. */
     const cliente = await this.clientesService.obtenerOCrearPorTelefono(
-      nombrePerfil || `WhatsApp ${telefono}`,
+      nombrePerfil || nombreProvisional(telefono),
       telefono,
     );
 
