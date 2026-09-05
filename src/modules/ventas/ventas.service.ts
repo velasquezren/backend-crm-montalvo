@@ -205,7 +205,7 @@ export class VentasService {
         },
       });
     }
-    if (query.metodoPago && query.metodoPago !== 'TODOS') {
+    if (query.metodoPago) {
       condiciones.push({ metodoPago: query.metodoPago });
     }
     if (query.comprobante === 'CON_COMPROBANTE') {
