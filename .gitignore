@@ -17,3 +17,11 @@ dist.bak*/
 .pgdata.log
 *.log
 .DS_Store
+
+# Cliente de Prisma generado (desde v7 sale a src/, no dentro de node_modules).
+# No se versiona: son 2,5 MB que DEBEN coincidir con la versión instalada de
+# @prisma/client, así que versionarlos garantiza que un día no coincidan. Lo
+# regenera el `postinstall` y, en el despliegue, el `prisma generate` de la
+# secuencia de crm-backend-arquitectura §4.
+/src/generated/
+*.tsbuildinfo

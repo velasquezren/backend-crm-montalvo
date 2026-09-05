@@ -1,6 +1,6 @@
 import { ArchivoSubido } from './archivo-subido';
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma, TipoRecursoMemoria } from '@prisma/client';
+import { Prisma, TipoRecursoMemoria } from '../../prisma/prisma-client';
 import { terminoBusqueda } from '../../common/dto/busqueda';
 import { calcularPaginacion, paginar } from '../../common/dto/pagination.dto';
 import { R2Service } from '../../common/storage/r2.service';

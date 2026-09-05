@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { OrigenLead, Prisma } from '@prisma/client';
+import { OrigenLead, Prisma } from '../../prisma/prisma-client';
 
 import { PrismaService } from '../../prisma/prisma.service';
 import { ClientesService, nombreProvisional } from '../clientes/clientes.service';

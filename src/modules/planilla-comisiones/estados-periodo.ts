@@ -1,4 +1,4 @@
-import { EstadoPeriodo } from '@prisma/client';
+import { EstadoPeriodo } from '../../prisma/prisma-client';
 
 /**
  * Ciclo de vida de un mes de liquidación: qué salto es legal y qué se puede

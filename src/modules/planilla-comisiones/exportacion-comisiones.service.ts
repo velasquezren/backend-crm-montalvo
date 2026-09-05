@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { AreaVendedora, ClasifComision, UnidadNegocio } from '@prisma/client';
+import { AreaVendedora, ClasifComision, UnidadNegocio } from '../../prisma/prisma-client';
 import { TableColumnProperties, Workbook, Worksheet } from 'exceljs';
 import { Writable } from 'stream';
 

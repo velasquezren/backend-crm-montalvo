@@ -1,5 +1,5 @@
 import { createParamDecorator, ExecutionContext } from '@nestjs/common';
-import { Rol } from '@prisma/client';
+import { Rol } from '../../prisma/prisma-client';
 
 export interface UsuarioJwt {
   sub: string;

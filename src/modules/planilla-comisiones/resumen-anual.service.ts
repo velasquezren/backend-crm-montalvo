@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { AreaVendedora, EstadoPeriodo, TipoVendedora } from '@prisma/client';
+import { AreaVendedora, EstadoPeriodo, TipoVendedora } from '../../prisma/prisma-client';
 
 import { CacheMemoria } from '../../common/cache/cache-memoria';
 import { PrismaService } from '../../prisma/prisma.service';

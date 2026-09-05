@@ -1,4 +1,4 @@
-import { EstadoPeriodo } from '@prisma/client';
+import { EstadoPeriodo } from '../../prisma/prisma-client';
 
 import {
   bloqueosParaRevision,

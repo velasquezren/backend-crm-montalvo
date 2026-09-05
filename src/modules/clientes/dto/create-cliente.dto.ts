@@ -1,4 +1,4 @@
-import { CategoriaCliente } from '@prisma/client';
+import { CategoriaCliente } from '../../../prisma/prisma-client';
 import {
   IsDateString,
   IsEmail,

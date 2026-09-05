@@ -1,4 +1,4 @@
-import { EstadoVenta } from '@prisma/client';
+import { EstadoVenta } from '../../../prisma/prisma-client';
 import {
   IsEnum,
   IsIn,

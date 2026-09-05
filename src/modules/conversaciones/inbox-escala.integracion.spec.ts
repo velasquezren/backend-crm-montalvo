@@ -40,7 +40,7 @@ if (!URL_TEST.includes('/crm_test')) {
   throw new Error('La suite de integración solo puede correr contra la base crm_test');
 }
 
-const prisma = new PrismaService({ datasources: { db: { url: URL_TEST } } });
+const prisma = new PrismaService(URL_TEST);
 
 class GatewayEspia {
   readonly emitidos: string[] = [];

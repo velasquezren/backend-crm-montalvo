@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { Prisma, TipoMensaje } from '@prisma/client';
+import { Prisma, TipoMensaje } from '../../prisma/prisma-client';
 
 import { CacheMemoria } from '../../common/cache/cache-memoria';
 import { escaparComodinesLike, terminoBusqueda } from '../../common/dto/busqueda';

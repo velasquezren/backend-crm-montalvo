@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 
-import { ClasifComision } from '@prisma/client';
+import { ClasifComision } from '../../prisma/prisma-client';
 
 import { AuditService } from '../../common/audit/audit.service';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -63,7 +63,7 @@ const ESPERADO_DICIEMBRE = [
 ];
 
 const URL_TEST = process.env['DATABASE_URL_TEST'] ?? 'postgresql://crm_app:crm_dev_local@localhost:5433/crm_test?schema=public';
-const prisma = new PrismaService({ datasources: { db: { url: URL_TEST } } });
+const prisma = new PrismaService(URL_TEST);
 
 let planilla: PlanillaComisionesService;
 let calculo: CalculoComisionesService;

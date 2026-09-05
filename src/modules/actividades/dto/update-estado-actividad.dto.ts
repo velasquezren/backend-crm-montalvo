@@ -1,4 +1,4 @@
-import { EstadoActividad } from '@prisma/client';
+import { EstadoActividad } from '../../../prisma/prisma-client';
 import { IsEnum, IsOptional, IsString, MaxLength } from 'class-validator';
 
 export class UpdateEstadoActividadDto {

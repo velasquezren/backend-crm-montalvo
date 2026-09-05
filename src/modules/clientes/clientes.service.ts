@@ -1,5 +1,5 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import { CategoriaCliente, EstadoLead, Prisma } from '@prisma/client';
+import { CategoriaCliente, EstadoLead, Prisma } from '../../prisma/prisma-client';
 
 import { AuditService } from '../../common/audit/audit.service';
 import { terminoBusqueda } from '../../common/dto/busqueda';

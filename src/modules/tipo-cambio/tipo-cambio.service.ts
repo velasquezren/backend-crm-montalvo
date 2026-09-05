@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
-import { FuenteTipoCambio, ModoTipoCambio } from '@prisma/client';
+import { FuenteTipoCambio, ModoTipoCambio } from '../../prisma/prisma-client';
 
 import { AuditService } from '../../common/audit/audit.service';
 import { PrismaService } from '../../prisma/prisma.service';

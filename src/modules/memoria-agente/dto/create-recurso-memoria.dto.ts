@@ -1,4 +1,4 @@
-import { CategoriaRecursoMemoria, TipoRecursoMemoria } from '@prisma/client';
+import { CategoriaRecursoMemoria, TipoRecursoMemoria } from '../../../prisma/prisma-client';
 import { IsArray, IsEnum, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
 
 export class CreateRecursoMemoriaDto {

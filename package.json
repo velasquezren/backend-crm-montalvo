@@ -16,7 +16,8 @@
     "test": "jest",
     "test:watch": "jest --watch",
     "test:integracion:preparar": "psql -h localhost -p 5433 -U crm_app -d postgres -c \"DROP DATABASE IF EXISTS crm_test;\" -c \"CREATE DATABASE crm_test;\" && DATABASE_URL=\"postgresql://crm_app:crm_dev_local@localhost:5433/crm_test?schema=public\" prisma migrate deploy",
-    "test:integracion": "jest --runInBand --testPathIgnorePatterns '/node_modules/' --testPathPattern '\\.integracion\\.spec\\.ts$'"
+    "test:integracion": "jest --runInBand --testPathIgnorePatterns '/node_modules/' --testPathPattern '\\.integracion\\.spec\\.ts$'",
+    "postinstall": "prisma generate"
   },
   "dependencies": {
     "@nestjs/common": "^10.4.0",
@@ -28,7 +29,8 @@
     "@nestjs/platform-socket.io": "^10.4.22",
     "@nestjs/throttler": "^6.5.0",
     "@nestjs/websockets": "^10.4.22",
-    "@prisma/client": "^5.20.0",
+    "@prisma/adapter-pg": "7.10.0",
+    "@prisma/client": "7.10.0",
     "aws4fetch": "^1.0.20",
     "bcryptjs": "^3.0.3",
     "class-transformer": "^0.5.1",
@@ -52,7 +54,7 @@
     "@types/pdfkit": "^0.17.6",
     "@types/web-push": "^3.6.4",
     "jest": "^29.7.0",
-    "prisma": "^5.20.0",
+    "prisma": "7.10.0",
     "ts-jest": "^29.4.12",
     "typescript": "^5.5.4",
     "xlsx": "^0.18.5"

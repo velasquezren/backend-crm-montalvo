@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 
 import { CAPTACION_POR_DEFECTO } from './configuracion-por-defecto';
-import { ClasifComision, NivelPlan, UnidadNegocio } from '@prisma/client';
+import { ClasifComision, NivelPlan, UnidadNegocio } from '../../prisma/prisma-client';
 
 import {
   calcularIngresoNeto,

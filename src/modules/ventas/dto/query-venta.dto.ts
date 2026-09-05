@@ -1,4 +1,4 @@
-import { EstadoVenta } from '@prisma/client';
+import { EstadoVenta } from '../../../prisma/prisma-client';
 import { IsDateString, IsEnum, IsIn, IsOptional, IsString, MaxLength } from 'class-validator';
 
 import { PaginationDto } from '../../../common/dto/pagination.dto';

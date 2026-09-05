@@ -1,7 +1,7 @@
 import { Type } from 'class-transformer';
 import { IsEnum, IsNumber, IsOptional, Max, Min } from 'class-validator';
 
-import { ModoTipoCambio } from '@prisma/client';
+import { ModoTipoCambio } from '../../../prisma/prisma-client';
 
 /**
  * Cambia el criterio con el que TODO el CRM convierte entre Bs y dólares.

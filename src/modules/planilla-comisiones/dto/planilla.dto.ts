@@ -17,7 +17,7 @@ import {
   NivelPlan,
   TipoComision,
   UnidadNegocio,
-} from '@prisma/client';
+} from '../../../prisma/prisma-client';
 
 import { PaginationDto } from '../../../common/dto/pagination.dto';
 

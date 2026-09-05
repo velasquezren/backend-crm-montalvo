@@ -1,4 +1,4 @@
-import { AreaVendedora } from '@prisma/client';
+import { AreaVendedora } from '../../prisma/prisma-client';
 import { Workbook, Worksheet } from 'exceljs';
 import { PassThrough } from 'stream';
 

@@ -1,4 +1,4 @@
-import { EstadoLead, OrigenLead } from '@prisma/client';
+import { EstadoLead, OrigenLead } from '../../../prisma/prisma-client';
 import { Transform } from 'class-transformer';
 import { IsBoolean, IsEnum, IsOptional, IsString } from 'class-validator';
 

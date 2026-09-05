@@ -18,7 +18,7 @@ import {
   TipoVendedora,
   UnidadNegocio,
   CanalVenta,
-} from '@prisma/client';
+} from '../../../prisma/prisma-client';
 
 /** Los porcentajes se manejan como número entero/decimal de porcentaje: 4.5 = 4,5%. */
 const PCT = { min: 0, max: 100 } as const;

@@ -1,4 +1,4 @@
-import { AreaVendedora, TipoVendedora } from '@prisma/client';
+import { AreaVendedora, TipoVendedora } from '../../prisma/prisma-client';
 
 import { redondear } from './clasificador';
 import { aporteAlPoteJefatura, cobraSinVender, repartirPote } from './reglas-calculo';

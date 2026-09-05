@@ -10,7 +10,7 @@ import {
   TarifaServicio,
   CanalVenta,
   TipoVendedora,
-} from '@prisma/client';
+} from '../../prisma/prisma-client';
 
 import { PrismaService } from '../../prisma/prisma.service';
 import { normalizar, ReglaDiccionario } from './clasificador';

@@ -4,7 +4,7 @@ import {
   NivelPlan,
   TipoComision,
   UnidadNegocio,
-} from '@prisma/client';
+} from '../../prisma/prisma-client';
 
 /**
  * Motor de clasificación de la planilla de comisiones (pasos 1-7 de las reglas

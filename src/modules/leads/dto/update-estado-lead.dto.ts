@@ -1,4 +1,4 @@
-import { EstadoLead } from '@prisma/client';
+import { EstadoLead } from '../../../prisma/prisma-client';
 import { IsEnum, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
 
 /**

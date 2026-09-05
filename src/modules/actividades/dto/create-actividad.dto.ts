@@ -1,4 +1,4 @@
-import { TipoActividad } from '@prisma/client';
+import { TipoActividad } from '../../../prisma/prisma-client';
 import { Type } from 'class-transformer';
 import {
   IsDate,

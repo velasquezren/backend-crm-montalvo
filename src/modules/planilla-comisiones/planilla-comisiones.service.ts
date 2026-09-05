@@ -7,7 +7,7 @@ import {
   Rol,
   TipoVendedora,
   VendedoraComision,
-} from '@prisma/client';
+} from '../../prisma/prisma-client';
 
 import { AuditService } from '../../common/audit/audit.service';
 import { terminoBusqueda } from '../../common/dto/busqueda';

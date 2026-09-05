@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { ClasifComision, Prisma } from '@prisma/client';
+import { ClasifComision, Prisma } from '../../prisma/prisma-client';
 
 import { PrismaService } from '../../prisma/prisma.service';
 import { CacheMemoria } from '../../common/cache/cache-memoria';

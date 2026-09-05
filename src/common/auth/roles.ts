@@ -1,4 +1,4 @@
-import { Rol } from '@prisma/client';
+import { Rol } from '../../prisma/prisma-client';
 
 import { UsuarioJwt } from '../decorators/current-user.decorator';
 

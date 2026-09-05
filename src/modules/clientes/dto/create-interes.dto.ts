@@ -1,4 +1,4 @@
-import { OrigenLead } from '@prisma/client';
+import { OrigenLead } from '../../../prisma/prisma-client';
 import { IsEnum, IsOptional, IsString, MinLength } from 'class-validator';
 
 /** RF-23: registra consultas de clientes que no derivan en venta. */

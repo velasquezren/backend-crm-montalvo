@@ -1,4 +1,4 @@
-import { ModoTipoCambio } from '@prisma/client';
+import { ModoTipoCambio } from '../../prisma/prisma-client';
 
 import { TipoCambioService } from './tipo-cambio.service';
 

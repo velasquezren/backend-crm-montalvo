@@ -1,6 +1,6 @@
 # CRM Clínica Montalvo — backend
 
-API del CRM de una clínica estética en Bolivia. NestJS 10 + Prisma 5 + PostgreSQL.
+API del CRM de una clínica estética en Bolivia. NestJS 10 + Prisma 7 + PostgreSQL.
 Lo usan a diario agentes de venta reales sobre datos de pacientes reales: **no hay
 entorno de staging**. Un error aquí lo ve una paciente.
 
@@ -152,3 +152,11 @@ vacío → 400, `/planilla-comisiones/periodos` sin token → 401), que prueban 
 - **`prisma/schema.prisma` es la fuente de verdad de los enums del frontend**, que
   los genera desde aquí. Añadir un valor a un enum obliga a correr `npm run sync:tipos`
   en el otro repo o su build falla.
+- **El cliente de Prisma se GENERA y no está en git.** Desde la v7 sale a
+  `src/generated/prisma/` en vez de vivir dentro de `@prisma/client`. Los tipos y
+  enums se importan del barril `src/prisma/prisma-client.ts`, nunca de
+  `@prisma/client` ni de la ruta generada. `npm install` lo regenera solo
+  (`postinstall`).
+- **La URL de la base vive en DOS sitios distintos, a propósito.** La de la
+  aplicación la arma `PrismaService` con el adaptador `pg`; la del CLI (migrate,
+  studio) está en `prisma.config.ts`. El `schema.prisma` ya **no admite** `url`.

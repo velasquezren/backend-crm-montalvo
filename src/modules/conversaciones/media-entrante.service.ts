@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { TipoMensaje } from '@prisma/client';
+import { TipoMensaje } from '../../prisma/prisma-client';
 
 import { R2Service } from '../../common/storage/r2.service';
 import { WhatsappCloudService } from '../../common/whatsapp/whatsapp-cloud.service';

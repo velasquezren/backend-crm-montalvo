@@ -30,7 +30,7 @@ en Vercel                      TLS Let's Encrypt, HTTP/2 al navegador
                                                     (localhost:5432, solo esta app)
 ```
 
-- **Backend** (este repo): NestJS 10 + Prisma 5 + PostgreSQL, TypeScript estricto.
+- **Backend** (este repo): NestJS 10 + Prisma 7 + PostgreSQL, TypeScript estricto.
 - **Frontend**: Angular 21, PWA, en el repo hermano `frontend-crm-montalvo/`,
   desplegado en **Vercel** — no vive en el mismo servidor que el backend.
 - El backend NO sirve HTML ni assets: es una API REST + un gateway WebSocket.
@@ -329,6 +329,50 @@ como ruta del repo o `check:skills` lo marca, con razón, como inexistente.)
 Si `schema.prisma` cambió: la migración se genera con `--create-only`, se revisa
 el SQL a mano (hay datos reales), y recién ahí se aplica. Ver `crm-backend-module`
 para el patrón completo de migraciones y el caso de drift.
+
+### Prisma 7 (desde 2026-09-05): cuatro cosas que rompen el despliegue en verde
+
+La migración de Prisma 5 a 7 dejó cuatro trampas que **compilan, pasan las 709
+pruebas y aun así tumban el servicio**. Se documentan acá y no en
+`crm-backend-module` porque las cuatro son del despliegue, no del código.
+
+1. **El binario compilado puede mudarse solo.** `prisma.config.ts` vive en la RAÍZ del
+   repo, y al aparecer, tsc dedujo `rootDir: "."`: la salida pasó de
+   **dist/main.js** a **dist/src/main.js**. La unidad de systemd arranca la
+   primera, así que el
+   build habría quedado en verde y el servicio en bucle de caída — que con
+   `Restart=always` se ve `active` para siempre. Ya está fijado
+   (`"rootDir": "./src"` + `prisma.config.ts` excluido del build), pero si
+   alguien añade otro archivo TypeScript en la raíz, **verificá que el
+   **dist/main.js** del servidor siga existiendo** antes de reiniciar.
+
+2. **`prisma generate` corre en cada `npm install`** (hook `postinstall`), y con
+   el helper `env()` de `prisma/config` fallaba sin `DATABASE_URL` aunque
+   generate no toque la base. Eso rompía la cadena en su PRIMER paso. Resuelto
+   usando `process.env` en `prisma.config.ts`; si vuelve a aparecer un
+   `env(...)` ahí, vuelve el fallo.
+
+3. **El cliente generado no está en git** (`/src/generated/`), así que sin
+   `prisma generate` no hay build. La cadena de arriba ya lo corre, y ahora
+   además el `postinstall`.
+
+4. **`node_modules/.prisma/` puede quedar con el motor Rust viejo.** npm no
+   limpia ese directorio: tras actualizar quedó un `libquery_engine` de 17 MB
+   del v5 que ya nadie carga. Es inofensivo pero engaña al inspeccionar; si
+   querés confirmar que el cliente es de verdad *Rust-free*, borralo y volvé a
+   correr las pruebas (probado: siguen en verde).
+
+**Qué gana el servidor con esto:** el cliente ya no carga un binario Rust de
+**17,2 MB** en el proceso, y esta máquina tiene 1,7 GB para todas sus
+aplicaciones. El pool de conexiones dejó de ser el `núcleos × 2 + 1` = **3** que
+decidía el motor y ahora es un `pg.Pool` de **10**, dimensionado a mano contra
+el `max_connections = 100` real del servidor: se acabó que el barrido de
+recordatorios compitiera con las peticiones de las agentes por tres conexiones.
+
+**Lo que NO gana:** velocidad que se note al navegar. Prisma 7 es ~3x más rápido
+devolviendo miles de filas, pero acá la consulta son 6-27 ms de un viaje de
+~190 ms (§7 y `crm-rendimiento` del frontend). Donde sí se nota es en la
+planilla de comisiones y los exports, que sí mueven miles de filas.
 
 ## 5. Decisiones de arquitectura ya tomadas — no las reabras sin el porqué
 

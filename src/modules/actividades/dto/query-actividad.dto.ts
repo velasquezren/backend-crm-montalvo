@@ -1,4 +1,4 @@
-import { EstadoActividad, TipoActividad } from '@prisma/client';
+import { EstadoActividad, TipoActividad } from '../../../prisma/prisma-client';
 import { Type } from 'class-transformer';
 import { IsDate, IsEnum, IsOptional, IsString } from 'class-validator';
 

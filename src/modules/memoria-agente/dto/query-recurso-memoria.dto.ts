@@ -1,4 +1,4 @@
-import { CategoriaRecursoMemoria, TipoRecursoMemoria } from '@prisma/client';
+import { CategoriaRecursoMemoria, TipoRecursoMemoria } from '../../../prisma/prisma-client';
 import { IsEnum, IsOptional, IsString } from 'class-validator';
 import { PaginationDto } from '../../../common/dto/pagination.dto';
 

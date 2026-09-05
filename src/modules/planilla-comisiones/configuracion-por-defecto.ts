@@ -5,7 +5,7 @@ import {
   NivelPlan,
   TipoVendedora,
   UnidadNegocio,
-} from '@prisma/client';
+} from '../../prisma/prisma-client';
 
 /**
  * Valores iniciales de la planilla de comisiones, tomados del documento de

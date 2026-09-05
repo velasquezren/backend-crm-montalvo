@@ -1,4 +1,4 @@
-import { EstadoVenta } from '@prisma/client';
+import { EstadoVenta } from '../../../prisma/prisma-client';
 import { IsEnum, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
 
 /** DTO para cambio de estado de venta (solo ADMIN). */

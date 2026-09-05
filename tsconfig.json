@@ -9,6 +9,12 @@
     "target": "ES2022",
     "sourceMap": true,
     "outDir": "./dist",
+    /* Explícito, no inferido. `prisma.config.ts` vive en la raíz del repo y al
+       añadirlo tsc dedujo `rootDir: "."`, así que la salida pasó de
+       `dist/main.js` a `dist/src/main.js` — y la unidad de systemd arranca
+       `dist/main.js`. Habría compilado en verde y dejado el servicio en bucle
+       de caída, que con `Restart=always` se ve `active` para siempre. */
+    "rootDir": "./src",
     "baseUrl": "./",
     "incremental": true,
     "skipLibCheck": true,

@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { Prisma } from '../../prisma/prisma-client';
 
 import { PrismaService } from '../../prisma/prisma.service';
 import { calcularPaginacion, paginar, PaginationDto } from '../dto/pagination.dto';

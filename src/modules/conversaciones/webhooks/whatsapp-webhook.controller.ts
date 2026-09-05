@@ -12,7 +12,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { SkipThrottle } from '@nestjs/throttler';
 
-import { TipoMensaje } from '@prisma/client';
+import { TipoMensaje } from '../../../prisma/prisma-client';
 
 import { Public } from '../../../common/decorators/public.decorator';
 import { MetaSignatureGuard } from '../../../common/guards/meta-signature.guard';

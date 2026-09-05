@@ -29,7 +29,7 @@ const SCHEMA = resolve(RAIZ, 'prisma', 'schema.prisma');
 const ROLES_TS = resolve(RAIZ, 'src', 'common', 'auth', 'roles.ts');
 const HERMANO = resolve(RAIZ, '..', 'frontend-crm-montalvo');
 
-const IGNORAR = new Set(['node_modules', '.git', 'dist', '.angular', '.claude', '.agents']);
+const IGNORAR = new Set(['node_modules', '.git', 'dist', '.angular', '.claude', '.agents', 'generated']);
 const EXTENSIONES = /\.(ts|css|html|md|mjs|js|json|prisma)$/;
 
 const problemas = [];
@@ -175,6 +175,33 @@ function verificarWebhooks() {
   }
 }
 
+// ── 5. Los tipos de Prisma se importan del barril, no del paquete ────────────
+// Desde Prisma 7 el cliente se genera a src/generated/ y `@prisma/client` ya no
+// expone los tipos reales del schema. Lo traicionero es que SIGUE resolviendo:
+// el import compila, pero `Prisma` queda degradado y un
+// `error instanceof Prisma.PrismaClientKnownRequestError` deja de estrechar el
+// tipo — un `catch` que parecía tipado pasa a no serlo, y el 409 se vuelve 500.
+//
+// Un archivo nuevo escrito de memoria (o copiado de un tutorial) va a poner
+// `from '@prisma/client'` por costumbre. Esto lo corta en el build.
+function verificarImportsDePrisma() {
+  const raizSrc = resolve(RAIZ, 'src');
+  for (const ruta of indexar(raizSrc).filter(r => r.endsWith('.ts'))) {
+    const rel = relative(RAIZ, ruta);
+    if (rel.includes('prisma-client.ts')) continue; // el barril es el que reexporta
+
+    const codigo = readFileSync(ruta, 'utf8');
+    if (!/from '@prisma\/client'/.test(codigo)) continue;
+
+    señala(
+      'crm-backend-module',
+      `${rel}: importa de '@prisma/client'. Desde Prisma 7 los tipos reales salen ` +
+        "del barril `src/prisma/prisma-client.ts` — el import del paquete compila " +
+        'pero deja `Prisma` degradado, y con él los `instanceof` de sus errores.',
+    );
+  }
+}
+
 // ── 5. Ningún DTO sin decoradores de validación ───────────────────────────────
 // El `ValidationPipe` global corre con `whitelist: true`, que **descarta toda
 // propiedad sin decorador de class-validator**. Un DTO sin decoradores por tanto
@@ -259,6 +286,7 @@ for (const nombre of readdirSync(SKILLS)) {
 /* Global, no por skill: mira el código, no la documentación. */
 verificarWebhooks();
 verificarDtos();
+verificarImportsDePrisma();
 
 if (problemas.length === 0) {
   console.log('✓ Los skills coinciden con el código.');

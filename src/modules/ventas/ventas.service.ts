@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { EstadoVenta, Prisma } from '@prisma/client';
+import { EstadoVenta, Prisma } from '../../prisma/prisma-client';
 import { randomUUID } from 'crypto';
 
 import { AuditService } from '../../common/audit/audit.service';

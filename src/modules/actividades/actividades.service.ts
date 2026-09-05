@@ -5,7 +5,7 @@ import {
   OnModuleDestroy,
   OnModuleInit,
 } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { Prisma } from '../../prisma/prisma-client';
 
 import { alcanceAgente, cubreRol } from '../../common/auth/roles';
 import { UsuarioJwt } from '../../common/decorators/current-user.decorator';

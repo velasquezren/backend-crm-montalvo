@@ -1,4 +1,4 @@
-import { AreaVendedora, TipoVendedora } from '@prisma/client';
+import { AreaVendedora, TipoVendedora } from '../../prisma/prisma-client';
 
 import { normalizar } from './clasificador';
 

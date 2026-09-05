@@ -2,12 +2,27 @@
 // No duplicar estos tipos a mano en ningún otro archivo del backend o frontend.
 
 generator client {
-  provider = "prisma-client-js"
+  // `prisma-client-js` quedó obsoleto en Prisma 7: el cliente ya no lleva motor
+  // Rust, se genera como TypeScript y por eso hay que decirle dónde escribirlo.
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+
+  // NestJS compila a CommonJS y este backend no va a migrar a ESM solo por esto
+  // (Jest + ESM + 709 pruebas es un riesgo que no compra nada). Sin estas dos
+  // líneas el cliente sale como ES module y no carga en `dist/main.js`.
+  runtime      = "nodejs"
+  moduleFormat = "cjs"
+
+  // Sin extensión en los imports internos del cliente generado. Con `js` emite
+  // `export * from './enums.js'`: tsc lo resuelve (node10 mapea .js→.ts) pero
+  // el resolvedor de Jest no, y las 29 suites morían con "Cannot find module".
+  importFileExtension = ""
 }
 
 datasource db {
+  // Sin `url`: desde Prisma 7 la del CLI vive en `prisma.config.ts` y la de la
+  // aplicación la trae el adaptador de `PrismaService`.
   provider = "postgresql"
-  url      = env("DATABASE_URL")
 }
 
 enum Rol {

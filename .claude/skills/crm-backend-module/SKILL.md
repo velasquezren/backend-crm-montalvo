@@ -5,7 +5,7 @@ description: Patrón obligatorio de los módulos NestJS de este CRM — límites
 
 # Patrón de módulo del backend
 
-NestJS 10 + Prisma 5 + PostgreSQL. Reglas base: `CRM_MANIFESTO.md` (repo del frontend) §1.1.
+NestJS 10 + Prisma 7 + PostgreSQL. Reglas base: `CRM_MANIFESTO.md` (repo del frontend) §1.1.
 
 ## Reglas de oro
 
@@ -14,6 +14,25 @@ NestJS 10 + Prisma 5 + PostgreSQL. Reglas base: `CRM_MANIFESTO.md` (repo del fro
 2. **Toda entrada externa se valida con un DTO** antes de llegar a la lógica de negocio.
    Nunca `@Body('campo') x: any` — eso salta el `ValidationPipe` por completo.
 3. **`schema.prisma` es la única fuente de verdad del modelo.** No dupliques tipos a mano.
+
+## Los tipos de Prisma salen del barril, nunca de `@prisma/client`
+
+```ts
+import { Prisma, Rol, EstadoVenta } from '../../prisma/prisma-client';
+```
+
+Desde Prisma 7 el cliente **se genera** a `src/generated/prisma/` (fuera de git,
+lo rehace `postinstall`) en vez de vivir dentro del paquete. Importar de
+`@prisma/client` ya no da los tipos reales: compila, pero `Prisma` queda
+degradado y cosas como `error instanceof Prisma.PrismaClientKnownRequestError`
+dejan de estrechar el tipo — que es como se descubrió. `check:skills` lo rechaza.
+
+El barril existe para que la ruta generada se cite **una vez**: si cambia el
+`output` del `schema.prisma`, cambia una línea y no 51 archivos.
+
+**El cliente nunca se instancia a mano.** Se inyecta `PrismaService`, que es
+quien arma el adaptador `pg` con el tamaño de pool y los tiempos de espera
+pensados para este servidor. Un `new PrismaClient()` suelto se salta todo eso.
 
 ## Anatomía
 
