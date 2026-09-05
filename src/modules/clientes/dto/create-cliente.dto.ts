@@ -1,5 +1,15 @@
 import { CategoriaCliente } from '@prisma/client';
-import { IsEmail, IsEnum, IsObject, IsOptional, IsPhoneNumber, IsString, MinLength, IsDateString} from 'class-validator';
+import {
+  IsDateString,
+  IsEmail,
+  IsEnum,
+  IsObject,
+  IsOptional,
+  IsPhoneNumber,
+  IsString,
+  MaxLength,
+  MinLength,
+} from 'class-validator';
 
 /**
  * Entrada validada para crear un cliente — RF-01.
@@ -46,6 +56,21 @@ export class CreateClienteDto {
   @IsOptional()
   @IsString()
   lugarNacimiento?: string;
+
+  /**
+   * Código de historia clínica en FileMaker (ej. PAC1897 o Pac-1897).
+   * Se normaliza siempre a mayúsculas en el service para mantener consistencia.
+   */
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  pac?: string | null;
+
+  /** Cédula de Identidad del paciente. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  ci?: string | null;
 
   /** Campos de un origen externo sin columna dedicada (ej. import FileMaker). */
   @IsOptional()

@@ -8,8 +8,10 @@ description: Mapa completo del backend — infraestructura real de producción (
 Esto es lo que un agente nuevo (o vos mañana, sin memoria de hoy) necesita para no
 perderse: dónde vive cada cosa, en qué máquina real corre, cuánta gente y cuántos
 datos hay de verdad, qué ya está resuelto, y dónde mirar si hay que hacerlo más
-rápido o más grande. Todo lo que sigue lo verifiqué contra el servidor real el
-2026-08-21, no es una descripción de memoria — donde algo pueda haber cambiado, lo digo.
+rápido o más grande. Todo lo que sigue lo verifiqué contra el servidor real:
+primero el 2026-08-21, y revisado de punta a punta el **2026-09-02**, día en que
+además se cambiaron varias cosas de la máquina (§9). No es una descripción de
+memoria — donde algo pueda haber cambiado, lo digo.
 
 **Este skill NO repite `crm-backend-module`** (paginación, roles, DTOs, webhooks,
 concurrencia). Léelos como un par: ese es el "cómo escribo código en un módulo",
@@ -48,11 +50,17 @@ Mem:          1.7Gi   671Mi  594Mi   ← 1.7 GB de RAM, TOTAL de la máquina
 
 $ systemctl list-units --type=service --state=running
 crm_backend.service            ← este backend
-agenda-api.service             ← FastAPI, otro proyecto
 dulce_espera_backend.service   ← FastAPI, otro proyecto
-mysqld.service                 ← MySQL 8, lo usan los otros dos
+mysqld.service                 ← MySQL 8, lo usa el otro proyecto
 postgresql.service             ← Postgres, SOLO lo usa este CRM
 httpd.service                  ← Apache (RHEL usa "httpd", no "apache2")
+fail2ban.service               ← desde el 2026-09-02, ver §6
+webmin.service, vsftpd.service ← panel y FTP del dueño, ajenos al CRM
+
+# agenda-api.service (FastAPI, un tercer proyecto) quedó DETENIDO y deshabilitado
+# el 2026-09-02, por decisión del dueño. No se borró nada: sus archivos
+# (/opt/agenda_api, 75 MB) y su base MySQL `agenda` (6 tablas, 16 filas) siguen
+# ahí. Se revierte con:  systemctl enable --now agenda-api
 ```
 
 **Por qué importa**: un solo núcleo significa que cualquier trabajo síncrono
@@ -130,45 +138,64 @@ Node y npm en el servidor: `v22.23.1` / `10.9.8` — coincide con lo que pide
 
 ### Postgres
 
-Solo esta app lo usa (MySQL es de los otros dos proyectos). `max_connections = 100`
-a nivel servidor; Prisma se conecta con `connection_limit=25&pool_timeout=10` en
-`DATABASE_URL` — margen real para picos, sin acercarse al techo del servidor.
+Solo esta app lo usa (MySQL es de los otros proyectos). `max_connections = 100`
+a nivel servidor; Prisma se conecta con `connection_limit=10&pool_timeout=10` en
+`DATABASE_URL`.
+
+**Ese 10 era 25 hasta el 2026-09-02**, y bajarlo fue una de las optimizaciones de
+ese día. Prisma mantiene el pool abierto aunque nadie lo use: había **25 conexiones
+ociosas permanentes** —la más vieja llevaba 6 horas sin una sola query— que
+costaban **69 MB de memoria privada**, medidos con `smaps_rollup`, sobre los
+1.7 GB que tiene la máquina entera. Para un backend que sirve ~1.580 peticiones
+por semana (§7), 10 sigue siendo holgado: la recomendación de Prisma para un solo
+núcleo es `núcleos * 2 + 1`, o sea 3. Tras el cambio `pg_stat_activity` pasó de
+25 conexiones a 1.
 
 ## 3. Escala real de datos (medida en producción, no estimada)
 
-Remedido el **2026-08-26** (`pg_stat_user_tables`); entre paréntesis, lo que
-había el 2026-08-21, para que se vea la pendiente y no solo la foto:
+Remedido el **2026-09-02** (`pg_stat_user_tables`); entre paréntesis, lo que
+había el 2026-08-26, para que se vea la pendiente y no solo la foto:
 
 ```
-Lead            15.620  (15.552)
-Cliente         15.608  (15.542)   33 MB — 21 MB tabla + 11 MB índices
-Mensaje          2.186   (1.659)   ← +32 % en cinco días
-VentaImportada   1.287   (1.287)
-AuditLog           473     (375)
-Conversacion       325     (257)   ← +26 % en cinco días
-Venta                3       (0)
+Lead            15.665  (15.620)
+Cliente         15.652  (15.608)   33 MB — 21 MB tabla + 11 MB índices
+Mensaje          2.564   (2.186)
+VentaImportada   2.368   (1.287)   ← +84 % en una semana
+AuditLog           583     (473)
+Conversacion       370     (325)
+Venta                6       (3)
 ```
 
-**Las dos que crecen rápido son justo las del inbox**, y eso cambia una
-conclusión que este archivo daba por cerrada (ver §7, `LIMITE_INBOX`). Las dos
-tablas grandes, en cambio, están planas: `Cliente` y `Lead` sumaron ~66 filas
-cada una en esos cinco días (+0,4 %). Las grandes no crecen; las chicas sí.
+**La que crece rápido ahora es otra**: hasta el 2026-08-26 eran las dos del
+inbox (`Mensaje` y `Conversacion`, que motivaron el arreglo de `LIMITE_INBOX`
+en §7). En la semana siguiente el inbox se calmó (+17 % y +14 %) y el salto se
+lo llevó **`VentaImportada`, que casi se duplicó: 1.287 → 2.368 (+84 %)**.
+
+Eso importa porque `VentaImportada` es justo la tabla que alimentan y leen el
+parseo y la exportación de Excel con `exceljs` — el trabajo síncrono que bloquea
+el único núcleo (§7). Todavía no duele, pero es el número a mirar la próxima vez
+que alguien reporte que la planilla "se cuelga", y ya no vale el "hoy con 1.287
+filas probablemente no se nota" que dice más abajo esta misma sección.
+
+Las dos tablas grandes siguen planas: `Cliente` y `Lead` sumaron ~45 filas cada
+una en esos siete días (+0,3 %). Las grandes no crecen; las chicas sí.
 
 `TipoCambioDiario` (módulo `tipo-cambio`, agregado después de esta medición)
 no está en la tabla: es un valor por día, así que su techo natural es ~365
 filas/año aunque nunca se pierda una sincronización — no hace falta remedirlo
 para saber que no es un problema de escala.
 
-Base completa: **58 MB**. Esto importa para calibrar cualquier conversación sobre
-"performance": **no es un problema de volumen de datos** — 58 MB entra entero en
+Base completa: **60 MB**. Esto importa para calibrar cualquier conversación sobre
+"performance": **no es un problema de volumen de datos** — 60 MB entra entero en
 RAM varias veces. El cuello de botella de este sistema es la máquina de un solo
 núcleo y 1.7 GB compartidos (§2), no el tamaño de las tablas. Optimizar asumiendo
 un problema de "big data" que no existe sería resolver lo que no duele.
 
-`Venta` en cero es una señal a verificar, no asumir: puede ser que el flujo real
-de ventas viva todavía en `VentaImportada` (el Excel de comisiones) y el módulo
-`Ventas` sea nuevo/en migración. Confirmar con quien conoce el negocio antes de
-tratarlo como código muerto.
+`Venta` pasó de 0 (2026-08-21) a 3 (2026-08-26) a 6 (2026-09-02): se usa, pero
+a cuentagotas. Sigue en pie la lectura de que el flujo real de ventas vive
+todavía en `VentaImportada` (el Excel de comisiones) y que el módulo `Ventas` es
+nuevo o está en migración. No es código muerto — confirmar con quien conoce el
+negocio antes de tocarlo.
 
 ## 4. Cómo desplegar
 
@@ -209,11 +236,30 @@ curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:3001/planilla-comision
   # → 401: el guard sigue vivo
 ```
 
+**Desde el 2026-09-02 hay además un respaldo automático**, que NO reemplaza al
+manual de arriba: el de antes del despliegue sigue siendo obligatorio, porque el
+automático corre a las 03:15 y puede tener casi un día de antigüedad.
+
+```
+/usr/local/sbin/backup-crm.sh     # el script
+/etc/cron.d/backup-crm            # 15 3 * * *  root
+/root/backups-crm/                # destino, retiene 14 días
+journalctl -t backup-crm          # así se ve si corrió y cuánto pesó
+```
+
+El script lee la credencial de `/opt/crm-backend/.env` en vez de duplicarla (si
+la contraseña cambia ahí, sigue funcionando), y **aborta si el dump pesa menos de
+1 MB**, renombrándolo a `.SOSPECHOSO`. Solo borra archivos con su propio prefijo
+`crm-*`, así que nunca toca los respaldos manuales `backup-crm-*` previos al
+despliegue. Existía un hueco real: antes de esto el respaldo más reciente era del
+29 de agosto, cuatro días viejo, sobre datos de pacientes reales y sin staging.
+
 **Por qué el backup se verifica y no se asume**: la primera vez que desplegué
 así, `pg_dump -U postgres crm` sin la contraseña correcta falló en silencio
 (`2>/dev/null` se come el error) y el gzip resultante tenía **20 bytes** — un
 backup vacío que parecía exitoso. `ls -la` del archivo y confirmar que pesa MB,
-no bytes, es lo único que lo hubiera atrapado antes de necesitarlo.
+no bytes, es lo único que lo hubiera atrapado antes de necesitarlo. Esa cicatriz
+es justo la que el chequeo del script automatiza.
 
 **Por qué va el `chown -R` antes de todo** (2026-08-26): varios archivos de
 `/opt/crm-backend` habían quedado con dueño `root` en vez de `crmapp` —
@@ -365,20 +411,49 @@ Lo que sí conviene dejar anotado (sin el secreto):
   `Permission denied (publickey)`, así que todo despliegue entra como `root` y
   baja de privilegios con `sudo -u crmapp` comando a comando.
 
-  **Lo que sigue abierto, y ahora con números** (`sshd -T`, 2026-08-26):
+  **El ataque, medido de verdad** (2026-09-02): `/var/log/secure` tenía
+  **2.206.756 intentos de contraseña fallidos desde 10.818 IPs distintas** y
+  pesaba **971 MB acumulados en menos de una semana** — un ritmo sostenido de
+  ~4,3 intentos por segundo. En una máquina de un solo núcleo compartida por
+  varias aplicaciones, eso es CPU y disco robados todo el día. (La cifra de
+  82.723 que traía antes este archivo salía del banner del login, que solo
+  cuenta desde el último acceso exitoso: subestimaba el problema en 25x.)
+
+  **Estado actual** (`sshd -T` + `fail2ban-client`, 2026-09-02):
 
   ```
   permitrootlogin yes
-  passwordauthentication yes    ← contraseña de root, expuesta a internet
+  passwordauthentication yes    ← sigue abierto, ver abajo
   pubkeyauthentication yes
-  fail2ban: inactive
+  fail2ban: ACTIVO desde el 2026-09-02, jail sshd
   ```
 
-  El banner del login reporta **82.723 intentos fallidos** desde el último
-  acceso exitoso. La llave ya existe, así que `passwordauthentication no` no
-  rompería el despliegue — deja fuera al ataque por fuerza bruta sin costo. Un
-  `fail2ban` activo sería el segundo paso. Endurecer esto no es hipotético:
-  es una puerta que ya está siendo golpeada 80 mil veces entre logins.
+  `fail2ban` (EPEL, ya estaba habilitado como repo) se instaló y configuró en
+  `/etc/fail2ban/jail.local`: banea 1 hora tras 6 fallos en 10 minutos, con
+  `ignoreip` para las IPs desde las que históricamente entró el dueño. Baneó a
+  su primer atacante a los 8 segundos de arrancar. Efecto medido: el log pasó
+  de ~1,6 MB cada 20 minutos a **16 KB en 20 minutos**, unas 100 veces menos.
+
+  **Lo que sigue abierto**: `passwordauthentication yes`. Apagarlo es seguro y
+  está verificado —no es una suposición—: las dos máquinas del dueño entran
+  **por llave**, no por contraseña. El histórico de `/var/log/secure` lo
+  confirma (`181.114.107.115` → 2.409 autenticaciones por llave pública;
+  `190.186.23.243` → 20), y hay dos llaves distintas en
+  `/root/.ssh/authorized_keys`, una RSA y una ED25519, una por máquina. El
+  cambio quedó redactado pero **sin aplicar**, a la espera del dueño:
+
+  ```
+  # /etc/ssh/sshd_config.d/00-endurecimiento.conf   (00- para que gane por orden
+  # alfabético sobre 01-permitrootlogin.conf y 50-redhat.conf, ya que sshd toma
+  # el PRIMER valor que encuentra)
+  PasswordAuthentication no
+  PermitRootLogin prohibit-password
+  KbdInteractiveAuthentication no
+  ```
+
+  Aplicarlo así, encadenado, para que no recargue si la sintaxis está mal:
+  `sshd -t && systemctl reload sshd`. Con `fail2ban` puesto ya no es urgente,
+  pero cierra la puerta del todo.
 - **Credenciales de la base** (`crm_app` / password real): están en
   `/opt/crm-backend/.env` en el servidor, y en `.env` local (gitignorado, no
   confundir con `.env.example` que sí está en git y no lleva secretos).
@@ -497,14 +572,37 @@ cierre de esta sección).
   vez crece, vale confirmar que 25 conexiones alcanzan sin que Prisma empiece a
   esperar turno (`pool_timeout=10` significa que a partir de ahí las queries
   fallan, no solo se hacen lentas).
-- **No hay ningún profiling real hecho**: todo lo de arriba es lectura de
-  código e infraestructura, no medición. Antes de optimizar cualquiera de estos
-  puntos, medí con algo real contra el propio servidor o una réplica — el paquete
-  npm `clinic` (Clinic.js) o `0x` para CPU/event-loop, `autocannon` para carga
-  HTTP, y las vistas de
-  Postgres (`pg_stat_statements` si está habilitada) para las queries más lentas
-  de verdad. Optimizar sin medir es tan fácil de hacer para el lado equivocado
-  como de hacerlo bien.
+- **La carga real, medida** (2026-09-02, sobre 7 días de `LoggingInterceptor`
+  en el journal). Antes de optimizar nada de este módulo, mirá estos números,
+  porque cambian el diagnóstico:
+
+  ```
+  1.580 peticiones en 7 días  (~9 por hora)   ·   0 errores 4xx/5xx
+  ```
+
+  Los endpoints más lentos, por promedio:
+
+  | endpoint | n | prom | máx |
+  |---|---|---|---|
+  | `GET /kpis/resumen` | 64 | 410 ms | 963 ms |
+  | `GET /planilla-comisiones/periodos/:id/analitica` | 27 | 397 ms | 958 ms |
+  | `POST /auth/login` | 21 | 336 ms | 498 ms |
+  | `GET /conversaciones` | 242 | 108 ms | 910 ms |
+
+  El login a 336 ms es bcrypt en un solo núcleo: es su precio, no un bug.
+
+  **Y del lado de la base, nada.** Postgres tiene `log_min_duration_statement =
+  500` desde antes, o sea que viene registrando toda query lenta: en el último
+  mes hay **exactamente tres**, y las tres son los `COPY` de los propios
+  `pg_dump` de respaldo. **Ninguna consulta de la aplicación pasó de 500 ms.**
+  Conclusión honesta: hoy este sistema no tiene un problema de rendimiento.
+  Optimizar el código sería resolver lo que no duele.
+
+- **Sigue sin haber profiling de CPU/event-loop**: lo de arriba es latencia
+  extremo a extremo, que dice *cuánto* tarda pero no *dónde*. Si algún día hace
+  falta saberlo, el paquete npm `clinic` (Clinic.js) o `0x` para CPU/event-loop y
+  `autocannon` para carga HTTP. Optimizar sin medir es tan fácil de hacer para el
+  lado equivocado como de hacerlo bien.
 - **Swagger/OpenAPI sigue sin existir** — no es "velocidad", pero si algún día
   se conecta un tercero o cambia el equipo, ayuda. `kpis`, `usuarios` y `auth`
   **ya tienen suite unitaria** (2026-08-25), cerrando el hueco que este mismo
@@ -551,7 +649,56 @@ cierre de esta sección).
   usan agentes reales sobre datos de pacientes reales, todos los días, sin red
   de staging debajo.
 
-## 9. Vínculos
+## 9. Qué cambió en la máquina el 2026-09-02
+
+Una sesión de optimización sobre el servidor, no sobre el código. Se anota acá
+porque nada de esto vive en el repo: si no está escrito, el próximo que entre no
+tiene forma de enterarse. **Ningún cambio tocó el backend ni la base de datos**
+salvo un `ANALYZE` y el pool de conexiones.
+
+El punto de partida fue medir, y la medición cambió el plan: no había problema
+de rendimiento (§7), así que lo que se corrigió fue desperdicio, exposición y
+falta de red de seguridad.
+
+| Cambio | Dónde | Efecto medido |
+|---|---|---|
+| `fail2ban` instalado y activo | `/etc/fail2ban/jail.local` | ataque SSH ~100x menos (§6) |
+| Respaldo diario automático | `/usr/local/sbin/backup-crm.sh`, `/etc/cron.d/backup-crm` | cerró un hueco de 4 días (§4) |
+| Pool de Prisma 25 → 10 | `DATABASE_URL` en `.env` | 25 conexiones ociosas → 1, ~69 MB (§2) |
+| Techo de concurrencia a Apache | `/etc/httpd/conf.d/zz-limites-vps.conf` | 400 → 150 workers |
+| Tope al journal de systemd | `/etc/systemd/journald.conf.d/99-limite.conf` | `SystemMaxUse=200M` |
+| Rotado por tamaño de `secure`/`messages` | `/etc/logrotate.d/99-secure-tamano` | rota a los 50 MB |
+| `ANALYZE` de toda la base | — | `Lead` no tenía estadísticas completas |
+| `agenda-api` detenido y deshabilitado | — | tercer proyecto, decisión del dueño (§2) |
+| 1,7 GB de disco liberados | — | 56 % → 50 % de 30 GB |
+
+Tres detalles que valen para la próxima:
+
+- **`MaxRequestWorkers` estaba en el default de 400.** En 1.7 GB compartidos eso
+  no es capacidad disponible: es la forma en que un pico o un escáner consume
+  toda la RAM y se lleva puestas las tres aplicaciones. El techo nuevo, 150, es
+  un orden de magnitud más de lo que este servidor ha visto (§7).
+
+- **El `ANALYZE` no fue cosmético.** `Lead` (15.665 filas) nunca había tenido un
+  `autoanalyze` —el umbral es 50 + 10 % de las filas, y una tabla cargada de
+  golpe y luego casi quieta no lo cruza nunca— y `Cliente` traía estadísticas
+  del 1 de agosto. El planificador estaba eligiendo planes a ciegas sobre las
+  dos tablas más grandes. Vale re-correrlo después de cualquier importación
+  masiva; `autovacuum` solo no alcanza en tablas que se cargan de una vez.
+
+- **De los 1,7 GB liberados, 900 MB eran el log del ataque de fuerza bruta** y
+  731 MB un instalador de `scriptcase` en `/home` que nunca se había instalado
+  (verificado: sin rastro en el sistema, sin vhost ni servicio que lo
+  referenciara). El disco no era el problema, pero el log sí era un síntoma.
+
+Lo que se decidió NO tocar, y por qué: `webmin` y `vsftpd` quedan encendidos
+porque el dueño los usa para otro software (FTP/PDF), y **MySQL sigue escuchando
+en `0.0.0.0:3306` con el puerto abierto en `firewalld`** — se planteó como
+riesgo y el dueño resolvió dejarlo así. Queda anotado sin cerrar: el chequeo de
+usuarios remotos de MySQL quedó inconcluso (el cliente `mysql` no autenticó), o
+sea que **no hay evidencia de que esté a salvo, solo la decisión de no tocarlo**.
+
+## 10. Vínculos
 
 - `CLAUDE.md` (raíz del repo) — invariantes del día a día, trampas conocidas
   (comisiones en dólares, notificaciones, caché).

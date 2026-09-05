@@ -5,6 +5,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { ClientesService } from '../clientes/clientes.service';
 import { CreateLeadPresencialDto } from './dto/create-lead-presencial.dto';
 import { QueryLeadDto } from './dto/query-lead.dto';
+import { terminoBusqueda } from '../../common/dto/busqueda';
 import { calcularPaginacion, paginar } from '../../common/dto/pagination.dto';
 
 /** Lo mínimo para resolver el agente que se muestra en una tarjeta de lead. */
@@ -54,7 +55,7 @@ export class LeadsService {
    */
   private construirWhere(query: QueryLeadDto, soloAgenteId?: string): Prisma.LeadWhereInput {
     const excluirHistorico = !query.incluirImportacion && !query.origen;
-    const busqueda = query.q?.trim();
+    const busqueda = terminoBusqueda(query.q);
 
     const condiciones: Prisma.LeadWhereInput[] = [];
 
@@ -64,6 +65,7 @@ export class LeadsService {
           { cliente: { nombre: { contains: busqueda, mode: 'insensitive' } } },
           { cliente: { telefono: { contains: busqueda } } },
           { cliente: { ci: { contains: busqueda, mode: 'insensitive' } } },
+          { cliente: { pac: { contains: busqueda, mode: 'insensitive' } } },
           { anuncioId: { contains: busqueda, mode: 'insensitive' } },
         ],
       });
@@ -103,6 +105,8 @@ export class LeadsService {
               nombre: true,
               telefono: true,
               categoria: true,
+              pac: true,
+              ci: true,
               agente: { select: { id: true, nombre: true } },
               /* Tercer escalón del respaldo — ver `agenteEfectivo`. */
               conversaciones: {

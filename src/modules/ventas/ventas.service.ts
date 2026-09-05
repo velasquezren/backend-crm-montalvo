@@ -10,6 +10,7 @@ import { LeadsService } from '../leads/leads.service';
 import { ArchivoSubido } from './archivo-subido';
 import { CreateVentaDto } from './dto/create-venta.dto';
 import { QueryVentaDto } from './dto/query-venta.dto';
+import { terminoBusqueda } from '../../common/dto/busqueda';
 import { calcularPaginacion, paginar } from '../../common/dto/pagination.dto';
 
 /** Carpeta de R2 donde vive TODO comprobante, y solo eso. */
@@ -187,28 +188,57 @@ export class VentasService {
   }
 
   async findAll(query: QueryVentaDto) {
-    const busqueda = query.q?.trim();
-    const where: Prisma.VentaWhereInput = {
-      estado: query.estado,
-      agenteId: query.agenteId,
-      createdAt: {
-        gte: query.desde ? new Date(query.desde) : undefined,
-        lte: query.hasta ? new Date(query.hasta) : undefined,
-      },
-      ...(busqueda
-        ? {
-            OR: [
-              { cliente: { nombre: { contains: busqueda, mode: 'insensitive' } } },
-              { cliente: { telefono: { contains: busqueda } } },
-              { cliente: { ci: { contains: busqueda, mode: 'insensitive' } } },
-              { cliente: { pac: { contains: busqueda, mode: 'insensitive' } } },
-              { producto: { contains: busqueda, mode: 'insensitive' } },
-              { medico: { contains: busqueda, mode: 'insensitive' } },
-              { comprobante: { contains: busqueda, mode: 'insensitive' } },
-            ],
-          }
-        : {}),
-    };
+    const busqueda = terminoBusqueda(query.q);
+    const condiciones: Prisma.VentaWhereInput[] = [];
+
+    if (query.estado) {
+      condiciones.push({ estado: query.estado });
+    }
+    if (query.agenteId) {
+      condiciones.push({ agenteId: query.agenteId });
+    }
+    if (query.desde || query.hasta) {
+      condiciones.push({
+        createdAt: {
+          gte: query.desde ? new Date(query.desde) : undefined,
+          lte: query.hasta ? new Date(query.hasta) : undefined,
+        },
+      });
+    }
+    if (query.metodoPago && query.metodoPago !== 'TODOS') {
+      condiciones.push({ metodoPago: query.metodoPago });
+    }
+    if (query.comprobante === 'CON_COMPROBANTE') {
+      condiciones.push({
+        OR: [
+          { comprobanteKey: { not: null } },
+          { AND: [{ comprobante: { not: null } }, { comprobante: { not: '' } }] },
+        ],
+      });
+    } else if (query.comprobante === 'SIN_COMPROBANTE') {
+      condiciones.push({
+        AND: [
+          { comprobanteKey: null },
+          { OR: [{ comprobante: null }, { comprobante: '' }] },
+        ],
+      });
+    }
+
+    if (busqueda) {
+      condiciones.push({
+        OR: [
+          { cliente: { nombre: { contains: busqueda, mode: 'insensitive' } } },
+          { cliente: { telefono: { contains: busqueda } } },
+          { cliente: { ci: { contains: busqueda, mode: 'insensitive' } } },
+          { cliente: { pac: { contains: busqueda, mode: 'insensitive' } } },
+          { producto: { contains: busqueda, mode: 'insensitive' } },
+          { medico: { contains: busqueda, mode: 'insensitive' } },
+          { comprobante: { contains: busqueda, mode: 'insensitive' } },
+        ],
+      });
+    }
+
+    const where: Prisma.VentaWhereInput = condiciones.length > 0 ? { AND: condiciones } : {};
     const { skip, take } = calcularPaginacion(query);
 
     const [datos, total] = await this.prisma.$transaction([

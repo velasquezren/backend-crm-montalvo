@@ -48,7 +48,7 @@ export class ActividadesController {
     @Body() dto: UpdateEstadoActividadDto,
     @CurrentUser() usuario: UsuarioJwt,
   ) {
-    return this.actividadesService.actualizarEstado(id, dto.estado, alcanceAgente(usuario));
+    return this.actividadesService.actualizarEstado(id, dto, alcanceAgente(usuario));
   }
 
   @Delete(':id')

@@ -24,4 +24,12 @@ export class QueryVentaDto extends PaginationDto {
   @IsOptional()
   @IsDateString()
   hasta?: string;
+
+  @IsOptional()
+  @IsString()
+  metodoPago?: string;
+
+  @IsOptional()
+  @IsString()
+  comprobante?: string;
 }

@@ -85,14 +85,24 @@ export class ClientesService {
 
     // `fechaNacimiento` NO entra en datosExtra: es columna propia. Meterla en
     // el JSON era lo que hacía que editarla no cambiara nada en pantalla.
-    const { empresa, fechaNacimiento, lugarNacimiento, datosExtra, ...restoDto } = dto;
+    const { empresa, fechaNacimiento, lugarNacimiento, datosExtra, pac, ci, ...restoDto } = dto;
     const datosExtraCombinados = {
       ...(datosExtra || {}),
     };
 
+    const pacNormalizado = pac ? pac.trim().toUpperCase() : null;
+    if (pacNormalizado) {
+      const pacExistente = await this.prisma.cliente.findUnique({ where: { pac: pacNormalizado } });
+      if (pacExistente) {
+        throw new ConflictException(`Ya existe un cliente con el código PAC ${pacNormalizado}`);
+      }
+    }
+
     return this.prisma.cliente.create({
       data: {
         ...restoDto,
+        pac: pacNormalizado,
+        ci: ci ? ci.trim() : null,
         ...(fechaNacimiento !== undefined ? { fechaNacimiento: new Date(fechaNacimiento) } : {}),
         ...(empresa !== undefined ? { empresaTrabajo: empresa || null } : {}),
         ...(lugarNacimiento !== undefined ? { ciLugar: lugarNacimiento || null } : {}),
@@ -225,6 +235,19 @@ export class ClientesService {
   async obtenerOCrearPorTelefono(nombre: string, telefono: string) {
     const existente = await this.findByTelefono(telefono);
     if (existente) {
+      /* Si el cliente se dio de alta originalmente con el marcador "WhatsApp +591…"
+         y ahora Meta nos entrega un nombre de perfil real del paciente, lo actualizamos.
+         Nunca sobreescribe nombres legítimos (como los importados de FileMaker). */
+      if (
+        nombre &&
+        !nombre.startsWith('WhatsApp +') &&
+        existente.nombre.startsWith('WhatsApp +')
+      ) {
+        return this.prisma.cliente.update({
+          where: { id: existente.id },
+          data: { nombre },
+        });
+      }
       return existente;
     }
     try {
@@ -255,7 +278,26 @@ export class ClientesService {
     const datosExtraExistentes =
       (guardado?.datosExtra as Prisma.JsonObject | null) ?? {};
 
-    const { empresa, fechaNacimiento, lugarNacimiento, datosExtra, ...restoDto } = dto;
+    const { empresa, fechaNacimiento, lugarNacimiento, datosExtra, pac, ci, ...restoDto } = dto;
+
+    let pacData: { pac?: string | null } = {};
+    if (pac !== undefined) {
+      const pacNormalizado = pac ? pac.trim().toUpperCase() : null;
+      if (pacNormalizado) {
+        const pacExistente = await this.prisma.cliente.findFirst({
+          where: { pac: pacNormalizado, NOT: { id } },
+        });
+        if (pacExistente) {
+          throw new ConflictException(`El código PAC ${pacNormalizado} ya pertenece a otro paciente`);
+        }
+      }
+      pacData = { pac: pacNormalizado };
+    }
+
+    let ciData: { ci?: string | null } = {};
+    if (ci !== undefined) {
+      ciData = { ci: ci ? ci.trim() : null };
+    }
 
     /* `empresa`, `lugarNacimiento` y `fechaNacimiento` tienen columna propia y
        van ahí, no al JSON: escribir en los dos sitios es lo que hacía que la
@@ -271,6 +313,8 @@ export class ClientesService {
         where: { id },
         data: {
           ...restoDto,
+          ...pacData,
+          ...ciData,
           // A sus columnas, no al JSON: es lo que hace que el cambio se vea.
           ...(fechaNacimiento !== undefined
             ? { fechaNacimiento: fechaNacimiento ? new Date(fechaNacimiento) : null }

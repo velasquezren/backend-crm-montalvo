@@ -168,7 +168,12 @@ function whereBusqueda(texto: string | undefined): Prisma.ConversacionWhereInput
   if (!q) return undefined;
   return {
     cliente: {
-      OR: [{ nombre: { contains: q, mode: 'insensitive' } }, { telefono: { contains: q } }],
+      OR: [
+        { nombre: { contains: q, mode: 'insensitive' } },
+        { telefono: { contains: q } },
+        { pac: { contains: q, mode: 'insensitive' } },
+        { ci: { contains: q, mode: 'insensitive' } },
+      ],
     },
   };
 }
@@ -196,6 +201,8 @@ const SELECT_INBOX = {
       nombre: true,
       telefono: true,
       categoria: true,
+      pac: true,
+      ci: true,
       agente: { select: { id: true, nombre: true } },
     },
   },
@@ -478,6 +485,7 @@ export class ConversacionesService {
             email: true,
             categoria: true,
             pac: true,
+            ci: true,
             fechaNacimiento: true,
             ocupacion: true,
             empresaTrabajo: true,

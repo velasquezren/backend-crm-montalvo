@@ -9,6 +9,7 @@ import { EstadoActividad, Prisma } from '@prisma/client';
 
 import { alcanceAgente, cubreRol } from '../../common/auth/roles';
 import { UsuarioJwt } from '../../common/decorators/current-user.decorator';
+import { terminoBusqueda } from '../../common/dto/busqueda';
 import { calcularPaginacion, paginar } from '../../common/dto/pagination.dto';
 import { PushService } from '../../common/push/push.service';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -17,10 +18,11 @@ import { ConversacionesGateway } from '../conversaciones/conversaciones.gateway'
 import { CreateActividadDto, RepetirActividadDto } from './dto/create-actividad.dto';
 import { QueryActividadDto } from './dto/query-actividad.dto';
 import { UpdateActividadDto } from './dto/update-actividad.dto';
+import { UpdateEstadoActividadDto } from './dto/update-estado-actividad.dto';
 
 /** Campos que viajan en listado y ficha — declarados una vez para que no diverjan. */
 const INCLUYE_ACTIVIDAD = {
-  cliente: { select: { id: true, nombre: true, telefono: true } },
+  cliente: { select: { id: true, nombre: true, telefono: true, pac: true } },
   lead: { select: { id: true, estado: true, origen: true } },
   agente: { select: { id: true, nombre: true } },
 } satisfies Prisma.ActividadInclude;
@@ -102,7 +104,7 @@ export class ActividadesService implements OnModuleInit, OnModuleDestroy {
   }
 
   private construirWhere(query: QueryActividadDto, soloAgenteId?: string): Prisma.ActividadWhereInput {
-    const busqueda = query.q?.trim();
+    const busqueda = terminoBusqueda(query.q);
 
     return {
       tipo: query.tipo,
@@ -122,6 +124,9 @@ export class ActividadesService implements OnModuleInit, OnModuleDestroy {
               { titulo: { contains: busqueda, mode: 'insensitive' } },
               { notas: { contains: busqueda, mode: 'insensitive' } },
               { cliente: { nombre: { contains: busqueda, mode: 'insensitive' } } },
+              { cliente: { telefono: { contains: busqueda, mode: 'insensitive' } } },
+              { cliente: { pac: { contains: busqueda, mode: 'insensitive' } } },
+              { cliente: { ci: { contains: busqueda, mode: 'insensitive' } } },
             ] satisfies Prisma.ActividadWhereInput[],
           }
         : {}),
@@ -147,7 +152,7 @@ export class ActividadesService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Conteos para las cabeceras de "Hoy" / "Vencidas" / "Próximos 7 días" —
+   * Conteos para las cabeceras de "Hoy" / "Vencidas" / "Próximos 7 días" / "Completadas" —
    * mismo criterio que `LeadsService.resumenPorEstado`: la UI necesita el
    * total real, no solo cuántas tarjetas cargó.
    */
@@ -159,7 +164,7 @@ export class ActividadesService implements OnModuleInit, OnModuleDestroy {
     const en7Dias = new Date(inicioHoy.getTime() + 7 * 24 * 60 * 60 * 1000);
     const pendiente = { ...where, estado: 'PENDIENTE' as const };
 
-    const [vencidas, hoy, proximaSemana] = await this.prisma.$transaction([
+    const [vencidas, hoy, proximaSemana, completadas] = await this.prisma.$transaction([
       this.prisma.actividad.count({ where: { ...pendiente, fechaProgramada: { lt: inicioHoy } } }),
       this.prisma.actividad.count({
         where: { ...pendiente, fechaProgramada: { gte: inicioHoy, lt: finHoy } },
@@ -167,9 +172,12 @@ export class ActividadesService implements OnModuleInit, OnModuleDestroy {
       this.prisma.actividad.count({
         where: { ...pendiente, fechaProgramada: { gte: finHoy, lt: en7Dias } },
       }),
+      this.prisma.actividad.count({
+        where: { ...where, estado: 'COMPLETADA' as const },
+      }),
     ]);
 
-    return { vencidas, hoy, proximaSemana };
+    return { vencidas, hoy, proximaSemana, completadas };
   }
 
   async findOne(id: string, soloAgenteId?: string) {
@@ -285,7 +293,11 @@ export class ActividadesService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
-  async actualizarEstado(id: string, estado: EstadoActividad, soloAgenteId?: string) {
+  async actualizarEstado(
+    id: string,
+    estadoODto: EstadoActividad | UpdateEstadoActividadDto,
+    soloAgenteId?: string,
+  ) {
     const existente = await this.prisma.actividad.findUnique({
       where: { id },
       select: { id: true, agenteId: true },
@@ -294,11 +306,15 @@ export class ActividadesService implements OnModuleInit, OnModuleDestroy {
       throw new NotFoundException(`Actividad ${id} no encontrada`);
     }
 
+    const estado = typeof estadoODto === 'string' ? estadoODto : estadoODto.estado;
+    const notas = typeof estadoODto === 'object' && estadoODto.notas !== undefined ? estadoODto.notas : undefined;
+
     return this.prisma.actividad.update({
       where: { id },
       data: {
         estado,
         completadaEn: estado === 'COMPLETADA' ? new Date() : null,
+        ...(notas !== undefined ? { notas: notas.trim() || null } : {}),
       },
       include: INCLUYE_ACTIVIDAD,
     });
@@ -337,32 +353,36 @@ export class ActividadesService implements OnModuleInit, OnModuleDestroy {
         fechaProgramada: { lte: limite },
       },
       select: { id: true, titulo: true, tipo: true, agenteId: true, cliente: { select: { nombre: true } } },
+      take: 50,
+      orderBy: { fechaProgramada: 'asc' },
     });
 
-    for (const actividad of pendientes) {
-      try {
-        // Dos canales independientes, a propósito: el push llega aunque la
-        // pestaña esté cerrada; el WebSocket es instantáneo si la agente ya
-        // tiene el CRM abierto (no espera al service worker) y dispara el
-        // toast en vivo con la acción de completar. Uno no reemplaza al otro.
-        await this.pushService.enviarAUsuario(actividad.agenteId, {
-          titulo: 'Recordatorio',
-          mensaje: `${actividad.titulo} — ${actividad.cliente.nombre}`,
-          url: '/actividades',
-          tag: `actividad-${actividad.id}`,
-        });
-        this.realtimeGateway.emitirRecordatorioActividad(actividad.id, actividad.agenteId);
-        await this.prisma.actividad.update({
-          where: { id: actividad.id },
-          data: { notificadaEn: ahora },
-        });
-      } catch (error: unknown) {
-        // Nunca debe tumbar el barrido completo: una falla notificando una
-        // actividad no puede perder el aviso de las demás. Mismo criterio que
-        // el try/catch por elemento de `procesarWebhook` (crm-backend-module).
-        this.logger.warn(`No se pudo notificar la actividad ${actividad.id}`, error);
-      }
-    }
+    await Promise.allSettled(
+      pendientes.map(async actividad => {
+        try {
+          // Dos canales independientes, a propósito: el push llega aunque la
+          // pestaña esté cerrada; el WebSocket es instantáneo si la agente ya
+          // tiene el CRM abierto (no espera al service worker) y dispara el
+          // toast en vivo con la acción de completar. Uno no reemplaza al otro.
+          await this.pushService.enviarAUsuario(actividad.agenteId, {
+            titulo: 'Recordatorio',
+            mensaje: `${actividad.titulo} — ${actividad.cliente.nombre}`,
+            url: '/actividades',
+            tag: `actividad-${actividad.id}`,
+          });
+          this.realtimeGateway.emitirRecordatorioActividad(actividad.id, actividad.agenteId);
+          await this.prisma.actividad.update({
+            where: { id: actividad.id },
+            data: { notificadaEn: ahora },
+          });
+        } catch (error: unknown) {
+          // Nunca debe tumbar el barrido completo: una falla notificando una
+          // actividad no puede perder el aviso de las demás. Mismo criterio que
+          // el try/catch por elemento de `procesarWebhook` (crm-backend-module).
+          this.logger.warn(`No se pudo notificar la actividad ${actividad.id}`, error);
+        }
+      }),
+    );
 
     return pendientes.length;
   }
