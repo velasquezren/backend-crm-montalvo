@@ -604,21 +604,40 @@ describe('el export nuevo de enero 2026, leído con el parser real', () => {
     }
   });
 
+  /*
+   * 31 planes, no 30: el export de enero se regeneró el 2026-08-28 y trajo
+   * `VE1430` (Paquete Bariatrica Premium, 2026-01-11), que la exportación
+   * anterior no tenía. Comprobado antes de mover la cifra:
+   *
+   *  - es de enero por fecha, y no aparece en ningún otro de los ocho exports
+   *    en disco, así que no se cuenta dos veces;
+   *  - llega con `clasifiacion` y `area` VACÍAS —única fila del mes así—, y aun
+   *    así el clasificador la manda a CIRUGIA por `Paquete Bariatrica`, igual
+   *    que a las otras cinco bariátricas. Ese respaldo es justo lo que esta
+   *    suite existe para vigilar.
+   *
+   * Lo que NO se movió es lo que decide plata: siguen siendo 24 paquetes y UN
+   * plan varios. Si algún día cambian esos dos, es el fallo de siempre —
+   * paquetes de maternidad yéndose al cubo con objetivo 1— y no un export nuevo.
+   */
   it('la columna `clasifiacion` llega al clasificador', () => {
     if (!filas) return;
     const planes = filas.filter(f => normalizar(f.modulo) === 'PLANES');
-    expect(planes).toHaveLength(30);
-    expect(planes.every(f => f.clasificacionServicio)).toBe(true);
+    expect(planes).toHaveLength(31);
+    /* Todas menos `VE1430`, que viene sin esa columna desde FileMaker — ver la
+       nota de arriba. La afirmación fuerte es la de la prueba siguiente: que
+       aun así caiga en el cubo correcto. */
+    expect(planes.filter(f => !f.clasificacionServicio).map(f => f.codOrigen)).toEqual(['VE1430']);
   });
 
-  it('reparte los 30 planes en 24 paquetes, 1 plan varios y 5 cirugías', () => {
+  it('reparte los 31 planes en 24 paquetes, 1 plan varios y 6 cirugías', () => {
     if (!filas) return;
     const conteo = filas
       .filter(f => normalizar(f.modulo) === 'PLANES')
       .map(f => clasificarFila(f).clasif)
       .reduce<Record<string, number>>((acc, c) => ({ ...acc, [c]: (acc[c] ?? 0) + 1 }), {});
 
-    expect(conteo).toEqual({ PLANPAQ: 24, PLANNIN: 1, CIRUGIA: 5 });
+    expect(conteo).toEqual({ PLANPAQ: 24, PLANNIN: 1, CIRUGIA: 6 });
   });
 
   /* Con el objetivo de PLANNIN en 1, mandar los paquetes ahí hacía comisionar
@@ -651,7 +670,7 @@ describe('reparto de planes de los seis meses exportados', () => {
     ['octubre', `${CARPETA_2025}/octubre.xlsx`, { PLANPAQ: 20, CIRUGIA: 2 }],
     ['noviembre', `${CARPETA_2025}/noviembre.xlsx`, { PLANPAQ: 21 }],
     ['diciembre', `${CARPETA_2025}/diciembre.xlsx`, { PLANPAQ: 19, CIRUGIA: 1 }],
-    ['enero', `${CARPETA_2026}/enero.xlsx`, { PLANPAQ: 24, PLANNIN: 1, CIRUGIA: 5 }],
+    ['enero', `${CARPETA_2026}/enero.xlsx`, { PLANPAQ: 24, PLANNIN: 1, CIRUGIA: 6 }],
     ['febrero', `${CARPETA_2025}/febrero.xlsx`, { PLANPAQ: 19, CIRUGIA: 2 }],
     ['marzo', `${CARPETA_2025}/marzo.xlsx`, { PLANPAQ: 15 }],
   ];
