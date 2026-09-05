@@ -5,7 +5,7 @@ import {
   OnModuleDestroy,
   OnModuleInit,
 } from '@nestjs/common';
-import { EstadoActividad, Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 
 import { alcanceAgente, cubreRol } from '../../common/auth/roles';
 import { UsuarioJwt } from '../../common/decorators/current-user.decorator';
@@ -29,6 +29,25 @@ const INCLUYE_ACTIVIDAD = {
 
 const VENTANA_RECORDATORIO_MIN = 15;
 const INTERVALO_BARRIDO_MS = 5 * 60 * 1000;
+
+/** Cuántos recordatorios como mucho se despachan en un barrido. */
+const TOPE_BARRIDO = 50;
+
+/**
+ * Cuántos se despachan a la vez.
+ *
+ * No es prudencia teórica: el VPS tiene **un núcleo y 1,7 GB**, y el pool de
+ * Prisma se dimensiona solo a `núcleos × 2 + 1` — tres conexiones. Soltar los
+ * cincuenta de golpe con un `Promise.all` pone hasta cincuenta `update()` a
+ * competir por esas tres, con `pool_timeout` de 10 s, **en el mismo pool que
+ * atiende a las agentes**: el barrido de un minuto tranquilo se convierte en
+ * timeouts en la pantalla de alguien que solo estaba abriendo un chat. Y cada
+ * push firma un JWT VAPID (ECDSA), que es CPU en un core que no sobra.
+ *
+ * De a cinco, el barrido completo son diez tandas de red que igual terminan en
+ * un segundo, y ni la base ni el core se enteran.
+ */
+const CONCURRENCIA_NOTIFICACION = 5;
 
 /**
  * La primera fecha, más `veces - 1` más espaciadas por `frecuencia` — pura,
@@ -293,11 +312,13 @@ export class ActividadesService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
-  async actualizarEstado(
-    id: string,
-    estadoODto: EstadoActividad | UpdateEstadoActividadDto,
-    soloAgenteId?: string,
-  ) {
+  /**
+   * El único cambio de estado. Recibe el DTO entero —no un `EstadoActividad`
+   * suelto— porque completar una actividad puede traer notas del desenlace
+   * ("no contestó, reintentar el lunes"), y el estado y esa nota se escriben en
+   * el mismo `update` o quedan a medias si el segundo falla.
+   */
+  async actualizarEstado(id: string, dto: UpdateEstadoActividadDto, soloAgenteId?: string) {
     const existente = await this.prisma.actividad.findUnique({
       where: { id },
       select: { id: true, agenteId: true },
@@ -306,14 +327,17 @@ export class ActividadesService implements OnModuleInit, OnModuleDestroy {
       throw new NotFoundException(`Actividad ${id} no encontrada`);
     }
 
-    const estado = typeof estadoODto === 'string' ? estadoODto : estadoODto.estado;
-    const notas = typeof estadoODto === 'object' && estadoODto.notas !== undefined ? estadoODto.notas : undefined;
+    const { estado, notas } = dto;
 
     return this.prisma.actividad.update({
       where: { id },
       data: {
         estado,
         completadaEn: estado === 'COMPLETADA' ? new Date() : null,
+        /* `undefined` es "no lo mandaron" y deja las notas como estaban; una
+           cadena en blanco sí las borra. Sin la distinción, cerrar una tarjeta
+           desde la campana de notificaciones —que solo manda el estado— habría
+           vaciado la nota que la agente escribió al agendarla. */
         ...(notas !== undefined ? { notas: notas.trim() || null } : {}),
       },
       include: INCLUYE_ACTIVIDAD,
@@ -353,37 +377,58 @@ export class ActividadesService implements OnModuleInit, OnModuleDestroy {
         fechaProgramada: { lte: limite },
       },
       select: { id: true, titulo: true, tipo: true, agenteId: true, cliente: { select: { nombre: true } } },
-      take: 50,
+      take: TOPE_BARRIDO,
       orderBy: { fechaProgramada: 'asc' },
     });
 
-    await Promise.allSettled(
-      pendientes.map(async actividad => {
-        try {
-          // Dos canales independientes, a propósito: el push llega aunque la
-          // pestaña esté cerrada; el WebSocket es instantáneo si la agente ya
-          // tiene el CRM abierto (no espera al service worker) y dispara el
-          // toast en vivo con la acción de completar. Uno no reemplaza al otro.
-          await this.pushService.enviarAUsuario(actividad.agenteId, {
-            titulo: 'Recordatorio',
-            mensaje: `${actividad.titulo} — ${actividad.cliente.nombre}`,
-            url: '/actividades',
-            tag: `actividad-${actividad.id}`,
-          });
-          this.realtimeGateway.emitirRecordatorioActividad(actividad.id, actividad.agenteId);
-          await this.prisma.actividad.update({
-            where: { id: actividad.id },
-            data: { notificadaEn: ahora },
-          });
-        } catch (error: unknown) {
-          // Nunca debe tumbar el barrido completo: una falla notificando una
-          // actividad no puede perder el aviso de las demás. Mismo criterio que
-          // el try/catch por elemento de `procesarWebhook` (crm-backend-module).
-          this.logger.warn(`No se pudo notificar la actividad ${actividad.id}`, error);
-        }
-      }),
-    );
+    if (pendientes.length === TOPE_BARRIDO) {
+      /* El tope existe para que un atasco no dispare mil notificaciones de
+         golpe, pero alcanzarlo significa que este barrido dejó recordatorios
+         sin avisar. A este volumen no debería pasar nunca; si pasa, se ve en el
+         log en vez de descubrirse porque una agente no recibió el suyo. */
+      this.logger.warn(
+        `El barrido llegó al tope de ${TOPE_BARRIDO} recordatorios: puede haber más esperando.`,
+      );
+    }
+
+    for (let i = 0; i < pendientes.length; i += CONCURRENCIA_NOTIFICACION) {
+      await Promise.all(
+        pendientes.slice(i, i + CONCURRENCIA_NOTIFICACION).map(a => this.notificarRecordatorio(a, ahora)),
+      );
+    }
 
     return pendientes.length;
+  }
+
+  /**
+   * Avisa de UNA actividad y la marca como notificada. Nunca lanza.
+   *
+   * El `try/catch` es por elemento a propósito: una falla notificando una
+   * actividad no puede perder el aviso de las demás — mismo criterio que el
+   * bucle de `procesarWebhook` (`crm-backend-module`).
+   */
+  private async notificarRecordatorio(
+    actividad: { id: string; titulo: string; agenteId: string; cliente: { nombre: string } },
+    ahora: Date,
+  ): Promise<void> {
+    try {
+      // Dos canales independientes, a propósito: el push llega aunque la
+      // pestaña esté cerrada; el WebSocket es instantáneo si la agente ya
+      // tiene el CRM abierto (no espera al service worker) y dispara el
+      // toast en vivo con la acción de completar. Uno no reemplaza al otro.
+      await this.pushService.enviarAUsuario(actividad.agenteId, {
+        titulo: 'Recordatorio',
+        mensaje: `${actividad.titulo} — ${actividad.cliente.nombre}`,
+        url: '/actividades',
+        tag: `actividad-${actividad.id}`,
+      });
+      this.realtimeGateway.emitirRecordatorioActividad(actividad.id, actividad.agenteId);
+      await this.prisma.actividad.update({
+        where: { id: actividad.id },
+        data: { notificadaEn: ahora },
+      });
+    } catch (error: unknown) {
+      this.logger.warn(`No se pudo notificar la actividad ${actividad.id}`, error);
+    }
   }
 }

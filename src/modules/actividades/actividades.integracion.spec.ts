@@ -131,7 +131,7 @@ describe('ActividadesService — escopado por agente', () => {
     await expect(service.update(ajena.id, { titulo: 'Hackeado' }, yo.id)).rejects.toThrow(
       'no encontrada',
     );
-    await expect(service.actualizarEstado(ajena.id, 'COMPLETADA', yo.id)).rejects.toThrow(
+    await expect(service.actualizarEstado(ajena.id, { estado: 'COMPLETADA' }, yo.id)).rejects.toThrow(
       'no encontrada',
     );
     await expect(service.remove(ajena.id, yo.id)).rejects.toThrow('no encontrada');
@@ -240,7 +240,8 @@ describe('ActividadesService.resumen', () => {
         agenteId: yo.id,
       },
     });
-    // Ya completada: no debe contar en ningún cubo, aunque su fecha sea de ayer.
+    // Completada: cuenta en su propio cubo y en ningún otro, aunque su fecha
+    // sea de ayer — no es una vencida.
     await prisma.actividad.create({
       data: {
         tipo: 'TAREA',
@@ -255,7 +256,7 @@ describe('ActividadesService.resumen', () => {
 
     const resumen = await service.resumen({}, yo.id);
 
-    expect(resumen).toEqual({ vencidas: 1, hoy: 1, proximaSemana: 1 });
+    expect(resumen).toEqual({ vencidas: 1, hoy: 1, proximaSemana: 1, completadas: 1 });
   });
 });
 
