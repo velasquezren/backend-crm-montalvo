@@ -219,6 +219,13 @@ const SELECT_INBOX = {
       tipo: true,
       automatico: true,
       createdAt: true,
+      /* La fila del inbox pinta el nombre del archivo para un DOCUMENTO
+         (`ultimo.mediaNombre || ultimo.contenido || 'Documento'`) y este select
+         no lo traía: la vista previa caía SIEMPRE al respaldo y la agente veía
+         "Documento" a secas en vez de "resultados-laboratorio.pdf". No lo
+         detectaba nada porque el campo es opcional en el modelo del frontend —
+         `undefined` es un valor válido, no un error. */
+      mediaNombre: true,
     },
     orderBy: { createdAt: 'desc' },
     take: 1,
