@@ -6,7 +6,9 @@
   },
   "private": true,
   "scripts": {
-    "build": "npm run check:skills && nest build",
+    "build": "npm run check:skills && nest build && npm run check:build",
+    "check:build": "node scripts/verificar-build.mjs",
+    "test:build": "node --test scripts/verificar-build.test.mjs",
     "check:skills": "node scripts/verificar-skills.mjs",
     "start": "nest start",
     "start:dev": "nest start --watch",

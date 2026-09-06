@@ -37,13 +37,21 @@ rendimiento sin inventar problemas que no existen a esta escala.
 ## Comandos
 
 ```bash
-npm run build          # check:skills + nest build — la compuerta real
+npm run build          # check:skills + nest build + check:build — la compuerta real
+npm run test:build     # prueba la comprobación del entrypoint, sin base
 npm test               # unitarias (rápidas, sin base)
 npm run test:integracion:preparar && npm run test:integracion   # necesitan Postgres
 npx prisma migrate dev --name <nombre> --create-only            # revisar el SQL antes
 ```
 
 La base local escucha en el **puerto 5433**, no en el 5432.
+
+El build guarda su `tsBuildInfoFile` dentro de `dist`: `deleteOutDir` debe
+eliminar la caché junto con los artefactos. Con la caché fuera, un segundo
+build podía terminar con exit 0 sin reemitir `dist/main.js`. `check:build`
+rechaza un entrypoint ausente, vacío o que no sea archivo. No sustituye la
+prueba de arranque/DI ni los curls post-despliegue. Al cambiar el compilador,
+verificar un build limpio y otro consecutivo, y arrancar el artefacto real.
 
 **No uses el navegador en este proyecto.** Para probar un endpoint, `curl` contra
 la base local.
