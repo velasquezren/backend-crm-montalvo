@@ -1,0 +1,22 @@
+const {chromium}=require('/Users/macmini2024/.npm/_npx/e41f203b7505f1fb/node_modules/playwright');
+const fs=require('fs');
+const OUT='/Users/macmini2024/Documents/CARPETA RENE/CRM/auditoria-etapa2/evidencia';
+const pw='/Users/macmini2024/Library/Caches/ms-playwright/chromium_headless_shell-1234/chrome-headless-shell-mac-arm64/chrome-headless-shell';
+exports.main=async()=>{
+ const browser=await chromium.launch({executablePath:pw,headless:true});
+ const context=await browser.newContext({storageState:'/tmp/crm-etapa2-storage.json',permissions:['notifications'],serviceWorkers:'allow'});
+ await context.route('**/*',r=>['localhost','127.0.0.1','fonts.gstatic.com'].includes(new URL(r.request().url()).hostname)?r.continue():r.abort());
+ const page=await context.newPage(); const workers=[],requests=[];
+ context.on('serviceworker',w=>workers.push(w.url()));
+ page.on('request',r=>{if(/\.js|ngsw|sw\.js/.test(r.url()))requests.push(r.url());});
+ await page.goto('http://localhost:4200/dashboard');await page.waitForTimeout(2400);
+ const state=()=>page.evaluate(async()=>({controller:navigator.serviceWorker.controller?.scriptURL,registrations:(await navigator.serviceWorker.getRegistrations()).map(r=>({scope:r.scope,active:r.active?.scriptURL,waiting:r.waiting?.scriptURL,installing:r.installing?.scriptURL})),caches:await Promise.all((await caches.keys()).map(async name=>({name,entries:(await (await caches.open(name)).keys()).map(r=>r.url)})))}));
+ const before=await state();
+ await page.locator('a[href="/conversaciones"]').first().click();await page.waitForTimeout(2200);
+ const after=await state();
+ await page.waitForTimeout(4000);const settled=await state();
+ await page.reload();await page.waitForTimeout(1800);const reloaded=await state();
+ const x={workers,before,after,settled,reloaded,requests};fs.writeFileSync(OUT+'/pwa.json',JSON.stringify(x,null,2));
+ console.log(JSON.stringify({workers,before:{...before,caches:before.caches.map(c=>({name:c.name,count:c.entries.length}))},after:{...after,caches:after.caches.map(c=>({name:c.name,count:c.entries.length}))},settledController:settled.controller,settledRegistrations:settled.registrations,reloadedController:reloaded.controller,reloadedRegistrations:reloaded.registrations,jsRequests:requests.length}));
+ await browser.close();
+};

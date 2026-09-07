@@ -1,0 +1,33 @@
+{
+  "cookies": [
+    {
+      "name": "refresh_token",
+      "value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhdWRpdC1hZG1pbiIsInNpZCI6ImJlOGE4YWQyLTQ5OTAtNDg3Yi05NWNmLTNmOGQ2NzljY2I4NiIsInZlcnNpb25TZXNpb24iOjAsInR5cGUiOiJyZWZyZXNoIiwiaWF0IjoxNzg4ODExOTY1LCJleHAiOjE3OTE0MDM5NjV9.SAhYbIPuWZGuafCIhkcGV-TulXs4sOgz_hYpP8YG3C0",
+      "domain": "localhost",
+      "path": "/",
+      "expires": 1791403965.384363,
+      "httpOnly": true,
+      "secure": false,
+      "sameSite": "Lax"
+    }
+  ],
+  "origins": [
+    {
+      "origin": "http://localhost:4200",
+      "localStorage": [
+        {
+          "name": "crm_ultimo_email",
+          "value": "audit-admin@example.test"
+        },
+        {
+          "name": "crm_token",
+          "value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhdWRpdC1hZG1pbiIsImVtYWlsIjoiYXVkaXQtYWRtaW5AZXhhbXBsZS50ZXN0Iiwibm9tYnJlIjoiQWRtaW5pc3RyYWNpw7NuIGRlIHBydWViYSIsInJvbCI6IlNVUEVSX0FETUlOIiwic2lkIjoiYmU4YThhZDItNDk5MC00ODdiLTk1Y2YtM2Y4ZDY3OWNjYjg2IiwidmVyc2lvblNlc2lvbiI6MCwidHlwZSI6ImFjY2VzcyIsImlhdCI6MTc4ODgxMTk2NSwiZXhwIjoxNzg4ODQwNzY1fQ.kXIAxjIxbVPRl2OUheVTrPlLllmbNG8YnjkTRgem0-Y"
+        },
+        {
+          "name": "crm_usuario",
+          "value": "{\"id\":\"audit-admin\",\"nombre\":\"Administración de prueba\",\"email\":\"audit-admin@example.test\",\"rol\":\"SUPER_ADMIN\",\"iniciales\":\"AD\",\"foto\":null}"
+        }
+      ]
+    }
+  ]
+}

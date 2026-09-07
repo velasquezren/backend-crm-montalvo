@@ -1,0 +1,13 @@
+{
+  "error": "TimeoutError: locator.waitFor: Timeout 6000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('.chat-item').first() to be visible\u001b[22m\n",
+  "url": "http://localhost:4200/",
+  "body": "",
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/auth/perfil",
+      "status": 200,
+      "bytes": 233
+    }
+  ]
+}

@@ -1,0 +1,30 @@
+const {chromium}=require('/Users/macmini2024/.npm/_npx/e41f203b7505f1fb/node_modules/playwright');
+const fs=require('fs');
+const path=require('path');
+const OUT='/Users/macmini2024/Documents/CARPETA RENE/CRM/auditoria-etapa2/evidencia';
+const pw='/Users/macmini2024/Library/Caches/ms-playwright/chromium_headless_shell-1234/chrome-headless-shell-mac-arm64/chrome-headless-shell';
+async function main(){
+ const browser=await chromium.launch({executablePath:pw,headless:true});
+ const context=await browser.newContext({viewport:{width:1440,height:900},serviceWorkers:'block'});
+ await context.route('**/*',r=> ['localhost','127.0.0.1'].includes(new URL(r.request().url()).hostname)?r.continue():r.abort());
+ const page=await context.newPage();
+ const requests=[]; const errors=[];
+ page.on('pageerror',e=>errors.push(e.message));
+ page.on('response',async r=>{if(r.url().includes(':3001/'))requests.push({method:r.request().method(),url:r.url(),status:r.status(),bytes:(await r.body().catch(()=>Buffer.alloc(0))).length});});
+ await page.goto('http://localhost:4200/auth/login');
+ await page.getByLabel('Correo electrónico').fill('audit-admin@example.test');
+ await page.getByLabel('Contraseña',{exact:true}).fill('AuditoriaLocal2026!');
+ await page.screenshot({path:path.join(OUT,'login-1440.png')});
+ await page.locator('button[type=submit]').click();
+ await page.waitForURL('**/dashboard');
+ await page.waitForTimeout(1000);
+ await context.storageState({path:'/tmp/crm-etapa2-storage.json'});
+ await page.screenshot({path:path.join(OUT,'dashboard-1440.png')});
+ await page.goto('http://localhost:4200/conversaciones');
+ await page.waitForTimeout(1200);
+ await page.screenshot({path:path.join(OUT,'inbox-1440.png')});
+ fs.writeFileSync(path.join(OUT,'smoke.json'),JSON.stringify({requests,errors,text:await page.locator('body').innerText()},null,2));
+ console.log(JSON.stringify({requests,errors,text:(await page.locator('body').innerText()).slice(0,3500)},null,2));
+ await browser.close();
+}
+(process.argv[2] ? require('/tmp/crm-etapa2-'+process.argv[2]+'.cjs').main() : main()).catch(e=>{console.error(e);process.exit(1)});

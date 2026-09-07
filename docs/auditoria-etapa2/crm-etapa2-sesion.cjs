@@ -1,0 +1,22 @@
+const {chromium}=require('/Users/macmini2024/.npm/_npx/e41f203b7505f1fb/node_modules/playwright');
+const fs=require('fs');
+const OUT='/Users/macmini2024/Documents/CARPETA RENE/CRM/auditoria-etapa2/evidencia';
+const pw='/Users/macmini2024/Library/Caches/ms-playwright/chromium_headless_shell-1234/chrome-headless-shell-mac-arm64/chrome-headless-shell';
+exports.main=async()=>{
+ const browser=await chromium.launch({executablePath:pw,headless:true});
+ const context=await browser.newContext({serviceWorkers:'block',viewport:{width:1440,height:900}});
+ await context.route('**/*',r=>['localhost','127.0.0.1','fonts.gstatic.com'].includes(new URL(r.request().url()).hostname)?r.continue():r.abort());
+ const page=await context.newPage();let records=[];
+ page.on('request',r=>{if(r.url().includes(':3001/'))records.push({method:r.method(),path:new URL(r.url()).pathname});});
+ const login=async email=>{await page.getByLabel('Correo electrónico').fill(email);await page.getByLabel('Contraseña',{exact:true}).fill('AuditoriaLocal2026!');await page.locator('button[type=submit]').click();await page.waitForURL('**/dashboard');};
+ await page.goto('http://localhost:4200/auth/login');await login('audit-agente@example.test');
+ await page.locator('a[href="/conversaciones"]').first().click();await page.locator('.chat-item').first().waitFor();await page.waitForTimeout(300);
+ const before=await page.locator('.chat-item p').allTextContents();
+ await page.getByRole('button',{name:'Cerrar sesión',exact:true}).click();await page.waitForURL('**/auth/login');
+ await login('audit-agente-b@example.test');await page.waitForTimeout(250);records=[];
+ await page.locator('a[href="/conversaciones"]').first().click();await page.waitForTimeout(600);
+ const after=await page.locator('.chat-item p').allTextContents();
+ const unauthorizedA=after.filter(t=>Number(t.match(/\d+/)?.[0])%3===0);
+ const x={before:before.slice(0,10),after:after.slice(0,10),unauthorizedA:unauthorizedA.slice(0,8),requests:records,user:await page.locator('header').first().innerText()};
+ await page.screenshot({path:OUT+'/sesion-cruzada.png'});fs.writeFileSync(OUT+'/sesion-cruzada.json',JSON.stringify(x,null,2));console.log(JSON.stringify(x));await browser.close();
+};

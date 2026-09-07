@@ -1,0 +1,38 @@
+{
+  "before": [
+    " Paciente Ficticio 00002 ",
+    "Mensaje ficticio 180 del paciente 2. Consulta de prueba sobre disponibilidad y seguimiento.",
+    " Paciente Ficticio 00003 ",
+    "Mensaje ficticio 6 del paciente 3. Consulta de prueba sobre disponibilidad y seguimiento.",
+    " Paciente Ficticio 00005 ",
+    "Mensaje ficticio 6 del paciente 5. Consulta de prueba sobre disponibilidad y seguimiento.",
+    " Paciente Ficticio 00006 ",
+    "Mensaje ficticio 6 del paciente 6. Consulta de prueba sobre disponibilidad y seguimiento.",
+    " Paciente Ficticio 00008 ",
+    "Mensaje ficticio 6 del paciente 8. Consulta de prueba sobre disponibilidad y seguimiento."
+  ],
+  "after": [
+    " Paciente Ficticio 00002 ",
+    "Mensaje ficticio 180 del paciente 2. Consulta de prueba sobre disponibilidad y seguimiento.",
+    " Paciente Ficticio 00003 ",
+    "Mensaje ficticio 6 del paciente 3. Consulta de prueba sobre disponibilidad y seguimiento.",
+    " Paciente Ficticio 00005 ",
+    "Mensaje ficticio 6 del paciente 5. Consulta de prueba sobre disponibilidad y seguimiento.",
+    " Paciente Ficticio 00006 ",
+    "Mensaje ficticio 6 del paciente 6. Consulta de prueba sobre disponibilidad y seguimiento.",
+    " Paciente Ficticio 00008 ",
+    "Mensaje ficticio 6 del paciente 8. Consulta de prueba sobre disponibilidad y seguimiento."
+  ],
+  "unauthorizedA": [
+    "Mensaje ficticio 180 del paciente 2. Consulta de prueba sobre disponibilidad y seguimiento.",
+    " Paciente Ficticio 00003 ",
+    "Mensaje ficticio 6 del paciente 3. Consulta de prueba sobre disponibilidad y seguimiento.",
+    "Mensaje ficticio 6 del paciente 5. Consulta de prueba sobre disponibilidad y seguimiento.",
+    " Paciente Ficticio 00006 ",
+    "Mensaje ficticio 6 del paciente 6. Consulta de prueba sobre disponibilidad y seguimiento.",
+    "Mensaje ficticio 6 del paciente 8. Consulta de prueba sobre disponibilidad y seguimiento.",
+    " Paciente Ficticio 00009 "
+  ],
+  "requests": [],
+  "user": "Clínica\nMontalvo\nCRM\nBs\n$us\nAB\n\nAgente B de prueba\n\nAgente"
+}

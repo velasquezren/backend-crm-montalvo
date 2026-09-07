@@ -1,0 +1,805 @@
+[
+  {
+    "name": "A-inbox-frio",
+    "usefulMs": 345.910042,
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/auth/perfil",
+        "status": 200,
+        "bytes": 233
+      },
+      {
+        "method": "GET",
+        "path": "/tipo-cambio/vigente",
+        "status": 200,
+        "bytes": 48
+      },
+      {
+        "method": "GET",
+        "path": "/actividades/resumen",
+        "status": 200,
+        "bytes": 59
+      },
+      {
+        "method": "GET",
+        "path": "/conversaciones/meta/plantillas",
+        "status": 200,
+        "bytes": 2
+      },
+      {
+        "method": "GET",
+        "path": "/conversaciones/meta/agentes",
+        "status": 200,
+        "bytes": 213
+      },
+      {
+        "method": "GET",
+        "path": "/conversaciones",
+        "status": 200,
+        "bytes": 32536
+      }
+    ],
+    "dom": 1679,
+    "layoutCount": 12,
+    "recalcStyleCount": 27,
+    "scriptMs": 68.448,
+    "taskMs": 231.686
+  },
+  {
+    "name": "A-inbox-frio",
+    "usefulMs": 171.78379199999995,
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/auth/perfil",
+        "status": 200,
+        "bytes": 233
+      },
+      {
+        "method": "GET",
+        "path": "/tipo-cambio/vigente",
+        "status": 200,
+        "bytes": 48
+      },
+      {
+        "method": "GET",
+        "path": "/conversaciones/meta/agentes",
+        "status": 200,
+        "bytes": 213
+      },
+      {
+        "method": "GET",
+        "path": "/conversaciones/meta/plantillas",
+        "status": 200,
+        "bytes": 2
+      },
+      {
+        "method": "GET",
+        "path": "/actividades/resumen",
+        "status": 200,
+        "bytes": 59
+      },
+      {
+        "method": "GET",
+        "path": "/conversaciones",
+        "status": 200,
+        "bytes": 32536
+      }
+    ],
+    "dom": 1679,
+    "layoutCount": 0,
+    "recalcStyleCount": -4,
+    "scriptMs": -42.87100000000001,
+    "taskMs": -146.164
+  },
+  {
+    "name": "A-inbox-frio",
+    "usefulMs": 179.78949999999986,
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/auth/perfil",
+        "status": 200,
+        "bytes": 233
+      },
+      {
+        "method": "GET",
+        "path": "/tipo-cambio/vigente",
+        "status": 200,
+        "bytes": 48
+      },
+      {
+        "method": "GET",
+        "path": "/conversaciones/meta/agentes",
+        "status": 200,
+        "bytes": 213
+      },
+      {
+        "method": "GET",
+        "path": "/conversaciones/meta/plantillas",
+        "status": 200,
+        "bytes": 2
+      },
+      {
+        "method": "GET",
+        "path": "/actividades/resumen",
+        "status": 200,
+        "bytes": 59
+      },
+      {
+        "method": "GET",
+        "path": "/conversaciones",
+        "status": 200,
+        "bytes": 32536
+      }
+    ],
+    "dom": 1679,
+    "layoutCount": -3,
+    "recalcStyleCount": -4,
+    "scriptMs": -4.052,
+    "taskMs": -11.161999999999992
+  },
+  {
+    "name": "F-dashboard-frio",
+    "usefulMs": 182.727625,
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/auth/perfil",
+        "status": 200,
+        "bytes": 233
+      },
+      {
+        "method": "GET",
+        "path": "/tipo-cambio/vigente",
+        "status": 200,
+        "bytes": 48
+      },
+      {
+        "method": "GET",
+        "path": "/actividades/resumen",
+        "status": 200,
+        "bytes": 59
+      },
+      {
+        "method": "GET",
+        "path": "/kpis/resumen",
+        "status": 200,
+        "bytes": 2593
+      }
+    ],
+    "dom": 640,
+    "layoutCount": 0,
+    "recalcStyleCount": -2,
+    "scriptMs": 1.1450000000000002,
+    "taskMs": 1.46099999999999
+  },
+  {
+    "name": "F-dashboard-frio",
+    "usefulMs": 164.1840830000001,
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/auth/perfil",
+        "status": 200,
+        "bytes": 233
+      },
+      {
+        "method": "GET",
+        "path": "/tipo-cambio/vigente",
+        "status": 200,
+        "bytes": 48
+      },
+      {
+        "method": "GET",
+        "path": "/kpis/resumen",
+        "status": 200,
+        "bytes": 2593
+      },
+      {
+        "method": "GET",
+        "path": "/actividades/resumen",
+        "status": 200,
+        "bytes": 59
+      }
+    ],
+    "dom": 640,
+    "layoutCount": -1,
+    "recalcStyleCount": -17,
+    "scriptMs": -6.683000000000002,
+    "taskMs": -34.122
+  },
+  {
+    "name": "F-dashboard-frio",
+    "usefulMs": 165.953708,
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/auth/perfil",
+        "status": 200,
+        "bytes": 233
+      },
+      {
+        "method": "GET",
+        "path": "/tipo-cambio/vigente",
+        "status": 200,
+        "bytes": 48
+      },
+      {
+        "method": "GET",
+        "path": "/kpis/resumen",
+        "status": 200,
+        "bytes": 2593
+      },
+      {
+        "method": "GET",
+        "path": "/actividades/resumen",
+        "status": 200,
+        "bytes": 59
+      }
+    ],
+    "dom": 640,
+    "layoutCount": -1,
+    "recalcStyleCount": -18,
+    "scriptMs": 0.673,
+    "taskMs": -7.17799999999999
+  },
+  {
+    "name": "G-selector-comisiones-frio",
+    "usefulMs": 172.27145800000017,
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/auth/perfil",
+        "status": 200,
+        "bytes": 233
+      },
+      {
+        "method": "GET",
+        "path": "/tipo-cambio/vigente",
+        "status": 200,
+        "bytes": 48
+      },
+      {
+        "method": "GET",
+        "path": "/actividades/resumen",
+        "status": 200,
+        "bytes": 59
+      },
+      {
+        "method": "GET",
+        "path": "/planilla-comisiones/vendedoras",
+        "status": 200,
+        "bytes": 2850
+      },
+      {
+        "method": "GET",
+        "path": "/planilla-comisiones/periodos?limite=100",
+        "status": 200,
+        "bytes": 529
+      }
+    ],
+    "dom": 371,
+    "layoutCount": -2,
+    "recalcStyleCount": -16,
+    "scriptMs": 4.723999999999999,
+    "taskMs": -15.698000000000004
+  },
+  {
+    "name": "G-selector-comisiones-frio",
+    "usefulMs": 169.36941699999988,
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/auth/perfil",
+        "status": 200,
+        "bytes": 233
+      },
+      {
+        "method": "GET",
+        "path": "/tipo-cambio/vigente",
+        "status": 200,
+        "bytes": 48
+      },
+      {
+        "method": "GET",
+        "path": "/planilla-comisiones/periodos?limite=100",
+        "status": 200,
+        "bytes": 529
+      },
+      {
+        "method": "GET",
+        "path": "/actividades/resumen",
+        "status": 200,
+        "bytes": 59
+      },
+      {
+        "method": "GET",
+        "path": "/planilla-comisiones/vendedoras",
+        "status": 200,
+        "bytes": 2850
+      }
+    ],
+    "dom": 371,
+    "layoutCount": -1,
+    "recalcStyleCount": -4,
+    "scriptMs": -6.467999999999998,
+    "taskMs": -19.685999999999996
+  },
+  {
+    "name": "G-selector-comisiones-frio",
+    "usefulMs": 180.49462500000027,
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/auth/perfil",
+        "status": 200,
+        "bytes": 233
+      },
+      {
+        "method": "GET",
+        "path": "/tipo-cambio/vigente",
+        "status": 200,
+        "bytes": 48
+      },
+      {
+        "method": "GET",
+        "path": "/actividades/resumen",
+        "status": 200,
+        "bytes": 59
+      },
+      {
+        "method": "GET",
+        "path": "/planilla-comisiones/vendedoras",
+        "status": 200,
+        "bytes": 2850
+      },
+      {
+        "method": "GET",
+        "path": "/planilla-comisiones/periodos?limite=100",
+        "status": 200,
+        "bytes": 529
+      },
+      {
+        "method": "GET",
+        "path": "/auth/perfil",
+        "status": 200,
+        "bytes": 233
+      },
+      {
+        "method": "GET",
+        "path": "/tipo-cambio/vigente",
+        "status": 200,
+        "bytes": 48
+      },
+      {
+        "method": "GET",
+        "path": "/planilla-comisiones/periodos?limite=100",
+        "status": 200,
+        "bytes": 529
+      },
+      {
+        "method": "GET",
+        "path": "/planilla-comisiones/vendedoras",
+        "status": 200,
+        "bytes": 2850
+      },
+      {
+        "method": "GET",
+        "path": "/actividades/resumen",
+        "status": 200,
+        "bytes": 59
+      }
+    ],
+    "dom": 371,
+    "layoutCount": 0,
+    "recalcStyleCount": -2,
+    "scriptMs": 0.17799999999999933,
+    "taskMs": 0.1360000000000111
+  },
+  {
+    "name": "G-abrir-periodo",
+    "usefulMs": 103.17887500000052,
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/planilla-comisiones/configuracion",
+        "status": 200,
+        "bytes": 5687
+      },
+      {
+        "method": "GET",
+        "path": "/planilla-comisiones/periodos/audit-periodo/alertas",
+        "status": 200,
+        "bytes": 355
+      },
+      {
+        "method": "GET",
+        "path": "/planilla-comisiones/periodos/audit-periodo/ventas?pagina=1",
+        "status": 200,
+        "bytes": 21977
+      },
+      {
+        "method": "GET",
+        "path": "/auth/perfil",
+        "status": 200,
+        "bytes": 233
+      },
+      {
+        "method": "GET",
+        "path": "/tipo-cambio/vigente",
+        "status": 200,
+        "bytes": 48
+      },
+      {
+        "method": "GET",
+        "path": "/actividades/resumen",
+        "status": 200,
+        "bytes": 59
+      },
+      {
+        "method": "GET",
+        "path": "/planilla-comisiones/periodos?limite=100",
+        "status": 200,
+        "bytes": 529
+      },
+      {
+        "method": "GET",
+        "path": "/planilla-comisiones/vendedoras",
+        "status": 200,
+        "bytes": 2850
+      }
+    ],
+    "dom": 1614,
+    "layoutCount": 2,
+    "recalcStyleCount": 15,
+    "scriptMs": 15.35,
+    "taskMs": 71.89700000000002
+  },
+  {
+    "name": "G-abrir-periodo",
+    "usefulMs": 102.61262499999975,
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/planilla-comisiones/configuracion",
+        "status": 200,
+        "bytes": 5687
+      },
+      {
+        "method": "GET",
+        "path": "/planilla-comisiones/periodos/audit-periodo/alertas",
+        "status": 200,
+        "bytes": 355
+      },
+      {
+        "method": "GET",
+        "path": "/planilla-comisiones/periodos/audit-periodo/ventas?pagina=1",
+        "status": 200,
+        "bytes": 21977
+      },
+      {
+        "method": "GET",
+        "path": "/auth/perfil",
+        "status": 200,
+        "bytes": 233
+      },
+      {
+        "method": "GET",
+        "path": "/tipo-cambio/vigente",
+        "status": 200,
+        "bytes": 48
+      },
+      {
+        "method": "GET",
+        "path": "/actividades/resumen",
+        "status": 200,
+        "bytes": 59
+      },
+      {
+        "method": "GET",
+        "path": "/planilla-comisiones/vendedoras",
+        "status": 200,
+        "bytes": 2850
+      },
+      {
+        "method": "GET",
+        "path": "/planilla-comisiones/periodos?limite=100",
+        "status": 200,
+        "bytes": 529
+      }
+    ],
+    "dom": 1614,
+    "layoutCount": 2,
+    "recalcStyleCount": 15,
+    "scriptMs": 10.812999999999999,
+    "taskMs": 43.885999999999996
+  },
+  {
+    "name": "G-abrir-periodo",
+    "usefulMs": 128.18612499999927,
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/planilla-comisiones/configuracion",
+        "status": 200,
+        "bytes": 5687
+      },
+      {
+        "method": "GET",
+        "path": "/planilla-comisiones/periodos/audit-periodo/alertas",
+        "status": 200,
+        "bytes": 355
+      },
+      {
+        "method": "GET",
+        "path": "/planilla-comisiones/periodos/audit-periodo/ventas?pagina=1",
+        "status": 200,
+        "bytes": 21977
+      },
+      {
+        "method": "GET",
+        "path": "/auth/perfil",
+        "status": 200,
+        "bytes": 233
+      },
+      {
+        "method": "GET",
+        "path": "/tipo-cambio/vigente",
+        "status": 200,
+        "bytes": 48
+      },
+      {
+        "method": "GET",
+        "path": "/conversaciones/meta/agentes",
+        "status": 200,
+        "bytes": 213
+      },
+      {
+        "method": "GET",
+        "path": "/actividades/resumen",
+        "status": 200,
+        "bytes": 59
+      },
+      {
+        "method": "GET",
+        "path": "/clientes?pagina=1&direccion=asc",
+        "status": 200,
+        "bytes": 20451
+      }
+    ],
+    "dom": 1614,
+    "layoutCount": 3,
+    "recalcStyleCount": 15,
+    "scriptMs": 11.212,
+    "taskMs": 45.833
+  },
+  {
+    "name": "C-buscar-paciente",
+    "usefulMs": 824.6122500000001,
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/clientes?busqueda=AUD15991&pagina=1&direccion=asc",
+        "status": 200,
+        "bytes": 809
+      }
+    ],
+    "dom": 358,
+    "layoutCount": 4,
+    "recalcStyleCount": 22,
+    "scriptMs": 6.619,
+    "taskMs": 64.86699999999999
+  },
+  {
+    "name": "D-abrir-ficha",
+    "usefulMs": 70.08587500000067,
+    "requests": [],
+    "dom": 463,
+    "layoutCount": 3,
+    "recalcStyleCount": 25,
+    "scriptMs": 13.375999999999996,
+    "taskMs": 40.00799999999999
+  },
+  {
+    "name": "C-buscar-paciente",
+    "usefulMs": 817.9523329999993,
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/clientes?busqueda=AUD15992&pagina=1&direccion=asc",
+        "status": 200,
+        "bytes": 814
+      }
+    ],
+    "dom": 364,
+    "layoutCount": 3,
+    "recalcStyleCount": 34,
+    "scriptMs": 7.310000000000004,
+    "taskMs": 59.66000000000002
+  },
+  {
+    "name": "D-abrir-ficha",
+    "usefulMs": 55.07854200000111,
+    "requests": [],
+    "dom": 469,
+    "layoutCount": 3,
+    "recalcStyleCount": 23,
+    "scriptMs": 5.687999999999999,
+    "taskMs": 29.915999999999997
+  },
+  {
+    "name": "C-buscar-paciente",
+    "usefulMs": 818.5925829999996,
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/clientes?busqueda=AUD15993&pagina=1&direccion=asc",
+        "status": 200,
+        "bytes": 804
+      }
+    ],
+    "dom": 364,
+    "layoutCount": 3,
+    "recalcStyleCount": 34,
+    "scriptMs": 6.078000000000007,
+    "taskMs": 55.83100000000002
+  },
+  {
+    "name": "D-abrir-ficha",
+    "usefulMs": 56.601291999999376,
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/auth/perfil",
+        "status": 200,
+        "bytes": 233
+      },
+      {
+        "method": "GET",
+        "path": "/tipo-cambio/vigente",
+        "status": 200,
+        "bytes": 48
+      },
+      {
+        "method": "GET",
+        "path": "/conversaciones/meta/agentes",
+        "status": 200,
+        "bytes": 213
+      },
+      {
+        "method": "GET",
+        "path": "/conversaciones/meta/plantillas",
+        "status": 200,
+        "bytes": 2
+      },
+      {
+        "method": "GET",
+        "path": "/actividades/resumen",
+        "status": 200,
+        "bytes": 59
+      },
+      {
+        "method": "GET",
+        "path": "/conversaciones",
+        "status": 200,
+        "bytes": 32536
+      }
+    ],
+    "dom": 469,
+    "layoutCount": 3,
+    "recalcStyleCount": 23,
+    "scriptMs": 5.909999999999998,
+    "taskMs": 30.613999999999976
+  },
+  {
+    "name": "E-filtro-inbox",
+    "usefulMs": 87.41212500000074,
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/conversaciones?tab=SIN_RESPONDER",
+        "status": 200,
+        "bytes": 32599
+      }
+    ],
+    "dom": 1831,
+    "layoutCount": 14,
+    "recalcStyleCount": 20,
+    "scriptMs": 10.104000000000003,
+    "taskMs": 47.93699999999999
+  },
+  {
+    "name": "E-filtro-inbox",
+    "usefulMs": 113.58529099999942,
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/conversaciones?tab=MIS_CHATS",
+        "status": 200,
+        "bytes": 32905
+      }
+    ],
+    "dom": 1681,
+    "layoutCount": 13,
+    "recalcStyleCount": 21,
+    "scriptMs": 13.379000000000001,
+    "taskMs": 57.15799999999999
+  },
+  {
+    "name": "E-filtro-inbox",
+    "usefulMs": 98.89487499999996,
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/conversaciones",
+        "status": 200,
+        "bytes": 32536
+      }
+    ],
+    "dom": 1679,
+    "layoutCount": 14,
+    "recalcStyleCount": 22,
+    "scriptMs": 11.595,
+    "taskMs": 51.76999999999998
+  },
+  {
+    "name": "ruta-inbox-dashboard",
+    "usefulMs": 113.66200000000026,
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/kpis/resumen",
+        "status": 200,
+        "bytes": 2593
+      }
+    ],
+    "dom": 640,
+    "layoutCount": 21,
+    "recalcStyleCount": 29,
+    "scriptMs": 6.839999999999999,
+    "taskMs": 69.47800000000004
+  },
+  {
+    "name": "heap-post-GC",
+    "metrics": {
+      "Timestamp": 5230.273217,
+      "AudioHandlers": 0,
+      "AudioWorkletProcessors": 0,
+      "Documents": 2,
+      "Frames": 2,
+      "JSEventListeners": 94,
+      "LayoutObjects": 736,
+      "MediaKeySessions": 0,
+      "MediaKeys": 0,
+      "Nodes": 3632,
+      "Resources": 16,
+      "ContextLifecycleStateObservers": 5,
+      "V8PerContextDatas": 2,
+      "WorkerGlobalScopes": 0,
+      "UACSSResources": 0,
+      "RTCPeerConnections": 0,
+      "ResourceFetchers": 2,
+      "AdSubframes": 0,
+      "DetachedScriptStates": 0,
+      "ArrayBufferContents": 2,
+      "LayoutCount": 75,
+      "RecalcStyleCount": 125,
+      "LayoutDuration": 0.031283,
+      "RecalcStyleDuration": 0.060649,
+      "DevToolsCommandDuration": 0.032853,
+      "ScriptDuration": 0.063321,
+      "V8CompileDuration": 0,
+      "TaskDuration": 0.452705,
+      "TaskOtherDuration": 0.264599,
+      "ThreadTime": 0.447319,
+      "ProcessTime": 5.266945,
+      "JSHeapUsedSize": 8071956,
+      "JSHeapTotalSize": 10551296,
+      "FirstMeaningfulPaint": 0,
+      "DomContentLoaded": 5227.947766,
+      "NavigationStart": 5227.917997
+    }
+  }
+]

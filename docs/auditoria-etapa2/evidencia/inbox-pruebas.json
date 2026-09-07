@@ -1,0 +1,409 @@
+[
+  {
+    "name": "abrir-chat",
+    "messages": 50,
+    "requests": [
+      {
+        "method": "GET",
+        "url": "/plantillas-agente",
+        "status": 200,
+        "bytes": 1841
+      },
+      {
+        "method": "POST",
+        "url": "/conversaciones/audit-chat-1/leido",
+        "status": 201,
+        "bytes": 11
+      },
+      {
+        "method": "GET",
+        "url": "/conversaciones/audit-chat-1",
+        "status": 200,
+        "bytes": 21437
+      }
+    ],
+    "errors": []
+  },
+  {
+    "name": "cambio-chat-0",
+    "id": 2,
+    "usefulMs": 321.36458300000004,
+    "immediate": "PF\n\nPaciente Ficticio 00001\n\n00000000001\n·\nAUD1\nWhatsApp Web\nAD\nAdministración\n\nAviso Fijado: Nota de auditoría ficticia\n\n7 DE SEPTIEMBRE DE 2026\n\nMensaje ficticio 131 del paciente",
+    "requests": [
+      {
+        "method": "GET",
+        "url": "/plantillas-agente",
+        "status": 200,
+        "bytes": 1841
+      },
+      {
+        "method": "GET",
+        "url": "/conversaciones/audit-chat-2",
+        "status": 200,
+        "bytes": 20877
+      },
+      {
+        "method": "POST",
+        "url": "/conversaciones/audit-chat-2/leido",
+        "status": 201,
+        "bytes": 11
+      }
+    ],
+    "errors": []
+  },
+  {
+    "name": "cambio-chat-1",
+    "id": 1,
+    "usefulMs": 349.29654200000004,
+    "immediate": "Ninguna conversación seleccionada\n\nSelecciona una conversación del panel lateral para leer y enviar mensajes de WhatsApp.",
+    "requests": [
+      {
+        "method": "GET",
+        "url": "/plantillas-agente",
+        "status": 200,
+        "bytes": 1841
+      },
+      {
+        "method": "POST",
+        "url": "/conversaciones/audit-chat-1/leido",
+        "status": 201,
+        "bytes": 11
+      },
+      {
+        "method": "GET",
+        "url": "/conversaciones/audit-chat-1",
+        "status": 200,
+        "bytes": 21437
+      }
+    ],
+    "errors": []
+  },
+  {
+    "name": "cambio-chat-2",
+    "id": 2,
+    "usefulMs": 357.9505000000004,
+    "immediate": "Ninguna conversación seleccionada\n\nSelecciona una conversación del panel lateral para leer y enviar mensajes de WhatsApp.",
+    "requests": [
+      {
+        "method": "GET",
+        "url": "/plantillas-agente",
+        "status": 200,
+        "bytes": 1841
+      },
+      {
+        "method": "GET",
+        "url": "/conversaciones/audit-chat-2",
+        "status": 200,
+        "bytes": 21427
+      },
+      {
+        "method": "POST",
+        "url": "/conversaciones/audit-chat-2/leido",
+        "status": 201,
+        "bytes": 11
+      }
+    ],
+    "errors": []
+  },
+  {
+    "name": "cambio-chat-3",
+    "id": 1,
+    "usefulMs": 345.2513749999998,
+    "immediate": "Ninguna conversación seleccionada\n\nSelecciona una conversación del panel lateral para leer y enviar mensajes de WhatsApp.",
+    "requests": [
+      {
+        "method": "POST",
+        "url": "/conversaciones/audit-chat-1/leido",
+        "status": 201,
+        "bytes": 11
+      },
+      {
+        "method": "GET",
+        "url": "/plantillas-agente",
+        "status": 200,
+        "bytes": 1841
+      },
+      {
+        "method": "GET",
+        "url": "/conversaciones/audit-chat-1",
+        "status": 200,
+        "bytes": 21437
+      }
+    ],
+    "errors": []
+  },
+  {
+    "name": "cambio-chat-4",
+    "id": 2,
+    "usefulMs": 345.6957080000002,
+    "immediate": "Ninguna conversación seleccionada\n\nSelecciona una conversación del panel lateral para leer y enviar mensajes de WhatsApp.",
+    "requests": [
+      {
+        "method": "GET",
+        "url": "/plantillas-agente",
+        "status": 200,
+        "bytes": 1841
+      },
+      {
+        "method": "GET",
+        "url": "/conversaciones/audit-chat-2",
+        "status": 200,
+        "bytes": 21427
+      },
+      {
+        "method": "POST",
+        "url": "/conversaciones/audit-chat-2/leido",
+        "status": 201,
+        "bytes": 11
+      }
+    ],
+    "errors": []
+  },
+  {
+    "name": "cambio-chat-5",
+    "id": 1,
+    "usefulMs": 357.21450000000004,
+    "immediate": "Ninguna conversación seleccionada\n\nSelecciona una conversación del panel lateral para leer y enviar mensajes de WhatsApp.",
+    "requests": [
+      {
+        "method": "GET",
+        "url": "/plantillas-agente",
+        "status": 200,
+        "bytes": 1841
+      },
+      {
+        "method": "GET",
+        "url": "/conversaciones/audit-chat-1",
+        "status": 200,
+        "bytes": 21437
+      },
+      {
+        "method": "POST",
+        "url": "/conversaciones/audit-chat-1/leido",
+        "status": 201,
+        "bytes": 11
+      }
+    ],
+    "errors": []
+  },
+  {
+    "name": "equal-estado-mensaje",
+    "dbState": "LEIDO",
+    "domMessage": "<div _ngcontent-ng-c4223245807=\"\" class=\"bubble bubble-out\"><!----><!----><!----><!----><!----><!----><!----><p _ngcontent-ng-c4223245807=\"\" class=\"bubble-text\">Mensaje ficticio 179 del paciente 1. Consulta de prueba sobre disponibilidad y seguimiento.</p><!----><!----><span _ngcontent-ng-c4223245807=\"\" class=\"bubble-time\"><!----> 08:09 <!----><!----><!----><app-icon _ngcontent-ng-c4223245807=\"\" name=\"check\" title=\"Enviado\" class=\"inline-block ml-0.5 -mt-px\"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\" width=\"12\" height=\"12\" stroke-width=\"2\"><!----><!----><!----><!----><!----><!----><!----><!----><!----><!----><!----><!----><!----><!----><!----><!----><!----><!----><!----><!----><!----><!----><!----><!----><!----><!----><!----><!----><!----><!----><!----><!----><path d=\"M20 6 9 17l-5-5\"></path><!----><!----><!----><!----><!----><!----><!----><!----><!----><!----><!----><!----><!----><!----><!----><!----><!----><!----><!----><!----><!----><!----><!----><!----><!----><!----><!----><!----><!----><!----><!----><!----></svg></app-icon><!----><!----></span></div>",
+    "requests": [
+      {
+        "method": "POST",
+        "url": "/conversaciones/audit-chat-1/leido",
+        "status": 201,
+        "bytes": 11
+      },
+      {
+        "method": "GET",
+        "url": "/conversaciones/audit-chat-1/resumen",
+        "status": 200,
+        "bytes": 747
+      },
+      {
+        "method": "GET",
+        "url": "/conversaciones/audit-chat-1",
+        "status": 200,
+        "bytes": 21435
+      }
+    ],
+    "errors": []
+  },
+  {
+    "name": "abrir-chat",
+    "messages": 50,
+    "requests": [
+      {
+        "method": "GET",
+        "url": "/plantillas-agente",
+        "status": 200,
+        "bytes": 1841
+      },
+      {
+        "method": "POST",
+        "url": "/conversaciones/audit-chat-1/leido",
+        "status": 201,
+        "bytes": 11
+      },
+      {
+        "method": "GET",
+        "url": "/conversaciones/audit-chat-1",
+        "status": 200,
+        "bytes": 21437
+      }
+    ],
+    "errors": []
+  },
+  {
+    "name": "equal-edicion-ficha",
+    "dbName": "Paciente Ficticio 00001 EDITADO",
+    "threadName": "PF\n\nPaciente Ficticio 00001\n\n00000000001\n·\nAUD1\nWhatsApp Web\nAD\nAdministración",
+    "listName": "PF\n\nPaciente Ficticio 00001\n\nAUD1\n4h\n\nMensaje ficticio 180 del paciente 1. Consulta de prueba sobre disponibilidad y seguimiento.\n\n Administración de prueba",
+    "requests": [
+      {
+        "method": "PATCH",
+        "url": "/clientes/audit-cli-1",
+        "status": 200,
+        "bytes": 726
+      },
+      {
+        "method": "GET",
+        "url": "/conversaciones/audit-chat-1",
+        "status": 200,
+        "bytes": 21524
+      },
+      {
+        "method": "GET",
+        "url": "/conversaciones",
+        "status": 200,
+        "bytes": 32544
+      }
+    ],
+    "errors": []
+  },
+  {
+    "name": "busqueda-historica",
+    "matchesDom": "0",
+    "matchesDb": 1,
+    "requests": [],
+    "errors": []
+  },
+  {
+    "name": "historial-refetch",
+    "before": 100,
+    "after": 100,
+    "requests": [
+      {
+        "method": "GET",
+        "url": "/conversaciones/audit-chat-1/mensajes-anteriores?antesDe=2026-09-07T12:08:27.929Z&limit=50",
+        "status": 200,
+        "bytes": 20688
+      },
+      {
+        "method": "POST",
+        "url": "/conversaciones/audit-chat-1/leido",
+        "status": 201,
+        "bytes": 11
+      },
+      {
+        "method": "GET",
+        "url": "/conversaciones/audit-chat-1",
+        "status": 200,
+        "bytes": 21516
+      },
+      {
+        "method": "GET",
+        "url": "/conversaciones/audit-chat-1/resumen",
+        "status": 200,
+        "bytes": 747
+      },
+      {
+        "method": "GET",
+        "url": "/conversaciones/audit-chat-1/mensajes-anteriores?antesDe=2026-09-07T12:08:27.929Z&limit=50",
+        "status": 200,
+        "bytes": 20688
+      }
+    ],
+    "errors": []
+  },
+  {
+    "name": "rafaga-dos-chats",
+    "requests": [
+      {
+        "method": "GET",
+        "url": "/conversaciones/audit-chat-2/resumen",
+        "status": 200,
+        "bytes": 746
+      }
+    ],
+    "errors": []
+  },
+  {
+    "name": "carrera-historial",
+    "url": "http://localhost:4200/conversaciones?id=audit-chat-2",
+    "header": "PF\n\nPaciente Ficticio 00001\n\n00000000001\n·\nAUD1\nWhatsApp Web\nAD\nAdministración",
+    "firstMessage": "audit-msg-1-31",
+    "requests": [
+      {
+        "method": "GET",
+        "url": "/plantillas-agente",
+        "status": 200,
+        "bytes": 1841
+      },
+      {
+        "method": "POST",
+        "url": "/conversaciones/audit-chat-2/leido",
+        "status": 201,
+        "bytes": 11
+      },
+      {
+        "method": "GET",
+        "url": "/conversaciones/audit-chat-2",
+        "status": 200,
+        "bytes": 21427
+      },
+      {
+        "method": "GET",
+        "url": "/conversaciones/audit-chat-1/mensajes-anteriores?antesDe=2026-09-07T12:07:37.929Z&limit=50",
+        "status": 200,
+        "bytes": 20626
+      }
+    ],
+    "errors": []
+  },
+  {
+    "name": "carrera-paginacion",
+    "totalRows": 75,
+    "oddRows": [
+      " Paciente Ficticio 00051 ",
+      " Paciente Ficticio 00053 ",
+      " Paciente Ficticio 00055 ",
+      " Paciente Ficticio 00057 ",
+      " Paciente Ficticio 00059 "
+    ],
+    "requests": [
+      {
+        "method": "GET",
+        "url": "/conversaciones?tab=SIN_RESPONDER",
+        "status": 200,
+        "bytes": 32599
+      },
+      {
+        "method": "GET",
+        "url": "/conversaciones?pagina=2",
+        "status": 200,
+        "bytes": 32563
+      }
+    ],
+    "errors": []
+  },
+  {
+    "name": "error-detalle",
+    "text": "Ninguna conversación seleccionada\n\nSelecciona una conversación del panel lateral para leer y enviar mensajes de WhatsApp.",
+    "url": "http://localhost:4200/conversaciones?id=audit-chat-3",
+    "requests": [
+      {
+        "method": "GET",
+        "url": "/conversaciones/audit-chat-3",
+        "status": 500,
+        "bytes": 51
+      },
+      {
+        "method": "GET",
+        "url": "/plantillas-agente",
+        "status": 200,
+        "bytes": 1841
+      },
+      {
+        "method": "POST",
+        "url": "/conversaciones/audit-chat-3/leido",
+        "status": 201,
+        "bytes": 11
+      }
+    ],
+    "errors": []
+  }
+]

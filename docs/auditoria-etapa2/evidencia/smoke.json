@@ -1,0 +1,66 @@
+{
+  "requests": [
+    {
+      "method": "POST",
+      "url": "http://localhost:3001/auth/login",
+      "status": 201,
+      "bytes": 556
+    },
+    {
+      "method": "GET",
+      "url": "http://localhost:3001/tipo-cambio/vigente",
+      "status": 200,
+      "bytes": 48
+    },
+    {
+      "method": "GET",
+      "url": "http://localhost:3001/actividades/resumen",
+      "status": 200,
+      "bytes": 58
+    },
+    {
+      "method": "GET",
+      "url": "http://localhost:3001/kpis/resumen",
+      "status": 200,
+      "bytes": 2593
+    },
+    {
+      "method": "GET",
+      "url": "http://localhost:3001/auth/perfil",
+      "status": 200,
+      "bytes": 233
+    },
+    {
+      "method": "GET",
+      "url": "http://localhost:3001/tipo-cambio/vigente",
+      "status": 200,
+      "bytes": 48
+    },
+    {
+      "method": "GET",
+      "url": "http://localhost:3001/conversaciones/meta/plantillas",
+      "status": 200,
+      "bytes": 2
+    },
+    {
+      "method": "GET",
+      "url": "http://localhost:3001/conversaciones/meta/agentes",
+      "status": 200,
+      "bytes": 213
+    },
+    {
+      "method": "GET",
+      "url": "http://localhost:3001/actividades/resumen",
+      "status": 200,
+      "bytes": 58
+    },
+    {
+      "method": "GET",
+      "url": "http://localhost:3001/conversaciones",
+      "status": 200,
+      "bytes": 32538
+    }
+  ],
+  "errors": [],
+  "text": "Clínica\nMontalvo\nCRM\n9+\nBs\n$us\nAD\n\nAdministración de prueba\n\nSuper administrador\n\nATENCIÓN & PACIENTES\nDashboard\nWhatsApp\nClientes y Pacientes\nLeads y Prospectos\nActividades\nVENTAS & FINANZAS\nVentas\nFinanzas & Comisiones\nGESTIÓN & CLÍNICA\nHistorial de Servicios\nUsuarios y Accesos\nInbox\n\nWhatsApp Business\n\n600 chats\nTodas\n600\nSin responder\n300\nSin asignar\n200\nMis chats\n200\nPOR AGENTE\nTodo\nPF\n\nPaciente Ficticio 00001\n\nAUD1\n4h\n\nMensaje ficticio 180 del paciente 1. Consulta de prueba sobre disponibilidad y seguimiento.\n\n90\n\n Administración de prueba\n\nPF\n\nPaciente Ficticio 00002\n\nAUD2\n4h\n\nMensaje ficticio 180 del paciente 2. Consulta de prueba sobre disponibilidad y seguimiento.\n\n8 h\n90\n\n Administración de prueba\n\nPF\n\nPaciente Ficticio 00003\n\nAUD3\n4h\n\nMensaje ficticio 6 del paciente 3. Consulta de prueba sobre disponibilidad y seguimiento.\n\n3\n\n Agente de prueba\n\nPF\n\nPaciente Ficticio 00004\n\nAUD4\n4h\n\nMensaje ficticio 6 del paciente 4. Consulta de prueba sobre disponibilidad y seguimiento.\n\n8 h\n3\n\n Administración de prueba\n\nPF\n\nPaciente Ficticio 00005\n\nAUD5\n4h\n\nMensaje ficticio 6 del paciente 5. Consulta de prueba sobre disponibilidad y seguimiento.\n\n3\n\n Administración de prueba\n\nPF\n\nPaciente Ficticio 00006\n\nAUD6\n4h\n\nMensaje ficticio 6 del paciente 6. Consulta de prueba sobre disponibilidad y seguimiento.\n\n8 h\n3\n\n Agente de prueba\n\nPF\n\nPaciente Ficticio 00007\n\nAUD7\n4h\n\nMensaje ficticio 6 del paciente 7. Consulta de prueba sobre disponibilidad y seguimiento.\n\n3\n\n Administración de prueba\n\nPF\n\nPaciente Ficticio 00008\n\nAUD8\n4h\n\nMensaje ficticio 6 del paciente 8. Consulta de prueba sobre disponibilidad y seguimiento.\n\n8 h\n3\n\n Administración de prueba\n\nPF\n\nPaciente Ficticio 00009\n\nAUD9\n4h\n\nMensaje ficticio 6 del paciente 9. Consulta de prueba sobre disponibilidad y seguimiento.\n\n3\n\n Agente de prueba\n\nPF\n\nPaciente Ficticio 00010\n\nAUD10\n4h\n\nMensaje ficticio 6 del paciente 10. Consulta de prueba sobre disponibilidad y seguimiento.\n\n8 h\n3\n\n Administración de prueba\n\nPF\n\nPaciente Ficticio 00011\n\nAUD11\n4h\n\nMensaje ficticio 6 del paciente 11. Consulta de prueba sobre disponibilidad y seguimiento.\n\n3\n\n Administración de prueba\n\nPF\n\nPaciente Ficticio 00012\n\nAUD12\n4h\n\nMensaje ficticio 6 del paciente 12. Consulta de prueba sobre disponibilidad y seguimiento.\n\n8 h\n3\n\n Agente de prueba\n\nPF\n\nPaciente Ficticio 00013\n\nAUD13\n4h\n\nMensaje ficticio 6 del paciente 13. Consulta de prueba sobre disponibilidad y seguimiento.\n\n3\n\n Administración de prueba\n\nPF\n\nPaciente Ficticio 00014\n\nAUD14\n4h\n\nMensaje ficticio 6 del paciente 14. Consulta de prueba sobre disponibilidad y seguimiento.\n\n8 h\n3\n\n Administración de prueba\n\nPF\n\nPaciente Ficticio 00015\n\nAUD15\n4h\n\nMensaje ficticio 6 del paciente 15. Consulta de prueba sobre disponibilidad y seguimiento.\n\n3\n\n Agente de prueba\n\nPF\n\nPaciente Ficticio 00016\n\nAUD16\n4h\n\nMensaje ficticio 6 del paciente 16. Consulta de prueba sobre disponibilidad y seguimiento.\n\n8 h\n3\n\n Administración de prueba\n\nPF\n\nPaciente Ficticio 00017\n\nAUD17\n4h\n\nMensaje ficticio 6 del paciente 17. Consulta de prueba sobre disponibilidad y seguimiento.\n\n3\n\n Administración de prueba\n\nPF\n\nPaciente Ficticio 00018\n\nAUD18\n4h\n\nMensaje ficticio 6 del paciente 18. Consulta de prueba sobre disponibilidad y seguimiento.\n\n8 h\n3\n\n Agente de prueba\n\nPF\n\nPaciente Ficticio 00019\n\nAUD19\n4h\n\nMensaje ficticio 6 del paciente 19. Consulta de prueba sobre disponibilidad y seguimiento.\n\n3\n\n Administración de prueba\n\nPF\n\nPaciente Ficticio 00020\n\nAUD20\n4h\n\nMensaje ficticio 6 del paciente 20. Consulta de prueba sobre disponibilidad y seguimiento.\n\n8 h\n3\n\n Administración de prueba\n\nPF\n\nPaciente Ficticio 00021\n\nAUD21\n4h\n\nMensaje ficticio 6 del paciente 21. Consulta de prueba sobre disponibilidad y seguimiento.\n\n3\n\n Agente de prueba\n\nPF\n\nPaciente Ficticio 00022\n\nAUD22\n4h\n\nMensaje ficticio 6 del paciente 22. Consulta de prueba sobre disponibilidad y seguimiento.\n\n8 h\n3\n\n Administración de prueba\n\nPF\n\nPaciente Ficticio 00023\n\nAUD23\n4h\n\nMensaje ficticio 6 del paciente 23. Consulta de prueba sobre disponibilidad y seguimiento.\n\n3\n\n Administración de prueba\n\nPF\n\nPaciente Ficticio 00024\n\nAUD24\n4h\n\nMensaje ficticio 6 del paciente 24. Consulta de prueba sobre disponibilidad y seguimiento.\n\n8 h\n3\n\n Agente de prueba\n\nPF\n\nPaciente Ficticio 00025\n\nAUD25\n4h\n\nMensaje ficticio 6 del paciente 25. Consulta de prueba sobre disponibilidad y seguimiento.\n\n3\n\n Administración de prueba\n\nPF\n\nPaciente Ficticio 00026\n\nAUD26\n4h\n\nMensaje ficticio 6 del paciente 26. Consulta de prueba sobre disponibilidad y seguimiento.\n\n8 h\n3\n\n Administración de prueba\n\nPF\n\nPaciente Ficticio 00027\n\nAUD27\n4h\n\nMensaje ficticio 6 del paciente 27. Consulta de prueba sobre disponibilidad y seguimiento.\n\n3\n\n Agente de prueba\n\nPF\n\nPaciente Ficticio 00028\n\nAUD28\n4h\n\nMensaje ficticio 6 del paciente 28. Consulta de prueba sobre disponibilidad y seguimiento.\n\n8 h\n3\n\n Administración de prueba\n\nPF\n\nPaciente Ficticio 00029\n\nAUD29\n4h\n\nMensaje ficticio 6 del paciente 29. Consulta de prueba sobre disponibilidad y seguimiento.\n\n3\n\n Administración de prueba\n\nPF\n\nPaciente Ficticio 00030\n\nAUD30\n4h\n\nMensaje ficticio 6 del paciente 30. Consulta de prueba sobre disponibilidad y seguimiento.\n\n8 h\n3\n\n Agente de prueba\n\nPF\n\nPaciente Ficticio 00031\n\nAUD31\n4h\n\nMensaje ficticio 6 del paciente 31. Consulta de prueba sobre disponibilidad y seguimiento.\n\n3\n\n Administración de prueba\n\nPF\n\nPaciente Ficticio 00032\n\nAUD32\n4h\n\nMensaje ficticio 6 del paciente 32. Consulta de prueba sobre disponibilidad y seguimiento.\n\n8 h\n3\n\n Administración de prueba\n\nPF\n\nPaciente Ficticio 00033\n\nAUD33\n4h\n\nMensaje ficticio 6 del paciente 33. Consulta de prueba sobre disponibilidad y seguimiento.\n\n3\n\n Agente de prueba\n\nPF\n\nPaciente Ficticio 00034\n\nAUD34\n4h\n\nMensaje ficticio 6 del paciente 34. Consulta de prueba sobre disponibilidad y seguimiento.\n\n8 h\n3\n\n Administración de prueba\n\nPF\n\nPaciente Ficticio 00035\n\nAUD35\n4h\n\nMensaje ficticio 6 del paciente 35. Consulta de prueba sobre disponibilidad y seguimiento.\n\n3\n\n Administración de prueba\n\nPF\n\nPaciente Ficticio 00036\n\nAUD36\n4h\n\nMensaje ficticio 6 del paciente 36. Consulta de prueba sobre disponibilidad y seguimiento.\n\n8 h\n3\n\n Agente de prueba\n\nPF\n\nPaciente Ficticio 00037\n\nAUD37\n4h\n\nMensaje ficticio 6 del paciente 37. Consulta de prueba sobre disponibilidad y seguimiento.\n\n3\n\n Administración de prueba\n\nPF\n\nPaciente Ficticio 00038\n\nAUD38\n4h\n\nMensaje ficticio 6 del paciente 38. Consulta de prueba sobre disponibilidad y seguimiento.\n\n8 h\n3\n\n Administración de prueba\n\nPF\n\nPaciente Ficticio 00039\n\nAUD39\n4h\n\nMensaje ficticio 6 del paciente 39. Consulta de prueba sobre disponibilidad y seguimiento.\n\n3\n\n Agente de prueba\n\nPF\n\nPaciente Ficticio 00040\n\nAUD40\n4h\n\nMensaje ficticio 6 del paciente 40. Consulta de prueba sobre disponibilidad y seguimiento.\n\n8 h\n3\n\n Administración de prueba\n\nPF\n\nPaciente Ficticio 00041\n\nAUD41\n4h\n\nMensaje ficticio 6 del paciente 41. Consulta de prueba sobre disponibilidad y seguimiento.\n\n3\n\n Administración de prueba\n\nPF\n\nPaciente Ficticio 00042\n\nAUD42\n4h\n\nMensaje ficticio 6 del paciente 42. Consulta de prueba sobre disponibilidad y seguimiento.\n\n8 h\n3\n\n Agente de prueba\n\nPF\n\nPaciente Ficticio 00043\n\nAUD43\n4h\n\nMensaje ficticio 6 del paciente 43. Consulta de prueba sobre disponibilidad y seguimiento.\n\n3\n\n Administración de prueba\n\nPF\n\nPaciente Ficticio 00044\n\nAUD44\n4h\n\nMensaje ficticio 6 del paciente 44. Consulta de prueba sobre disponibilidad y seguimiento.\n\n8 h\n3\n\n Administración de prueba\n\nPF\n\nPaciente Ficticio 00045\n\nAUD45\n4h\n\nMensaje ficticio 6 del paciente 45. Consulta de prueba sobre disponibilidad y seguimiento.\n\n3\n\n Agente de prueba\n\nPF\n\nPaciente Ficticio 00046\n\nAUD46\n4h\n\nMensaje ficticio 6 del paciente 46. Consulta de prueba sobre disponibilidad y seguimiento.\n\n8 h\n3\n\n Administración de prueba\n\nPF\n\nPaciente Ficticio 00047\n\nAUD47\n4h\n\nMensaje ficticio 6 del paciente 47. Consulta de prueba sobre disponibilidad y seguimiento.\n\n3\n\n Administración de prueba\n\nPF\n\nPaciente Ficticio 00048\n\nAUD48\n4h\n\nMensaje ficticio 6 del paciente 48. Consulta de prueba sobre disponibilidad y seguimiento.\n\n8 h\n3\n\n Agente de prueba\n\nPF\n\nPaciente Ficticio 00049\n\nAUD49\n4h\n\nMensaje ficticio 6 del paciente 49. Consulta de prueba sobre disponibilidad y seguimiento.\n\n3\n\n Administración de prueba\n\nPF\n\nPaciente Ficticio 00050\n\nAUD50\n4h\n\nMensaje ficticio 6 del paciente 50. Consulta de prueba sobre disponibilidad y seguimiento.\n\n8 h\n3\n\n Administración de prueba\n\nCargar más\n50 de 600\nNinguna conversación seleccionada\n\nSelecciona una conversación del panel lateral para leer y enviar mensajes de WhatsApp."
+}

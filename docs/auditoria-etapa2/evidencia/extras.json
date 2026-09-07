@@ -1,0 +1,570 @@
+[
+  {
+    "name": "buscar-paciente",
+    "usefulMs": 842.6692499999999,
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/clientes?busqueda=AUD15999&pagina=1&direccion=asc",
+        "status": 200,
+        "bytes": 802
+      }
+    ],
+    "errors": []
+  },
+  {
+    "name": "abrir-ficha-cliente",
+    "usefulMs": 73.9985829999996,
+    "dialogText": "PF\nPaciente Ficticio 15999\nGold (VIP)\n00000015999\nAUD15999\nAgente: Agente de prueba\nExpediente Clínico\nDatos de Contacto\nPerfil & Notas\nFICHA MÉDICA FILEMAKER\nSincronizado vía PAC\nEDAD\n36 años\nSEXO\nM",
+    "requests": [],
+    "errors": []
+  },
+  {
+    "name": "focus-drawer",
+    "focusOutside": 0,
+    "closed": true,
+    "requests": [],
+    "errors": []
+  },
+  {
+    "name": "ficha-acciones",
+    "buttons": [
+      {
+        "label": "Cerrar",
+        "title": "",
+        "text": ""
+      },
+      {
+        "label": null,
+        "title": "",
+        "text": "Expediente Clínico"
+      },
+      {
+        "label": null,
+        "title": "",
+        "text": "Datos de Contacto"
+      },
+      {
+        "label": null,
+        "title": "",
+        "text": "Perfil & Notas"
+      },
+      {
+        "label": "Abrir la conversación de WhatsApp",
+        "title": "",
+        "text": ""
+      },
+      {
+        "label": "Registrar una venta para este paciente",
+        "title": "",
+        "text": ""
+      },
+      {
+        "label": "Agendar una llamada, tarea o recordatorio",
+        "title": "",
+        "text": ""
+      }
+    ],
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/clientes?busqueda=AUD1&pagina=1&direccion=asc",
+        "status": 200,
+        "bytes": 20508
+      }
+    ],
+    "errors": []
+  },
+  {
+    "name": "focus-modal-plantillas",
+    "dialogs": 0,
+    "traps": 0,
+    "headings": [
+      "Mis Respuestas Rápidas"
+    ],
+    "focusOutside": 11,
+    "requests": [],
+    "errors": []
+  },
+  {
+    "name": "rollback-chat-equivocado",
+    "url": "http://localhost:4200/conversaciones?id=audit-chat-2",
+    "header": "PF\n\nPaciente Ficticio 00001\n\n00000000001\n·\nAUD1\nWhatsApp Web\nAD\nAdministración",
+    "draft": "BORRADOR EXCLUSIVAMENTE FICTICIO",
+    "optimisticSent": true,
+    "requests": [
+      {
+        "method": "POST",
+        "path": "/conversaciones/audit-chat-1/leido",
+        "status": 201,
+        "bytes": 11
+      },
+      {
+        "method": "POST",
+        "path": "/conversaciones/audit-chat-2/leido",
+        "status": 201,
+        "bytes": 11
+      },
+      {
+        "method": "GET",
+        "path": "/plantillas-agente",
+        "status": 200,
+        "bytes": 1841
+      },
+      {
+        "method": "GET",
+        "path": "/conversaciones/audit-chat-2",
+        "status": 200,
+        "bytes": 21427
+      },
+      {
+        "method": "POST",
+        "path": "/conversaciones/audit-chat-1/mensajes",
+        "status": 503,
+        "bytes": 44
+      },
+      {
+        "method": "POST",
+        "path": "/conversaciones/audit-chat-2/leido",
+        "status": 201,
+        "bytes": 11
+      }
+    ],
+    "errors": []
+  },
+  {
+    "name": "abrir-comisiones-periodo",
+    "elapsedMs": 765.9292919999999,
+    "text": "PERIODO\nElegir mes…\nSeptiembre 2026 — Borrador (2400 filas)\nBorrador\nTC 6.96\nDescargar Excel\nInforme Word\nMétricas PDF\nImportar\nClasificación\nPlanes que comisionan\nReportes\nConfiguración\nTodas las clasificaciones\nPlan Maternidad (0)\nPlan Varios (0)\nCirugía (0)\nConsulta (2400)\nLaboratorio (0)\nEcografía (0)\nOtros Servicios (0)\nCampaña (0)\nPromoción (0)\nTodos los tipos\nTipo A — Tipo A · Planes (0)\nTipo B — Tipo B · Cirugías (0)\nTipo C — Tipo C · Servicios (2400)\nEmpresa\nPropio\nMaternidad\n0\nReproducción Asistida (RA)\n0\nVarios\n2400\nSin clasificar\n0\nExcluidas\n0\nCalcular planilla\nRESUMEN POR AGENTE\nsobre las 2400 ventas del filtro actual, no solo las de esta página\nVendedora Ficticia 8\nBs 208.800,00\n300 ventas · base Bs 181.656,00\nVendedora Ficticia 4\nBs 208.800,00\n300 ventas · base Bs 181.656,00\nVendedora Ficticia 2\nBs 208.800,00\n300 ventas · base Bs 181.656,00\nVendedora Ficticia 6\nBs 208.800,00\n300 ventas · base Bs 181.656,00\nVendedora Ficticia 5\nBs 208.800,00\n300 ventas · base Bs 181.656,00\nVendedora Ficticia 1\nBs 208.800,00\n300 ventas · base Bs 181.656,00\nVendedora Ficticia 3\nBs 208.800,00\n300 ventas · base Bs 181.656,00\nVendedora Ficticia 7\nBs 208.800,00\n300 ventas · base Bs 181.656,00\nFECHA\tSERVICIO / PACIENTE\tVENDEDORA\tCANAL\tPRECIO \n\tPAGADO \n\tBASE CÁLCULO \n\tTARIFA \n\tCLASIFICACIÓN\tTIPO \n\tESTADO\n07/09/2026\t\nConsulta ficticia 1\nPaciente Ficticio 00001\n\tVendedora Ficticia 1\tEmpresa\tBs 696,00\t—\tBs 605,52\t4.5%\t\nPlan Maternidad\nPlan Varios\nCirugía\nConsulta\nLaboratorio\nEcografía\nOtros Servicios\nCampaña\nPromoción\n\tC\t\nOK\n\n07/09/2026\t\nConsulta ficticia 10\nPaciente Ficticio 00010\n\tVendedora Ficticia 2\tEmpresa\tBs 696,00\t—\tBs 605,52\t4.5%\t\nPlan Maternidad\nPlan Varios\nCirugía\nConsulta\nLaboratorio\nEcografía\nOtros Servicios\nCampaña\nPromoción\n\tC\t\nOK\n\n07/09/2026\t\nConsulta ficticia 100\nPaciente Ficticio 00100\n\tVendedora Ficticia 4\tEmpresa\tBs 696,00\t—\tBs 605,52\t4.5%\t\nPlan Maternidad\nPlan Varios\nCirugía\nConsulta\nLaboratorio\nEcografía\nOtros Servicios\nCampaña\nPromoción\n\tC\t\nOK\n\n07/09/2026\t\nConsulta ficticia 1000\nPaciente Ficticio 01000\n\tVendedora Ficticia 8\tEmpresa\tBs 696,00\t—\tBs 605,52\t4.5%\t\nPlan Maternidad\nPlan Varios\nCirugía\nConsulta\nLaboratorio\nEcografía\nOtros Servicios\nCampaña\nPromoción\n\tC\t\nOK\n\n07/09/2026\t\nConsulta ficticia 1001\nPaciente Ficticio 01001\n\tVendedora Ficticia 1\tEmpresa\tBs 696,00\t—\tBs 605,52\t4.5%\t\nPlan Maternidad\nPlan Varios\nCirugía\nConsulta\nLaboratorio\nEcografía\nOtros Servicios\nCampaña\nPromoción\n\tC\t\nOK\n\n07/09/2026\t\nConsulta ficticia 1002\nPaciente Ficticio 01002\n\tV",
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/planilla-comisiones/periodos/audit-periodo/alertas",
+        "status": 200,
+        "bytes": 355
+      },
+      {
+        "method": "GET",
+        "path": "/planilla-comisiones/configuracion",
+        "status": 200,
+        "bytes": 5687
+      },
+      {
+        "method": "GET",
+        "path": "/planilla-comisiones/periodos/audit-periodo/ventas?pagina=1",
+        "status": 200,
+        "bytes": 21977
+      }
+    ],
+    "errors": []
+  },
+  {
+    "name": "configuracion",
+    "text": "PERIODO\nElegir mes…\nSeptiembre 2026 — Borrador (2400 filas)\nBorrador\nTC 6.96\nDescargar Excel\nInforme Word\nMétricas PDF\nImportar\nClasificación\nPlanes que comisionan\nReportes\nConfiguración\nReglas del cálculo\n\nSolo el super administrador puede cambiarlas.\n\nComisión de campaña/promoción del área RA\n\nSolo aplica a ventas del área RA clasificadas como campaña o promoción — en 0 no pagan nada. El resto del área RA (consulta, laboratorio, ecografía, otros) NO usa este parámetro: comisiona por la escala Tipo A (RA) de más abajo, cuando el ingreso combinado con planes supera el objetivo mensual.\n\nPCT_TIPO_C_RA\n% (escribe 4.5 para 4,5% — NO 0,045)\n\nFactor del bono de jefatura\n\nSe aplica al excedente sobre el objetivo mensual de cada vendedora para armar el pote. El pote se paga DOS veces: íntegro a la jefatura y otro tanto repartido entre publicidad.\n\nFACTOR_BONO_JEFATURA\n(0,002 = 0,2%)\n\nFactor del bono trimestral\n\nSe aplica al PROMEDIO del trimestre, no al mes suelto, y solo si ese promedio supera el objetivo trimestral. Se paga únicamente en los meses de cierre: marzo, junio, septiembre y diciembre.\n\nFACTOR_BONO_TRIMESTRAL\n(0,005 = 0,5%)\n\nMeses que promedia el bono trimestral\n\nCuántos meses entran en el promedio, contando hacia atrás desde el mes que se liquida. Con 3, liquidar marzo promedia enero, febrero y marzo.\n\nMESES_BONO_TRIMESTRAL\nmeses\nVendedoras\n\nSe dan de alta solas al importar. El agente del CRM se reconoce por el código de empresa (el mismo vendedora_pk del Excel), así que no hay que vincular nada a mano. Fíjales tipo, área y sueldo base para que la liquidación sea correcta.\n\nEn el equipo\n8\nDadas de baja\n0\nAñadir persona\n\nNadie en el área de Marketing\n\nEl bono de jefa",
+    "requests": [],
+    "errors": []
+  },
+  {
+    "name": "memoria",
+    "text": "nners de ofertas, listas de precios o PDF\n\nHaz clic para seleccionar archivo\nSoporta JPG, PNG, WEBP o PDF (máx 5 MB)\nGUARDAR NOTA O RESPUESTA\n\nRespuestas listas para pegar en chat\n\nTítulo del Recurso *\nAtajo /comando (opcional)\nContenido o Enlace\nGuardar en Mi Memoria\nTodos\nNotas\nImágenes\nDocumentos\nRecurso ficticio 60\nTEXTO\n\n Texto exclusivamente sintético \n\nCopiar\nRecurso ficticio 59\nTEXTO\n\n Texto exclusivamente sintético \n\nCopiar\nRecurso ficticio 58\nTEXTO\n\n Texto exclusivamente sintético \n\nCopiar\nRecurso ficticio 57\nTEXTO\n\n Texto exclusivamente sintético \n\nCopiar\nRecurso ficticio 56\nTEXTO\n\n Texto exclusivamente sintético \n\nCopiar\nRecurso ficticio 55\nTEXTO\n\n Texto exclusivamente sintético \n\nCopiar\nRecurso ficticio 54\nTEXTO\n\n Texto exclusivamente sintético \n\nCopiar\nRecurso ficticio 53\nTEXTO\n\n Texto exclusivamente sintético \n\nCopiar\nRecurso ficticio 51\nTEXTO\n\n Texto exclusivamente sintético \n\nCopiar\nRecurso ficticio 52\nTEXTO\n\n Texto exclusivamente sintético \n\nCopiar\nRecurso ficticio 49\nTEXTO\n\n Texto exclusivamente sintético \n\nCopiar\nRecurso ficticio 50\nTEXTO\n\n Texto exclusivamente sintético \n\nCopiar\nRecurso ficticio 48\nTEXTO\n\n Texto exclusivamente sintético \n\nCopiar\nRecurso ficticio 47\nTEXTO\n\n Texto exclusivamente sintético \n\nCopiar\nRecurso ficticio 44\nTEXTO\n\n Texto exclusivamente sintético \n\nCopiar\nRecurso ficticio 45\nTEXTO\n\n Texto exclusivamente sintético \n\nCopiar\nRecurso ficticio 46\nTEXTO\n\n Texto exclusivamente sintético \n\nCopiar\nRecurso ficticio 43\nTEXTO\n\n Texto exclusivamente sintético \n\nCopiar\nRecurso ficticio 42\nTEXTO\n\n Texto exclusivamente sintético \n\nCopiar\nRecurso ficticio 40\nTEXTO\n\n Texto exclusivamente sintético \n\nCopiar\nRecurso ficticio 41\nTEXTO\n\n Texto exclusivamente sintético \n\nCopiar\nRecurso ficticio 38\nTEXTO\n\n Texto exclusivamente sintético \n\nCopiar\nRecurso ficticio 39\nTEXTO\n\n Texto exclusivamente sintético \n\nCopiar\nRecurso ficticio 37\nTEXTO\n\n Texto exclusivamente sintético \n\nCopiar\nRecurso ficticio 36\nTEXTO\n\n Texto exclusivamente sintético \n\nCopiar",
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/auth/perfil",
+        "status": 200,
+        "bytes": 233
+      },
+      {
+        "method": "GET",
+        "path": "/tipo-cambio/vigente",
+        "status": 200,
+        "bytes": 48
+      },
+      {
+        "method": "GET",
+        "path": "/memoria-agente/cuota",
+        "status": 200,
+        "bytes": 98
+      },
+      {
+        "method": "GET",
+        "path": "/actividades/resumen",
+        "status": 200,
+        "bytes": 59
+      },
+      {
+        "method": "GET",
+        "path": "/memoria-agente",
+        "status": 200,
+        "bytes": 9087
+      }
+    ],
+    "errors": []
+  },
+  {
+    "name": "mobile-auth/login",
+    "width": 390,
+    "text": "Clínica Montalvo\nIniciar sesión\n\nIngresa tus credenciales para acceder.\n\nCorreo electrónico\nContraseña\nRecordarme\n¿Olvid",
+    "overflow": 390,
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/auth/perfil",
+        "status": 200,
+        "bytes": 233
+      }
+    ],
+    "errors": []
+  },
+  {
+    "name": "mobile-dashboard",
+    "width": 390,
+    "text": "Montalvo\nCRM\n9+\nBs\n$us\nAD\nATENCIÓN & PACIENTES\nDashboard\nWhatsApp\nClientes y Pacientes\nLeads y Prospectos\nActividades\nVE",
+    "overflow": 390,
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/auth/perfil",
+        "status": 200,
+        "bytes": 233
+      },
+      {
+        "method": "GET",
+        "path": "/tipo-cambio/vigente",
+        "status": 200,
+        "bytes": 48
+      },
+      {
+        "method": "GET",
+        "path": "/actividades/resumen",
+        "status": 200,
+        "bytes": 59
+      },
+      {
+        "method": "GET",
+        "path": "/kpis/resumen",
+        "status": 200,
+        "bytes": 2593
+      }
+    ],
+    "errors": []
+  },
+  {
+    "name": "mobile-conversaciones",
+    "width": 390,
+    "text": "Montalvo\nCRM\n9+\nBs\n$us\nAD\nATENCIÓN & PACIENTES\nDashboard\nWhatsApp\nClientes y Pacientes\nLeads y Prospectos\nActividades\nVE",
+    "overflow": 390,
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/auth/perfil",
+        "status": 200,
+        "bytes": 233
+      },
+      {
+        "method": "GET",
+        "path": "/tipo-cambio/vigente",
+        "status": 200,
+        "bytes": 48
+      },
+      {
+        "method": "GET",
+        "path": "/conversaciones/meta/agentes",
+        "status": 200,
+        "bytes": 213
+      },
+      {
+        "method": "GET",
+        "path": "/conversaciones/meta/plantillas",
+        "status": 200,
+        "bytes": 2
+      },
+      {
+        "method": "GET",
+        "path": "/actividades/resumen",
+        "status": 200,
+        "bytes": 59
+      },
+      {
+        "method": "GET",
+        "path": "/conversaciones",
+        "status": 200,
+        "bytes": 32536
+      }
+    ],
+    "errors": []
+  },
+  {
+    "name": "mobile-clientes",
+    "width": 390,
+    "text": "Montalvo\nCRM\n9+\nBs\n$us\nAD\nATENCIÓN & PACIENTES\nDashboard\nWhatsApp\nClientes y Pacientes\nLeads y Prospectos\nActividades\nVE",
+    "overflow": 390,
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/auth/perfil",
+        "status": 200,
+        "bytes": 233
+      },
+      {
+        "method": "GET",
+        "path": "/tipo-cambio/vigente",
+        "status": 200,
+        "bytes": 48
+      },
+      {
+        "method": "GET",
+        "path": "/conversaciones/meta/agentes",
+        "status": 200,
+        "bytes": 213
+      },
+      {
+        "method": "GET",
+        "path": "/actividades/resumen",
+        "status": 200,
+        "bytes": 59
+      },
+      {
+        "method": "GET",
+        "path": "/clientes?pagina=1&direccion=asc",
+        "status": 200,
+        "bytes": 20451
+      }
+    ],
+    "errors": []
+  },
+  {
+    "name": "mobile-leads",
+    "width": 390,
+    "text": "Montalvo\nCRM\n9+\nBs\n$us\nAD\nATENCIÓN & PACIENTES\nDashboard\nWhatsApp\nClientes y Pacientes\nLeads y Prospectos\nActividades\nVE",
+    "overflow": 390,
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/auth/perfil",
+        "status": 200,
+        "bytes": 233
+      },
+      {
+        "method": "GET",
+        "path": "/tipo-cambio/vigente",
+        "status": 200,
+        "bytes": 48
+      },
+      {
+        "method": "GET",
+        "path": "/actividades/resumen",
+        "status": 200,
+        "bytes": 59
+      },
+      {
+        "method": "GET",
+        "path": "/leads/resumen",
+        "status": 200,
+        "bytes": 124
+      },
+      {
+        "method": "GET",
+        "path": "/leads?pagina=1&limite=100",
+        "status": 200,
+        "bytes": 55055
+      }
+    ],
+    "errors": []
+  },
+  {
+    "name": "mobile-ventas",
+    "width": 390,
+    "text": "Montalvo\nCRM\n9+\nBs\n$us\nAD\nATENCIÓN & PACIENTES\nDashboard\nWhatsApp\nClientes y Pacientes\nLeads y Prospectos\nActividades\nVE",
+    "overflow": 390,
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/auth/perfil",
+        "status": 200,
+        "bytes": 233
+      },
+      {
+        "method": "GET",
+        "path": "/tipo-cambio/vigente",
+        "status": 200,
+        "bytes": 48
+      },
+      {
+        "method": "GET",
+        "path": "/conversaciones/meta/agentes",
+        "status": 200,
+        "bytes": 213
+      },
+      {
+        "method": "GET",
+        "path": "/actividades/resumen",
+        "status": 200,
+        "bytes": 59
+      },
+      {
+        "method": "GET",
+        "path": "/ventas?pagina=1&limite=25",
+        "status": 200,
+        "bytes": 14336
+      }
+    ],
+    "errors": []
+  },
+  {
+    "name": "mobile-actividades",
+    "width": 390,
+    "text": "Montalvo\nCRM\n9+\nBs\n$us\nAD\nATENCIÓN & PACIENTES\nDashboard\nWhatsApp\nClientes y Pacientes\nLeads y Prospectos\nActividades\nVE",
+    "overflow": 390,
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/auth/perfil",
+        "status": 200,
+        "bytes": 233
+      },
+      {
+        "method": "GET",
+        "path": "/tipo-cambio/vigente",
+        "status": 200,
+        "bytes": 48
+      },
+      {
+        "method": "GET",
+        "path": "/conversaciones/meta/agentes",
+        "status": 200,
+        "bytes": 213
+      },
+      {
+        "method": "GET",
+        "path": "/actividades/resumen",
+        "status": 200,
+        "bytes": 59
+      },
+      {
+        "method": "GET",
+        "path": "/actividades/resumen",
+        "status": 200,
+        "bytes": 59
+      },
+      {
+        "method": "GET",
+        "path": "/actividades?estado=PENDIENTE&pagina=1&limite=25",
+        "status": 200,
+        "bytes": 13573
+      }
+    ],
+    "errors": []
+  },
+  {
+    "name": "mobile-finanzas",
+    "width": 390,
+    "text": "Montalvo\nCRM\n9+\nBs\n$us\nAD\nATENCIÓN & PACIENTES\nDashboard\nWhatsApp\nClientes y Pacientes\nLeads y Prospectos\nActividades\nVE",
+    "overflow": 390,
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/auth/perfil",
+        "status": 200,
+        "bytes": 233
+      },
+      {
+        "method": "GET",
+        "path": "/tipo-cambio/vigente",
+        "status": 200,
+        "bytes": 48
+      },
+      {
+        "method": "GET",
+        "path": "/planilla-comisiones/vendedoras",
+        "status": 200,
+        "bytes": 2850
+      },
+      {
+        "method": "GET",
+        "path": "/actividades/resumen",
+        "status": 200,
+        "bytes": 59
+      },
+      {
+        "method": "GET",
+        "path": "/planilla-comisiones/periodos?limite=100",
+        "status": 200,
+        "bytes": 529
+      }
+    ],
+    "errors": []
+  },
+  {
+    "name": "mobile-usuarios",
+    "width": 390,
+    "text": "Montalvo\nCRM\n9+\nBs\n$us\nAD\nATENCIÓN & PACIENTES\nDashboard\nWhatsApp\nClientes y Pacientes\nLeads y Prospectos\nActividades\nVE",
+    "overflow": 390,
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/auth/perfil",
+        "status": 200,
+        "bytes": 233
+      },
+      {
+        "method": "GET",
+        "path": "/tipo-cambio/vigente",
+        "status": 200,
+        "bytes": 48
+      },
+      {
+        "method": "GET",
+        "path": "/usuarios",
+        "status": 200,
+        "bytes": 685
+      },
+      {
+        "method": "GET",
+        "path": "/actividades/resumen",
+        "status": 200,
+        "bytes": 59
+      }
+    ],
+    "errors": []
+  },
+  {
+    "name": "mobile-perfil?tab=memoria",
+    "width": 390,
+    "text": "Montalvo\nCRM\n9+\nBs\n$us\nAD\nATENCIÓN & PACIENTES\nDashboard\nWhatsApp\nClientes y Pacientes\nLeads y Prospectos\nActividades\nVE",
+    "overflow": 390,
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/auth/perfil",
+        "status": 200,
+        "bytes": 233
+      },
+      {
+        "method": "GET",
+        "path": "/tipo-cambio/vigente",
+        "status": 200,
+        "bytes": 48
+      },
+      {
+        "method": "GET",
+        "path": "/memoria-agente/cuota",
+        "status": 200,
+        "bytes": 98
+      },
+      {
+        "method": "GET",
+        "path": "/actividades/resumen",
+        "status": 200,
+        "bytes": 59
+      },
+      {
+        "method": "GET",
+        "path": "/memoria-agente",
+        "status": 200,
+        "bytes": 9087
+      }
+    ],
+    "errors": []
+  }
+]

@@ -1,0 +1,738 @@
+[
+  {
+    "name": "frio-conversaciones",
+    "domMs": 213,
+    "requests": [
+      {
+        "path": "/auth/perfil",
+        "status": 200,
+        "ms": -1,
+        "bytes": 233
+      },
+      {
+        "path": "/tipo-cambio/vigente",
+        "status": 200,
+        "ms": -1,
+        "bytes": 48
+      },
+      {
+        "path": "/conversaciones/meta/plantillas",
+        "status": 200,
+        "ms": -1,
+        "bytes": 2
+      },
+      {
+        "path": "/conversaciones/meta/agentes",
+        "status": 200,
+        "ms": -1,
+        "bytes": 213
+      },
+      {
+        "path": "/actividades/resumen",
+        "status": 200,
+        "ms": -1,
+        "bytes": 59
+      },
+      {
+        "path": "/conversaciones",
+        "status": 200,
+        "ms": -1,
+        "bytes": 32536
+      }
+    ]
+  },
+  {
+    "name": "frio-conversaciones",
+    "domMs": 144.20000000018626,
+    "requests": [
+      {
+        "path": "/auth/perfil",
+        "status": 200,
+        "ms": -1,
+        "bytes": 233
+      },
+      {
+        "path": "/tipo-cambio/vigente",
+        "status": 200,
+        "ms": -1,
+        "bytes": 48
+      },
+      {
+        "path": "/conversaciones/meta/agentes",
+        "status": 200,
+        "ms": -1,
+        "bytes": 213
+      },
+      {
+        "path": "/conversaciones/meta/plantillas",
+        "status": 200,
+        "ms": -1,
+        "bytes": 2
+      },
+      {
+        "path": "/actividades/resumen",
+        "status": 200,
+        "ms": -1,
+        "bytes": 59
+      },
+      {
+        "path": "/conversaciones",
+        "status": 200,
+        "ms": -1,
+        "bytes": 32536
+      }
+    ]
+  },
+  {
+    "name": "frio-conversaciones",
+    "domMs": 143.40000000037253,
+    "requests": [
+      {
+        "path": "/auth/perfil",
+        "status": 200,
+        "ms": -1,
+        "bytes": 233
+      },
+      {
+        "path": "/tipo-cambio/vigente",
+        "status": 200,
+        "ms": -1,
+        "bytes": 48
+      },
+      {
+        "path": "/conversaciones/meta/agentes",
+        "status": 200,
+        "ms": -1,
+        "bytes": 213
+      },
+      {
+        "path": "/conversaciones/meta/plantillas",
+        "status": 200,
+        "ms": -1,
+        "bytes": 2
+      },
+      {
+        "path": "/actividades/resumen",
+        "status": 200,
+        "ms": -1,
+        "bytes": 59
+      },
+      {
+        "path": "/conversaciones",
+        "status": 200,
+        "ms": -1,
+        "bytes": 32536
+      }
+    ]
+  },
+  {
+    "name": "frio-dashboard",
+    "domMs": 117.1000000005588,
+    "requests": [
+      {
+        "path": "/auth/perfil",
+        "status": 200,
+        "ms": -1,
+        "bytes": 233
+      },
+      {
+        "path": "/tipo-cambio/vigente",
+        "status": 200,
+        "ms": -1,
+        "bytes": 48
+      },
+      {
+        "path": "/actividades/resumen",
+        "status": 200,
+        "ms": -1,
+        "bytes": 59
+      },
+      {
+        "path": "/kpis/resumen",
+        "status": 200,
+        "ms": -1,
+        "bytes": 2593
+      }
+    ]
+  },
+  {
+    "name": "frio-dashboard",
+    "domMs": 113.79999999981374,
+    "requests": [
+      {
+        "path": "/auth/perfil",
+        "status": 200,
+        "ms": -1,
+        "bytes": 233
+      },
+      {
+        "path": "/tipo-cambio/vigente",
+        "status": 200,
+        "ms": -1,
+        "bytes": 48
+      },
+      {
+        "path": "/kpis/resumen",
+        "status": 200,
+        "ms": -1,
+        "bytes": 2593
+      },
+      {
+        "path": "/actividades/resumen",
+        "status": 200,
+        "ms": -1,
+        "bytes": 59
+      }
+    ]
+  },
+  {
+    "name": "frio-dashboard",
+    "domMs": 111.59999999962747,
+    "requests": [
+      {
+        "path": "/auth/perfil",
+        "status": 200,
+        "ms": -1,
+        "bytes": 233
+      },
+      {
+        "path": "/tipo-cambio/vigente",
+        "status": 200,
+        "ms": -1,
+        "bytes": 48
+      },
+      {
+        "path": "/kpis/resumen",
+        "status": 200,
+        "ms": -1,
+        "bytes": 2593
+      },
+      {
+        "path": "/actividades/resumen",
+        "status": 200,
+        "ms": -1,
+        "bytes": 59
+      }
+    ]
+  },
+  {
+    "name": "frio-finanzas",
+    "domMs": 111,
+    "requests": [
+      {
+        "path": "/auth/perfil",
+        "status": 200,
+        "ms": -1,
+        "bytes": 233
+      },
+      {
+        "path": "/tipo-cambio/vigente",
+        "status": 200,
+        "ms": -1,
+        "bytes": 48
+      },
+      {
+        "path": "/planilla-comisiones/periodos?limite=100",
+        "status": 200,
+        "ms": -1,
+        "bytes": 529
+      },
+      {
+        "path": "/planilla-comisiones/vendedoras",
+        "status": 200,
+        "ms": -1,
+        "bytes": 2850
+      },
+      {
+        "path": "/actividades/resumen",
+        "status": 200,
+        "ms": -1,
+        "bytes": 59
+      }
+    ]
+  },
+  {
+    "name": "frio-finanzas",
+    "domMs": 134.20000000018626,
+    "requests": [
+      {
+        "path": "/auth/perfil",
+        "status": 200,
+        "ms": -1,
+        "bytes": 233
+      },
+      {
+        "path": "/tipo-cambio/vigente",
+        "status": 200,
+        "ms": -1,
+        "bytes": 48
+      },
+      {
+        "path": "/actividades/resumen",
+        "status": 200,
+        "ms": -1,
+        "bytes": 59
+      },
+      {
+        "path": "/planilla-comisiones/periodos?limite=100",
+        "status": 200,
+        "ms": -1,
+        "bytes": 529
+      },
+      {
+        "path": "/planilla-comisiones/vendedoras",
+        "status": 200,
+        "ms": -1,
+        "bytes": 2850
+      }
+    ]
+  },
+  {
+    "name": "frio-finanzas",
+    "domMs": 133.29999999981374,
+    "requests": [
+      {
+        "path": "/auth/perfil",
+        "status": 200,
+        "ms": -1,
+        "bytes": 233
+      },
+      {
+        "path": "/tipo-cambio/vigente",
+        "status": 200,
+        "ms": -1,
+        "bytes": 48
+      },
+      {
+        "path": "/actividades/resumen",
+        "status": 200,
+        "ms": -1,
+        "bytes": 59
+      },
+      {
+        "path": "/planilla-comisiones/vendedoras",
+        "status": 200,
+        "ms": -1,
+        "bytes": 2850
+      },
+      {
+        "path": "/planilla-comisiones/periodos?limite=100",
+        "status": 200,
+        "ms": -1,
+        "bytes": 529
+      }
+    ]
+  },
+  {
+    "name": "G-periodo",
+    "domMs": 91.5,
+    "requests": [
+      {
+        "path": "/planilla-comisiones/configuracion",
+        "status": 200,
+        "ms": -1,
+        "bytes": 5687
+      },
+      {
+        "path": "/planilla-comisiones/periodos/audit-periodo/alertas",
+        "status": 200,
+        "ms": -1,
+        "bytes": 355
+      },
+      {
+        "path": "/planilla-comisiones/periodos/audit-periodo/ventas?pagina=1",
+        "status": 200,
+        "ms": -1,
+        "bytes": 21977
+      }
+    ]
+  },
+  {
+    "name": "G-periodo",
+    "domMs": 80,
+    "requests": [
+      {
+        "path": "/planilla-comisiones/configuracion",
+        "status": 200,
+        "ms": -1,
+        "bytes": 5687
+      },
+      {
+        "path": "/planilla-comisiones/periodos/audit-periodo/alertas",
+        "status": 200,
+        "ms": -1,
+        "bytes": 355
+      },
+      {
+        "path": "/planilla-comisiones/periodos/audit-periodo/ventas?pagina=1",
+        "status": 200,
+        "ms": -1,
+        "bytes": 21977
+      }
+    ]
+  },
+  {
+    "name": "G-periodo",
+    "domMs": 79.1000000005588,
+    "requests": [
+      {
+        "path": "/planilla-comisiones/configuracion",
+        "status": 200,
+        "ms": -1,
+        "bytes": 5687
+      },
+      {
+        "path": "/planilla-comisiones/periodos/audit-periodo/alertas",
+        "status": 200,
+        "ms": -1,
+        "bytes": 355
+      },
+      {
+        "path": "/planilla-comisiones/periodos/audit-periodo/ventas?pagina=1",
+        "status": 200,
+        "ms": -1,
+        "bytes": 21977
+      }
+    ]
+  },
+  {
+    "name": "C-buscar",
+    "domMs": 366.8999999994412,
+    "requests": [
+      {
+        "path": "/clientes?busqueda=AUD15994&pagina=1&direccion=asc",
+        "status": 200,
+        "ms": -1,
+        "bytes": 811
+      }
+    ]
+  },
+  {
+    "name": "D-ficha",
+    "domMs": 51.799999999813735,
+    "requests": []
+  },
+  {
+    "name": "C-buscar",
+    "domMs": 366.3999999994412,
+    "requests": [
+      {
+        "path": "/clientes?busqueda=AUD15995&pagina=1&direccion=asc",
+        "status": 200,
+        "ms": -1,
+        "bytes": 809
+      }
+    ]
+  },
+  {
+    "name": "D-ficha",
+    "domMs": 52,
+    "requests": []
+  },
+  {
+    "name": "C-buscar",
+    "domMs": 365.09999999962747,
+    "requests": [
+      {
+        "path": "/clientes?busqueda=AUD15996&pagina=1&direccion=asc",
+        "status": 200,
+        "ms": -1,
+        "bytes": 807
+      }
+    ]
+  },
+  {
+    "name": "D-ficha",
+    "domMs": 51.90000000037253,
+    "requests": []
+  },
+  {
+    "name": "cliente-deeplink",
+    "url": "http://localhost:4200/conversaciones?clienteId=audit-cli-1",
+    "thread": "Ninguna conversación seleccionada\n\nSelecciona una conversación del panel lateral para leer y enviar mensajes de WhatsApp.",
+    "requests": [
+      {
+        "path": "/clientes?busqueda=AUD1&pagina=1&direccion=asc",
+        "status": 200,
+        "ms": -1,
+        "bytes": 20508
+      },
+      {
+        "path": "/conversaciones/meta/agentes",
+        "status": 200,
+        "ms": -1,
+        "bytes": 213
+      },
+      {
+        "path": "/conversaciones/meta/plantillas",
+        "status": 200,
+        "ms": -1,
+        "bytes": 2
+      },
+      {
+        "path": "/conversaciones",
+        "status": 200,
+        "ms": -1,
+        "bytes": 32536
+      }
+    ]
+  },
+  {
+    "name": "B-cambio-190ms",
+    "domMs": 270.8999999994412,
+    "requests": [
+      {
+        "path": "/plantillas-agente",
+        "status": 200,
+        "ms": -1,
+        "bytes": 1841
+      },
+      {
+        "path": "/conversaciones/audit-chat-2/leido",
+        "status": 201,
+        "ms": -1,
+        "bytes": 11
+      },
+      {
+        "path": "/conversaciones/audit-chat-2",
+        "status": 200,
+        "ms": -1,
+        "bytes": 21427
+      }
+    ]
+  },
+  {
+    "name": "B-cambio-190ms",
+    "domMs": 260.40000000037253,
+    "requests": [
+      {
+        "path": "/conversaciones/audit-chat-1/leido",
+        "status": 201,
+        "ms": -1,
+        "bytes": 11
+      },
+      {
+        "path": "/plantillas-agente",
+        "status": 200,
+        "ms": -1,
+        "bytes": 1841
+      },
+      {
+        "path": "/conversaciones/audit-chat-1",
+        "status": 200,
+        "ms": -1,
+        "bytes": 21516
+      }
+    ]
+  },
+  {
+    "name": "B-cambio-190ms",
+    "domMs": 264.80000000074506,
+    "requests": [
+      {
+        "path": "/plantillas-agente",
+        "status": 200,
+        "ms": -1,
+        "bytes": 1841
+      },
+      {
+        "path": "/conversaciones/audit-chat-2",
+        "status": 200,
+        "ms": -1,
+        "bytes": 21427
+      },
+      {
+        "path": "/conversaciones/audit-chat-2/leido",
+        "status": 201,
+        "ms": -1,
+        "bytes": 11
+      }
+    ]
+  },
+  {
+    "name": "B-cambio-190ms",
+    "domMs": 263.79999999981374,
+    "requests": [
+      {
+        "path": "/plantillas-agente",
+        "status": 200,
+        "ms": -1,
+        "bytes": 1841
+      },
+      {
+        "path": "/conversaciones/audit-chat-1/leido",
+        "status": 201,
+        "ms": -1,
+        "bytes": 11
+      },
+      {
+        "path": "/conversaciones/audit-chat-1",
+        "status": 200,
+        "ms": -1,
+        "bytes": 21516
+      }
+    ]
+  },
+  {
+    "name": "B-cambio-190ms",
+    "domMs": 264,
+    "requests": [
+      {
+        "path": "/plantillas-agente",
+        "status": 200,
+        "ms": -1,
+        "bytes": 1841
+      },
+      {
+        "path": "/conversaciones/audit-chat-2",
+        "status": 200,
+        "ms": -1,
+        "bytes": 21427
+      },
+      {
+        "path": "/conversaciones/audit-chat-2/leido",
+        "status": 201,
+        "ms": -1,
+        "bytes": 11
+      }
+    ]
+  },
+  {
+    "name": "B-cambio-190ms",
+    "domMs": 263.70000000018626,
+    "requests": [
+      {
+        "path": "/conversaciones/audit-chat-1/leido",
+        "status": 201,
+        "ms": -1,
+        "bytes": 11
+      },
+      {
+        "path": "/plantillas-agente",
+        "status": 200,
+        "ms": -1,
+        "bytes": 1841
+      },
+      {
+        "path": "/conversaciones/audit-chat-1",
+        "status": 200,
+        "ms": -1,
+        "bytes": 21516
+      }
+    ]
+  },
+  {
+    "name": "calendario",
+    "text": "Clínica\nMontalvo\nCRM\n9+\nBs\n$us\nAD\n\nAdministración de prueba\n\nSuper administrador\n\nATENCIÓN & PACIENTES\nDashboard\nWhatsApp\nClientes y Pacientes\nLeads y Prospectos\nActividades\nVENTAS & FINANZAS\nVentas\nFinanzas & Comisiones\nGESTIÓN & CLÍNICA\nHistorial de Servicios\nUsuarios y Accesos\nActividades\n\nRecordatorios y seguimiento comercial sobre tus pacientes y prospectos.\n\n42 vencidas\nNueva actividad\nPARA HOY\n66\nCompromisos del día\nVENCIDAS\n42\nRequieren atención urgente\nPRÓXIMOS 7 DÍAS\n36\nSeguimientos agendados\nCOMPLETADAS\n0\nHistorial resuelto\nLista\nCalendario\nPendientes\nHoy\n66\nVencidas\n42\nPróximos 7 días\n36\nCompletadas\n0\nTodas\nTodos los tipos\nLlamada\nReunión\nTarea\nRecordatorio\nTodos los agentes\nAdministración de prueba\nAgente B de prueba\nAgente de prueba\nMostrando 100 de 150 actividades — usa la vista Lista con filtros de fecha para ver el resto.\nA tiempo\nVencida\nCompletada\nCancelada",
+    "requests": [
+      {
+        "path": "/auth/perfil",
+        "status": 200,
+        "ms": -1,
+        "bytes": 233
+      },
+      {
+        "path": "/tipo-cambio/vigente",
+        "status": 200,
+        "ms": -1,
+        "bytes": 48
+      },
+      {
+        "path": "/conversaciones/meta/agentes",
+        "status": 200,
+        "ms": -1,
+        "bytes": 213
+      },
+      {
+        "path": "/actividades/resumen",
+        "status": 200,
+        "ms": -1,
+        "bytes": 59
+      },
+      {
+        "path": "/actividades/resumen",
+        "status": 200,
+        "ms": -1,
+        "bytes": 59
+      },
+      {
+        "path": "/actividades?estado=PENDIENTE&pagina=1&limite=25",
+        "status": 200,
+        "ms": -1,
+        "bytes": 13573
+      },
+      {
+        "path": "/actividades?limite=100",
+        "status": 200,
+        "ms": -1,
+        "bytes": 54344
+      }
+    ]
+  },
+  {
+    "name": "chat-mobile",
+    "overflow": 390,
+    "composer": {
+      "x": -8,
+      "y": 734.5,
+      "width": 406,
+      "height": 101.5
+    },
+    "requests": [
+      {
+        "path": "/auth/perfil",
+        "status": 200,
+        "ms": -1,
+        "bytes": 233
+      },
+      {
+        "path": "/tipo-cambio/vigente",
+        "status": 200,
+        "ms": -1,
+        "bytes": 48
+      },
+      {
+        "path": "/conversaciones/meta/agentes",
+        "status": 200,
+        "ms": -1,
+        "bytes": 213
+      },
+      {
+        "path": "/conversaciones/audit-chat-1/leido",
+        "status": 201,
+        "ms": -1,
+        "bytes": 11
+      },
+      {
+        "path": "/actividades/resumen",
+        "status": 200,
+        "ms": -1,
+        "bytes": 59
+      },
+      {
+        "path": "/conversaciones/meta/plantillas",
+        "status": 200,
+        "ms": -1,
+        "bytes": 2
+      },
+      {
+        "path": "/plantillas-agente",
+        "status": 200,
+        "ms": -1,
+        "bytes": 1841
+      },
+      {
+        "path": "/conversaciones/audit-chat-1",
+        "status": 200,
+        "ms": -1,
+        "bytes": 21516
+      },
+      {
+        "path": "/conversaciones",
+        "status": 200,
+        "ms": -1,
+        "bytes": 32536
+      }
+    ]
+  }
+]

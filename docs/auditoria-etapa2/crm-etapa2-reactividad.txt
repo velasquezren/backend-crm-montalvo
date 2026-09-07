@@ -1,0 +1,148 @@
+src/app/features/dashboard/dashboard.page.ts:1:import { httpResource } from '@angular/common/http';
+src/app/features/dashboard/dashboard.page.ts:135:  protected readonly kpiData = httpResource<KpiResumen>(() =>
+src/app/features/clientes/clientes.service.ts:64:  /** Petición para `httpResource()` — la reactividad vive en la página. */
+src/app/features/clientes/clientes.service.ts:66:    return this.api.request('/clientes', {
+src/app/features/clientes/clientes.service.ts:77:    return this.api.request('/clientes', { busqueda: termino });
+src/app/features/agentes/agentes.service.ts:32:    return this.api.request('/usuarios');
+src/app/features/dashboard/kpis.service.ts:14:    return this.api.request('/kpis/resumen', { desde, hasta });
+src/app/features/clientes/clientes.page.ts:1:import { httpResource } from '@angular/common/http';
+src/app/features/clientes/clientes.page.ts:132:  protected readonly agentes = httpResource<AgenteResumen[]>(
+src/app/features/clientes/clientes.page.ts:150:  protected readonly clientes = httpResource<RespuestaPaginada<Cliente>>(
+src/app/features/clientes/clientes.page.ts:209:    effect(onCleanup => {
+src/app/features/clientes/clientes.page.ts:406:      this.clientes.reload();
+src/app/features/agentes/agentes.page.ts:2:import { httpResource } from '@angular/common/http';
+src/app/features/agentes/agentes.page.ts:87:  protected readonly agentes = httpResource<Agente[]>(
+src/app/features/agentes/agentes.page.ts:194:        this.agentes.reload();
+src/app/features/agentes/agentes.page.ts:213:        this.agentes.reload();
+src/app/features/agentes/agentes.page.ts:297:        this.agentes.reload();
+src/app/features/agentes/agentes.page.ts:342:        this.agentes.reload();
+src/app/features/leads/leads.page.ts:2:import { httpResource } from '@angular/common/http';
+src/app/features/leads/leads.page.ts:172:  protected readonly resumen = httpResource<ResumenLeads>(
+src/app/features/leads/leads.page.ts:188:  protected readonly leads = httpResource<RespuestaPaginada<Lead>>(
+src/app/features/leads/leads.page.ts:213:    effect((onCleanup: EffectCleanupRegisterFn) => {
+src/app/features/leads/leads.page.ts:222:    const origenParam = this.route.snapshot.queryParamMap.get('origen');
+src/app/features/leads/leads.page.ts:313:      this.leads.reload();
+src/app/features/leads/leads.page.ts:314:      this.resumen.reload();
+src/app/features/leads/leads.page.ts:351:      this.resumen.reload();
+src/app/features/leads/leads.page.ts:357:      this.leads.reload();
+src/app/features/leads/leads.page.ts:446:        this.resumen.reload();
+src/app/features/leads/leads.page.ts:453:        this.leads.reload(); // Revertir cambios recargando
+src/app/features/leads/leads.service.ts:46:    return this.api.request('/leads', {
+src/app/features/leads/leads.service.ts:59:    return this.api.request('/leads/resumen', {
+src/app/features/actividades/actividades.page.ts:2:import { httpResource } from '@angular/common/http';
+src/app/features/actividades/actividades.page.ts:169:    effect((onCleanup: EffectCleanupRegisterFn) => {
+src/app/features/actividades/actividades.page.ts:183:    effect(() => {
+src/app/features/actividades/actividades.page.ts:207:  protected readonly agentes = httpResource<Array<{ id: string; nombre: string }>>(
+src/app/features/actividades/actividades.page.ts:235:  protected readonly resumen = httpResource<ResumenActividades>(
+src/app/features/actividades/actividades.page.ts:243:  protected readonly actividades = httpResource<RespuestaPaginada<Actividad>>(
+src/app/features/actividades/actividades.page.ts:263:  protected readonly actividadesCalendario = httpResource<RespuestaPaginada<Actividad>>(
+src/app/features/actividades/actividades.page.ts:373:  protected readonly resultadosCliente = httpResource<readonly Cliente[]>(
+src/app/features/actividades/actividades.page.ts:381:  protected readonly leadsDelCliente = httpResource<RespuestaPaginada<Lead>>(
+src/app/features/actividades/actividades.page.ts:538:      this.actividades.reload();
+src/app/features/actividades/actividades.page.ts:539:      this.actividadesCalendario.reload();
+src/app/features/actividades/actividades.page.ts:540:      this.resumen.reload();
+src/app/features/actividades/actividades.page.ts:551:      this.actividades.reload();
+src/app/features/actividades/actividades.page.ts:552:      this.actividadesCalendario.reload();
+src/app/features/actividades/actividades.page.ts:553:      this.resumen.reload();
+src/app/features/actividades/actividades.page.ts:641:      this.actividades.reload();
+src/app/features/actividades/actividades.page.ts:642:      this.actividadesCalendario.reload();
+src/app/features/actividades/actividades.page.ts:643:      this.resumen.reload();
+src/app/features/actividades/actividades.page.ts:658:      this.actividades.reload();
+src/app/features/actividades/actividades.page.ts:659:      this.actividadesCalendario.reload();
+src/app/features/actividades/actividades.page.ts:660:      this.resumen.reload();
+src/app/features/actividades/actividades.page.ts:678:      this.actividades.reload();
+src/app/features/actividades/actividades.page.ts:679:      this.actividadesCalendario.reload();
+src/app/features/actividades/actividades.page.ts:680:      this.resumen.reload();
+src/app/features/ventas/catalogo.util.ts:3:/** Catálogo vacío, para el `defaultValue` de los `httpResource`. */
+src/app/features/perfil/perfil.page.ts:26:import { httpResource } from '@angular/common/http';
+src/app/features/perfil/perfil.page.ts:87:  protected readonly cuotaMemoria = httpResource<CuotaMemoria>(
+src/app/features/perfil/perfil.page.ts:91:  private readonly recursosMemoriaRecurso = httpResource<RespuestaPaginada<RecursoMemoria>>(
+src/app/features/perfil/perfil.page.ts:108:    this.recursosMemoriaRecurso.reload();
+src/app/features/perfil/perfil.page.ts:120:    effect((onCleanup: EffectCleanupRegisterFn) => {
+src/app/features/perfil/perfil.page.ts:128:    const tabParam = this.route.snapshot.queryParamMap.get('tab');
+src/app/features/perfil/perfil.page.ts:131:      this.cuotaMemoria.reload();
+src/app/features/perfil/perfil.page.ts:132:      this.recursosMemoriaRecurso.reload();
+src/app/features/perfil/perfil.page.ts:150:      this.cuotaMemoria.reload();
+src/app/features/perfil/perfil.page.ts:151:      this.recursosMemoriaRecurso.reload();
+src/app/features/perfil/perfil.page.ts:281:      this.recursosMemoriaRecurso.reload();
+src/app/features/perfil/perfil.page.ts:282:      this.cuotaMemoria.reload();
+src/app/features/perfil/perfil.page.ts:300:      this.recursosMemoriaRecurso.reload();
+src/app/features/perfil/perfil.page.ts:301:      this.cuotaMemoria.reload();
+src/app/features/perfil/perfil.page.ts:313:      this.recursosMemoriaRecurso.reload();
+src/app/features/perfil/perfil.page.ts:314:      this.cuotaMemoria.reload();
+src/app/features/finanzas/components/desempeno-agentes/desempeno-agentes.component.ts:1:import { httpResource } from '@angular/common/http';
+src/app/features/finanzas/components/desempeno-agentes/desempeno-agentes.component.ts:117:  protected readonly periodos = httpResource<RespuestaPaginada<PeriodoComision>>(() =>
+src/app/features/finanzas/components/desempeno-agentes/desempeno-agentes.component.ts:140:   * `httpResource` nuevo, con su parpadeo de recarga. Ahora la única entrada
+src/app/features/finanzas/components/desempeno-agentes/desempeno-agentes.component.ts:143:  protected readonly consolidado = httpResource<ReporteConsolidado>(() => {
+src/app/features/finanzas/components/desempeno-agentes/desempeno-agentes.component.ts:155:  protected readonly configuracion = httpResource<ConfiguracionPlanilla>(() =>
+src/app/features/finanzas/components/desempeno-agentes/desempeno-agentes.component.ts:167:  protected readonly equipo = httpResource<readonly Vendedora[]>(() =>
+src/app/features/finanzas/components/desempeno-agentes/desempeno-agentes.component.ts:171:  protected readonly ventas = httpResource<VentasConCanales>(() => {
+src/app/features/finanzas/components/tipo-cambio/tipo-cambio-admin.component.ts:1:import { httpResource } from '@angular/common/http';
+src/app/features/finanzas/components/tipo-cambio/tipo-cambio-admin.component.ts:80:  protected readonly configuracion = httpResource<ConfiguracionTipoCambio | undefined>(
+src/app/features/finanzas/components/tipo-cambio/tipo-cambio-admin.component.ts:118:      this.configuracion.reload();
+src/app/features/finanzas/components/tipo-cambio/tipo-cambio-admin.component.ts:154:  protected readonly dias = httpResource<readonly DiaTipoCambio[]>(
+src/app/features/finanzas/components/tipo-cambio/tipo-cambio-admin.component.ts:217:      this.dias.reload();
+src/app/features/finanzas/components/tipo-cambio/tipo-cambio-admin.component.ts:237:      this.dias.reload();
+src/app/features/ventas/ventas.page.ts:16:import { httpResource } from '@angular/common/http';
+src/app/features/ventas/ventas.page.ts:244:  protected readonly ventas = httpResource<RespuestaPaginada<Venta>>(
+src/app/features/ventas/ventas.page.ts:272:  protected readonly agentes = httpResource<readonly AgenteResumenVenta[]>(
+src/app/features/ventas/ventas.page.ts:349:    effect((onCleanup: EffectCleanupRegisterFn) => {
+src/app/features/ventas/ventas.page.ts:358:    effect(() => {
+src/app/features/ventas/ventas.page.ts:420:  protected readonly catalogo = httpResource<CatalogoClinico>(
+src/app/features/ventas/ventas.page.ts:453:  protected readonly resultadosCliente = httpResource<readonly Cliente[]>(
+src/app/features/ventas/ventas.page.ts:469:  protected readonly leadsDelCliente = httpResource<RespuestaPaginada<Lead>>(
+src/app/features/ventas/ventas.page.ts:517:        const actual = mapa.get(v.metodoPago) || { count: 0, monto: 0 };
+src/app/features/ventas/ventas.page.ts:526:      const data = mapa.get(mp.id);
+src/app/features/ventas/ventas.page.ts:543:      const actual = mapa.get(mod) || { count: 0, monto: 0 };
+src/app/features/ventas/ventas.page.ts:740:      this.ventas.reload();
+src/app/features/ventas/ventas.page.ts:802:      this.ventas.reload();
+src/app/features/finanzas/finanzas.page.ts:102:    effect(() => {
+src/app/features/planilla-comisiones/components/desglose-comisiones.component.ts:50:            [count]="conteoPorSubtipo().get(s) ?? 0"
+src/app/features/planilla-comisiones/components/desglose-comisiones.component.ts:238:      mapa.set(f.subtipo, (mapa.get(f.subtipo) ?? 0) + 1);
+src/app/features/ventas/ventas.service.ts:55:    return this.api.request('/ventas', {
+src/app/features/ventas/ventas.service.ts:70:    return this.api.request('/conversaciones/meta/agentes');
+src/app/features/ventas/ventas.service.ts:80:    return this.api.request('/ventas/catalogo');
+src/app/features/actividades/components/actividades-calendario/actividades-calendario.component.ts:153:    effect(() => {
+src/app/features/finanzas/components/tipo-cambio/tipo-cambio.service.ts:55:    return this.api.request('/tipo-cambio/historial', { anio, mes });
+src/app/features/finanzas/components/tipo-cambio/tipo-cambio.service.ts:59:    return this.api.request('/tipo-cambio/configuracion');
+src/app/features/planilla-comisiones/resumen-anual.page.ts:2:import { httpResource } from '@angular/common/http';
+src/app/features/planilla-comisiones/resumen-anual.page.ts:76:  protected readonly periodos = httpResource<RespuestaPaginada<PeriodoComision>>(() =>
+src/app/features/planilla-comisiones/resumen-anual.page.ts:125:  protected readonly resumen = httpResource<ResumenAnual>(
+src/app/features/planilla-comisiones/planilla-comisiones.service.ts:93:  /* ── Lecturas reactivas (las consume httpResource en la página) ────── */
+src/app/features/planilla-comisiones/planilla-comisiones.service.ts:96:    return this.api.request('/planilla-comisiones/periodos', { limite: 100 });
+src/app/features/planilla-comisiones/planilla-comisiones.service.ts:100:    return this.api.request(`/planilla-comisiones/periodos/${periodoId}/ventas`, {
+src/app/features/planilla-comisiones/planilla-comisiones.service.ts:116:    return this.api.request(`/planilla-comisiones/periodos/${periodoId}/alertas`);
+src/app/features/planilla-comisiones/planilla-comisiones.service.ts:129:    return this.api.request(`/planilla-comisiones/periodos/${periodoId}/reporte/consolidado`, {
+src/app/features/planilla-comisiones/planilla-comisiones.service.ts:138:    return this.api.request(`/planilla-comisiones/periodos/${periodoId}/reporte/desglose`, {
+src/app/features/planilla-comisiones/planilla-comisiones.service.ts:145:    return this.api.request('/planilla-comisiones/anual', { anio: String(anio) });
+src/app/features/planilla-comisiones/planilla-comisiones.service.ts:149:    return this.api.request('/planilla-comisiones/vendedoras');
+src/app/features/planilla-comisiones/planilla-comisiones.service.ts:153:    return this.api.request('/planilla-comisiones/configuracion');
+src/app/features/planilla-comisiones/planilla-comisiones.service.ts:264:    return this.api.request(`/planilla-comisiones/periodos/${periodoId}/revision`);
+src/app/features/finanzas/components/desempeno-agentes/partes/ventas-agente.component.ts:81:    effect(onCleanup => {
+src/app/features/actividades/actividades.service.ts:65:    return this.api.request('/actividades', { ...filtro });
+src/app/features/actividades/actividades.service.ts:69:    return this.api.request('/actividades/resumen', { ...filtro });
+src/app/features/actividades/actividades.service.ts:74:    return this.api.request('/conversaciones/meta/agentes');
+src/app/features/planilla-comisiones/planilla-comisiones.page.ts:2:import { httpResource } from '@angular/common/http';
+src/app/features/planilla-comisiones/planilla-comisiones.page.ts:265:  protected readonly revision = httpResource<RevisionPeriodo | undefined>(
+src/app/features/planilla-comisiones/planilla-comisiones.page.ts:389:   * alertas. Sin el `periodos.reload()` la cabecera seguía diciendo "Calculado"
+src/app/features/planilla-comisiones/planilla-comisiones.page.ts:393:    this.revision.reload();
+src/app/features/planilla-comisiones/planilla-comisiones.page.ts:394:    this.periodos.reload();
+src/app/features/planilla-comisiones/planilla-comisiones.page.ts:409:    effect((onCleanup: EffectCleanupRegisterFn) => {
+src/app/features/planilla-comisiones/planilla-comisiones.page.ts:435:    effect(() => {
+src/app/features/planilla-comisiones/planilla-comisiones.page.ts:456:  protected readonly periodos = httpResource<RespuestaPaginada<PeriodoComision>>(
+src/app/features/planilla-comisiones/planilla-comisiones.page.ts:476:  protected readonly ventas = httpResource<VentasConTotales>(
+src/app/features/planilla-comisiones/planilla-comisiones.page.ts:515:  protected readonly desglose = httpResource<ReporteDesglose>(
+src/app/features/planilla-comisiones/planilla-comisiones.page.ts:525:  protected readonly planesPaq = httpResource<RespuestaPaginada<VentaImportada>>(
+src/app/features/planilla-comisiones/planilla-comisiones.page.ts:535:  protected readonly planesNin = httpResource<RespuestaPaginada<VentaImportada>>(
+src/app/features/planilla-comisiones/planilla-comisiones.page.ts:564:      const grupo = porVendedora.get(clave) ?? {
+src/app/features/planilla-comisiones/planilla-comisiones.page.ts:584:        const vendedora = vendedorasPorId.get(grupo.vendedoraId);
+src/app/features/planilla-comisiones/planilla-comisiones.page.ts:608:  protected readonly vendedoras = httpResource<Vendedora[]>(
+src/app/features/planilla-comisiones/planilla-comisiones.page.ts:687:     * Optimista, y aquí no es un lujo: `reload()` de los dos recursos ponía
+src/app/features/planilla-comisiones/planilla-comisiones.page.ts:810:      this.periodos.reload();
+src/app/features/planilla-comisiones/planilla-comisiones.page.ts:811:      this.vendedoras.reload();
+src/app/features/planilla-comisiones/planilla-comisiones.page.ts:864:      this.periodos.reload();
+src/app/features/planilla-comisiones/planilla-comisiones.page.ts:933:      this.ventas.reload();
+src/app/features/planilla-comisiones/planilla-comisiones.page.ts:953:      this.ventas.reload();
+src/app/features/planilla-comisiones/planilla-comisiones.page.ts:999:      this.periodos.reload();
+src/app/features/planilla-comisiones/planilla-comisiones.page.ts:1026:    this.vendedoras.reload();
+src/app/features/planilla-comisiones/planilla-comisiones.page.ts:1214:    const [alertas, consolidado] = await Promise.allSettled(tareas);
