@@ -135,4 +135,19 @@ async function bootstrap(): Promise<void> {
   await app.listen(process.env.PORT ?? 3001, host);
 }
 
-bootstrap();
+/**
+ * El `catch` no es decorativo. `bootstrap()` devuelve una promesa y, sin él, un
+ * fallo de arranque —la base sin responder, el puerto 3001 ocupado por una
+ * instancia anterior que no murió— sale como `unhandledRejection`: Node aborta
+ * con un volcado sin contexto y systemd, con `Restart=always`, lo vuelve a
+ * levantar en bucle. El servicio se ve `active` en `systemctl status` mientras
+ * en realidad no ha llegado a escuchar nunca — el mismo modo de fallo que
+ * describe el comentario de `rootDir` en `tsconfig.json`, por otra causa.
+ *
+ * Con esto, el journal recibe una línea legible y un código de salida 1 antes
+ * del reinicio, que es lo que se busca a las dos de la mañana.
+ */
+bootstrap().catch((error: unknown) => {
+  console.error('[bootstrap] el backend no pudo arrancar:', error);
+  process.exit(1);
+});
