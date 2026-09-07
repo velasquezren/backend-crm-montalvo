@@ -1,126 +1,135 @@
-import { Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
+import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
-
+import { PrismaService } from '../../prisma/prisma.service';
 import { UsuariosService } from '../usuarios/usuarios.service';
 import { LoginDto } from './dto/login.dto';
-import { UpdateUsuarioDto } from '../usuarios/dto/update-usuario.dto';
+import { UpdatePerfilDto } from './dto/update-perfil.dto';
+import { AccesoAutenticado, CredencialJwt, esCredencial } from './credencial';
 
-/**
- * Módulo Auth — RNF-01: JWT + bcrypt.
- * Valida credenciales contra UsuariosService (nunca toca prisma.usuario directo).
- */
+const USUARIO_SESION = { id: true, nombre: true, email: true, rol: true, activo: true, versionSesion: true } as const;
+
+/** Credenciales, sesiones revocables y perfil propio. La contraseña se valida vía Usuarios. */
 @Injectable()
 export class AuthService {
   constructor(
     private readonly usuariosService: UsuariosService,
     private readonly jwtService: JwtService,
+    private readonly prisma: PrismaService,
   ) {}
 
   async login(dto: LoginDto) {
     const usuario = await this.usuariosService.findByEmailConPassword(dto.email);
-
-    if (!usuario || !usuario.activo) {
+    if (!usuario || !usuario.activo || !await bcrypt.compare(dto.password, usuario.passwordHash)) {
       throw new UnauthorizedException('Credenciales inválidas');
     }
-
-    const passwordValida = await bcrypt.compare(dto.password, usuario.passwordHash);
-    if (!passwordValida) {
-      throw new UnauthorizedException('Credenciales inválidas');
-    }
-
-    /* El JWT viaja en el header Authorization de CADA petición: debe ser
-       chico. La foto (base64, hasta 2 MB) NUNCA va acá — hacía el token de
-       ~2.7 MB y disparaba HTTP 431 (Request Header Fields Too Large) en todo
-       lo autenticado. Solo identificadores. La foto se devuelve aparte en el
-       cuerpo de la respuesta (el frontend la guarda en su propio storage). */
-    const payload = {
-      sub: usuario.id,
-      email: usuario.email,
-      nombre: usuario.nombre,
-      rol: usuario.rol,
-    };
-
-    /* Refresh token de 30 días **absolutos desde el login**: no rota ni se
-       renueva al usarlo (`refresh()` solo emite un access_token nuevo), así
-       que no es una ventana deslizante de inactividad. Se invalida cerrando
-       sesión —`POST /auth/logout` borra la cookie— o dejándolo expirar. */
-    const refreshToken = await this.jwtService.signAsync(
-      { sub: usuario.id, type: 'refresh' },
-      { expiresIn: '30d' },
-    );
-
+    const iat = Math.floor(Date.now() / 1000);
+    const exp = iat + 30 * 24 * 60 * 60;
+    // Retención acotada para quien vuelve a entrar, sin añadir un job.
+    await this.prisma.sesionUsuario.deleteMany({ where: { usuarioId: usuario.id, expiraEn: { lte: new Date() } } });
+    const sesion = await this.prisma.sesionUsuario.create({ data: { usuarioId: usuario.id, expiraEn: new Date(exp * 1000) } });
+    const identidad = { sub: usuario.id, email: usuario.email, nombre: usuario.nombre, rol: usuario.rol };
+    const comun = { sub: usuario.id, sid: sesion.id, versionSesion: usuario.versionSesion };
     return {
-      access_token: await this.jwtService.signAsync(payload),
-      refresh_token: refreshToken,
+      access_token: await this.jwtService.signAsync({ ...identidad, ...comun, type: 'access' }),
+      refresh_token: await this.jwtService.signAsync({ ...comun, type: 'refresh', iat }, { expiresIn: '30d' }),
       rememberMe: dto.rememberMe ?? true,
-      usuario: { ...payload, foto: usuario.foto },
+      usuario: { ...identidad, foto: usuario.foto },
     };
   }
 
-  /**
-   * Canjea un `refresh_token` por un `access_token` nuevo.
-   *
-   * **Solo lo que de verdad invalida la sesión responde 401.** El `try` cubre
-   * únicamente la verificación de la firma: envolver también la consulta a la
-   * base convertía un parpadeo de Postgres en «token inválido», y el
-   * interceptor del frontend reacciona a ese 401 cerrando la sesión y mandando
-   * al login. Una caída transitoria de la base echaba a todas las agentes a la
-   * vez, en vez de darles un 500 que se reintenta. Todo lo que no sea un
-   * problema de credenciales sube tal cual y sale como 500.
-   */
-  async refresh(refreshToken: string) {
-    if (!refreshToken) {
-      throw new UnauthorizedException('Token de refresco no provisto');
-    }
-
-    let decoded: { sub: string; type?: string };
+  private async verificarToken(token: string, tipo: CredencialJwt['type'], ignorarExpiracion = false): Promise<CredencialJwt> {
+    if (!token) throw new UnauthorizedException('Token no provisto');
+    let payload: unknown;
     try {
-      decoded = await this.jwtService.verifyAsync<{ sub: string; type?: string }>(refreshToken);
+      payload = await this.jwtService.verifyAsync(token, { algorithms: ['HS256'], ignoreExpiration: ignorarExpiracion });
     } catch {
-      throw new UnauthorizedException('Token de refresco inválido o expirado');
+      throw new UnauthorizedException('Token inválido o expirado');
     }
+    if (!esCredencial(payload, tipo)) throw new UnauthorizedException('Credencial de tipo o estructura inválidos');
+    return payload;
+  }
 
-    /* Un access_token no lleva `type`, así que no se puede colar como refresco. */
-    if (decoded.type !== 'refresh') {
-      throw new UnauthorizedException('Token de tipo inválido');
+  private async validarSesion(c: CredencialJwt, incluirFoto = false) {
+    // Los fallos de PostgreSQL quedan fuera del catch de credenciales: son 5xx.
+    const sesion = await this.prisma.sesionUsuario.findUnique({
+      where: { id: c.sid }, include: { usuario: { select: { ...USUARIO_SESION, foto: incluirFoto } } },
+    });
+    if (!sesion || sesion.usuarioId !== c.sub || sesion.expiraEn.getTime() <= Date.now() ||
+        !sesion.usuario.activo || sesion.usuario.versionSesion !== c.versionSesion ||
+        (c.type === 'access' && sesion.usuario.rol !== c.rol)) {
+      throw new UnauthorizedException('Sesión inválida o revocada');
     }
+    return { ...sesion.usuario, expiraEn: sesion.expiraEn };
+  }
 
-    let usuario: Awaited<ReturnType<UsuariosService['findOne']>>;
-    try {
-      usuario = await this.usuariosService.findOne(decoded.sub);
-    } catch (error) {
-      /* Usuario borrado: la sesión ya no vale, 401. Cualquier otro fallo
-         —la base no responde— se re-lanza a propósito. */
-      if (error instanceof NotFoundException) {
-        throw new UnauthorizedException('Usuario no activo o no encontrado');
+  /** Única validación de acceso para HTTP y el handshake de Socket.IO. */
+  async validarAcceso(token: string): Promise<AccesoAutenticado> {
+    const c = await this.verificarToken(token, 'access');
+    const u = await this.validarSesion(c);
+    return { sub: u.id, email: u.email, nombre: u.nombre, rol: u.rol, sid: c.sid,
+      exp: Math.min(c.exp, Math.floor(u.expiraEn.getTime() / 1000)), versionSesion: c.versionSesion };
+  }
+
+  async refresh(refreshToken: string, accessToken?: string) {
+    const c = await this.verificarToken(refreshToken, 'refresh');
+    if (accessToken) {
+      const acceso = await this.verificarToken(accessToken, 'access', true);
+      if (acceso.sid !== c.sid || acceso.sub !== c.sub || acceso.versionSesion !== c.versionSesion) {
+        throw new UnauthorizedException('Las credenciales pertenecen a sesiones distintas');
       }
+    }
+    const u = await this.validarSesion(c, true);
+    const identidad = { sub: u.id, email: u.email, nombre: u.nombre, rol: u.rol };
+    return {
+      access_token: await this.jwtService.signAsync({ ...identidad, sid: c.sid, versionSesion: c.versionSesion, type: 'access' }),
+      usuario: { ...identidad, foto: u.foto },
+    };
+  }
+
+  /** Revoca el bearer si está presente. Devuelve si su cookie también debe borrarse. */
+  async logout(token: string, tipo: CredencialJwt['type'], cookieToken?: string): Promise<boolean> {
+    let c: CredencialJwt;
+    try { c = await this.verificarToken(token, tipo, true); }
+    catch (error) {
+      if (error instanceof UnauthorizedException) return tipo === 'refresh' || !cookieToken;
       throw error;
     }
-
-    if (!usuario.activo) {
-      throw new UnauthorizedException('Usuario no activo o no encontrado');
+    let borrarCookie = true;
+    if (tipo === 'access' && cookieToken) {
+      try {
+        const cookie = await this.verificarToken(cookieToken, 'refresh', true);
+        borrarCookie = cookie.sid === c.sid && cookie.sub === c.sub;
+      } catch (error) {
+        if (!(error instanceof UnauthorizedException)) throw error;
+      }
     }
+    await this.prisma.sesionUsuario.deleteMany({ where: { id: c.sid, usuarioId: c.sub } });
+    return borrarCookie;
+  }
 
-    const payload = {
-      sub: usuario.id,
-      email: usuario.email,
-      nombre: usuario.nombre,
-      rol: usuario.rol,
-    };
-    return {
-      access_token: await this.jwtService.signAsync(payload),
-      usuario: { ...payload, foto: usuario.foto },
-    };
+  /** Una consulta por difusión, aunque haya varias pestañas o usuarios conectados. */
+  async accesosVigentes(accesos: AccesoAutenticado[]): Promise<Set<AccesoAutenticado>> {
+    if (!accesos.length) return new Set();
+    const sesiones = await this.prisma.sesionUsuario.findMany({
+      where: { id: { in: accesos.map(a => a.sid) }, expiraEn: { gt: new Date() }, usuario: { activo: true } },
+      select: { id: true, usuarioId: true, usuario: { select: { rol: true, versionSesion: true } } },
+    });
+    const porId = new Map(sesiones.map(s => [s.id, s]));
+    return new Set(accesos.filter(a => {
+      const s = porId.get(a.sid);
+      return s && a.sub === s.usuarioId && a.exp * 1000 > Date.now() &&
+        a.rol === s.usuario.rol && a.versionSesion === s.usuario.versionSesion;
+    }));
   }
 
   async getPerfil(id: string) {
     return this.usuariosService.findOne(id);
   }
 
-  async updatePerfil(id: string, dto: UpdateUsuarioDto) {
-    // Evitar que el agente se cambie su propio rol o estado activo/inactivo por seguridad
-    const { rol, activo, ...cleanDto } = dto;
-    return this.usuariosService.update(id, cleanDto);
+  async updatePerfil(id: string, dto: UpdatePerfilDto) {
+    // Lista cerrada también para llamadas internas que no pasen por ValidationPipe.
+    const { nombre, email, password, foto } = dto;
+    return this.usuariosService.update(id, { nombre, email, password, foto });
   }
 }

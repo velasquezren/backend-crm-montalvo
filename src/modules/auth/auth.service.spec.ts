@@ -24,6 +24,7 @@ interface UsuarioFalso {
   activo: boolean;
   passwordHash: string;
   foto: string | null;
+  versionSesion: number;
 }
 
 const BASE: UsuarioFalso = {
@@ -34,6 +35,7 @@ const BASE: UsuarioFalso = {
   activo: true,
   passwordHash: '',
   foto: null,
+  versionSesion: 0,
 };
 
 interface Firmado {
@@ -75,7 +77,15 @@ function montar(
     },
   };
 
-  const servicio = new AuthService(usuariosService as never, jwtService as never);
+  const prisma = { sesionUsuario: {
+    deleteMany: async () => ({ count: 0 }),
+    create: async () => ({ id: 's1' }),
+    findUnique: async () => {
+      if (opciones.errorAlReleer) throw opciones.errorAlReleer;
+      return usuario ? { id: 's1', usuarioId: usuario.id, expiraEn: new Date(Date.now() + 60_000), usuario } : null;
+    },
+  } };
+  const servicio = new AuthService(usuariosService as never, jwtService as never, prisma as never);
 
   return {
     servicio,
@@ -89,6 +99,8 @@ function montar(
 async function usuarioConPassword(clave: string, extra: Partial<UsuarioFalso> = {}): Promise<UsuarioFalso> {
   return { ...BASE, ...extra, passwordHash: await bcrypt.hash(clave, 4) };
 }
+
+const credencialRefresh = (sub = BASE.id) => ({ sub, type: 'refresh', sid: 's1', versionSesion: 0, exp: Math.floor(Date.now() / 1000) + 60 });
 
 describe('AuthService · login', () => {
   it('un email que no existe da Unauthorized (nunca revela si el email existe)', async () => {
@@ -172,14 +184,14 @@ describe('AuthService · refresh', () => {
 
   it('usuario borrado desde el login: 401, no 500', async () => {
     const { servicio, fijarVerificacion } = montar({ usuario: null });
-    fijarVerificacion(() => ({ sub: 'ya-no-existe', type: 'refresh' }));
+    fijarVerificacion(() => credencialRefresh('ya-no-existe'));
 
     await expect(servicio.refresh('token-viejo')).rejects.toThrow(UnauthorizedException);
   });
 
   it('usuario desactivado: 401', async () => {
     const { servicio, fijarVerificacion } = montar({ usuario: { ...BASE, activo: false } });
-    fijarVerificacion(() => ({ sub: BASE.id, type: 'refresh' }));
+    fijarVerificacion(() => credencialRefresh());
 
     await expect(servicio.refresh('token-valido')).rejects.toThrow(UnauthorizedException);
   });
@@ -187,14 +199,14 @@ describe('AuthService · refresh', () => {
   it('si la base falla al releer al usuario (no "no encontrado"), el error original sube tal cual', async () => {
     const caidaDeBase = new Error('Postgres no responde');
     const { servicio, fijarVerificacion } = montar({ errorAlReleer: caidaDeBase });
-    fijarVerificacion(() => ({ sub: BASE.id, type: 'refresh' }));
+    fijarVerificacion(() => credencialRefresh());
 
     await expect(servicio.refresh('token-valido')).rejects.toBe(caidaDeBase);
   });
 
   it('éxito: devuelve un access_token nuevo y NO un refresh_token nuevo', async () => {
     const { servicio, fijarVerificacion } = montar();
-    fijarVerificacion(() => ({ sub: BASE.id, type: 'refresh' }));
+    fijarVerificacion(() => credencialRefresh());
 
     const resultado = await servicio.refresh('token-valido');
 
@@ -204,7 +216,7 @@ describe('AuthService · refresh', () => {
 });
 
 describe('AuthService · updatePerfil', () => {
-  it('un agente no puede cambiarse el rol ni el estado activo desde su propio perfil', async () => {
+  it('el perfil no propaga codigo, rol ni activo, incluso sin ValidationPipe', async () => {
     const cambios: Array<Record<string, unknown>> = [];
     const usuariosService = {
       update: async (_id: string, dto: Record<string, unknown>) => {
@@ -212,10 +224,11 @@ describe('AuthService · updatePerfil', () => {
         return { ...BASE, ...dto };
       },
     };
-    const servicio = new AuthService(usuariosService as never, {} as never);
+    const servicio = new AuthService(usuariosService as never, {} as never, {} as never);
 
     await servicio.updatePerfil(BASE.id, {
       nombre: 'Ana Nueva',
+      codigo: 'CODIGO-NO-AUTORIZADO',
       rol: 'SUPER_ADMIN',
       activo: false,
     } as never);

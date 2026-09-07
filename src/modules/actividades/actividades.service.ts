@@ -277,20 +277,24 @@ export class ActividadesService implements OnModuleInit, OnModuleDestroy {
   async update(id: string, dto: UpdateActividadDto, soloAgenteId?: string) {
     const existente = await this.prisma.actividad.findUnique({
       where: { id },
-      select: { id: true, agenteId: true, clienteId: true },
+      select: { id: true, agenteId: true, clienteId: true, leadId: true },
     });
     if (!existente || !this.enAlcance(existente, soloAgenteId)) {
       throw new NotFoundException(`Actividad ${id} no encontrada`);
     }
 
-    if (dto.leadId) {
+    if (dto.clienteId !== undefined || dto.leadId !== undefined) {
       const clienteId = dto.clienteId ?? existente.clienteId;
-      const lead = await this.prisma.lead.findUnique({
-        where: { id: dto.leadId },
-        select: { id: true, clienteId: true },
-      });
-      if (!lead || lead.clienteId !== clienteId) {
-        throw new NotFoundException(`Lead ${dto.leadId} no encontrado para este cliente`);
+      await this.clientesService.findOne(clienteId, soloAgenteId);
+      const leadId = dto.leadId === undefined ? existente.leadId : dto.leadId;
+      if (leadId) {
+        const lead = await this.prisma.lead.findUnique({
+          where: { id: leadId },
+          select: { id: true, clienteId: true },
+        });
+        if (!lead || lead.clienteId !== clienteId) {
+          throw new NotFoundException(`Lead ${leadId} no encontrado para este cliente`);
+        }
       }
     }
 

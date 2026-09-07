@@ -467,14 +467,15 @@ export class PlanillaComisionesController {
     @Param('id') id: string,
     @Param('tipo') tipo: TipoVendedora,
     @Body() dto: ActualizarObjetivoDto,
+    @CurrentUser() usuario: UsuarioJwt,
   ) {
-    return this.configuracion.guardarObjetivoDePeriodo(id, tipo, dto);
+    return this.configuracion.guardarObjetivoDePeriodo(id, tipo, dto, usuario.sub);
   }
 
   @Delete('periodos/:id/objetivos/:tipo')
   @Roles('SUPER_ADMIN')
-  eliminarObjetivoDePeriodo(@Param('id') id: string, @Param('tipo') tipo: TipoVendedora) {
-    return this.configuracion.eliminarObjetivoDePeriodo(id, tipo);
+  eliminarObjetivoDePeriodo(@Param('id') id: string, @Param('tipo') tipo: TipoVendedora, @CurrentUser() usuario: UsuarioJwt) {
+    return this.configuracion.eliminarObjetivoDePeriodo(id, tipo, usuario.sub);
   }
 
   @Put('configuracion/captacion/:valor')
@@ -491,8 +492,8 @@ export class PlanillaComisionesController {
 
   @Patch('configuracion/objetivos/:id')
   @Roles('SUPER_ADMIN')
-  actualizarObjetivo(@Param('id') id: string, @Body() dto: ActualizarObjetivoDto) {
-    return this.configuracion.actualizarObjetivo(id, dto);
+  actualizarObjetivo(@Param('id') id: string, @Body() dto: ActualizarObjetivoDto, @CurrentUser() usuario: UsuarioJwt) {
+    return this.configuracion.actualizarObjetivo(id, dto, usuario.sub);
   }
 
   @Patch('configuracion/parametros/:clave')
@@ -513,9 +514,9 @@ export class PlanillaComisionesController {
    */
   @Post('configuracion/reglas')
   @Roles('SUPER_ADMIN')
-  async crearRegla(@Body() dto: CrearReglaDto) {
+  async crearRegla(@Body() dto: CrearReglaDto, @CurrentUser() usuario: UsuarioJwt) {
     const regla = await this.configuracion.crearRegla(dto);
-    const filasActualizadas = await this.planilla.reclasificarConRegla(regla);
+    const filasActualizadas = await this.planilla.reclasificarConRegla(regla, usuario.sub);
     return { ...regla, filasActualizadas };
   }
 

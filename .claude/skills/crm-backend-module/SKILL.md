@@ -154,22 +154,25 @@ escopar. Los **agregados** (KPIs, conteos) tienen el mismo hueco si no se filtra
 igual que las consultas de detalle — ver el bug corregido en `kpis.service.ts` (`resumen()` sumaba
 conversaciones y leads de toda la clínica al funnel de un agente).
 
-**Excepción a propósito:** las llamadas *internas* entre módulos (ej. `VentasService` llamando a
-`ClientesService.findOne(dto.clienteId)` para validar que el cliente existe al registrar una venta)
-no pasan `soloAgenteId` — son lógica de negocio legítima, no el agente navegando IDs a mano. El
-parámetro es opcional y por defecto `undefined` (sin restricción) exactamente para no romper esos
-casos.
+**Delegar en otro módulo no elimina el alcance del comando HTTP.** Por ejemplo,
+`VentasService.create()` transmite `soloAgenteId` a `ClientesService.findOne()`:
+validar solo existencia permitía registrar ventas sobre pacientes ajenos (F04).
+Lo mismo se aplica a un cliente existente localizado por teléfono desde Leads.
+El parámetro sigue siendo opcional para operaciones internas de confianza y
+usuarios con alcance global; no debe omitirse por el mero hecho de cruzar un service.
 
-## Autenticación: access token corto + refresh token en cookie cross-site
+## Autenticación: sesión revocable + refresh token en cookie cross-site
 
 `AuthService.login()` firma dos JWT distintos. El `access_token` viaja en el
 header `Authorization` de cada petición y por eso lleva payload mínimo (`sub`,
-`email`, `nombre`, `rol`) — la foto del usuario **nunca** va ahí: en base64
+`email`, `nombre`, `rol`, `type`, `sid`, `versionSesion`) — la foto del usuario **nunca** va ahí: en base64
 llegó a pesar ~2,7 MB y disparaba 431 (Request Header Fields Too Large) en
 todo lo autenticado; se devuelve aparte, en el cuerpo de la respuesta. El
 `refresh_token` dura 30 días **absolutos desde el login** — no rota ni desliza
 con el uso, `refresh()` solo emite un `access_token` nuevo — y viaja en una
-cookie `HttpOnly` que arma `opcionesCookieRefresh()` (`auth.controller.ts`).
+cookie `HttpOnly` que arma `opcionesCookieRefresh()` (`auth.controller.ts`);
+el controller lo excluye del JSON. Access dura 8 horas y además queda limitado
+por la expiración absoluta de `SesionUsuario`.
 
 **Por qué la cookie depende de `NODE_ENV`:** el frontend vive en Vercel y esta
 API en otro dominio — es cross-site, no cross-origin del mismo sitio. Con
@@ -196,15 +199,27 @@ cerrando la sesión, así que una caída de un segundo en la base echaba a
 **todas** las agentes conectadas a la vez, en vez de dejar que el fetch se
 reintentara con un 500.
 
-**`POST /auth/logout` borra la cookie, no revoca el JWT.** Es sin estado: una
-copia que ya salió del navegador (otra pestaña, otro dispositivo) sigue siendo
-válida hasta que expira. Esto resuelve el caso real y frecuente en la clínica
-—varias agentes comparten equipo, y sin logout el `refresh_token` de la
-anterior seguía siendo canjeable— no una revocación de verdad; eso exigiría
-guardar algo en la base (ej. `sesionesValidasDesde` contra el `iat` del token)
-y no existe todavía. `@Public()` en los tres endpoints (`login`, `refresh`,
-`logout`) es intencional: quien cierra sesión puede tener el `access_token`
-ya vencido, y no poder salir por eso sería absurdo.
+**`POST /auth/logout` elimina `SesionUsuario` y borra la cookie correspondiente.**
+Si recibe Bearer, revoca ese login y conserva una cookie de otro login; sin Bearer
+usa la cookie. Otros dispositivos conservan sus sesiones. Si PostgreSQL falla
+devuelve 5xx sin afirmar revocación. Refresh, cuando recibe Bearer, exige que
+ambas credenciales pertenezcan a la misma sesión, aunque el access haya expirado.
+Los endpoints
+`login`, `refresh` y `logout` siguen siendo `@Public()`: logout valida la firma y
+estructura incluso con access expirado, sin depender del guard.
+
+`AuthService.validarAcceso()` comparte la validación de HTTP y del handshake:
+firma HS256, estructura y tipo access, expiración, sesión existente del usuario,
+usuario activo, rol y `versionSesion` actuales. No carga la foto para autorizar.
+Cambiar contraseña, rol o activo incrementa `Usuario.versionSesion` en el mismo
+UPDATE (también si se vuelve a enviar el mismo rol/activo); reactivar no revive
+tokens antiguos. Antes de emitir eventos el gateway comprueba todas las sesiones
+en una consulta, y desconecta cada socket cuando expira su access. Un fallo de
+base impide la difusión pero no se convierte en credencial inválida.
+
+Los JWT anteriores sin tipo/ID/versión requieren nuevo login. Aplicar la migración
+aditiva antes de la aplicación. El rollback de aplicación puede conservar tabla
+y columna; no retirar una migración ya aplicada ni sus datos para volver al build anterior.
 
 ## Llamadas externas lentas: nunca bloquear la respuesta al cliente
 

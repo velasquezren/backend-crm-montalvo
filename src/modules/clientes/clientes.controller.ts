@@ -13,8 +13,8 @@ export class ClientesController {
   constructor(private readonly clientesService: ClientesService) {}
 
   @Post()
-  create(@Body() dto: CreateClienteDto) {
-    return this.clientesService.create(dto);
+  create(@Body() dto: CreateClienteDto, @CurrentUser() usuario: UsuarioJwt) {
+    return this.clientesService.create(dto, alcanceAgente(usuario));
   }
 
   @Get()
@@ -40,13 +40,13 @@ export class ClientesController {
   }
 
   @Post(':id/intereses')
-  registrarInteres(@Param('id') id: string, @Body() dto: CreateInteresDto) {
-    return this.clientesService.registrarInteres(id, dto);
+  registrarInteres(@Param('id') id: string, @Body() dto: CreateInteresDto, @CurrentUser() usuario: UsuarioJwt) {
+    return this.clientesService.registrarInteres(id, dto, alcanceAgente(usuario));
   }
 
   @Post(':id/recalcular-categoria')
-  recalcularCategoria(@Param('id') id: string) {
-    return this.clientesService.actualizarCategoria(id);
+  recalcularCategoria(@Param('id') id: string, @CurrentUser() usuario: UsuarioJwt) {
+    return this.clientesService.actualizarCategoria(id, alcanceAgente(usuario));
   }
 
   /** Servicios que se le realizaron al paciente (desde las planillas importadas). */

@@ -22,7 +22,7 @@ import { EstadoPeriodo } from '../../prisma/prisma-client';
  * ```
  * BORRADOR ──calcular──▶ CALCULADO ──enviar a revisión──▶ EN_REVISION
  *     ▲                    │  ▲                            │      │
- *     └──reimportar────────┘  └───rechazar (con motivo)─────┘      │ aprueban todos
+ *     └──cambiar entradas──┘  └───rechazar (con motivo)─────┘      │ aprueban todos
  *                             ▲                                   ▼
  *                             └──reabrir (SUPER_ADMIN + motivo)── CERRADO
  *                                                                  │
@@ -30,6 +30,12 @@ import { EstadoPeriodo } from '../../prisma/prisma-client';
  *                                                                  ▼
  *                                                               PAGADO
  * ```
+ *
+ * Cambiar entradas incluye reimportar, ajustar/incluir/excluir ventas,
+ * reclasificar pendientes y modificar metas propias. La invalidación retira
+ * resultados/foto/firmas en la misma transacción. Configuración global nueva
+ * rige el próximo cálculo; no sustituye la foto del cálculo existente.
+ * Los comandos se excluyen por mes mediante `transaccion-periodo.ts`.
  *
  * `PAGADO` es terminal **a propósito**. Una planilla pagada no se reescribe: si
  * apareció un error, se corrige con un ajuste en el mes siguiente, que es como

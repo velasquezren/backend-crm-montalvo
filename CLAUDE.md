@@ -38,7 +38,7 @@ rendimiento sin inventar problemas que no existen a esta escala.
 
 ```bash
 npm run build          # check:skills + nest build + check:build — la compuerta real
-npm run test:build     # prueba la comprobación del entrypoint, sin base
+npm run test:build     # verificador + builds limpio/consecutivo y fallo sin emisión, sin base
 npm test               # unitarias (rápidas, sin base)
 npm run test:integracion:preparar && npm run test:integracion   # necesitan Postgres
 npx prisma migrate dev --name <nombre> --create-only            # revisar el SQL antes
@@ -52,6 +52,14 @@ build podía terminar con exit 0 sin reemitir `dist/main.js`. `check:build`
 rechaza un entrypoint ausente, vacío o que no sea archivo. No sustituye la
 prueba de arranque/DI ni los curls post-despliegue. Al cambiar el compilador,
 verificar un build limpio y otro consecutivo, y arrancar el artefacto real.
+
+`test:build` compila una copia temporal del código actual usando las dependencias
+ya instaladas (incluido el cliente Prisma generado). No copia `.env`, `dist` ni
+cachés previas. Comprueba también que `npm run build` falla si TypeScript termina
+sin errores pero no emite JavaScript (`noEmit`). No arranca la aplicación ni usa
+PostgreSQL; el arranque/DI se comprueba aparte con `node dist/main.js`, una base
+temporal y `NODE_ENV=test` para desactivar los trabajos periódicos. Verificar
+`GET /health` → 200, login vacío con JSON → 400 y periodos sin token → 401.
 
 **No uses el navegador en este proyecto.** Para probar un endpoint, `curl` contra
 la base local.
@@ -81,7 +89,7 @@ la base local.
 
 ## Autenticación
 
-`POST /auth/login` devuelve un `access_token` corto (payload mínimo — nunca la
+`POST /auth/login` devuelve un `access_token` de 8 horas (payload mínimo — nunca la
 foto, que a ~2 MB en base64 disparaba 431 Request Header Fields Too Large en
 cada petición) y un `refresh_token` de 30 días **absolutos desde el login** en
 cookie `HttpOnly`. El frontend vive en Vercel y esta API en otro dominio: es
@@ -92,10 +100,12 @@ las opciones tanto del `res.cookie()` de login como del `res.clearCookie()` de
 logout **a propósito**: si divergen en `path`/`sameSite`/`secure`, el
 navegador no borra la cookie y el logout falla en silencio.
 
-**`POST /auth/logout` no revoca el JWT**, solo borra la cookie: una copia que
-ya salió del navegador sigue siendo válida hasta que expira — cierra el caso
-real (varias agentes comparten equipo), no un robo de token. Y en
-`refresh()`, solo un problema de credenciales responde 401: un parpadeo
+**`POST /auth/logout` revoca la sesión actual** en PostgreSQL y borra la cookie;
+otros dispositivos conservan sus sesiones. Access y refresh llevan `type`, `sid`
+y `versionSesion`: HTTP y socket comprueban propósito, sesión vigente, usuario
+activo y versión actual. Cambiar contraseña, rol o activo incrementa esa versión
+en el mismo UPDATE e invalida las credenciales anteriores del usuario. El refresh
+no se devuelve en JSON. En `refresh()`, solo un problema de credenciales responde 401: un parpadeo
 transitorio de la base no debe cerrarle la sesión a todo el mundo a la vez.
 Detalle completo, y el patrón para módulos nuevos con sesiones, en
 `crm-backend-module`.

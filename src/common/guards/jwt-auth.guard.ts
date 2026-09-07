@@ -1,6 +1,6 @@
 import { CanActivate, ExecutionContext, Injectable, UnauthorizedException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import { JwtService } from '@nestjs/jwt';
+import { AuthService } from '../../modules/auth/auth.service';
 
 import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
 
@@ -11,7 +11,7 @@ import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
 @Injectable()
 export class JwtAuthGuard implements CanActivate {
   constructor(
-    private readonly jwtService: JwtService,
+    private readonly authService: AuthService,
     private readonly reflector: Reflector,
   ) {}
 
@@ -32,11 +32,7 @@ export class JwtAuthGuard implements CanActivate {
       throw new UnauthorizedException('Token no provisto');
     }
 
-    try {
-      request.user = await this.jwtService.verifyAsync(token);
-      return true;
-    } catch {
-      throw new UnauthorizedException('Token inválido o expirado');
-    }
+    request.user = await this.authService.validarAcceso(token);
+    return true;
   }
 }

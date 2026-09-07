@@ -10,9 +10,13 @@ import {
   TarifaServicio,
   CanalVenta,
   TipoVendedora,
+  Prisma,
 } from '../../prisma/prisma-client';
 
 import { PrismaService } from '../../prisma/prisma.service';
+import { AuditService } from '../../common/audit/audit.service';
+import { conPeriodoBloqueado, invalidarCalculo } from './transaccion-periodo';
+import { esEditable, MOTIVO_BLOQUEO } from './estados-periodo';
 import { normalizar, ReglaDiccionario } from './clasificador';
 import {
   CAPTACION_POR_DEFECTO,
@@ -176,20 +180,20 @@ export class ConfiguracionComisionesService {
    * reasigne `config.objetivos` después de haberlas leído, y que `listarTodo()`
    * termine exponiendo las de todos los meses mezcladas.
    */
-  async cargarConfiguracion(periodoId?: string): Promise<ConfiguracionCompleta> {
+  async cargarConfiguracion(periodoId?: string, tx: Prisma.TransactionClient = this.prisma): Promise<ConfiguracionCompleta> {
     const [catalogos, objetivos] = await Promise.all([
-      this.prisma.$transaction([
-        this.prisma.tarifaPlan.findMany(),
-        this.prisma.tarifaServicio.findMany(),
-        this.prisma.nivelCirugia.findMany({ orderBy: { nivel: 'asc' } }),
-        this.prisma.nivelTipoARA.findMany({ orderBy: { nivel: 'asc' } }),
-        this.prisma.tarifaRA.findMany(),
-        this.prisma.parametroComision.findMany(),
-        this.prisma.mapeoCaptacion.findMany(),
+      Promise.all([
+        tx.tarifaPlan.findMany(),
+        tx.tarifaServicio.findMany(),
+        tx.nivelCirugia.findMany({ orderBy: { nivel: 'asc' } }),
+        tx.nivelTipoARA.findMany({ orderBy: { nivel: 'asc' } }),
+        tx.tarifaRA.findMany(),
+        tx.parametroComision.findMany(),
+        tx.mapeoCaptacion.findMany(),
       ]),
       periodoId
-        ? this.objetivosParaPeriodo(periodoId)
-        : this.prisma.objetivoComision.findMany({ where: { periodoId: null } }),
+        ? this.objetivosParaPeriodo(periodoId, tx)
+        : tx.objetivoComision.findMany({ where: { periodoId: null } }),
     ]);
 
     const [tarifasPlan, tarifasServicio, nivelesCirugia, nivelesTipoARA, tarifasRA, parametros, captacion] =
@@ -220,8 +224,8 @@ export class ConfiguracionComisionesService {
    * decide qué meta manda: si mañana se agrega una tercera capa (por vendedora,
    * por ejemplo), el motor no se entera.
    */
-  async objetivosParaPeriodo(periodoId: string): Promise<ObjetivoComision[]> {
-    const filas = await this.prisma.objetivoComision.findMany({
+  async objetivosParaPeriodo(periodoId: string, tx: Prisma.TransactionClient = this.prisma): Promise<ObjetivoComision[]> {
+    const filas = await tx.objetivoComision.findMany({
       where: { OR: [{ periodoId: null }, { periodoId }] },
     });
 
@@ -240,26 +244,43 @@ export class ConfiguracionComisionesService {
     periodoId: string,
     tipo: TipoVendedora,
     dto: ActualizarObjetivoDto,
+    usuarioId?: string,
   ): Promise<ObjetivoComision> {
-    await this.exigirExistencia(
-      this.prisma.periodoComision.count({ where: { id: periodoId } }),
-      `Periodo ${periodoId}`,
-    );
-    return this.prisma.objetivoComision.upsert({
+    return this.modificarObjetivoDePeriodo(periodoId, usuarioId, tx => tx.objetivoComision.upsert({
       where: { tipo_periodoId: { tipo, periodoId } },
       create: { tipo, periodoId, ...dto },
       update: dto,
-    });
+    }));
   }
 
   /** Quita las metas propias del mes: vuelve a regir la de por defecto. */
-  async eliminarObjetivoDePeriodo(periodoId: string, tipo: TipoVendedora) {
-    await this.exigirExistencia(
-      this.prisma.objetivoComision.count({ where: { periodoId, tipo } }),
-      `Meta ${tipo} del periodo`,
-    );
-    return this.prisma.objetivoComision.delete({
-      where: { tipo_periodoId: { tipo, periodoId } },
+  async eliminarObjetivoDePeriodo(periodoId: string, tipo: TipoVendedora, usuarioId?: string) {
+    return this.modificarObjetivoDePeriodo(periodoId, usuarioId, async tx => {
+      await this.exigirExistencia(
+        tx.objetivoComision.count({ where: { periodoId, tipo } }),
+        `Meta ${tipo} del periodo`,
+      );
+      return tx.objetivoComision.delete({
+        where: { tipo_periodoId: { tipo, periodoId } },
+    });
+    });
+  }
+
+  private modificarObjetivoDePeriodo(
+    periodoId: string,
+    usuarioId: string | undefined,
+    modificar: (tx: Prisma.TransactionClient) => Promise<ObjetivoComision>,
+  ) {
+    return conPeriodoBloqueado(this.prisma, periodoId, async tx => {
+      const periodo = await tx.periodoComision.findUniqueOrThrow({ where: { id: periodoId } });
+      if (!esEditable(periodo.estado)) throw new ConflictException(MOTIVO_BLOQUEO[periodo.estado]);
+      const anteriores = await tx.objetivoComision.findMany({ where: { periodoId } });
+      const resultado = await modificar(tx);
+      await invalidarCalculo(tx, periodoId, 'Cambio de metas del periodo', usuarioId);
+      await AuditService.registrarFinanciero(tx, 'PeriodoComision', periodoId, 'MODIFICAR_OBJETIVO', usuarioId, {
+        anteriores, actuales: await tx.objetivoComision.findMany({ where: { periodoId } }),
+      });
+      return resultado;
     });
   }
 
@@ -397,11 +418,13 @@ export class ConfiguracionComisionesService {
     return this.prisma.tarifaRA.update({ where: { id }, data: dto });
   }
 
-  async actualizarObjetivo(id: string, dto: ActualizarObjetivoDto): Promise<ObjetivoComision> {
-    await this.exigirExistencia(
-      this.prisma.objetivoComision.count({ where: { id } }),
-      `Objetivo ${id}`,
-    );
+  async actualizarObjetivo(id: string, dto: ActualizarObjetivoDto, usuarioId?: string): Promise<ObjetivoComision> {
+    const objetivo = await this.prisma.objetivoComision.findUnique({ where: { id } });
+    if (!objetivo) throw new NotFoundException(`Objetivo ${id} no encontrado`);
+    if (objetivo.periodoId) {
+      return this.modificarObjetivoDePeriodo(objetivo.periodoId, usuarioId, tx =>
+        tx.objetivoComision.update({ where: { id }, data: dto }));
+    }
     return this.prisma.objetivoComision.update({ where: { id }, data: dto });
   }
 

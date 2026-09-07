@@ -34,6 +34,7 @@ import {
   ConfiguracionComisionesService,
 } from './configuracion-comisiones.service';
 import { PARAM } from './configuracion-por-defecto';
+import { conPeriodoBloqueado, invalidarCalculo } from './transaccion-periodo';
 
 /** Una fila del periodo, con lo mínimo que el cálculo necesita. */
 interface FilaCalculo {
@@ -118,16 +119,35 @@ export interface FotoConfiguracion {
     pctEmpresa: number;
     pctPropio: number;
   }>;
+  readonly tarifasRA: ReadonlyArray<{
+    procedimiento: string; montoEmpresa: number; montoPropio: number; esPorcentaje: boolean;
+  }>;
+  readonly vendedoras: ReadonlyArray<{
+    id: string; codigo: string; nombre: string; tipo: TipoVendedora; area: AreaVendedora;
+    sueldoBase: number; activa: boolean; configurada: boolean;
+  }>;
+  readonly promediosTrimestrales: Record<string, number>;
 }
 
 /** Arma la foto a partir de la configuración que acaba de usar el cálculo. */
 function fotografiarConfiguracion(
   config: ConfiguracionCompleta,
   tipoCambio: number,
+  vendedoras: readonly VendedoraComision[],
+  promediosTrimestrales: ReadonlyMap<string, number>,
 ): FotoConfiguracion {
   return {
     calculadoEn: new Date().toISOString(),
     tipoCambio,
+    tarifasRA: config.tarifasRA.map(t => ({
+      procedimiento: t.procedimiento, montoEmpresa: Number(t.montoEmpresa),
+      montoPropio: Number(t.montoPropio), esPorcentaje: t.esPorcentaje,
+    })),
+    vendedoras: vendedoras.map(v => ({
+      id: v.id, codigo: v.codigo, nombre: v.nombre, tipo: v.tipo, area: v.area,
+      sueldoBase: Number(v.sueldoBase), activa: v.activa, configurada: v.configurada,
+    })),
+    promediosTrimestrales: Object.fromEntries(promediosTrimestrales),
     parametros: Object.fromEntries(config.parametros),
     objetivos: config.objetivos.map(o => ({
       tipo: String(o.tipo),
@@ -215,126 +235,126 @@ export class CalculoComisionesService {
 
   /** Liquida el periodo completo y persiste un `ResultadoComision` por vendedora. */
   async calcular(periodoId: string, usuarioId: string) {
-    const periodo = await this.prisma.periodoComision.findUnique({ where: { id: periodoId } });
-    if (!periodo) {
-      throw new ConflictException(`Periodo ${periodoId} no encontrado`);
-    }
-    /* Recalcular reescribe `ResultadoComision` y pisa la foto de configuración,
-       así que solo se permite mientras el mes siga siendo editable. Antes esto
-       solo miraba CERRADO: al aparecer EN_REVISION, un recálculo habría podido
-       cambiar bajo los pies las cifras que alguien estaba firmando. */
-    if (!esEditable(periodo.estado)) {
-      throw new ConflictException(
-        `No se puede recalcular este periodo. ${MOTIVO_BLOQUEO[periodo.estado]}`,
-      );
-    }
-
-    // La config se pide POR PERIODO: trae ya resueltas las metas que rigen este
-    // mes, sean las propias o las base.
-    const config = await this.configuracion.cargarConfiguracion(periodoId);
-    const tipoCambio = Number(periodo.tipoCambio) || 1;
-
-    const [filasCrudas, vendedoras] = await Promise.all([
-      this.prisma.ventaImportada.findMany({
-        where: { periodoId, comisionable: true, vendedoraId: { not: null } },
-        select: {
-          id: true,
-          comisionaPlan: true,
-          codOrigen: true,
-          fecha: true,
-          vendedoraId: true,
-          canal: true,
-          clasif: true,
-          unidadNegocio: true,
-          nivel: true,
-          detalle: true,
-          ingresoNeto: true,
-          precio: true,
-        },
-      }),
-      this.prisma.vendedoraComision.findMany({ where: { activa: true } }),
-    ]);
-
-    const filas: FilaCalculo[] = filasCrudas.map(f => ({
-      id: f.id,
-      comisionaPlan: f.comisionaPlan,
-      codOrigen: f.codOrigen,
-      fecha: f.fecha,
-      vendedoraId: f.vendedoraId as string,
-      canal: f.canal,
-      clasif: f.clasif,
-      unidadNegocio: f.unidadNegocio,
-      nivel: f.nivel,
-      detalle: f.detalle,
-      ingresoNeto: Number(f.ingresoNeto),
-      precio: Number(f.precio),
-    }));
-
-    const porVendedora = new Map<string, FilaCalculo[]>();
-    for (const fila of filas) {
-      const lista = porVendedora.get(fila.vendedoraId);
-      if (lista) lista.push(fila);
-      else porVendedora.set(fila.vendedoraId, [fila]);
-    }
-
-    /*
-     * Solo liquida quien está en el equipo oficial (`configurada`). Las demás se
-     * dan de alta solas al importar y quedan a la espera de que administración
-     * les asigne tipo y área.
-     *
-     * Es lo que hace la planilla: Gizelle Praciano vendió 16.189,80 en noviembre
-     * y 6.695,84 en diciembre, y no aparece en ninguna hoja de pago. Pagarle
-     * porque su nombre salió en el Excel sería inventar una comisión.
-     *
-     * No es un descarte silencioso — cada una deja su aviso con lo que vendió,
-     * para que se vea y se decida.
-     */
-    const resultados = [];
-    for (const vendedora of vendedoras) {
-      const suyas = porVendedora.get(vendedora.id) ?? [];
-      /*
-       * "Sin ventas" no es lo mismo que "no cobra".
-       *
-       * Este `continue` se saltaba a todo el que no vendiera, y con eso se
-       * perdía **entero el pago del equipo de marketing**: Cristel y Araceli no
-       * venden nunca —no tienen `vendedora_pk` ni una fila en el Excel de
-       * FileMaker— pero cobran la mitad del pote de jefatura cada una. Como no
-       * llegaban a `resultados`, el filtro por área de `aplicarBonos()` no
-       * encontraba a nadie y el pote de publicidad se pagaba a cero, en
-       * silencio, sin fallar ni aparecer en ningún aviso.
-       *
-       * En diciembre de 2025 eso son 66,69 USD (464,83 Bs) que la planilla real
-       * SÍ paga: hoja "CALCULO BONOS" filas 47-51 y hoja "GRAL COM" filas 75-76,
-       * donde las dos figuran con comisión 0, bono 232,41 Bs y su sueldo.
-       *
-       * La regla correcta es "se liquida a quien puede cobrar algo este mes", y
-       * eso incluye a quien cobra un bono que NO sale de sus propias ventas.
-       * Sale con ceros en todas las columnas de comisión, que es exactamente lo
-       * que muestra la planilla de administración.
-       */
-      if (suyas.length === 0 && !cobraSinVender(vendedora)) continue;
-
-      if (!vendedora.configurada) {
-        const vendido = redondear(suyas.reduce((s, f) => s + f.precio, 0));
-        this.logger.warn(
-          `"${vendedora.nombre}" (${vendedora.codigo}) tiene ${suyas.length} venta(s) por ` +
-            `${vendido} USD y NO se liquida: falta que administración le asigne tipo y área.`,
+    const respuesta = await conPeriodoBloqueado(this.prisma, periodoId, async tx => {
+      const periodo = await tx.periodoComision.findUnique({ where: { id: periodoId } });
+      if (!periodo) {
+        throw new ConflictException(`Periodo ${periodoId} no encontrado`);
+      }
+      /* Recalcular reescribe `ResultadoComision` y pisa la foto de configuración,
+         así que solo se permite mientras el mes siga siendo editable. Antes esto
+         solo miraba CERRADO: al aparecer EN_REVISION, un recálculo habría podido
+         cambiar bajo los pies las cifras que alguien estaba firmando. */
+      if (!esEditable(periodo.estado)) {
+        throw new ConflictException(
+          `No se puede recalcular este periodo. ${MOTIVO_BLOQUEO[periodo.estado]}`,
         );
-        continue;
       }
 
-      resultados.push(this.liquidarVendedora(vendedora, suyas, config, tipoCambio));
-    }
+      // La config se pide POR PERIODO: trae ya resueltas las metas que rigen este
+      // mes, sean las propias o las base.
+      const config = await this.configuracion.cargarConfiguracion(periodoId, tx);
+      const tipoCambio = Number(periodo.tipoCambio) || 1;
 
-    // Los bonos dependen del total del equipo, así que van en una segunda pasada.
-    await this.aplicarBonos(resultados, config, periodo.anio, periodo.mes, tipoCambio);
+      const [filasCrudas, vendedoras] = await Promise.all([
+        tx.ventaImportada.findMany({
+          where: { periodoId, comisionable: true, vendedoraId: { not: null } },
+          select: {
+            id: true,
+            comisionaPlan: true,
+            codOrigen: true,
+            fecha: true,
+            vendedoraId: true,
+            canal: true,
+            clasif: true,
+            unidadNegocio: true,
+            nivel: true,
+            detalle: true,
+            ingresoNeto: true,
+            precio: true,
+          },
+        }),
+        tx.vendedoraComision.findMany({ where: { activa: true } }),
+      ]);
 
-    await this.prisma.$transaction([
-      this.prisma.resultadoComision.deleteMany({ where: { periodoId } }),
-      this.prisma.resultadoComision.createMany({
+      const filas: FilaCalculo[] = filasCrudas.map(f => ({
+        id: f.id,
+        comisionaPlan: f.comisionaPlan,
+        codOrigen: f.codOrigen,
+        fecha: f.fecha,
+        vendedoraId: f.vendedoraId as string,
+        canal: f.canal,
+        clasif: f.clasif,
+        unidadNegocio: f.unidadNegocio,
+        nivel: f.nivel,
+        detalle: f.detalle,
+        ingresoNeto: Number(f.ingresoNeto),
+        precio: Number(f.precio),
+      }));
+
+      const porVendedora = new Map<string, FilaCalculo[]>();
+      for (const fila of filas) {
+        const lista = porVendedora.get(fila.vendedoraId);
+        if (lista) lista.push(fila);
+        else porVendedora.set(fila.vendedoraId, [fila]);
+      }
+
+      /*
+       * Solo liquida quien está en el equipo oficial (`configurada`). Las demás se
+       * dan de alta solas al importar y quedan a la espera de que administración
+       * les asigne tipo y área.
+       *
+       * Es lo que hace la planilla: Gizelle Praciano vendió 16.189,80 en noviembre
+       * y 6.695,84 en diciembre, y no aparece en ninguna hoja de pago. Pagarle
+       * porque su nombre salió en el Excel sería inventar una comisión.
+       *
+       * No es un descarte silencioso — cada una deja su aviso con lo que vendió,
+       * para que se vea y se decida.
+       */
+      const resultados = [];
+      for (const vendedora of vendedoras) {
+        const suyas = porVendedora.get(vendedora.id) ?? [];
+        /*
+         * "Sin ventas" no es lo mismo que "no cobra".
+         *
+         * Este `continue` se saltaba a todo el que no vendiera, y con eso se
+         * perdía **entero el pago del equipo de marketing**: Cristel y Araceli no
+         * venden nunca —no tienen `vendedora_pk` ni una fila en el Excel de
+         * FileMaker— pero cobran la mitad del pote de jefatura cada una. Como no
+         * llegaban a `resultados`, el filtro por área de `aplicarBonos()` no
+         * encontraba a nadie y el pote de publicidad se pagaba a cero, en
+         * silencio, sin fallar ni aparecer en ningún aviso.
+         *
+         * En diciembre de 2025 eso son 66,69 USD (464,83 Bs) que la planilla real
+         * SÍ paga: hoja "CALCULO BONOS" filas 47-51 y hoja "GRAL COM" filas 75-76,
+         * donde las dos figuran con comisión 0, bono 232,41 Bs y su sueldo.
+         *
+         * La regla correcta es "se liquida a quien puede cobrar algo este mes", y
+         * eso incluye a quien cobra un bono que NO sale de sus propias ventas.
+         * Sale con ceros en todas las columnas de comisión, que es exactamente lo
+         * que muestra la planilla de administración.
+         */
+        if (suyas.length === 0 && !cobraSinVender(vendedora)) continue;
+
+        if (!vendedora.configurada) {
+          const vendido = redondear(suyas.reduce((s, f) => s + f.precio, 0));
+          this.logger.warn(
+            `"${vendedora.nombre}" (${vendedora.codigo}) tiene ${suyas.length} venta(s) por ` +
+              `${vendido} USD y NO se liquida: falta que administración le asigne tipo y área.`,
+          );
+          continue;
+        }
+
+        resultados.push(this.liquidarVendedora(vendedora, suyas, config, tipoCambio));
+      }
+
+      // Los bonos dependen del total del equipo, así que van en una segunda pasada.
+      const promedios = await this.aplicarBonos(resultados, config, periodo.anio, periodo.mes, tipoCambio, tx);
+
+      await invalidarCalculo(tx, periodoId, 'Recálculo', usuarioId);
+      await tx.resultadoComision.createMany({
         data: resultados.map(r => ({ ...r.registro, periodoId })),
-      }),
-      this.prisma.periodoComision.update({
+      });
+      await tx.periodoComision.update({
         where: { id: periodoId },
         data: {
           estado: EstadoPeriodo.CALCULADO,
@@ -344,10 +364,23 @@ export class CalculoComisionesService {
           configuracionUsada: fotografiarConfiguracion(
             config,
             tipoCambio,
+            vendedoras,
+            promedios,
           ) as unknown as Prisma.InputJsonValue,
         },
-      }),
-    ]);
+      });
+
+      await this.audit.registrarFinanciero(tx, 'PeriodoComision', periodoId, 'CALCULAR', usuarioId, {
+        vendedoras: resultados.length,
+        totalUsd: redondear(resultados.reduce((s, r) => s + r.registro.totalUsd, 0)),
+      });
+      return {
+        periodoId,
+        vendedorasLiquidadas: resultados.length,
+        totalComisionUsd: redondear(resultados.reduce((s, r) => s + r.registro.totalUsd, 0)),
+        totalComisionBob: redondear(resultados.reduce((s, r) => s + r.registro.totalBob, 0)),
+      };
+    });
 
     /* La analítica del periodo se sirve de una caché de 60 s. Sin esta línea,
        quien acaba de recalcular sigue viendo las cifras anteriores durante un
@@ -357,19 +390,8 @@ export class CalculoComisionesService {
     this.analitica.invalidar(periodoId);
     this.resumenAnual.invalidar();
 
-    await this.audit.registrar('PeriodoComision', periodoId, 'CALCULAR', usuarioId, {
-      vendedoras: resultados.length,
-      totalUsd: redondear(resultados.reduce((s, r) => s + r.registro.totalUsd, 0)),
-    });
-
-    this.logger.log(`Planilla ${periodo.mes}/${periodo.anio} calculada: ${resultados.length} vendedoras`);
-
-    return {
-      periodoId,
-      vendedorasLiquidadas: resultados.length,
-      totalComisionUsd: redondear(resultados.reduce((s, r) => s + r.registro.totalUsd, 0)),
-      totalComisionBob: redondear(resultados.reduce((s, r) => s + r.registro.totalBob, 0)),
-    };
+    this.logger.log(`Planilla ${periodoId} calculada: ${respuesta.vendedorasLiquidadas} vendedoras`);
+    return respuesta;
   }
 
   /* ── Liquidación de una vendedora ───────────────────────────────────── */
@@ -658,8 +680,9 @@ export class CalculoComisionesService {
     anio: number,
     mes: number,
     tipoCambio: number,
-  ): Promise<void> {
-    if (resultados.length === 0) return;
+    tx: Prisma.TransactionClient = this.prisma,
+  ): Promise<Map<string, number>> {
+    if (resultados.length === 0) return new Map();
 
     const factorJefatura = config.parametros.get(PARAM.FACTOR_BONO_JEFATURA) ?? 0.002;
     const factorTrimestral = config.parametros.get(PARAM.FACTOR_BONO_TRIMESTRAL) ?? 0.005;
@@ -691,7 +714,7 @@ export class CalculoComisionesService {
      */
     // Una sola consulta para todo el equipo, en vez de dos por vendedora dentro
     // del bucle. Con 5 vendedoras eran 10 viajes a la base, uno detrás de otro.
-    const promedios = await this.promediosDelTrimestre(resultados, anio, mes, mesesTrimestre);
+    const promedios = await this.promediosDelTrimestre(resultados, anio, mes, mesesTrimestre, tx);
 
     let pote = 0;
 
@@ -793,6 +816,7 @@ export class CalculoComisionesService {
       registro.totalBob = redondear(registro.totalUsd * tipoCambio);
       registro.totalGanado = redondear(registro.totalBob + registro.sueldoBase);
     }
+    return promedios;
   }
 
   /**
@@ -820,6 +844,7 @@ export class CalculoComisionesService {
     anio: number,
     mes: number,
     meses: number,
+    tx: Prisma.TransactionClient = this.prisma,
   ): Promise<Map<string, number>> {
     /* En dólares, como todo el cálculo: es la unidad en la que la planilla
        compara contra el objetivo trimestral (15.000). Volver a dividir entre el
@@ -834,7 +859,7 @@ export class CalculoComisionesService {
     // Los meses anteriores de la ventana, en una sola pasada.
     const anteriores = mesesAnteriores(anio, mes, meses);
     if (anteriores.length > 0) {
-      const periodos = await this.prisma.periodoComision.findMany({
+      const periodos = await tx.periodoComision.findMany({
         where: { OR: anteriores },
         select: { id: true, tipoCambio: true },
       });
@@ -853,7 +878,7 @@ export class CalculoComisionesService {
          * mismo filtro que usa la liquidación, así que el promedio sale igual
          * se haya calculado el mes o no.
          */
-        const previos = await this.prisma.ventaImportada.groupBy({
+        const previos = await tx.ventaImportada.groupBy({
           by: ['periodoId', 'vendedoraId'],
           where: {
             periodoId: { in: periodos.map(p => p.id) },

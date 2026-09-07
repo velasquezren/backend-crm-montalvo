@@ -42,7 +42,7 @@ export class VentasController {
 
   @Post()
   create(@Body() dto: CreateVentaDto, @CurrentUser() usuario: UsuarioJwt) {
-    return this.ventasService.create(dto, usuario.sub);
+    return this.ventasService.create(dto, usuario.sub, alcanceAgente(usuario));
   }
 
   @Post('comprobante')

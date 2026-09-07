@@ -1,4 +1,4 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { CategoriaCliente, EstadoLead, Prisma } from '../../prisma/prisma-client';
 
 import { AuditService } from '../../common/audit/audit.service';
@@ -132,7 +132,12 @@ export class ClientesService {
     }
   }
 
-  async create(dto: CreateClienteDto) {
+  async create(dto: CreateClienteDto, soloAgenteId?: string) {
+    if (soloAgenteId && dto.agenteId != null && dto.agenteId !== soloAgenteId) {
+      throw new ForbiddenException('Solo un administrador puede asignar pacientes a otro agente');
+    }
+    if (dto.agenteId != null) await this.validarAgenteActivo(dto.agenteId);
+
     // `fechaNacimiento` NO entra en datosExtra: es columna propia. Meterla en
     // el JSON era lo que hacía que editarla no cambiara nada en pantalla.
     const { empresa, fechaNacimiento, lugarNacimiento, datosExtra, pac, ci, ...restoDto } = dto;
@@ -310,8 +315,16 @@ export class ClientesService {
 
   /** `soloAgenteId` — ver la nota de `findOne`: mismo hueco existía en edición. */
   async update(id: string, dto: UpdateClienteDto, usuarioId?: string, soloAgenteId?: string) {
-    // Valida el acceso por rol; su resultado ya no trae `datosExtra` en crudo.
-    await this.findOne(id, soloAgenteId);
+    const cliente = await this.findOne(id, soloAgenteId);
+    if (soloAgenteId && dto.agenteId !== undefined) {
+      if (dto.agenteId !== cliente.agenteId) {
+        throw new ForbiddenException('Solo un administrador puede reasignar pacientes');
+      }
+      // El formulario reenvía el agente efectivo incluso al editar solo la ficha.
+      // Para AGENTE ese valor repetido no autoriza escribir propiedad ni cascadas.
+      dto = { ...dto, agenteId: undefined };
+    }
+    if (dto.agenteId != null) await this.validarAgenteActivo(dto.agenteId);
 
     // La edición fusiona sobre lo que hay, así que el JSON se relee de la base.
     // Es una lectura por clave primaria: más barata que arrastrarlo en cada
@@ -448,11 +461,23 @@ export class ClientesService {
   }
 
   /** RF-23 — registra una consulta que no derivó en venta, sin exponer la tabla a otros módulos. */
-  async registrarInteres(clienteId: string, dto: CreateInteresDto) {
-    await this.findOne(clienteId);
+  async registrarInteres(clienteId: string, dto: CreateInteresDto, soloAgenteId?: string) {
+    await this.findOne(clienteId, soloAgenteId);
+    if (soloAgenteId && dto.agenteId != null && dto.agenteId !== soloAgenteId) {
+      throw new ForbiddenException('Solo un administrador puede registrar un interés a nombre de otro agente');
+    }
+    if (dto.agenteId != null) await this.validarAgenteActivo(dto.agenteId);
     return this.prisma.interes.create({
       data: { ...dto, clienteId },
     });
+  }
+
+  private async validarAgenteActivo(agenteId: string): Promise<void> {
+    const agente = await this.prisma.usuario.findFirst({
+      where: { id: agenteId, activo: true },
+      select: { id: true },
+    });
+    if (!agente) throw new NotFoundException(`Agente ${agenteId} no encontrado o inactivo`);
   }
 
   /**
@@ -463,7 +488,8 @@ export class ClientesService {
    *   BRONZE cliente con ventas pero fuera de la ventana de 90 días
    *   PROSPECTO sin ventas ganadas
    */
-  async actualizarCategoria(clienteId: string): Promise<CategoriaCliente> {
+  async actualizarCategoria(clienteId: string, soloAgenteId?: string): Promise<CategoriaCliente> {
+    if (soloAgenteId) await this.findOne(clienteId, soloAgenteId);
     const hace90Dias = new Date();
     hace90Dias.setDate(hace90Dias.getDate() - 90);
 

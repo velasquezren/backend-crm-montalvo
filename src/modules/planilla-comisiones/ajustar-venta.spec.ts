@@ -27,6 +27,14 @@ function montar(opciones: { estadoPeriodo?: string; venta?: VentaFalsa | null } 
   const auditorias: Array<{ accion: string; datos: unknown }> = [];
 
   const prisma = {
+    $queryRaw: async () => [{ adquirido: true }],
+    $executeRaw: async () => 1,
+    $transaction: async (fn: (tx: unknown) => Promise<unknown>) => fn(prisma),
+    auditLog: { create: async ({ data }: { data: { accion: string; cambios: unknown } }) => {
+      auditorias.push({ accion: data.accion, datos: data.cambios });
+    } },
+    resultadoComision: { deleteMany: async () => ({ count: 0 }) },
+    aprobacionPeriodo: { deleteMany: async () => ({ count: 0 }) },
     ventaImportada: {
       findUnique: async () => venta,
       update: async ({ data }: { data: Record<string, unknown> }) => {
@@ -35,6 +43,8 @@ function montar(opciones: { estadoPeriodo?: string; venta?: VentaFalsa | null } 
       },
     },
     periodoComision: {
+      findUniqueOrThrow: async () => ({ resultados: [], aprobaciones: [] }),
+      update: async ({ data }: { data: unknown }) => data,
       findUnique: async () => ({
         id: 'p1',
         estado: opciones.estadoPeriodo ?? 'BORRADOR',

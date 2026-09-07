@@ -190,14 +190,16 @@ export class LeadsService {
   }
 
   /** RF-07/RF-08 — registro presencial: crea o reutiliza el cliente por teléfono. */
-  async createPresencial(dto: CreateLeadPresencialDto, agenteId: string) {
+  async createPresencial(dto: CreateLeadPresencialDto, agenteId: string, soloAgenteId?: string) {
     let cliente = await this.clientesService.findByTelefono(dto.telefono);
-    if (!cliente) {
+    if (cliente) {
+      await this.clientesService.findOne(cliente.id, soloAgenteId);
+    } else {
       cliente = await this.clientesService.create({
         nombre: dto.nombre,
         telefono: dto.telefono,
         agenteId,
-      });
+      }, soloAgenteId);
     }
 
     if (dto.interes) {
@@ -205,7 +207,7 @@ export class LeadsService {
         descripcion: dto.interes,
         origen: 'PRESENCIAL',
         agenteId,
-      });
+      }, soloAgenteId);
     }
 
     const agenteFinal = agenteId || cliente.agenteId || undefined;

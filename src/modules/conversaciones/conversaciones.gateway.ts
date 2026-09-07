@@ -1,13 +1,15 @@
-import {  } from '@nestjs/common';
-import { JwtService } from '@nestjs/jwt';
+import { Logger, UnauthorizedException } from '@nestjs/common';
 import {
   OnGatewayConnection,
   OnGatewayDisconnect,
+  OnGatewayInit,
   WebSocketGateway,
   WebSocketServer,
 } from '@nestjs/websockets';
-import { Server, Socket } from 'socket.io';
+import { Namespace, Socket } from 'socket.io';
 import { PushService } from '../../common/push/push.service';
+import { AuthService } from '../auth/auth.service';
+import { AccesoAutenticado } from '../auth/credencial';
 
 const ORIGENES_PERMITIDOS = (process.env.CORS_ORIGINS ?? 'http://localhost:4200')
   .split(',')
@@ -18,31 +20,66 @@ const ORIGENES_PERMITIDOS = (process.env.CORS_ORIGINS ?? 'http://localhost:4200'
   namespace: '/realtime',
   cors: { origin: ORIGENES_PERMITIDOS, credentials: true },
 })
-export class ConversacionesGateway implements OnGatewayConnection, OnGatewayDisconnect {
+export class ConversacionesGateway implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer()
-  private server!: Server;
+  private server!: Namespace;
+  private readonly logger = new Logger(ConversacionesGateway.name);
+  private readonly sesiones = new Map<string, { acceso: AccesoAutenticado; timer?: NodeJS.Timeout }>();
 
   constructor(
-    private readonly jwtService: JwtService,
+    private readonly authService: AuthService,
     private readonly pushService: PushService,
   ) {}
 
-  /** Mismo JWT que la API REST — el token viaja en el handshake, no en la URL. */
-  async handleConnection(client: Socket): Promise<void> {
-    const token = client.handshake.auth?.['token'] as string | undefined;
-    if (!token) {
-      client.disconnect(true);
-      return;
-    }
-    try {
-      await this.jwtService.verifyAsync(token);
-    } catch {
-      client.disconnect(true);
+  /** Middleware: la conexión no se acepta mientras se consulta la sesión. */
+  afterInit(server: Namespace): void {
+    server.use((client, next) => {
+      const token: unknown = client.handshake.auth?.['token'];
+      void this.authService.validarAcceso(typeof token === 'string' ? token : '').then(acceso => {
+        if (client.conn.readyState === 'closed') return;
+        this.sesiones.set(client.id, { acceso });
+        next();
+      }).catch((error: unknown) => {
+        const invalida = error instanceof UnauthorizedException;
+        next(Object.assign(new Error(invalida ? 'Sesión inválida o expirada' : 'No se pudo comprobar la sesión'), {
+          data: { status: invalida ? 401 : 503 },
+        }));
+      });
+    });
+  }
+
+  handleConnection(client: Socket): void {
+    const sesion = this.sesiones.get(client.id);
+    if (!sesion || sesion.acceso.exp * 1000 <= Date.now()) { client.disconnect(true); return; }
+    sesion.timer = setTimeout(() => client.disconnect(true), sesion.acceso.exp * 1000 - Date.now());
+    sesion.timer.unref();
+  }
+
+  handleDisconnect(client: Socket): void {
+    clearTimeout(this.sesiones.get(client.id)?.timer);
+    this.sesiones.delete(client.id);
+  }
+
+  private async emitirAutenticados(evento: string, payload: object): Promise<void> {
+    if (!this.server) return;
+    const clientes = [...this.server.sockets.values()];
+    const accesos = clientes.flatMap(c => {
+      const sesion = this.sesiones.get(c.id);
+      return sesion ? [sesion.acceso] : [];
+    });
+    const vigentes = await this.authService.accesosVigentes(accesos);
+    for (const client of clientes) {
+      const acceso = this.sesiones.get(client.id)?.acceso;
+      if (!acceso || !vigentes.has(acceso) || acceso.exp * 1000 <= Date.now()) client.disconnect(true);
+      else if (client.connected) client.emit(evento, payload);
     }
   }
 
-  handleDisconnect(): void {
-    /* No hay estado de sesión que limpiar: la sala es global (ver nota abajo). */
+  private difundir(evento: string, payload: object): void {
+    void this.emitirAutenticados(evento, payload).catch(() => {
+      // Si la base falla no se difunde; tampoco se declara inválida la sesión.
+      this.logger.warn('No se pudo validar las sesiones para difundir un evento');
+    });
   }
 
   /**
@@ -53,7 +90,7 @@ export class ConversacionesGateway implements OnGatewayConnection, OnGatewayDisc
    * manda notificación push**: ver `notificarEntrante`.
    */
   emitirActividad(conversacionId: string): void {
-    this.server?.emit('conversacion:actividad', { conversacionId });
+    this.difundir('conversacion:actividad', { conversacionId });
   }
 
   /**
@@ -105,7 +142,7 @@ export class ConversacionesGateway implements OnGatewayConnection, OnGatewayDisc
    * no dos conexiones por pestaña.
    */
   emitirRecordatorioActividad(actividadId: string, agenteId: string): void {
-    this.server?.emit('actividad:recordatorio', { actividadId, agenteId });
+    this.difundir('actividad:recordatorio', { actividadId, agenteId });
   }
 }
 

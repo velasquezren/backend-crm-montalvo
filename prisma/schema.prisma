@@ -77,6 +77,9 @@ model Usuario {
   passwordHash          String
   rol                   Rol                    @default(AGENTE)
   activo                Boolean                @default(true)
+  /// Invalida credenciales anteriores al cambiar contraseña, rol o activo.
+  versionSesion         Int                    @default(0)
+  sesiones              SesionUsuario[]
   foto                  String?
   /// Identificador que usa la empresa para esta persona (el `vendedora_pk` de
   /// FileMaker, ej. Pe2455). Es la ÚNICA vía por la que la planilla de comisiones
@@ -97,6 +100,16 @@ model Usuario {
   actividades           Actividad[]
   createdAt             DateTime               @default(now())
   updatedAt             DateTime               @updatedAt
+}
+
+model SesionUsuario {
+  id        String   @id @default(uuid())
+  usuarioId String
+  usuario   Usuario  @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  expiraEn  DateTime
+
+  @@index([usuarioId, expiraEn])
 }
 
 model Cliente {

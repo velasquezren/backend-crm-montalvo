@@ -96,6 +96,10 @@ export class UsuariosService {
           ? { codigo: await this.normalizarCodigo(resto.codigo, id) }
           : {}),
         ...(password ? { passwordHash: await bcrypt.hash(password, 10) } : {}),
+        // Un solo UPDATE: no hay ventana entre cambiar privilegios y revocar.
+        ...(password || resto.rol !== undefined || resto.activo !== undefined
+          ? { versionSesion: { increment: 1 } }
+          : {}),
       },
       select: SIN_PASSWORD,
     });
@@ -135,7 +139,7 @@ export class UsuariosService {
 
     return this.prisma.usuario.update({
       where: { id },
-      data: { activo: false },
+      data: { activo: false, versionSesion: { increment: 1 } },
       select: SIN_PASSWORD,
     });
   }

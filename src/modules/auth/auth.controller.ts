@@ -8,12 +8,13 @@ import { Public } from '../../common/decorators/public.decorator';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
-import { UpdateUsuarioDto } from '../usuarios/dto/update-usuario.dto';
+import { UpdatePerfilDto } from './dto/update-perfil.dto';
 
 function extraerCookie(headerCookie: string | undefined, nombre: string): string | undefined {
   if (!headerCookie) return undefined;
   const match = headerCookie.match(new RegExp(`(?:^|;\\s*)${nombre}=([^;]+)`));
-  return match ? decodeURIComponent(match[1]) : undefined;
+  if (!match) return undefined;
+  try { return decodeURIComponent(match[1]); } catch { return undefined; }
 }
 
 /**
@@ -71,7 +72,8 @@ export class AuthController {
       res.cookie('refresh_token', resultado.refresh_token, cookieOptions);
     }
 
-    return resultado;
+    const { refresh_token: _refreshToken, ...respuesta } = resultado;
+    return respuesta;
   }
 
   /**
@@ -85,33 +87,19 @@ export class AuthController {
   ) {
     const tokenCookie = extraerCookie(req.headers.cookie, 'refresh_token');
     const token = dto.refresh_token || tokenCookie;
-    return this.authService.refresh(token ?? '');
+    const bearer = req.headers.authorization?.startsWith('Bearer ') ? req.headers.authorization.slice(7) : undefined;
+    return this.authService.refresh(token ?? '', bearer);
   }
 
-  /**
-   * Cierra la sesión: borra la cookie `refresh_token` del navegador.
-   *
-   * Sin esto, «cerrar sesión» solo vaciaba el localStorage del frontend y la
-   * cookie —HttpOnly, 30 días— seguía siendo una credencial canjeable en
-   * /auth/refresh por un access_token nuevo. En la clínica varias agentes
-   * comparten equipo, así que la siguiente heredaba una sesión viva de la
-   * anterior.
-   *
-   * **Lo que esto NO hace:** el JWT de refresco es sin estado, así que una
-   * copia que ya hubiera salido del navegador sigue siendo válida hasta que
-   * expire. Revocarlo de verdad exige guardar algo en la base —una columna
-   * `sesionesValidasDesde` en Usuario contra la que comparar el `iat` del
-   * token—, que es una migración y queda fuera de este arreglo. Esto cierra
-   * el caso real y frecuente (el equipo compartido), no el robo de la cookie.
-   *
-   * `@Public()`: el que cierra sesión puede tener el access_token ya vencido
-   * —es justo el caso—, y no poder salir por eso sería absurdo.
-   */
+  /** Revoca esta sesión y borra su cookie, incluso con access expirado. */
   @Public()
   @Post('logout')
   @HttpCode(HttpStatus.NO_CONTENT)
-  logout(@Res({ passthrough: true }) res: Response): void {
-    res.clearCookie('refresh_token', opcionesCookieRefresh());
+  async logout(@Req() req: Request, @Res({ passthrough: true }) res: Response): Promise<void> {
+    const cookie = extraerCookie(req.headers.cookie, 'refresh_token');
+    const bearer = req.headers.authorization?.startsWith('Bearer ') ? req.headers.authorization.slice(7) : '';
+    const borrarCookie = await this.authService.logout(bearer || cookie || '', bearer ? 'access' : 'refresh', cookie);
+    if (borrarCookie) res.clearCookie('refresh_token', opcionesCookieRefresh());
   }
 
   /** Perfil del usuario autenticado — útil para restaurar sesión en el frontend. */
@@ -121,7 +109,7 @@ export class AuthController {
   }
 
   @Patch('perfil')
-  updatePerfil(@CurrentUser() usuario: UsuarioJwt, @Body() dto: UpdateUsuarioDto) {
+  updatePerfil(@CurrentUser() usuario: UsuarioJwt, @Body() dto: UpdatePerfilDto) {
     return this.authService.updatePerfil(usuario.sub, dto);
   }
 }

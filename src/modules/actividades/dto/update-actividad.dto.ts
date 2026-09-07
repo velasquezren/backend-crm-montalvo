@@ -1,4 +1,5 @@
 import { OmitType, PartialType } from '@nestjs/mapped-types';
+import { IsOptional, IsString } from 'class-validator';
 
 import { CreateActividadDto } from './create-actividad.dto';
 
@@ -7,5 +8,10 @@ import { CreateActividadDto } from './create-actividad.dto';
  * las filas nuevas. Editar una actividad ya existente nunca genera otras.
  */
 export class UpdateActividadDto extends PartialType(
-  OmitType(CreateActividadDto, ['repetir'] as const),
-) {}
+  OmitType(CreateActividadDto, ['repetir', 'leadId'] as const),
+) {
+  /** null retira el vínculo; omitirlo conserva el lead y obliga a validar su cliente. */
+  @IsOptional()
+  @IsString()
+  leadId?: string | null;
+}

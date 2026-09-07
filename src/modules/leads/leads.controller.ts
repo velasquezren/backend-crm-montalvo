@@ -28,7 +28,7 @@ export class LeadsController {
 
   @Post('presencial')
   createPresencial(@Body() dto: CreateLeadPresencialDto, @CurrentUser() usuario: UsuarioJwt) {
-    return this.leadsService.createPresencial(dto, usuario.sub);
+    return this.leadsService.createPresencial(dto, usuario.sub, alcanceAgente(usuario));
   }
 
   /**

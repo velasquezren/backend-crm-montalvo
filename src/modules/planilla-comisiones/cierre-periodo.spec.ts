@@ -27,7 +27,7 @@ const ANA = { id: 'u2', nombre: 'Ana' };
 
 function montar(opciones: Opciones = {}) {
   const estado = opciones.estado ?? 'EN_REVISION';
-  const aprobaciones = (opciones.aprobaciones ?? []).map(usuarioId => ({
+  const aprobaciones: Array<{ usuarioId: string; comentario: string | null; createdAt: Date }> = (opciones.aprobaciones ?? []).map(usuarioId => ({
     usuarioId,
     comentario: null,
     createdAt: new Date('2026-08-28'),
@@ -54,12 +54,16 @@ function montar(opciones: Opciones = {}) {
 
   const periodoComision = {
     findUnique: async () => periodo,
+    findUniqueOrThrow: async () => ({ ...periodo, resultados: [], aprobaciones }),
     update: async ({ data }: { data: Record<string, unknown> }) => {
       actualizaciones.push(data);
-      return { ...periodo, ...data };
+      Object.assign(periodo, data);
+      return periodo;
     },
   };
   const aprobacionPeriodo = {
+    findUnique: async ({ where }: { where: { periodoId_usuarioId: { usuarioId: string } } }) =>
+      aprobaciones.find(a => a.usuarioId === where.periodoId_usuarioId.usuarioId) ?? null,
     findMany: async () => aprobaciones,
     deleteMany: async ({ where }: { where: { periodoId: string } }) => {
       borrados.push(where.periodoId);
@@ -67,11 +71,20 @@ function montar(opciones: Opciones = {}) {
     },
     upsert: async (args: Record<string, unknown>) => {
       upserts.push(args);
-      return {};
+      const firma = args['create'] as { usuarioId: string; comentario: string | null };
+      const existente = aprobaciones.find(a => a.usuarioId === firma.usuarioId);
+      if (existente) existente.comentario = firma.comentario;
+      else aprobaciones.push({ ...firma, createdAt: new Date() });
+      return firma;
     },
   };
 
   const prisma = {
+    $queryRaw: async () => [{ adquirido: true }],
+    $executeRaw: async () => 1,
+    auditLog: { create: async ({ data }: { data: { accion: string; cambios: unknown } }) => {
+      auditorias.push({ accion: data.accion, datos: data.cambios });
+    } },
     periodoComision,
     aprobacionPeriodo,
     usuario: { findMany: async () => opciones.superAdmins ?? [RENE] },
@@ -85,7 +98,7 @@ function montar(opciones: Opciones = {}) {
     },
     vendedoraComision: { count: async () => 0, findMany: async () => [] },
     $transaction: async (fn: (tx: unknown) => Promise<unknown>) =>
-      fn({ periodoComision, aprobacionPeriodo }),
+      fn(prisma),
   };
 
   const audit = {
@@ -146,7 +159,7 @@ describe('aprobar', () => {
      conjunto. Con un paso manual habría un hueco en el que el mes está
      aprobado y todavía editable. */
   it('con un solo SUPER_ADMIN, aprobar cierra el mes', async () => {
-    const { servicio, actualizaciones, auditorias } = montar({ superAdmins: [RENE], aprobaciones: ['u1'] });
+    const { servicio, actualizaciones, auditorias } = montar({ superAdmins: [RENE] });
 
     const resultado = await servicio.aprobar('p1', 'u1');
 
@@ -158,7 +171,6 @@ describe('aprobar', () => {
   it('si falta alguien, registra la firma pero NO cierra', async () => {
     const { servicio, actualizaciones, auditorias } = montar({
       superAdmins: [RENE, ANA],
-      aprobaciones: ['u1'],
     });
 
     const resultado = await servicio.aprobar('p1', 'u1');
@@ -180,6 +192,7 @@ describe('aprobar', () => {
   it('aprobar dos veces no duplica la firma', async () => {
     const { servicio, upserts } = montar({ superAdmins: [RENE, ANA], aprobaciones: ['u1'] });
 
+    await servicio.aprobar('p1', 'u1', 'todo ok');
     await servicio.aprobar('p1', 'u1', 'todo ok');
 
     expect(upserts).toHaveLength(1);

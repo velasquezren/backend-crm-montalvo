@@ -6,12 +6,32 @@ import { calcularPaginacion, paginar, PaginationDto } from '../dto/pagination.dt
 
 /**
  * Bitácora de cambios — RF-19/RF-20, RNF-05.
- * Los módulos llaman registrar() en cada mutación crítica (ventas, comisiones,
- * clientes). Nunca falla la operación principal si la auditoría falla.
+ * registrar() conserva el contrato best-effort de los módulos existentes.
+ * Los hechos financieros usan registrarFinanciero() en su transacción.
  */
 @Injectable()
 export class AuditService {
   constructor(private readonly prisma: PrismaService) {}
+  readonly registrarFinanciero = AuditService.registrarFinanciero;
+
+  /** Si falta esta evidencia, la operación financiera tampoco se confirma. */
+  static async registrarFinanciero(
+    tx: Prisma.TransactionClient,
+    entidad: string,
+    entidadId: string,
+    accion: string,
+    usuarioId?: string,
+    cambios?: Record<string, unknown>,
+  ): Promise<void> {
+    await tx.auditLog.create({
+      data: {
+        entidad, entidadId, accion, usuarioId,
+        // Fotos Prisma contienen Date/Decimal: guardar sus valores JSON,
+        // no objetos de runtime ni undefined dentro del documento.
+        cambios: cambios === undefined ? undefined : JSON.parse(JSON.stringify(cambios)) as Prisma.InputJsonValue,
+      },
+    });
+  }
 
   async registrar(
     entidad: string,

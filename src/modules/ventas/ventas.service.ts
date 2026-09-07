@@ -62,9 +62,9 @@ export class VentasService {
     private readonly r2: R2Service,
   ) {}
 
-  async create(dto: CreateVentaDto, agenteId: string) {
-    /* valida que el cliente exista (lanza 404 si no) */
-    await this.clientesService.findOne(dto.clienteId);
+  async create(dto: CreateVentaDto, agenteId: string, soloAgenteId?: string) {
+    // Validar también el alcance antes de guardar la venta y sus efectos.
+    await this.clientesService.findOne(dto.clienteId, soloAgenteId);
 
     if (dto.comprobanteKey && !esComprobantePropio(dto.comprobanteKey, agenteId)) {
       throw new BadRequestException(

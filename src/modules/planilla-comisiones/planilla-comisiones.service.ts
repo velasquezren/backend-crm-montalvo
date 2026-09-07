@@ -37,8 +37,9 @@ import { AjustarVentaDto, ImportarExcelDto, QueryPeriodosDto, QueryVentasImporta
 import { deducirPeriodo, leerExcel } from './excel-parser';
 import { ResumenAnualService } from './resumen-anual.service';
 import { TipoCambioService } from '../tipo-cambio/tipo-cambio.service';
+import { bloquearPeriodo, conPeriodoBloqueado, fotoFinanciera, invalidarCalculo, transaccionFinanciera } from './transaccion-periodo';
 
-/** Cuántas filas se insertan por lote (el VPS tiene poca RAM: no cargar todo de golpe). */
+/** Acota el tamaño de cada INSERT; el Excel se prepara antes de publicar. */
 const TAMANO_LOTE = 500;
 
 /**
@@ -179,69 +180,36 @@ export class PlanillaComisionesService {
     const mes = dto.mes ?? deducido.mes;
     const tipoCambio = await this.resolverTipoCambio(dto.tipoCambio, deducido.tipoCambio, mes, anio);
 
-    const existente = await this.prisma.periodoComision.findUnique({ where: { anio_mes: { anio, mes } } });
-    if (existente && !esEditable(existente.estado)) {
-      throw new ConflictException(
-        `No se puede reimportar ${mes}/${anio}. ${MOTIVO_BLOQUEO[existente.estado]}`,
-      );
-    }
-
     const [reglas, iva, mapeosCaptacion] = await Promise.all([
       this.configuracion.cargarReglas(),
       this.configuracion.obtenerIva(),
       this.configuracion.cargarMapeosCaptacion(),
     ]);
 
-    // Ajustes manuales previos, para no perderlos al reimportar el mes.
-    const ajustesPrevios = existente ? await this.leerAjustesManuales(existente.id) : new Map();
-
-    /* Vendedoras y médicos se registran en paralelo: son tablas distintas y
-       ninguna depende de la otra. */
-    const [vendedoras] = await Promise.all([
-      this.sincronizarVendedoras(filas),
-      this.sincronizarMedicos(filas),
-    ]);
-
-    const periodo = await this.prisma.periodoComision.upsert({
-      where: { anio_mes: { anio, mes } },
-      create: {
-        anio,
-        mes,
-        tipoCambio,
-        archivoNombre: nombreArchivo,
-        filasTotales: filas.length,
-        importadoPor: usuarioId,
-        estado: EstadoPeriodo.BORRADOR,
-      },
-      update: {
-        tipoCambio,
-        archivoNombre: nombreArchivo,
-        filasTotales: filas.length,
-        importadoPor: usuarioId,
-        estado: EstadoPeriodo.BORRADOR,
-        calculadoEn: null,
-      },
-    });
-
-    // Reemplazo completo: fuera las filas y resultados del periodo anterior.
-    await this.prisma.$transaction([
-      this.prisma.ventaImportada.deleteMany({ where: { periodoId: periodo.id } }),
-      this.prisma.resultadoComision.deleteMany({ where: { periodoId: periodo.id } }),
-    ]);
-
     let filasValidas = 0;
     let sinClasificar = 0;
-    const lote: Prisma.VentaImportadaCreateManyInput[] = [];
+    const medicosDetectados = new Map<string, string>();
+    const vendedorasDetectadas = new Map<string, string>();
 
-    for (const fila of filas) {
+    // Parseo, normalización y clasificación no retienen una transacción abierta.
+    const preparadas = filas.map(fila => {
       const resultado = clasificarFila(fila, reglas, iva, mapeosCaptacion);
       if (resultado.requiereRevision) sinClasificar++;
       if (resultado.comisionable) filasValidas++;
 
-      const ajuste = ajustesPrevios.get(this.claveAjuste(fila));
+      const medico = fila.medicoPk?.trim();
+      if (medico) {
+        const nombre = fila.medico?.trim();
+        // La última grafía del archivo gana, igual que antes.
+        if (nombre) medicosDetectados.set(medico, nombre);
+        else if (!medicosDetectados.has(medico)) medicosDetectados.set(medico, medico);
+      }
+      const vendedora = fila.vendedoraPk?.trim();
+      if (vendedora && !vendedorasDetectadas.has(vendedora)) {
+        vendedorasDetectadas.set(vendedora, fila.vendedoraNombre?.trim() || vendedora);
+      }
 
-      lote.push({
-        periodoId: periodo.id,
+      const datos: Omit<Prisma.VentaImportadaCreateManyInput, 'periodoId' | 'vendedoraId'> = {
         fecha: fila.fecha,
         modulo: fila.modulo,
         codOrigen: fila.codOrigen,
@@ -264,33 +232,77 @@ export class PlanillaComisionesService {
         tc: fila.tc,
         obs: fila.obs,
         clasificacionPlan: fila.clasificacionPlan,
-        // El ajuste manual previo gana sobre lo que deduzca el clasificador.
-        canal: ajuste?.canal ?? resultado.canal,
+        canal: resultado.canal,
         ingresoNeto: resultado.ingresoNeto,
-        unidadNegocio: ajuste?.unidadNegocio ?? resultado.unidadNegocio,
-        clasif: ajuste?.clasif ?? resultado.clasif,
-        tipo: ajuste?.tipo ?? resultado.tipo,
-        nivel: ajuste?.nivel ?? resultado.nivel,
-        comisionable: ajuste?.comisionable ?? resultado.comisionable,
+        unidadNegocio: resultado.unidadNegocio,
+        clasif: resultado.clasif,
+        tipo: resultado.tipo,
+        nivel: resultado.nivel,
+        comisionable: resultado.comisionable,
         motivoExclusion: resultado.motivoExclusion,
-        // Un ajuste manual previo ya resolvió la duda: deja de pedir revisión.
-        requiereRevision: ajuste ? false : resultado.requiereRevision,
-        ajustadaManual: Boolean(ajuste),
-        vendedoraId: this.resolverVendedoraId(fila, vendedoras),
-      });
+        requiereRevision: resultado.requiereRevision,
+      };
+      return { fila, clave: this.claveAjuste(fila), datos };
+    });
 
-      if (lote.length >= TAMANO_LOTE) {
-        await this.prisma.ventaImportada.createMany({ data: lote.splice(0, lote.length) });
+    const { actualizado, ajustesConservados, vendedoras } = await transaccionFinanciera(this.prisma, async tx => {
+      await bloquearPeriodo(tx, anio, mes);
+
+      const existente = await tx.periodoComision.findUnique({ where: { anio_mes: { anio, mes } } });
+      if (existente && !esEditable(existente.estado)) {
+        throw new ConflictException(
+          `No se puede reimportar ${mes}/${anio}. ${MOTIVO_BLOQUEO[existente.estado]}`,
+        );
       }
-    }
+      if (existente) await invalidarCalculo(tx, existente.id, 'Reimportación', usuarioId);
+      const periodo = await tx.periodoComision.upsert({
+        where: { anio_mes: { anio, mes } },
+        create: {
+          anio, mes, tipoCambio, archivoNombre: nombreArchivo,
+          filasTotales: filas.length, importadoPor: usuarioId, estado: EstadoPeriodo.BORRADOR,
+        },
+        update: {
+          tipoCambio, archivoNombre: nombreArchivo, filasTotales: filas.length,
+          importadoPor: usuarioId, estado: EstadoPeriodo.BORRADOR, calculadoEn: null,
+        },
+      });
+      const ajustesPrevios = await this.leerAjustesManuales(periodo.id, tx);
 
-    if (lote.length > 0) {
-      await this.prisma.ventaImportada.createMany({ data: lote });
-    }
+      // Estas altas/actualizaciones tampoco deben sobrevivir a un lote fallido.
+      const vendedoras = await this.sincronizarVendedoras(vendedorasDetectadas, tx);
+      await this.sincronizarMedicos(medicosDetectados, tx);
+      await tx.ventaImportada.deleteMany({ where: { periodoId: periodo.id } });
+      await tx.resultadoComision.deleteMany({ where: { periodoId: periodo.id } });
 
-    const actualizado = await this.prisma.periodoComision.update({
-      where: { id: periodo.id },
-      data: { filasValidas },
+      for (let i = 0; i < preparadas.length; i += TAMANO_LOTE) {
+        const lote = preparadas.slice(i, i + TAMANO_LOTE).map(({ fila, clave, datos }) => {
+          const ajuste = ajustesPrevios.get(clave);
+          return {
+            ...datos,
+            periodoId: periodo.id,
+            // Misma precedencia y clave de ajustes que en la importación anterior.
+            canal: ajuste?.canal ?? datos.canal,
+            unidadNegocio: ajuste?.unidadNegocio ?? datos.unidadNegocio,
+            clasif: ajuste?.clasif ?? datos.clasif,
+            tipo: ajuste?.tipo ?? datos.tipo,
+            nivel: ajuste?.nivel ?? datos.nivel,
+            comisionable: ajuste?.comisionable ?? datos.comisionable,
+            requiereRevision: ajuste ? false : datos.requiereRevision,
+            ajustadaManual: Boolean(ajuste),
+            vendedoraId: this.resolverVendedoraId(fila, vendedoras),
+          };
+        });
+        await tx.ventaImportada.createMany({ data: lote });
+      }
+
+      const actualizado = await tx.periodoComision.update({
+        where: { id: periodo.id },
+        data: { filasValidas },
+      });
+      await AuditService.registrarFinanciero(tx, 'PeriodoComision', periodo.id, 'IMPORTAR', usuarioId, {
+        archivo: nombreArchivo, anio, mes, filas: filas.length, filasValidas,
+      });
+      return { actualizado, ajustesConservados: ajustesPrevios.size, vendedoras };
     });
 
     /* El catálogo del modal de ventas sale de estas filas: si no se invalida,
@@ -299,14 +311,6 @@ export class PlanillaComisionesService {
        con TTL de 60 s en vez de una hora. */
     this.catalogo.invalidar();
     this.resumenAnual.invalidar();
-
-    await this.audit.registrar('PeriodoComision', periodo.id, 'IMPORTAR', usuarioId, {
-      archivo: nombreArchivo,
-      anio,
-      mes,
-      filas: filas.length,
-      filasValidas,
-    });
 
     this.logger.log(
       `Planilla ${mes}/${anio}: ${filas.length} filas (${filasValidas} comisionables, ${sinClasificar} sin clasificar)`,
@@ -321,7 +325,7 @@ export class PlanillaComisionesService {
         filasSinClasificar: sinClasificar,
         vendedorasDetectadas: vendedoras.size,
         columnasAusentes,
-        ajustesConservados: ajustesPrevios.size,
+        ajustesConservados,
       },
     };
   }
@@ -332,8 +336,8 @@ export class PlanillaComisionesService {
   }
 
   /** Lee los ajustes manuales de un periodo, indexados por la clave de fila. */
-  private async leerAjustesManuales(periodoId: string) {
-    const ajustadas = await this.prisma.ventaImportada.findMany({
+  private async leerAjustesManuales(periodoId: string, tx: Prisma.TransactionClient) {
+    const ajustadas = await tx.ventaImportada.findMany({
       where: { periodoId, ajustadaManual: true },
       select: {
         detalle: true,
@@ -375,56 +379,34 @@ export class PlanillaComisionesService {
    * No crea usuarios: atender pacientes y entrar al sistema son cosas distintas.
    * Quedan con `configurado = false` hasta que administración los revise.
    */
-  private async sincronizarMedicos(filas: readonly FilaExcel[]): Promise<void> {
-    const detectados = new Map<string, string>();
-    for (const fila of filas) {
-      const codigo = fila.medicoPk?.trim();
-      if (!codigo) continue;
-      const nombre = fila.medico?.trim();
-      // La última grafía del archivo gana: es la más reciente.
-      if (nombre) detectados.set(codigo, nombre);
-      else if (!detectados.has(codigo)) detectados.set(codigo, codigo);
-    }
-
+  private async sincronizarMedicos(detectados: Map<string, string>, tx: Prisma.TransactionClient): Promise<void> {
     if (detectados.size === 0) return;
 
-    await this.prisma.medico.createMany({
+    await tx.medico.createMany({
       data: Array.from(detectados, ([codigo, nombre]) => ({ codigo, nombre: nombre.slice(0, 200) })),
       skipDuplicates: true,
     });
 
     /* A los que ya existían se les refresca el nombre. Son decenas, no miles:
        40 personas distintas en los tres meses de 2026. */
-    const existentes = await this.prisma.medico.findMany({
+    const existentes = await tx.medico.findMany({
       where: { codigo: { in: [...detectados.keys()] } },
       select: { id: true, codigo: true, nombre: true },
     });
 
     const renombrados = existentes.filter(m => m.nombre !== detectados.get(m.codigo));
-    if (renombrados.length > 0) {
-      await this.prisma.$transaction(
-        renombrados.map(m =>
-          this.prisma.medico.update({
-            where: { id: m.id },
-            data: { nombre: (detectados.get(m.codigo) as string).slice(0, 200) },
-          }),
-        ),
-      );
+    for (const medico of renombrados) {
+      await tx.medico.update({
+        where: { id: medico.id },
+        data: { nombre: (detectados.get(medico.codigo) as string).slice(0, 200) },
+      });
     }
   }
 
   private async sincronizarVendedoras(
-    filas: readonly FilaExcel[],
+    detectadas: Map<string, string>,
+    tx: Prisma.TransactionClient,
   ): Promise<Map<string, VendedoraComision>> {
-    const detectadas = new Map<string, string>();
-    for (const fila of filas) {
-      const codigo = fila.vendedoraPk?.trim();
-      if (!codigo) continue;
-      if (!detectadas.has(codigo)) {
-        detectadas.set(codigo, fila.vendedoraNombre?.trim() || codigo);
-      }
-    }
-
     if (detectadas.size === 0) return new Map();
 
     /*
@@ -436,7 +418,7 @@ export class PlanillaComisionesService {
     const oficiales = new Map(EQUIPO_OFICIAL.map(v => [v.codigo, v]));
 
     // createMany + skipDuplicates: alta masiva sin chocar contra el único de `codigo`.
-    await this.prisma.vendedoraComision.createMany({
+    await tx.vendedoraComision.createMany({
       data: Array.from(detectadas, ([codigo, nombre]) => {
         const oficial = oficiales.get(codigo);
         return oficial
@@ -456,13 +438,13 @@ export class PlanillaComisionesService {
        anteriores, cuando aún no había lista oficial: se corrigen aquí. */
     for (const oficial of EQUIPO_OFICIAL) {
       if (!detectadas.has(oficial.codigo)) continue;
-      await this.prisma.vendedoraComision.updateMany({
+      await tx.vendedoraComision.updateMany({
         where: { codigo: oficial.codigo, configurada: false },
         data: { tipo: oficial.tipo, area: oficial.area, configurada: true },
       });
     }
 
-    const vendedoras = await this.prisma.vendedoraComision.findMany({
+    const vendedoras = await tx.vendedoraComision.findMany({
       where: { codigo: { in: Array.from(detectadas.keys()) } },
     });
 
@@ -572,8 +554,8 @@ export class PlanillaComisionesService {
     return paginar(datos, total, query);
   }
 
-  async obtenerPeriodo(id: string) {
-    const periodo = await this.prisma.periodoComision.findUnique({
+  async obtenerPeriodo(id: string, tx: Prisma.TransactionClient = this.prisma) {
+    const periodo = await tx.periodoComision.findUnique({
       where: { id },
       include: { _count: { select: { ventas: true, resultados: true } } },
     });
@@ -584,19 +566,20 @@ export class PlanillaComisionesService {
   }
 
   async eliminarPeriodo(id: string, usuarioId: string) {
-    const periodo = await this.obtenerPeriodo(id);
-    if (!esEditable(periodo.estado)) {
-      throw new ConflictException(`No se puede eliminar este periodo. ${MOTIVO_BLOQUEO[periodo.estado]}`);
-    }
-    // Las ventas y resultados caen por onDelete: Cascade.
-    await this.prisma.periodoComision.delete({ where: { id } });
+    await conPeriodoBloqueado(this.prisma, id, async tx => {
+      const periodo = await this.obtenerPeriodo(id, tx);
+      if (!esEditable(periodo.estado)) {
+        throw new ConflictException(`No se puede eliminar este periodo. ${MOTIVO_BLOQUEO[periodo.estado]}`);
+      }
+      await AuditService.registrarFinanciero(tx, 'PeriodoComision', id, 'ELIMINAR', usuarioId, {
+        anterior: await fotoFinanciera(tx, id),
+      });
+      // Las ventas y resultados caen por onDelete: Cascade.
+      await tx.periodoComision.delete({ where: { id } });
+    });
     /* El mes borrado desaparece del año: sin esto seguiría pintado hasta 60 s
        en una vista que ya no tiene respaldo en la base. */
     this.resumenAnual.invalidar();
-    await this.audit.registrar('PeriodoComision', id, 'ELIMINAR', usuarioId, {
-      anio: periodo.anio,
-      mes: periodo.mes,
-    });
     return { eliminado: true };
   }
 
@@ -652,33 +635,37 @@ export class PlanillaComisionesService {
 
   /** CALCULADO → EN_REVISION. A partir de aquí el mes no se toca. */
   async enviarARevision(id: string, usuarioId: string) {
-    const periodo = await this.exigirTransicion(id, EstadoPeriodo.EN_REVISION);
+    const actualizado = await conPeriodoBloqueado(this.prisma, id, async tx => {
+      const periodo = await this.exigirTransicion(id, EstadoPeriodo.EN_REVISION, undefined, tx);
 
-    const alertas = await this.alertas(id);
-    const bloqueos = bloqueosParaRevision({
-      ...alertas.totales,
-      vendedorasLiquidadas: periodo._count.resultados,
+      const alertas = await this.alertas(id, tx);
+      const bloqueos = bloqueosParaRevision({
+        ...alertas.totales,
+        vendedorasLiquidadas: periodo._count.resultados,
+      });
+      if (bloqueos.length > 0) {
+        /* La compuerta. Un flujo de aprobaciones que deja revisar un mes con
+           filas sin clasificar no protege nada: solo reparte la firma de un
+           número que ya estaba mal. */
+        throw new ConflictException(
+          `El periodo todavía no se puede revisar: ${bloqueos.map(b => b.detalle).join(' ')}`,
+        );
+      }
+
+      const actualizado = await tx.periodoComision.update({
+        where: { id },
+        data: {
+          estado: EstadoPeriodo.EN_REVISION,
+          enRevisionDesde: new Date(),
+          enviadoARevisionPor: usuarioId,
+        },
+      });
+      await AuditService.registrarFinanciero(tx, 'PeriodoComision', id, 'ENVIAR_A_REVISION', usuarioId, {
+        liquidacion: await fotoFinanciera(tx, id),
+      });
+      return actualizado;
     });
-    if (bloqueos.length > 0) {
-      /* La compuerta. Un flujo de aprobaciones que deja revisar un mes con
-         filas sin clasificar no protege nada: solo reparte la firma de un
-         número que ya estaba mal. */
-      throw new ConflictException(
-        `El periodo todavía no se puede revisar: ${bloqueos.map(b => b.detalle).join(' ')}`,
-      );
-    }
-
-    const actualizado = await this.prisma.periodoComision.update({
-      where: { id },
-      data: {
-        estado: EstadoPeriodo.EN_REVISION,
-        enRevisionDesde: new Date(),
-        enviadoARevisionPor: usuarioId,
-      },
-    });
-
     this.resumenAnual.invalidar();
-    await this.audit.registrar('PeriodoComision', id, 'ENVIAR_A_REVISION', usuarioId);
     return actualizado;
   }
 
@@ -690,53 +677,66 @@ export class PlanillaComisionesService {
    * "alguien pulsó cerrar" en el que el mes está aprobado y editable a la vez.
    */
   async aprobar(id: string, usuarioId: string, comentario?: string) {
-    const periodo = await this.obtenerPeriodo(id);
-    if (periodo.estado !== EstadoPeriodo.EN_REVISION) {
-      throw new ConflictException(
-        `Solo se puede aprobar un periodo EN REVISIÓN (este está ${periodo.estado}).`,
-      );
-    }
+    const respuesta = await conPeriodoBloqueado(this.prisma, id, async tx => {
+      const periodo = await this.obtenerPeriodo(id, tx);
+      const firma = await tx.aprobacionPeriodo.findUnique({ where: { periodoId_usuarioId: { periodoId: id, usuarioId } } });
+      const texto = comentario?.trim() || null;
+      const repetida = firma !== null && firma.comentario === texto;
+      if (periodo.estado !== EstadoPeriodo.EN_REVISION && !(periodo.estado === EstadoPeriodo.CERRADO && repetida)) {
+        throw new ConflictException(
+          `Solo se puede aprobar un periodo EN REVISIÓN (este está ${periodo.estado}).`,
+        );
+      }
 
-    await this.prisma.aprobacionPeriodo.upsert({
-      where: { periodoId_usuarioId: { periodoId: id, usuarioId } },
-      create: { periodoId: id, usuarioId, comentario: comentario?.trim() || null },
-      update: { comentario: comentario?.trim() || null },
-    });
-    await this.audit.registrar('PeriodoComision', id, 'APROBAR', usuarioId, { comentario });
+      if (!repetida) {
+        await tx.aprobacionPeriodo.upsert({
+          where: { periodoId_usuarioId: { periodoId: id, usuarioId } },
+          create: { periodoId: id, usuarioId, comentario: texto },
+          update: { comentario: texto },
+        });
+        await AuditService.registrarFinanciero(tx, 'PeriodoComision', id, 'APROBAR', usuarioId, {
+          comentario: texto, calculadoEn: periodo.calculadoEn,
+        });
+      }
 
-    const [superAdmins, aprobaciones] = await Promise.all([
-      this.superAdminsActivos(),
-      this.prisma.aprobacionPeriodo.findMany({ where: { periodoId: id } }),
-    ]);
-    const revision = calcularEstadoRevision(superAdmins, aprobaciones);
+      const [superAdmins, aprobaciones] = await Promise.all([
+        this.superAdminsActivos(tx),
+        tx.aprobacionPeriodo.findMany({ where: { periodoId: id } }),
+      ]);
+      const revision = calcularEstadoRevision(superAdmins, aprobaciones);
 
-    if (!revision.completa) {
-      this.resumenAnual.invalidar();
-      return { cerrado: false, ...revision };
-    }
+      if (periodo.estado === EstadoPeriodo.CERRADO) return { cerrado: true, ...revision };
+      if (!revision.completa) {
+        return { cerrado: false, ...revision };
+      }
 
-    await this.prisma.periodoComision.update({
-      where: { id },
-      data: {
-        estado: EstadoPeriodo.CERRADO,
-        cerradoEn: new Date(),
-        // Quien completó el conjunto: el último visto bueno que faltaba.
-        cerradoPor: usuarioId,
-      },
+      await tx.periodoComision.update({
+        where: { id },
+        data: {
+          estado: EstadoPeriodo.CERRADO,
+          cerradoEn: new Date(),
+          // Quien completó el conjunto: el último visto bueno que faltaba.
+          cerradoPor: usuarioId,
+        },
+      });
+      await AuditService.registrarFinanciero(tx, 'PeriodoComision', id, 'CERRAR', usuarioId, {
+        aprobaron: revision.aprobaron.map(a => a.nombre),
+        liquidacion: await fotoFinanciera(tx, id),
+      });
+
+      return { cerrado: true, ...revision };
     });
     this.resumenAnual.invalidar();
-    await this.audit.registrar('PeriodoComision', id, 'CERRAR', usuarioId, {
-      aprobaron: revision.aprobaron.map(a => a.nombre),
-    });
-
-    return { cerrado: true, ...revision };
+    return respuesta;
   }
 
   /** EN_REVISION → CALCULADO. Devuelve el mes a edición y borra las firmas. */
   async rechazar(id: string, usuarioId: string, motivo: string) {
-    await this.exigirTransicion(id, EstadoPeriodo.CALCULADO, EstadoPeriodo.EN_REVISION);
-
-    const actualizado = await this.prisma.$transaction(async tx => {
+    const actualizado = await conPeriodoBloqueado(this.prisma, id, async tx => {
+      await this.exigirTransicion(id, EstadoPeriodo.CALCULADO, EstadoPeriodo.EN_REVISION, tx);
+      await AuditService.registrarFinanciero(tx, 'PeriodoComision', id, 'RECHAZAR', usuarioId, {
+        motivo, anterior: await fotoFinanciera(tx, id),
+      });
       /* Las aprobaciones se borran ENTERAS, también las de quien no rechazó.
          Una firma vale para las cifras que se firmaron: si el mes vuelve a
          edición, lo que aprobaron los demás ya no describe lo que va a
@@ -750,7 +750,6 @@ export class PlanillaComisionesService {
     });
 
     this.resumenAnual.invalidar();
-    await this.audit.registrar('PeriodoComision', id, 'RECHAZAR', usuarioId, { motivo });
     return actualizado;
   }
 
@@ -765,9 +764,13 @@ export class PlanillaComisionesService {
    * columna nueva.
    */
   async reabrir(id: string, usuarioId: string, motivo: string) {
-    const periodo = await this.exigirTransicion(id, EstadoPeriodo.CALCULADO, EstadoPeriodo.CERRADO);
-
-    const actualizado = await this.prisma.$transaction(async tx => {
+    const actualizado = await conPeriodoBloqueado(this.prisma, id, async tx => {
+      const periodo = await this.exigirTransicion(id, EstadoPeriodo.CALCULADO, EstadoPeriodo.CERRADO, tx);
+      await AuditService.registrarFinanciero(tx, 'PeriodoComision', id, 'REABRIR', usuarioId, {
+        motivo, cerradoEn: periodo.cerradoEn, cerradoPor: periodo.cerradoPor,
+        configuracionConLaQueSeCerro: periodo.configuracionUsada,
+        anterior: await fotoFinanciera(tx, id),
+      });
       await tx.aprobacionPeriodo.deleteMany({ where: { periodoId: id } });
       return tx.periodoComision.update({
         where: { id },
@@ -782,26 +785,23 @@ export class PlanillaComisionesService {
     });
 
     this.resumenAnual.invalidar();
-    await this.audit.registrar('PeriodoComision', id, 'REABRIR', usuarioId, {
-      motivo,
-      cerradoEn: periodo.cerradoEn,
-      cerradoPor: periodo.cerradoPor,
-      configuracionConLaQueSeCerro: periodo.configuracionUsada,
-    });
     return actualizado;
   }
 
   /** CERRADO → PAGADO. Terminal: desde aquí ya no se vuelve. */
   async registrarPago(id: string, usuarioId: string) {
-    await this.exigirTransicion(id, EstadoPeriodo.PAGADO, EstadoPeriodo.CERRADO);
-
-    const actualizado = await this.prisma.periodoComision.update({
-      where: { id },
-      data: { estado: EstadoPeriodo.PAGADO, pagadoEn: new Date(), pagadoPor: usuarioId },
+    const actualizado = await conPeriodoBloqueado(this.prisma, id, async tx => {
+      await this.exigirTransicion(id, EstadoPeriodo.PAGADO, EstadoPeriodo.CERRADO, tx);
+      const actualizado = await tx.periodoComision.update({
+        where: { id },
+        data: { estado: EstadoPeriodo.PAGADO, pagadoEn: new Date(), pagadoPor: usuarioId },
+      });
+      await AuditService.registrarFinanciero(tx, 'PeriodoComision', id, 'PAGAR', usuarioId, {
+        liquidacion: await fotoFinanciera(tx, id),
+      });
+      return actualizado;
     });
-
     this.resumenAnual.invalidar();
-    await this.audit.registrar('PeriodoComision', id, 'PAGAR', usuarioId);
     return actualizado;
   }
 
@@ -818,8 +818,9 @@ export class PlanillaComisionesService {
     id: string,
     hasta: EstadoPeriodo,
     desdeEsperado?: EstadoPeriodo,
+    tx: Prisma.TransactionClient = this.prisma,
   ) {
-    const periodo = await this.obtenerPeriodo(id);
+    const periodo = await this.obtenerPeriodo(id, tx);
 
     if (desdeEsperado && periodo.estado !== desdeEsperado) {
       throw new ConflictException(
@@ -844,8 +845,8 @@ export class PlanillaComisionesService {
    * SUPER_ADMIN puede bajar a ADMIN en cualquier momento, y una lista congelada
    * dejaría el mes esperando para siempre una firma que ya nadie puede dar.
    */
-  private superAdminsActivos(): Promise<Aprobador[]> {
-    return this.prisma.usuario.findMany({
+  private superAdminsActivos(tx: Prisma.TransactionClient = this.prisma): Promise<Aprobador[]> {
+    return tx.usuario.findMany({
       where: { rol: Rol.SUPER_ADMIN, activo: true },
       select: { id: true, nombre: true },
       orderBy: { nombre: 'asc' },
@@ -1013,59 +1014,64 @@ export class PlanillaComisionesService {
 
   /** Corrige a mano la clasificación de una fila; queda marcada como ajustada. */
   async ajustarVenta(id: string, dto: AjustarVentaDto, usuarioId: string) {
-    const venta = await this.prisma.ventaImportada.findUnique({ where: { id } });
-    if (!venta) {
+    const destino = await this.prisma.ventaImportada.findUnique({ where: { id }, select: { periodoId: true } });
+    if (!destino) {
       throw new NotFoundException(`Venta importada ${id} no encontrada`);
     }
-
-    const periodo = await this.obtenerPeriodo(venta.periodoId);
-    if (!esEditable(periodo.estado)) {
-      throw new ConflictException(`No se puede ajustar esta venta. ${MOTIVO_BLOQUEO[periodo.estado]}`);
-    }
-
-    if (dto.vendedoraId) {
-      const existe = await this.prisma.vendedoraComision.count({ where: { id: dto.vendedoraId } });
-      if (existe === 0) {
-        throw new BadRequestException(`La vendedora ${dto.vendedoraId} no existe`);
+    const actualizada = await conPeriodoBloqueado(this.prisma, destino.periodoId, async tx => {
+      const venta = await tx.ventaImportada.findUnique({ where: { id } });
+      if (!venta) throw new ConflictException('La venta fue reemplazada. Actualiza la planilla.');
+      const periodo = await this.obtenerPeriodo(venta.periodoId, tx);
+      if (!esEditable(periodo.estado)) {
+        throw new ConflictException(`No se puede ajustar esta venta. ${MOTIVO_BLOQUEO[periodo.estado]}`);
       }
-    }
 
-    /*
-     * Excluir a mano exige motivo, y volver a incluir lo borra.
-     *
-     * Sin esto la fila quedaba excluida sin explicación —o peor, arrastrando el
-     * motivo que le puso el clasificador, que ya no es cierto— y dentro de tres
-     * meses nadie sabe si fue un error del Excel, una devolución o un criterio
-     * de administración. Es dinero de una persona: tiene que quedar por qué.
-     */
-    if (dto.comisionable === false && !dto.motivoExclusion?.trim()) {
-      throw new BadRequestException(
-        'Para excluir una venta del cálculo hay que indicar el motivo.',
-      );
-    }
+      if (dto.vendedoraId) {
+        const existe = await tx.vendedoraComision.count({ where: { id: dto.vendedoraId } });
+        if (existe === 0) {
+          throw new BadRequestException(`La vendedora ${dto.vendedoraId} no existe`);
+        }
+      }
 
-    // Cambiar la clasificación o la unidad de negocio cambia el tipo de comisión.
-    const actualizada = await this.prisma.ventaImportada.update({
-      where: { id },
-      data: {
-        ...dto,
-        ...(dto.clasif || dto.unidadNegocio
-          ? { tipo: determinarTipo(dto.clasif ?? venta.clasif, dto.unidadNegocio ?? venta.unidadNegocio) }
-          : {}),
-        /* Al reincluir, el motivo deja de aplicar: dejarlo puesto haría que la
-           fila apareciera comisionando y "excluida por X" a la vez. */
-        ...(dto.comisionable === true ? { motivoExclusion: null } : {}),
-        // Corregirla a mano es, precisamente, haberla revisado.
-        requiereRevision: false,
-        ajustadaManual: true,
-      },
+      /*
+       * Excluir a mano exige motivo, y volver a incluir lo borra.
+       *
+       * Sin esto la fila quedaba excluida sin explicación —o peor, arrastrando el
+       * motivo que le puso el clasificador, que ya no es cierto— y dentro de tres
+       * meses nadie sabe si fue un error del Excel, una devolución o un criterio
+       * de administración. Es dinero de una persona: tiene que quedar por qué.
+       */
+      if (dto.comisionable === false && !dto.motivoExclusion?.trim()) {
+        throw new BadRequestException(
+          'Para excluir una venta del cálculo hay que indicar el motivo.',
+        );
+      }
+
+      // Cambiar la clasificación o la unidad de negocio cambia el tipo de comisión.
+      const actualizada = await tx.ventaImportada.update({
+        where: { id },
+        data: {
+          ...dto,
+          ...(dto.clasif || dto.unidadNegocio
+            ? { tipo: determinarTipo(dto.clasif ?? venta.clasif, dto.unidadNegocio ?? venta.unidadNegocio) }
+            : {}),
+          /* Al reincluir, el motivo deja de aplicar: dejarlo puesto haría que la
+             fila apareciera comisionando y "excluida por X" a la vez. */
+          ...(dto.comisionable === true ? { motivoExclusion: null } : {}),
+          // Corregirla a mano es, precisamente, haberla revisado.
+          requiereRevision: false,
+          ajustadaManual: true,
+        },
+      });
+      await invalidarCalculo(tx, venta.periodoId, 'Ajuste de venta', usuarioId);
+      await AuditService.registrarFinanciero(tx, 'VentaImportada', id, 'AJUSTAR', usuarioId, { ...dto, anterior: venta });
+      return actualizada;
     });
 
     /* Incluir o excluir una fila mueve el vendido del mes —y con él el promedio
        del trimestre— en la vista anual. */
     this.resumenAnual.invalidar();
 
-    await this.audit.registrar('VentaImportada', id, 'AJUSTAR', usuarioId, { ...dto });
     return actualizada;
   }
 
@@ -1088,81 +1094,103 @@ export class PlanillaComisionesService {
    * estaban bien desde la importación— así que se dejan intactos; solo se
    * tocan los campos que de verdad dependen de `clasif`.
    */
-  async reclasificarConRegla(regla: ReglaDiccionario): Promise<number> {
-    const candidatas = await this.prisma.ventaImportada.findMany({
-      where: {
-        requiereRevision: true,
-        /* Solo meses todavía editables: reclasificar toca filas, y un mes en
-           revisión o cerrado no puede cambiar bajo los pies de quien lo firma.
-           Antes solo excluía CERRADO, así que EN_REVISION habría entrado. */
-        periodo: { estado: { in: [EstadoPeriodo.BORRADOR, EstadoPeriodo.CALCULADO] } },
-        ...(regla.modulo ? { modulo: regla.modulo } : {}),
-      },
-      select: {
-        id: true,
-        detalle: true,
-        modulo: true,
-        precio: true,
-        promocion: true,
-        vendedoraPk: true,
-        vendedoraNombre: true,
-        unidadNegocio: true,
-      },
-    });
-
-    let actualizadas = 0;
-    for (const fila of candidatas) {
-      const filaExcel: FilaExcel = {
-        fecha: null,
-        modulo: fila.modulo,
-        codOrigen: null,
-        estadoPlan: null,
-        codItem: null,
-        detalle: fila.detalle,
-        pac: null,
-        paciente: null,
-        medicoPk: null,
-        medico: null,
-        // No persistido en `VentaImportada` (el export tampoco lo trae hoy):
-        // `determinarUnidadNegocio` solo lo mira si la regla no fuerza una,
-        // y en ese caso se conserva la que ya tenía la fila, más abajo.
-        area: null,
-        vendedoraPk: fila.vendedoraPk,
-        vendedoraNombre: fila.vendedoraNombre,
-        captacion: null,
-        seguro: null,
-        promocion: fila.promocion,
-        precio: Number(fila.precio),
-        anticipoPlan: null,
-        tc: null,
-        obs: null,
-        clasificacionPlan: null,
-        clasificacionServicio: null,
-      };
-
-      // Mismo criterio de match que usaría una importación nueva — si esta
-      // regla no es la que cruzaría, no se toca.
-      if (!buscarRegla(filaExcel, [regla])) continue;
-
-      const resultado = clasificarFila(filaExcel, [regla]);
-      const unidadNegocio = regla.unidadNegocio ?? fila.unidadNegocio;
-
-      await this.prisma.ventaImportada.update({
-        where: { id: fila.id },
-        data: {
-          clasif: resultado.clasif,
-          unidadNegocio,
-          tipo: determinarTipo(resultado.clasif, unidadNegocio),
-          nivel: resultado.nivel,
-          comisionable: resultado.comisionable,
-          motivoExclusion: resultado.motivoExclusion,
-          requiereRevision: false,
+  async reclasificarConRegla(regla: ReglaDiccionario, usuarioId?: string): Promise<number> {
+    const total = await transaccionFinanciera(this.prisma, async tx => {
+      const periodos = await tx.periodoComision.findMany({
+        where: {
+          estado: { in: [EstadoPeriodo.BORRADOR, EstadoPeriodo.CALCULADO] },
+          ventas: { some: { requiereRevision: true, ...(regla.modulo ? { modulo: regla.modulo } : {}) } },
+        },
+        orderBy: [{ anio: 'asc' }, { mes: 'asc' }],
+      });
+      // Un conflicto revierte todos los meses alcanzados por esta aplicación.
+      for (const periodo of periodos) await bloquearPeriodo(tx, periodo.anio, periodo.mes);
+      const candidatas = await tx.ventaImportada.findMany({
+        where: {
+          periodoId: { in: periodos.map(p => p.id) },
+          requiereRevision: true,
+          /* Solo meses todavía editables: reclasificar toca filas, y un mes en
+             revisión o cerrado no puede cambiar bajo los pies de quien lo firma.
+             Antes solo excluía CERRADO, así que EN_REVISION habría entrado. */
+          periodo: { estado: { in: [EstadoPeriodo.BORRADOR, EstadoPeriodo.CALCULADO] } },
+          ...(regla.modulo ? { modulo: regla.modulo } : {}),
+        },
+        select: {
+          id: true,
+          periodoId: true,
+          detalle: true,
+          modulo: true,
+          precio: true,
+          promocion: true,
+          vendedoraPk: true,
+          vendedoraNombre: true,
+          unidadNegocio: true,
         },
       });
-      actualizadas++;
-    }
 
-    return actualizadas;
+      let actualizadas = 0;
+      const afectadas = new Map<string, string[]>();
+      for (const fila of candidatas) {
+        const filaExcel: FilaExcel = {
+          fecha: null,
+          modulo: fila.modulo,
+          codOrigen: null,
+          estadoPlan: null,
+          codItem: null,
+          detalle: fila.detalle,
+          pac: null,
+          paciente: null,
+          medicoPk: null,
+          medico: null,
+          // No persistido en `VentaImportada` (el export tampoco lo trae hoy):
+          // `determinarUnidadNegocio` solo lo mira si la regla no fuerza una,
+          // y en ese caso se conserva la que ya tenía la fila, más abajo.
+          area: null,
+          vendedoraPk: fila.vendedoraPk,
+          vendedoraNombre: fila.vendedoraNombre,
+          captacion: null,
+          seguro: null,
+          promocion: fila.promocion,
+          precio: Number(fila.precio),
+          anticipoPlan: null,
+          tc: null,
+          obs: null,
+          clasificacionPlan: null,
+          clasificacionServicio: null,
+        };
+
+        // Mismo criterio de match que usaría una importación nueva — si esta
+        // regla no es la que cruzaría, no se toca.
+        if (!buscarRegla(filaExcel, [regla])) continue;
+
+        const resultado = clasificarFila(filaExcel, [regla]);
+        const unidadNegocio = regla.unidadNegocio ?? fila.unidadNegocio;
+
+        await tx.ventaImportada.update({
+          where: { id: fila.id },
+          data: {
+            clasif: resultado.clasif,
+            unidadNegocio,
+            tipo: determinarTipo(resultado.clasif, unidadNegocio),
+            nivel: resultado.nivel,
+            comisionable: resultado.comisionable,
+            motivoExclusion: resultado.motivoExclusion,
+            requiereRevision: false,
+          },
+        });
+        const ids = afectadas.get(fila.periodoId) ?? [];
+        ids.push(fila.id);
+        afectadas.set(fila.periodoId, ids);
+        actualizadas++;
+      }
+      for (const [periodoId, ventas] of afectadas) {
+        await invalidarCalculo(tx, periodoId, 'Reclasificación de ventas pendientes', usuarioId);
+        await AuditService.registrarFinanciero(tx, 'PeriodoComision', periodoId, 'RECLASIFICAR', usuarioId, { regla, ventas });
+      }
+      return actualizadas;
+    });
+    if (total > 0) this.resumenAnual.invalidar();
+    return total;
   }
 
   /* ── Alertas ────────────────────────────────────────────────────────── */
@@ -1171,8 +1199,8 @@ export class PlanillaComisionesService {
    * Todo lo que administración debería revisar antes de calcular.
    * Se resuelve con agregados en SQL, no trayendo las filas a memoria.
    */
-  async alertas(periodoId: string) {
-    await this.obtenerPeriodo(periodoId);
+  async alertas(periodoId: string, tx: Prisma.TransactionClient = this.prisma) {
+    await this.obtenerPeriodo(periodoId, tx);
 
     const [
       excluidas,
@@ -1187,29 +1215,29 @@ export class PlanillaComisionesService {
       porClasif,
       porTipo,
     ] = await Promise.all([
-      this.prisma.ventaImportada.count({ where: { periodoId, comisionable: false } }),
-      this.prisma.vendedoraComision.count({
+      tx.ventaImportada.count({ where: { periodoId, comisionable: false } }),
+      tx.vendedoraComision.count({
         where: { configurada: false, ventas: { some: { periodoId } } },
       }),
-      this.prisma.ventaImportada.count({ where: { periodoId, vendedoraId: null } }),
-      this.prisma.ventaImportada.groupBy({
+      tx.ventaImportada.count({ where: { periodoId, vendedoraId: null } }),
+      tx.ventaImportada.groupBy({
         by: ['motivoExclusion'],
         where: { periodoId, comisionable: false },
         _count: { _all: true },
         _sum: { precio: true },
       }),
-      this.prisma.ventaImportada.count({
+      tx.ventaImportada.count({
         where: { periodoId, modulo: 'PLANES', comisionable: false },
       }),
-      this.prisma.ventaImportada.count({ where: { periodoId, requiereRevision: true } }),
-      this.prisma.vendedoraComision.findMany({
+      tx.ventaImportada.count({ where: { periodoId, requiereRevision: true } }),
+      tx.vendedoraComision.findMany({
         where: { configurada: false, ventas: { some: { periodoId } } },
         select: { id: true, codigo: true, nombre: true },
         take: 50,
       }),
       // Un servicio nuevo aparece muchas veces en el mes: se agrupa para que
       // administración lo resuelva UNA vez creando la regla del diccionario.
-      this.prisma.ventaImportada.groupBy({
+      tx.ventaImportada.groupBy({
         by: ['detalle', 'modulo'],
         where: { periodoId, requiereRevision: true },
         _count: { _all: true },
@@ -1225,17 +1253,17 @@ export class PlanillaComisionesService {
          aparte más arriba. Del período entero, no del filtro activo en
          pantalla: así el chip nunca cambia de número mientras se usa a sí
          mismo para decidir dónde hacer clic. */
-      this.prisma.ventaImportada.groupBy({
+      tx.ventaImportada.groupBy({
         by: ['unidadNegocio'],
         where: { periodoId },
         _count: { _all: true },
       }),
-      this.prisma.ventaImportada.groupBy({
+      tx.ventaImportada.groupBy({
         by: ['clasif'],
         where: { periodoId },
         _count: { _all: true },
       }),
-      this.prisma.ventaImportada.groupBy({
+      tx.ventaImportada.groupBy({
         by: ['tipo'],
         where: { periodoId },
         _count: { _all: true },

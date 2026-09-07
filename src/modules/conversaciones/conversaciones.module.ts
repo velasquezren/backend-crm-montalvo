@@ -6,6 +6,7 @@ import { WhatsappCloudService } from '../../common/whatsapp/whatsapp-cloud.servi
 import { StorageModule } from '../../common/storage/storage.module';
 import { PushModule } from '../../common/push/push.module';
 import { ClientesModule } from '../clientes/clientes.module';
+import { AuthModule } from '../auth/auth.module';
 import { AcuseAutomaticoService } from './acuse-automatico.service';
 import { ConversacionesController } from './conversaciones.controller';
 import { ConversacionesGateway } from './conversaciones.gateway';
@@ -16,7 +17,7 @@ import { MediaEntranteService } from './media-entrante.service';
 import { WhatsappWebhookController } from './webhooks/whatsapp-webhook.controller';
 
 @Module({
-  imports: [ClientesModule, StorageModule, PushModule],
+  imports: [ClientesModule, StorageModule, PushModule, AuthModule],
   controllers: [ConversacionesController, WhatsappWebhookController],
   providers: [
     ConversacionesService,
@@ -32,4 +33,3 @@ import { WhatsappWebhookController } from './webhooks/whatsapp-webhook.controlle
   exports: [ConversacionesService, ConversacionesGateway],
 })
 export class ConversacionesModule {}
-
