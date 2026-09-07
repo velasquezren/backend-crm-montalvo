@@ -4,6 +4,7 @@ import { Prisma, TipoMensaje } from '../../prisma/prisma-client';
 import { CacheMemoria } from '../../common/cache/cache-memoria';
 import { escaparComodinesLike, terminoBusqueda } from '../../common/dto/busqueda';
 import { calcularPaginacion, paginar, RespuestaPaginada } from '../../common/dto/pagination.dto';
+import { enSegundoPlano } from '../../common/fiabilidad/en-segundo-plano';
 import { R2Service } from '../../common/storage/r2.service';
 import { WhatsappCloudService } from '../../common/whatsapp/whatsapp-cloud.service';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -752,10 +753,12 @@ export class ConversacionesService {
        más) para ver su mensaje como enviado. El resultado (Meta ID o FALLIDO)
        se corrige en segundo plano y empuja un segundo aviso por WebSocket
        para actualizar el tick sin que el agente tenga que refrescar. */
-    void this.despachador.texto(
-      { mensajeId: mensaje.id, conversacionId, telefono: conversacion.cliente.telefono },
-      contenido,
-      adjunto?.mediaKey,
+    void enSegundoPlano(`envío del mensaje ${mensaje.id} a Meta`, this.logger, () =>
+      this.despachador.texto(
+        { mensajeId: mensaje.id, conversacionId, telefono: conversacion.cliente.telefono },
+        contenido,
+        adjunto?.mediaKey,
+      ),
     );
 
     return { ...mensaje, clienteTelefono: conversacion.cliente.telefono };
@@ -887,9 +890,11 @@ export class ConversacionesService {
 
     this.gateway.emitirActividad(conversacionId);
 
-    void this.despachador.plantilla(
-      { mensajeId: mensaje.id, conversacionId, telefono: conversacion.cliente.telefono },
-      dto,
+    void enSegundoPlano(`envío de la plantilla ${dto.plantilla} a Meta`, this.logger, () =>
+      this.despachador.plantilla(
+        { mensajeId: mensaje.id, conversacionId, telefono: conversacion.cliente.telefono },
+        dto,
+      ),
     );
 
     return { ...mensaje, clienteTelefono: conversacion.cliente.telefono };
@@ -922,8 +927,11 @@ export class ConversacionesService {
       orderBy: { createdAt: 'desc' },
       select: { whatsappMsgId: true },
     });
-    if (ultimoEntrante?.whatsappMsgId) {
-      void this.enviarEstadoLectura(ultimoEntrante.whatsappMsgId, typing);
+    const msgIdEntrante = ultimoEntrante?.whatsappMsgId;
+    if (msgIdEntrante) {
+      void enSegundoPlano('acuse de lectura hacia Meta', this.logger, () =>
+        this.enviarEstadoLectura(msgIdEntrante, typing),
+      );
     }
     return { ok: true };
   }

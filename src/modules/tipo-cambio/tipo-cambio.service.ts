@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, Logger, OnModuleDestroy, OnModuleInit 
 import { FuenteTipoCambio, ModoTipoCambio } from '../../prisma/prisma-client';
 
 import { AuditService } from '../../common/audit/audit.service';
+import { enSegundoPlano } from '../../common/fiabilidad/en-segundo-plano';
 import { PrismaService } from '../../prisma/prisma.service';
 
 /**
@@ -23,6 +24,7 @@ const TIPO_CAMBIO_RESPALDO = 6.97;
 const URL_TC_OFICIAL_ESPEJO = 'https://apibcb.cucu.bo/api/v1/tc/oficial';
 
 const SEIS_HORAS_MS = 6 * 60 * 60 * 1000;
+const SINCRONIZACION_TC = 'sincronización del tipo de cambio con el espejo del BCB';
 
 interface RespuestaEspejoBcb {
   tc_oficial?: {
@@ -86,8 +88,11 @@ export class TipoCambioService implements OnModuleInit, OnModuleDestroy {
        de terceros en cada corrida de test. */
     if (process.env.NODE_ENV === 'test') return;
 
-    void this.sincronizarAutomatico();
-    this.intervalo = setInterval(() => void this.sincronizarAutomatico(), SEIS_HORAS_MS);
+    void enSegundoPlano(SINCRONIZACION_TC, this.logger, () => this.sincronizarAutomatico());
+    this.intervalo = setInterval(
+      () => void enSegundoPlano(SINCRONIZACION_TC, this.logger, () => this.sincronizarAutomatico()),
+      SEIS_HORAS_MS,
+    );
     this.intervalo.unref(); // no debe ser el motivo por el que el proceso sigue vivo
   }
 

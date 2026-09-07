@@ -15,6 +15,7 @@ import { SkipThrottle } from '@nestjs/throttler';
 import { TipoMensaje } from '../../../prisma/prisma-client';
 
 import { Public } from '../../../common/decorators/public.decorator';
+import { enSegundoPlano } from '../../../common/fiabilidad/en-segundo-plano';
 import { MetaSignatureGuard } from '../../../common/guards/meta-signature.guard';
 import { AlertasWhatsappService } from '../../../common/whatsapp/alertas-whatsapp.service';
 import { ConversacionesService } from '../conversaciones.service';
@@ -149,7 +150,9 @@ export class WhatsappWebhookController {
   recibir(@Body() payload: WhatsappWebhookDto): { received: true } {
     /* Meta exige un 200 rápido (< 3s); procesamos el payload de forma asíncrona
        para responder en < 2ms y evitar desactivación por timeouts durante ráfagas. */
-    void this.procesarWebhook(payload);
+    void enSegundoPlano('proceso del webhook de WhatsApp', this.logger, () =>
+      this.procesarWebhook(payload),
+    );
     return { received: true };
   }
 

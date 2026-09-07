@@ -10,6 +10,7 @@ import { Prisma } from '../../prisma/prisma-client';
 import { alcanceAgente, cubreRol } from '../../common/auth/roles';
 import { UsuarioJwt } from '../../common/decorators/current-user.decorator';
 import { terminoBusqueda } from '../../common/dto/busqueda';
+import { enSegundoPlano } from '../../common/fiabilidad/en-segundo-plano';
 import { calcularPaginacion, paginar } from '../../common/dto/pagination.dto';
 import { PushService } from '../../common/push/push.service';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -114,7 +115,13 @@ export class ActividadesService implements OnModuleInit, OnModuleDestroy {
        bootstrapea el módulo entero en una prueba. */
     if (process.env.NODE_ENV === 'test') return;
 
-    this.intervalo = setInterval(() => void this.barrerRecordatoriosPendientes(), INTERVALO_BARRIDO_MS);
+    this.intervalo = setInterval(
+      () =>
+        void enSegundoPlano('barrido de recordatorios de actividades', this.logger, () =>
+          this.barrerRecordatoriosPendientes(),
+        ),
+      INTERVALO_BARRIDO_MS,
+    );
     this.intervalo.unref();
   }
 

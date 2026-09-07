@@ -202,6 +202,48 @@ function verificarImportsDePrisma() {
   }
 }
 
+// ── 7. Nada disparado con `void` se queda sin capturar el rechazo ─────────────
+// Node aborta el proceso ante una promesa rechazada sin manejar. Dentro de una
+// petición da igual —el filtro global la vuelve un 500—, pero este backend
+// dispara trabajo con `void` a propósito: el envío a Meta que no debe hacer
+// esperar a la agente, el barrido de recordatorios cada cinco minutos, la
+// sincronización del tipo de cambio cada seis horas. Ahí no escucha nadie.
+//
+// Se reprodujo el 2026-09-07 (F06): con la base sin responder, el `findMany`
+// que abre el barrido rechazaba y tumbaba el proceso; systemd lo relevantaba
+// por `Restart=always` y volvía a pasar cinco minutos después. La forma
+// correcta es `enSegundoPlano(contexto, logger, () => trabajo())`, que además
+// deja en el journal qué se estaba haciendo.
+//
+// Un `.catch()` propio en el sitio también vale: hay dos en el gateway que
+// hacen algo más específico que registrar, y obligarlos al helper les quitaría
+// esa lógica.
+function verificarTrabajoEnSegundoPlano() {
+  const raizSrc = resolve(RAIZ, 'src');
+  for (const ruta of indexar(raizSrc).filter(r => r.endsWith('.ts') && !r.endsWith('.spec.ts'))) {
+    const rel = relative(RAIZ, ruta);
+    const lineas = readFileSync(ruta, 'utf8').split('\n');
+
+    lineas.forEach((linea, i) => {
+      // `void algo(` disparando trabajo, no `: void` ni `=> void` ni `Promise<void>`.
+      if (!/(?:^|[^\w.])void\s+(this|[a-z]\w*)\./.test(linea)) return;
+      if (/void\s+enSegundoPlano\(/.test(linea)) return;
+
+      // Un `.catch(` propio en la misma sentencia (puede seguir en las líneas de abajo).
+      const sentencia = lineas.slice(i, i + 8).join('\n');
+      if (/\.catch\(/.test(sentencia)) return;
+
+      señala(
+        'crm-backend-module',
+        `${rel}:${i + 1}: dispara trabajo con \`void\` sin capturar el rechazo. ` +
+          'Usa `enSegundoPlano(contexto, this.logger, () => …)` de ' +
+          'common/fiabilidad, o un `.catch()` propio si hace falta reaccionar: ' +
+          'una promesa rechazada fuera de una petición tumba el proceso.',
+      );
+    });
+  }
+}
+
 // ── 5. Ningún DTO sin decoradores de validación ───────────────────────────────
 // El `ValidationPipe` global corre con `whitelist: true`, que **descarta toda
 // propiedad sin decorador de class-validator**. Un DTO sin decoradores por tanto
@@ -287,6 +329,7 @@ for (const nombre of readdirSync(SKILLS)) {
 verificarWebhooks();
 verificarDtos();
 verificarImportsDePrisma();
+verificarTrabajoEnSegundoPlano();
 
 if (problemas.length === 0) {
   console.log('✓ Los skills coinciden con el código.');

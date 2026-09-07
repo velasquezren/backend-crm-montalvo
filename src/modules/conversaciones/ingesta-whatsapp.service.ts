@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { OrigenLead, Prisma } from '../../prisma/prisma-client';
 
+import { enSegundoPlano } from '../../common/fiabilidad/en-segundo-plano';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ClientesService, nombreProvisional } from '../clientes/clientes.service';
 import { AcuseAutomaticoService } from './acuse-automatico.service';
@@ -172,7 +173,9 @@ export class IngestaWhatsappService {
        suscripción). Al terminar, se actualiza mediaKey y se avisa por WebSocket
        para que el chat muestre la foto sin recargar. */
     if (media && this.mediaEntrante.habilitado) {
-      void this.mediaEntrante.traer(mensaje.id, conversacion.id, media);
+      void enSegundoPlano(`descarga de la media del mensaje ${mensaje.id}`, this.logger, () =>
+        this.mediaEntrante.traer(mensaje.id, conversacion.id, media),
+      );
     }
 
     /* Auto-crear el Lead de Oportunidades SOLO en el primer contacto: se ata a
@@ -226,14 +229,18 @@ export class IngestaWhatsappService {
 
     /* Acuse fuera de horario. Sin `await`, como todo lo que habla con Meta: el
        webhook tiene que responder en milisegundos. */
-    void this.responderFueraDeHorario(conversacion.id, cliente.telefono);
+    void enSegundoPlano('acuse fuera de horario', this.logger, () =>
+      this.responderFueraDeHorario(conversacion.id, cliente.telefono),
+    );
 
     /* El clic en un botón del acuse hoy no disparaba nada más: el título
        quedaba en el chat como si el paciente lo hubiera escrito, y ahí se
        cortaba. Esto pide nombre y edad para que quien abra el chat después
        ya sepa con quién habla. */
     if (esRespuestaBotonAcuse) {
-      void this.pedirDatosDelPaciente(conversacion.id, cliente.telefono);
+      void enSegundoPlano('pedido de nombre y edad tras el acuse', this.logger, () =>
+        this.pedirDatosDelPaciente(conversacion.id, cliente.telefono),
+      );
     }
 
     return mensaje;

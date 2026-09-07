@@ -13,6 +13,7 @@ import { ConfigService } from '@nestjs/config';
 import { SkipThrottle } from '@nestjs/throttler';
 
 import { Public } from '../../../common/decorators/public.decorator';
+import { enSegundoPlano } from '../../../common/fiabilidad/en-segundo-plano';
 import { MetaSignatureGuard } from '../../../common/guards/meta-signature.guard';
 import { LeadsService } from '../leads.service';
 import { LeadAdsGraphService } from './lead-ads-graph.service';
@@ -79,7 +80,9 @@ export class MetaWebhookController {
     /* Meta exige un 200 rápido (< 3s); resolver contra Graph API es una llamada
        de red por lead y no debe demorar la respuesta al webhook — mismo
        criterio que WhatsappWebhookController.recibir(). */
-    void this.procesarWebhook(payload);
+    void enSegundoPlano('proceso del webhook de Lead Ads', this.logger, () =>
+      this.procesarWebhook(payload),
+    );
     return { received: true };
   }
 

@@ -20,8 +20,17 @@ Architecture, Repository Pattern ni capas nuevas para resolver un punto del plan
 | F03 · consistencia del periodo | **Cerrada** | `775abbd`, [`auditoria-f03.md`](auditoria-f03.md) |
 | F04 · autorización por operación | **Cerrada** | `775abbd`, [`auditoria-f04.md`](auditoria-f04.md) |
 | F05 · contrato de sesión | **Cerrada en código, SIN DESPLEGAR** | `775abbd` + frontend `9aa073a`, [`auditoria-f05.md`](auditoria-f05.md) |
-| F06 · inbox, sesión cruzada y PWA | **Diagnóstico hecho, sin corregir** | [`auditoria-f06-etapa2.md`](auditoria-f06-etapa2.md) |
-| F07–F10 | Sin empezar | §19 del informe |
+| F06 · rechazos fuera de la petición | **Entrega 1 cerrada; entrega 2 (durabilidad) sin empezar** | [`auditoria-f06.md`](auditoria-f06.md) |
+| F07 · estado remoto Angular | Diagnóstico hecho, sin corregir | [`auditoria-f06-etapa2.md`](auditoria-f06-etapa2.md) |
+| F08 · consultas cortadas | Sin empezar | §19 del informe |
+| F09 · dos PWA en el mismo scope | Diagnóstico hecho, sin corregir | [`auditoria-f06-etapa2.md`](auditoria-f06-etapa2.md) |
+| F10 · calendario e historiales | Sin empezar | §19 del informe |
+
+**Ojo con la numeración.** El archivo `auditoria-f06-etapa2.md` se tituló F06
+pero cubre F07 y F09 del informe maestro —carrera del inbox, sesión cruzada y
+colisión de Service Workers—. La numeración que manda es la del informe maestro,
+que es la que usa esta tabla. El nombre del archivo se conserva para no romper
+los enlaces de los commits que ya lo citan.
 
 ## Lo primero que hay que saber
 
@@ -33,7 +42,15 @@ desplegar, los tokens vigentes dejan de servir: todo el mundo vuelve a entrar.
 
 ## Lo siguiente, si nadie dijo otra cosa
 
-F06, que ya tiene el diagnóstico reproducido con scripts en
+Hay dos frentes abiertos y son independientes:
+
+**F06 entrega 2 — durabilidad.** La entrega 1 solo evita que un fallo en segundo
+plano tumbe el proceso; el trabajo se pierde igual y no se reintenta nada. Falta
+recepción y despacho persistentes: estado en base, reintento controlado e
+idempotencia. Tests que pide el plan: caída de Prisma, reinicio entre guardar y
+enviar, resultado externo desconocido.
+
+**F07 y F09 — frontend.** Diagnóstico ya reproducido con scripts en
 `docs/auditoria-etapa2/` y evidencia en `docs/auditoria-etapa2/evidencia/`:
 
 1. Descarte por ID de conversación en `conversaciones-state.service.ts`, para que

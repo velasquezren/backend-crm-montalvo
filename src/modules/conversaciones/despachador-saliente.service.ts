@@ -29,9 +29,16 @@ export interface PlantillaADespachar {
  * Empuja hacia Meta un mensaje **que ya está guardado** y anota lo que contestó.
  *
  * La frontera es esa: cuando algo llega aquí, la fila ya existe y el agente ya
- * la ve en pantalla. Por eso todos los caminos terminan igual —en
- * `registrarResultadoEnvio`— y ninguno lanza: un fallo de Meta marca el tick en
- * FALLIDO, no tumba la petición que ya devolvió 200.
+ * la ve en pantalla. Por eso todos los caminos terminan igual, en
+ * `registrarResultadoEnvio`, y un fallo de Meta marca el tick en FALLIDO sin
+ * tumbar la petición que ya devolvió 200.
+ *
+ * Lo que **sí** lanza es la anotación: `registrarResultadoEnvio` escribe en la
+ * base, y si la base no responde el rechazo sale de aquí. Decía "ninguno lanza"
+ * y no era cierto —F06 lo reprodujo—. Se deja así a propósito: quien despacha
+ * el acuse automático espera el resultado dentro de su propio try/catch y
+ * necesita enterarse. Los dos llamadores que lo disparan sin esperar lo
+ * envuelven en `enSegundoPlano`.
  *
  * Antes esto vivía suelto dentro de `ConversacionesService`, mezclado con las
  * lecturas del inbox y las reglas de visibilidad. Separarlo deja una regla fácil
@@ -145,9 +152,10 @@ export class DespachadorSalienteService {
     metaMsgId: string | null,
   ): Promise<void> {
     /*
-     * `updateMany` y no `update` porque esto corre en un `void` sin `.catch()`
-     * (ver `enviarMensaje`): `update` LANZA si la fila ya no está, y una
-     * promesa rechazada sin manejar no la ve nadie hasta que tumba el proceso.
+     * `updateMany` y no `update` porque `update` LANZA si la fila ya no está, y
+     * eso convertiría un caso NORMAL —la conversación borrada mientras Meta
+     * contestaba— en un error. Que es distinto de tolerar un fallo de base:
+     * eso lo cubre el `enSegundoPlano` del llamador desde F06, no este cambio.
      *
      * Y la fila puede no estar: entre que el mensaje se guarda y que Meta
      * contesta (300-900 ms, a veces más) alguien pudo borrar la conversación,
