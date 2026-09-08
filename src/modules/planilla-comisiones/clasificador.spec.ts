@@ -16,8 +16,11 @@ import {
 } from './clasificador';
 import { leerExcel } from './excel-parser';
 
-const CARPETA_2025 = '/Users/macmini2024/Documents/CARPETA RENE/Excels';
-const CARPETA_2026 = '/Users/macmini2024/Documents/CARPETA RENE/2026 EXCELS';
+import {
+  CARPETA_EXCELS_2025 as CARPETA_2025,
+  CARPETA_EXCELS_2026 as CARPETA_2026,
+  avisarCarpetaAusente,
+} from './carpeta-excels';
 
 /**
  * El clasificador decide de qué categoría es cada venta, y de ahí sale lo que
@@ -601,6 +604,7 @@ describe('el export nuevo de enero 2026, leído con el parser real', () => {
       filas = leerExcel(readFileSync(RUTA)).filas;
     } catch {
       filas = null;
+      avisarCarpetaAusente('clasificador/enero-2026', 'CRM_EXCELS_2026_DIR');
     }
   });
 
@@ -680,6 +684,7 @@ describe('reparto de planes de los seis meses exportados', () => {
     try {
       filas = leerExcel(readFileSync(ruta)).filas;
     } catch {
+      avisarCarpetaAusente('clasificador/reparto-de-planes', 'CRM_EXCELS_2025_DIR');
       return; // sin el fichero en disco no se falla, se omite
     }
 

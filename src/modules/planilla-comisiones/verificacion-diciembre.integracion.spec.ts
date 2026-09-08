@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { ClasifComision } from '../../prisma/prisma-client';
 
 import { AuditService } from '../../common/audit/audit.service';
+import { CARPETA_EXCELS_2025, avisarCarpetaAusente } from './carpeta-excels';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AnaliticaComisionesService } from './analitica-comisiones.service';
 import { CalculoComisionesService } from './calculo-comisiones.service';
@@ -21,9 +22,11 @@ import { ResumenAnualService } from './resumen-anual.service';
  * exactamente lo mismo?".
  *
  * Si los archivos no están en el disco, se omite en vez de fallar: no todo el
- * mundo que clone el repo tendrá la carpeta de Excels.
+ * mundo que clone el repo tendrá la carpeta de Excels. La ruta sale de
+ * `CRM_EXCELS_2025_DIR` — ver `carpeta-excels.ts`, que explica por qué dejó de
+ * estar cableada a la ruta de una máquina concreta.
  */
-const CARPETA = '/Users/macmini2024/Documents/CARPETA RENE/Excels';
+const CARPETA = CARPETA_EXCELS_2025;
 
 const MESES = [
   { archivo: 'octubre.xlsx', anio: 2025, mes: 10 },
@@ -75,6 +78,7 @@ beforeAll(async () => {
     for (const m of MESES) readFileSync(`${CARPETA}/${m.archivo}`);
   } catch {
     hayArchivos = false;
+    avisarCarpetaAusente('verificacion-diciembre', 'CRM_EXCELS_2025_DIR');
     return;
   }
 
