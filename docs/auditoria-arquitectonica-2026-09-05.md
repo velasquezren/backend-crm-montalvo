@@ -1,5 +1,9 @@
 # Auditoría arquitectónica y de coherencia — CRM Clínica Montalvo
 
+> Diagnóstico histórico anterior a las correcciones F01–F06. Para el estado
+> verificado actual, leer [ESTADO_ACTUAL.md](ESTADO_ACTUAL.md). Los identificadores
+> F01–F10 de §3 son hallazgos; las entregas 0–9 de §19 usan otra numeración.
+
 Fecha: 5 de septiembre de 2026. Primera fase: diagnóstico; **sin modificaciones de código, dependencias, migraciones ni producción**.
 
 Convenciones de rutas: `B/` = `backend-crm-montalvo/`; `F/` = `frontend-crm-montalvo/`. Las líneas corresponden al árbol de trabajo examinado, no necesariamente al último commit. Había cambios locales previos en [B/package.json](<B/package.json>), [B/package-lock.json](<B/package-lock.json>), [B/src/main.ts](<B/src/main.ts>), [F/package.json](<F/package.json>) y [F/package-lock.json](<F/package-lock.json>).

@@ -460,10 +460,10 @@ tentación clásica de cambiar el `for await` por un `Promise.all(lote.map(…))
 "para que vaya más rápido". En este servidor eso es una regresión, no una
 optimización:
 
-- el VPS tiene **un núcleo y 1,7 GB**, y el pool de Prisma se dimensiona solo a
-  `núcleos × 2 + 1` → **tres conexiones**;
+- el VPS documentado tiene **un núcleo y 1,7 GB**; desde Prisma 7 el adaptador
+  `pg` configura diez conexiones y 5 s de espera en `PrismaService`;
 - el barrido comparte ese pool con las peticiones de las agentes. Cincuenta
-  `update()` a la vez contra tres conexiones, con `pool_timeout` de 10 s, no
+  `update()` a la vez compitiendo por ese pool no
   ralentizan el barrido: hacen fallar el chat que alguien estaba abriendo;
 - cada push firma un JWT VAPID (ECDSA), que es CPU en un core que no sobra.
 

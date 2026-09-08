@@ -39,6 +39,36 @@ carga además `crm-backend-arquitectura`: infraestructura real del servidor,
 escala real de datos, cómo desplegar paso a paso, y dónde mirar para
 rendimiento sin inventar problemas que no existen a esta escala.
 
+## Instalación y arranque local (Linux / macOS)
+
+Clonar ambos repositorios como hermanos. Entorno comprobado: Node 22.23.2 y
+npm 10.9.8; usar Node 22 >= 22.12 (los `engines` de dependencias son más
+restrictivos que el `>=22` del proyecto). PostgreSQL 16 para las integraciones.
+
+```bash
+npm ci
+cp .env.example .env   # solo si todavía no existe; completar variables locales
+npm run build
+npm test -- --runInBand
+npm run test:build
+```
+
+`npm ci` genera Prisma sin necesitar una base ni `.env`. Para arrancar la API,
+configurar `DATABASE_URL` hacia una base de desarrollo, `JWT_SECRET`, `PORT=3001`
+y `CORS_ORIGINS=http://localhost:4200`. Una base nueva necesita las migraciones
+**ya versionadas** (`npx prisma migrate deploy`) antes de `npm run start:dev`.
+No se requiere un dump ni una base particular de esta máquina. No usar los
+scripts históricos `scripts/seed-admin.js` / `scripts/import-pacientes.js`:
+aún importan el cliente anterior a Prisma 7; mantenimiento pendiente.
+
+Meta, R2 y VAPID son opcionales para levantar/verificar localmente; sin sus
+credenciales las integraciones externas quedan deshabilitadas. La plantilla
+`.env.example` contiene sus nombres, nunca credenciales reales. Los tests
+sintéticos usan exclusivamente `crm_test` local; la receta descartable está en
+[crm-backend-arquitectura §8](.claude/skills/crm-backend-arquitectura/SKILL.md).
+`test:integracion:preparar` **borra crm_test**: solo ejecutarlo sobre el servidor
+descartable propio, nunca sobre una base con datos que se quieran conservar.
+
 ## Comandos
 
 ```bash
@@ -178,7 +208,7 @@ vacío → 400, `/planilla-comisiones/periodos` sin token → 401), que prueban 
 - **El cliente de Prisma se GENERA y no está en git.** Desde la v7 sale a
   `src/generated/prisma/` en vez de vivir dentro de `@prisma/client`. Los tipos y
   enums se importan del barril `src/prisma/prisma-client.ts`, nunca de
-  `@prisma/client` ni de la ruta generada. `npm install` lo regenera solo
+  `@prisma/client` ni de la ruta generada. `npm ci` lo regenera solo
   (`postinstall`).
 - **La URL de la base vive en DOS sitios distintos, a propósito.** La de la
   aplicación la arma `PrismaService` con el adaptador `pg`; la del CLI (migrate,

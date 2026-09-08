@@ -139,8 +139,10 @@ Node y npm en el servidor: `v22.23.1` / `10.9.8` — coincide con lo que pide
 ### Postgres
 
 Solo esta app lo usa (MySQL es de los otros proyectos). `max_connections = 100`
-a nivel servidor; Prisma se conecta con `connection_limit=10&pool_timeout=10` en
-`DATABASE_URL`.
+a nivel servidor (medición histórica). Desde Prisma 7, `PrismaService` configura
+el adaptador `pg`: `max: 10`, `connectionTimeoutMillis: 5000` e
+`idleTimeoutMillis: 120000`. Los parámetros del antiguo motor en `DATABASE_URL`
+no configuran ese pool.
 
 **Ese 10 era 25 hasta el 2026-09-02**, y bajarlo fue una de las optimizaciones de
 ese día. Prisma mantiene el pool abierto aunque nadie lo use: había **25 conexiones
@@ -220,7 +222,7 @@ ls -la /root/backup-crm-*.sql.gz   # varios MB, no unos bytes
 cd /opt/crm-backend
 chown -R crmapp:crmapp /opt/crm-backend && \
 sudo -u crmapp git pull --ff-only origin main && \
-sudo -u crmapp npm install && \
+sudo -u crmapp npm ci && \
 sudo -u crmapp npx prisma migrate deploy && \
 sudo -u crmapp npx prisma generate && \
 sudo -u crmapp npm run build && \
@@ -284,8 +286,9 @@ que un fallo intermedio corte la cadena y se note.
 1. **El lockfile del servidor se ensucia solo.** `npm install` le añade el
    bloque `engines` a `package-lock.json`, y el siguiente `git pull --ff-only`
    aborta con *"Your local changes would be overwritten by merge"*. Es ruido de
-   npm, no contenido: `sudo -u crmapp git checkout -- package-lock.json` antes
-   del pull y listo.
+   npm en aquel incidente. Hoy usar `npm ci` para no reescribir el lockfile;
+   si Git muestra cambios, revisar y conservar cualquier cambio intencional
+   antes del pull. No descartar automáticamente el lockfile.
 
 2. **`crmapp` no tenía `/home/crmapp`**, aunque su entrada de `passwd` lo
    declara. Ningún despliegue lo notó durante meses porque npm solo escribe su
@@ -305,7 +308,7 @@ los indicadores en verde salvo el `curl`.
 La reparación es reinstalar limpio, no reintentar encima:
 
 ```bash
-rm -rf node_modules && chown -R crmapp:crmapp /opt/crm-backend && sudo -u crmapp npm install && sudo -u crmapp npx prisma generate && sudo -u crmapp npm run build && systemctl restart crm_backend.service
+rm -rf node_modules && chown -R crmapp:crmapp /opt/crm-backend && sudo -u crmapp npm ci && sudo -u crmapp npx prisma generate && sudo -u crmapp npm run build && systemctl restart crm_backend.service
 ```
 
 **Corolario para la verificación**: `is-active` + `/health` + 400/401 **no
@@ -611,11 +614,9 @@ cierre de esta sección).
   1.000 filas (el libro nunca se materializa entero en memoria). Queda como
   candidato a `worker_thread` solo si el parseo de importación se vuelve
   perceptible con planillas mucho más grandes.
-- **`connection_limit=25`** en `DATABASE_URL`: nunca vi ese número puesto a
-  prueba bajo carga real concurrente. Si el número de agentes conectados a la
-  vez crece, vale confirmar que 25 conexiones alcanzan sin que Prisma empiece a
-  esperar turno (`pool_timeout=10` significa que a partir de ahí las queries
-  fallan, no solo se hacen lentas).
+- **Pool del adaptador `pg`**: diez conexiones configuradas en `PrismaService`.
+  Cualquier cambio futuro exige medir contención real; ver §2. El antiguo
+  `connection_limit=25` ya no describe la aplicación.
 - **La carga real, medida** (2026-09-02, sobre 7 días de `LoggingInterceptor`
   en el journal). Antes de optimizar nada de este módulo, mirá estos números,
   porque cambian el diagnóstico:
@@ -666,7 +667,7 @@ cierre de esta sección).
 ## 8. Antes de dar por terminada cualquier tarea de este tipo
 
 - `npm run build` (incluye `check:skills`) sin errores.
-- `npm test` (350 tests en 21 suites, 2026-08-26) en verde.
+- `npm test -- --runInBand` en verde; los conteos cambian con el código.
 - Si tocaste algo con lógica de negocio real (no solo observabilidad/infra):
   `npm run test:integracion:preparar && npm run test:integracion` contra
   Postgres real — necesita un Postgres en `:5433`. Si no hay uno a mano, se
@@ -675,18 +676,20 @@ cierre de esta sección).
   puntero a nada):
 
   ```bash
-  PG=/usr/lib/postgresql/16/bin          # los binarios están aquí aunque no haya servicio
-  DATA=/tmp/pgdata-crm                   # cualquier ruta escribible
-  $PG/initdb -D "$DATA" -U crm_app --auth=trust -E UTF8
-  $PG/pg_ctl -D "$DATA" -o "-p 5433 -k /tmp -c listen_addresses=localhost" -l "$DATA/log" start
-  psql -h localhost -p 5433 -U crm_app -d postgres -c "ALTER USER crm_app PASSWORD 'crm_dev_local';"
-  # …trabajar…
-  $PG/pg_ctl -D "$DATA" stop              # y borrar $DATA cuando sobre
+  # Linux con PostgreSQL 16; en macOS sustituir por la carpeta de sus binarios.
+  CRM_PG_BIN=/usr/lib/postgresql/16/bin
+  CRM_PG_DIR=$(mktemp -d "${TMPDIR:-/tmp}/crm-postgres.XXXXXX")
+  "$CRM_PG_BIN/initdb" -D "$CRM_PG_DIR/data" -U crm_app --auth=trust -E UTF8
+  "$CRM_PG_BIN/pg_ctl" -D "$CRM_PG_DIR/data" -o "-p 5433 -h 127.0.0.1 -k $CRM_PG_DIR" -l "$CRM_PG_DIR/postgres.log" -w start
+  npm run test:integracion:preparar && npm run test:integracion
+  "$CRM_PG_BIN/pg_ctl" -D "$CRM_PG_DIR/data" -m fast -w stop
+  # Borrar únicamente CRM_PG_DIR después de detener este servidor descartable.
   ```
 
   `--auth=trust` es aceptable porque escucha solo en loopback y muere con el
-  directorio; la contraseña se fija igual porque es la que traen cableada las
-  suites (`crm_app:crm_dev_local`). Vale la pena montarlo aunque sea para una
+  directorio. Las suites usan `crm_app:crm_dev_local`; con trust la contraseña
+  no se verifica. Comprobar primero que :5433 esté libre y no iniciar esta receta
+  sobre un servidor preexistente. Las suites comparten crm_test y deben ir en serie. Vale la pena montarlo aunque sea para una
   sola prueba: sin base real, "compila" es todo lo que se puede afirmar.
 - Si el cambio va a producción: seguir §4 completo, sin saltarse el backup ni
   la verificación posterior. "Compiló" no es "funciona" — este proyecto lo

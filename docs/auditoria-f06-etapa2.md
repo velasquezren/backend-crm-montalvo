@@ -1,6 +1,11 @@
 # Informe de Auditoría y Benchmark — Etapa 2 (Inbox, Sesión y PWA)
 
-## Resumen Ejecutivo del Estado al Cierre de Sesión
+> Evidencia histórica del 7 de septiembre de 2026; no es un handoff ni una
+> fase completada. El estado y la siguiente tarea están en
+> [ESTADO_ACTUAL.md](ESTADO_ACTUAL.md). Los scripts conservados contienen rutas
+> de macOS y herramientas externas: no son verificaciones portables del proyecto.
+
+## Diagnóstico histórico
 
 Durante esta sesión de auditoría local en profundidad (previo a modificaciones de código de la segunda etapa), se reprodujeron y documentaron con pruebas automatizadas tres problemas críticos de estabilidad y consistencia:
 
@@ -17,7 +22,7 @@ Durante esta sesión de auditoría local en profundidad (previo a modificaciones
    - Ambos compiten por el scope raíz o interceptación de eventos de ciclo de vida, lo cual genera recargas o desincronización de caché.
 
 4. **Rendimiento y Tiempos de Respuesta Local:**
-   - La búsqueda de pacientes en el listado toma ~819 ms debido a reactividad/renderizado no optimizado en el listado y debounce.
+   - La búsqueda de pacientes en el listado toma ~819 ms en aquella medición local. Ese tiempo no demuestra por sí solo su causa ni representa Linux o producción.
    - El cambio de chat repite tres peticiones de red incluso entre conversaciones que ya habían sido abiertas en la misma sesión.
    - En vistas móviles (390px), la sección de Actividades consume excesivo espacio superior con filtros y resúmenes antes de desplegar la primera tarea.
 
@@ -32,18 +37,9 @@ Toda la evidencia gráfica (capturas en resoluciones 1440, 1024 y 390), trazas d
   - `sesion-cruzada.json` y `sesion-cruzada.png` (evidencia de estado remanente)
   - `pwa.json` (colisión de workers)
   - Capturas responsive: `actividades-*.png`, `conversaciones-*.png`, `dashboard-*.png`, `chat-mobile-390.png`, etc.
-- `backend-crm-montalvo/docs/auditoria-etapa2/` (scripts `.cjs` y `.py` de prueba reproducibles)
+- `backend-crm-montalvo/docs/auditoria-etapa2/` (scripts históricos `.cjs` y `.py`; adaptar antes de reutilizar)
 
 ---
 
-## Próximos Pasos para la Siguiente Sesión
-
-1. **Frontend Inbox:**
-   - Implementar control de secuencia / token de cancelación (o `switchMap` / ID guard) en `conversaciones-state.service.ts` para que respuestas tardías de chats anteriores se descarten.
-   - Cachear conversaciones ya abiertas para evitar las 3 peticiones redundantes por cambio de chat.
-2. **Frontend Auth / Sesión:**
-   - Ejecutar un reset total explícito de los stores y estados en memoria (`conversacionesState.limpiar()`, etc.) al emitir `logout()` o detectar cambio de token.
-3. **PWA / Service Worker:**
-   - Unificar la gestión del worker de notificaciones con el PWA worker o delimitar sus ámbitos y eventos para evitar colisión de registro.
-4. **UX Móvil:**
-   - Compactar filtros y resúmenes superiores en móvil para visibilizar tareas de inmediato.
+Las propuestas de corrección no se implementaron en esta etapa. Consultar el
+handoff antes de iniciar otra fase; conservar estas evidencias como baseline.

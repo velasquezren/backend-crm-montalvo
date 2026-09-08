@@ -9,8 +9,8 @@ dist/
 .env*
 !.env.example
 # Copias del build que se dejan en el VPS antes de desplegar, por si hay que
-# volver atrás. La vuelta atrás de verdad es `git reset --hard <commit>` + build
-# —así se hizo el 14/08—, así que esto es un resto: que no acabe en el repo.
+# volver atrás. Conservar los checkpoints en Git y reconstruir desde ellos;
+# estas copias locales no deben acabar en el repositorio.
 dist.anterior/
 dist.bak*/
 .pgdata/
@@ -25,3 +25,12 @@ dist.bak*/
 # secuencia de crm-backend-arquitectura §4.
 /src/generated/
 *.tsbuildinfo
+
+# Salidas de pruebas y temporales locales; conservar lockfiles y migraciones.
+/build/
+/.cache/
+*.swp
+*.swo
+*~
+/coverage/
+Thumbs.db

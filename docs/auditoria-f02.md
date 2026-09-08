@@ -3,6 +3,9 @@
 Verificado el 7 de septiembre de 2026. Alcance: importación/reimportación;
 sin cambios de cálculo, tarifas, clasificación, máquina de estados, rutas ni frontend.
 
+> Informe histórico de F02. F03 amplió después la transacción a REPEATABLE READ
+> y la coordinación con otros comandos; ver [auditoria-f03.md](auditoria-f03.md).
+
 ## Reproducción antes del cambio
 
 La prueba `importacion-atomica.integracion.spec.ts` se añadió y ejecutó antes de

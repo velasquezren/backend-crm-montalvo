@@ -647,6 +647,11 @@ firma vale para las cifras que se firmaron, no para las que vengan después.
 **Reabrir** un mes ya cerrado es de super admin y pide motivo. Queda registrado
 quién, cuándo, por qué y con qué reglas se había cerrado.
 
+**Editar entradas invalida el cálculo anterior.** Ajustar ventas o metas del
+periodo devuelve el mes editable a BORRADOR y retira resultados y firmas. Hay
+que recalcular antes de enviarlo otra vez a revisión (F03). Cambiar parámetros
+globales no reescribe la fotografía de una liquidación ya calculada.
+
 **Pagado no se reabre.** Si aparece un error en un mes ya pagado, se corrige con
 un ajuste en el mes siguiente. Reescribir un mes pagado deja el historial sin
 poder citarse.
