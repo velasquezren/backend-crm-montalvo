@@ -3,6 +3,13 @@
 Fecha: 2026-09-07. Alcance: backend, autorización de comandos. Sin cambios de
 sesión/JWT/WebSocket, frontend, dependencias, migraciones ni comisiones.
 
+> **Nota del 2026-09-07.** Los parches, marcadores de checkpoint y logs en `/tmp`
+> que cita este informe **ya no existen**: eran temporales de aquella sesión y
+> `/tmp` se vacía al reiniciar. No hacen falta. El rollback real de esta entrega
+> es `git revert` del commit que la introdujo, y el historial de Git es el
+> checkpoint. Se conservan las referencias tal cual porque describen cómo se
+> trabajó, no porque haya que ir a buscarlas.
+
 ## Checkpoint F01–F03 y última comprobación F03
 
 F01 (build verificable), F02 (importación atómica) y F03 (consistencia financiera)

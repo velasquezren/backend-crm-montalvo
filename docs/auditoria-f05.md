@@ -4,6 +4,13 @@
 `/tmp/crm-f05-baseline-path`. Sin cambios en reglas financieras, dependencias,
 jobs, PWA o arquitectura de comisiones.
 
+> **Nota del 2026-09-07.** Los parches, marcadores de checkpoint y logs en `/tmp`
+> que cita este informe **ya no existen**: eran temporales de aquella sesión y
+> `/tmp` se vacía al reiniciar. No hacen falta. El rollback real de esta entrega
+> es `git revert` del commit que la introdujo, y el historial de Git es el
+> checkpoint. Se conservan las referencias tal cual porque describen cómo se
+> trabajó, no porque haya que ir a buscarlas.
+
 ## Diagnóstico y contrato elegido antes de implementar
 
 La suite HTTP/WebSocket nueva reproduce 10 fallos de 11 casos: refresh aceptado

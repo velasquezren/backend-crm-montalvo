@@ -155,4 +155,4 @@ rechazo fuera de la petición vuelve a poder tumbar el proceso. La regla de
 
 No se desplegó ni se consultó producción en esta entrega. Sigue pendiente de
 producción la migración de F05 (`20260907180000_sesion_revocable`); ver
-`auditoria-estado.md`.
+`ESTADO_ACTUAL.md`.

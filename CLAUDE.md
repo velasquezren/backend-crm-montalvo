@@ -19,6 +19,11 @@ referencia de arquitectura que citan los skills.
 
 ## Antes de escribir código
 
+**Primero lee [`docs/ESTADO_ACTUAL.md`](docs/ESTADO_ACTUAL.md)** y haz `git fetch`
+en los dos repos. Dice qué fase de la auditoría está cerrada, qué sigue y qué no
+hay que deshacer. Se trabaja desde dos máquinas: es normal encontrarse commits
+que no se hicieron aquí.
+
 Carga el skill `crm-backend-module`. No es opcional ni es para cambios grandes:
 cubre paginación, escopado por rol, concurrencia en webhooks, firma de Meta y
 migraciones, y casi todo cambio toca al menos uno de esos. Su descripción explica
