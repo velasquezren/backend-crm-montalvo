@@ -19,6 +19,10 @@ stashes ni worktrees extra. El directorio padre **no está versionado**.
 
 Baseline anterior, por si hace falta volver: backend `e91a2d0`, frontend `8e46f5a`.
 
+**Orden de despliegue de F09:** el backend puede ir solo y **debe ir primero**
+(su payload es aditivo y el Service Worker anterior lo sigue entendiendo). El
+frontend antes que el backend deja un hueco sin notificaciones.
+
 **Hay DOS migraciones sin aplicar en producción**, y en este orden:
 `20260907180000_sesion_revocable` (F05) y `20260909210000_envio_incierto_y_reintento`
 (F06 e2). Ninguna de las dos se ha corrido contra ninguna base — tampoco local.
@@ -48,7 +52,7 @@ Las entregas 0–9 de §19 tienen otra numeración; no confundirlas.
 | F06 | **Entrega 1 cerrada; entrega 2 cerrada en el despacho SALIENTE, recepción durable pendiente**. Entrega 1: `58bae3a`, [evidencia](auditoria-f06.md). Entrega 2: `ResultadoEnvio` + `EstadoMensaje.INCIERTO` + `ReintentoSalienteService` + `biz_opaque_callback_data`; migración `20260909210000_envio_incierto_y_reintento`; [evidencia](auditoria-f06-entrega2.md). |
 | F07 | **Cerrado en código, commiteado y empujado (`b702fa0`); sin desplegar**. Retirados los comparadores parciales de `inbox` y `detalle`; 11 pruebas de regresión en `conversaciones-state.service.spec.ts`; [evidencia](auditoria-f07.md). |
 | F08 | Diagnosticado, pendiente: respuestas tardías que pisan selección/filtros. |
-| F09 | Diagnosticado, pendiente: dos Service Workers en el mismo scope. |
+| F09 | **Cerrado**. Un solo Service Worker (el de Angular) + `SwPush`; el payload de push pasa por `common/push/cuerpo-push.ts`; regla nueva en el `check:skills` del frontend; [evidencia](auditoria-f09.md). **No verificado en navegador** — comprobar a mano al desplegar. |
 | F10 | Pendiente: completitud de consultas (calendario/historiales). |
 
 No inferir el despliegue desde Git: **producción no se consultó en este saneamiento**.
@@ -95,6 +99,11 @@ F07 se atendió por petición explícita del usuario el 9 de septiembre, y a
 continuación **F06 entrega 2, en su mitad saliente**: el envío ya distingue "no
 salió" de "no se sabe si salió", reintenta solo lo primero y resuelve lo segundo
 con el `statuses` de Meta. Ninguno de los dos cambios toca las carreras de F08.
+
+Después se cerró **F09** (dos Service Workers en el mismo scope `/`, que se
+sustituían y dejaban el push mudo o `SwUpdate` muerto según cuál quedara activo).
+Va antes que la recepción durable a propósito: rompía en silencio lo único que
+avisa a una agente cuando escribe una paciente.
 
 **La siguiente tarea prioritaria pendiente es la mitad que queda de F06: la
 recepción durable** — persistir el webhook antes de responder 200 y despacharlo

@@ -4,15 +4,10 @@ import { PushSubscription, Rol } from '../../prisma/prisma-client';
 import * as webpush from 'web-push';
 
 import { PrismaService } from '../../prisma/prisma.service';
+import { cuerpoPush, PushNotificationPayload } from './cuerpo-push';
 import { SuscribirPushDto } from './dto/suscribir-push.dto';
 
-export interface PushNotificationPayload {
-  titulo: string;
-  mensaje: string;
-  url?: string;
-  tag?: string;
-  count?: number;
-}
+export type { PushNotificationPayload };
 
 /**
  * Notificaciones Web Push (VAPID) al teléfono de las agentes.
@@ -149,7 +144,9 @@ export class PushService implements OnModuleInit {
     payload: PushNotificationPayload,
   ): Promise<void> {
     if (subs.length === 0) return;
-    const cuerpo = JSON.stringify(payload);
+    /* La forma la decide `cuerpoPush`, y no es cosmética: el Service Worker de
+       Angular descarta en silencio un payload sin `notification.title`. */
+    const cuerpo = cuerpoPush(payload);
 
     await Promise.all(
       subs.map(async sub => {
