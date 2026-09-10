@@ -262,8 +262,12 @@ export class PlanillaComisionesController {
   }
 
   /**
-   * Descarga el informe del mes en Excel. Se escribe en streaming sobre la
-   * respuesta, así que el libro no pasa entero por memoria.
+   * Descarga el informe del mes en Excel.
+   *
+   * El libro **sí** pasa entero por memoria antes de volcarse: `new Workbook()`
+   * no es streaming. A la escala real (≈500 filas ⇒ +5 MB de heap, 0,27 s) da
+   * igual; el techo medido y por qué importa con `MemoryMax=400M` están en la
+   * cabecera de `exportacion-comisiones.service.ts`.
    */
   @Get('periodos/:id/exportar')
   async exportar(

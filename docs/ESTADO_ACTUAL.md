@@ -1,10 +1,76 @@
 # Estado actual
 
-**9 de septiembre de 2026, 23:00 (-04) · único handoff de ambos repositorios.**
+**10 de septiembre de 2026 · único handoff de ambos repositorios.**
+
+**Hay trabajo SIN COMMITEAR y SIN DESPLEGAR en las dos máquinas de este
+directorio**: la auditoría del módulo Finanzas de hoy (ver más abajo). Lo
+anterior —F07, F06 entrega 2 y F09— sí está commiteado, empujado y en
+producción desde el 9 de septiembre.
+
+## Auditoría del módulo Finanzas — 10/9/2026, en el árbol de trabajo
+
+Cuatro correcciones y una medición, todas dentro de `planilla-comisiones` /
+`features/finanzas`. **Nada de esto está commiteado ni desplegado todavía.**
+
+| # | Qué estaba mal | Dónde |
+| --- | --- | --- |
+| 1 | La caché de `AnaliticaComisionesService` (60 s por periodo) **solo la invalidaba `calcular()`**. Importar, ajustar una fila, reclasificar, borrar el mes o cambiarlo de estado la dejaban vieja — y como el Excel arma «Resumen», «Distribución» y «Rankings» con esa misma llamada cacheada, **el archivo que se firma podía declarar una liquidación que `invalidarCalculo()` acababa de borrar**. | `planilla-comisiones.service.ts` (nuevo `invalidarCachesDelPeriodo()`, un solo punto para las 9 mutaciones) |
+| 2 | La pestaña Analítica mostraba **cuatro** cubos de comisión (A, B, C, bonos) bajo un KPI con el total, que son **cinco**: faltaba Tipo A (RA). El backend lo devolvía; `ResumenAnalitica` no lo declaraba, así que se caía en silencio y las tarjetas sumaban menos que el total. | `analitica.model.ts`, `analitica.page.html` |
+| 3 | La vista previa de «Selección de planes» contaba las filas **excluidas** del cálculo, que el motor no ve. Con 5 paquetes (1 excluido) y objetivo 4 marcaba 1 plan como «comisiona» mientras la planilla pagaba **cero**. | `agrupar-planes.ts` (regla extraída del `computed` de la página y probada), `seleccion-planes.component.html` |
+| 4 | `hojasPorVendedora()` hacía un `findMany` **por vendedora** dentro de la descarga del Excel. | `exportacion-comisiones.service.ts` |
+| 5 | El código afirmaba que el Excel va en streaming y que «500 filas y 50.000 cuestan lo mismo en RAM». Es al revés: `new Workbook()` construye todo en memoria. Medido: 500 filas → 116 MB RSS; **10.000 → 440 MB, por encima del `MemoryMax=400M`**. Documentado, no cambiado: a la escala real sobra margen. | cabecera de `exportacion-comisiones.service.ts` y del endpoint |
+
+También corregido: `analitica.model.ts` escribía a mano el enum de estados con
+tres valores cuando el ciclo de vida tiene cinco; ahora usa `EstadoPeriodo`
+generado.
+
+**Verificado en esta máquina:** backend `npm run build` verde, **508 unitarias /
+33 suites** (eran 505); frontend typecheck, `npm run build` verde y **91 tests /
+10 suites** (eran 80). Los tres arreglos con test propio se comprobaron
+rompiéndolos a propósito primero — el de reparto de ventas del Excel **no
+fallaba** en su primera versión y hubo que reescribirlo con `incluirOcultas`
+para que discriminara.
+
+**Lo que NO se pudo verificar aquí:** no hay PostgreSQL en el 5433 de esta
+máquina, así que **las suites de integración no se ejecutaron**. Sí se comprobó
+que compilan: los siete specs que construyen `PlanillaComisionesService`
+recibieron el argumento nuevo (`analitica`, entre `resumenAnual` y `tipoCambio`)
+y un typecheck de `src/**/*.ts` con tipos de jest pasa limpio.
+
+> Antes de desplegar estos cambios, ejecutar `test:integracion` completo contra
+> PostgreSQL descartable.
+
+Esa verificación **está pendiente**: no se ha ejecutado y no debe darse por
+hecha. La receta de la base descartable está en
+[crm-backend-arquitectura §8](../.claude/skills/crm-backend-arquitectura/SKILL.md);
+recordar que `test:integracion:preparar` **borra `crm_test`**.
+
+### Lo que esta auditoría NO resolvió, a propósito
+
+- **`limite: 100` en la vista de planes.** Es el tope de paginación del backend.
+  Si un mes trajera más de 100 planes de un tipo, la pantalla vería solo los
+  primeros y calcularía un cupo corto **sin avisar**. Comprobado: el mes más
+  cargado hasta hoy trae 30. Documentado en §7b del skill `crm-finanzas`, no
+  corregido.
+- **El Excel sigue con `Workbook`, no con `WorkbookWriter`.** El techo real está
+  medido y escrito (fila 5 de la tabla de arriba y §8e del skill). A la escala
+  de hoy sobra margen; cambiarlo ahora sería reescribir el generador entero sin
+  necesidad. El disparador para hacerlo es que una exportación tarde varios
+  segundos.
+- **`verificacion-diciembre` sigue saliendo PASS sin comparar nada** mientras
+  `CRM_EXCELS_2025_DIR` no esté definida. Es la única prueba que contrasta el
+  motor contra lo que administración pagó de verdad. Aquí solo se le adaptó el
+  constructor —infraestructura, forzada por la inyección nueva—; el problema de
+  fondo sigue igual que en el handoff anterior.
+- **`reintento-saliente.service.spec.ts` importa `Logger` sin usarlo** (F06 e2,
+  commit `f2fc042`). De antes y sin relación con Finanzas. Una línea; no rompe
+  el build porque `tsconfig.build.json` excluye los specs.
+
+## Lo anterior (9 de septiembre)
 
 **Todo lo trabajado está commiteado, empujado y EN PRODUCCIÓN.** No hay trabajo
 a medias, ni ramas, ni cambios sin subir en ninguna de las dos máquinas. Cerrados
-hoy: F07, **F06 entrega 2** (mitad saliente) y **F09**.
+ese día: F07, **F06 entrega 2** (mitad saliente) y **F09**.
 
 Antes de trabajar, `git fetch` en ambos repos y leer este archivo. El saneamiento
 del 8 de septiembre se conserva abajo como baseline.

@@ -18,10 +18,31 @@ import { PlanCandidato, seleccionarPlanesComisionables, ultimoPrimero } from './
  * Exportación del informe mensual a Excel (requisito §12.7 del documento de
  * negocio: los reportes deben ser descargables).
  *
- * Se escribe en **streaming** contra la respuesta HTTP: el libro nunca se
- * materializa entero en memoria, así que un mes de 500 filas y uno de 50.000
- * cuestan lo mismo en RAM. Por eso también el detalle se pagina por lotes en
- * vez de traerse de golpe.
+ * ## El libro NO va en streaming, y conviene saberlo
+ *
+ * Este archivo decía que sí —«un mes de 500 filas y uno de 50.000 cuestan lo
+ * mismo en RAM»— y es exactamente al revés. `new Workbook()` construye el libro
+ * ENTERO en memoria y `libro.xlsx.write(salida)` solo vuelca al stream lo que ya
+ * está construido; el streaming de verdad en ExcelJS es
+ * `stream.xlsx.WorkbookWriter`, que no se usa aquí. El `LOTE_DETALLE` de abajo
+ * acota lo que se lee de PostgreSQL de una vez, no lo que ocupa el libro.
+ *
+ * Medido en esta misma máquina (Node 22, 21 hojas como las que genera el
+ * export real, `heapUsed` antes/después y RSS al terminar):
+ *
+ * | filas de detalle | tiempo | heap tras construir | RSS al terminar |
+ * |---|---|---|---|
+ * | 500 (un mes real) | 0,27 s | +5 MB | 116 MB |
+ * | 2.000 | 0,64 s | +19 MB | 164 MB |
+ * | 10.000 | 2,7 s | +90 MB | **440 MB** |
+ * | 50.000 | 13,4 s | +452 MB | **1,96 GB** |
+ *
+ * `crm_backend.service` corre con `MemoryMax=400M` sobre un VPS de 1,7 GB: a
+ * 10.000 filas el proceso ya no cabe y systemd lo mata **durante la descarga**,
+ * llevándose por delante a quien estuviera usando el CRM en ese momento. No es
+ * un problema hoy —un mes ronda las 450-500 filas y suma ~450 al mes— pero el
+ * margen es de años, no infinito. **El día que una exportación tarde varios
+ * segundos, el arreglo es `WorkbookWriter`, no subir el `MemoryMax`.**
  *
  * Se usa ExcelJS y no el `xlsx` que ya estaba: la versión comunitaria de
  * SheetJS no escribe estilos, y este archivo lo abre administración para
@@ -1195,7 +1216,10 @@ export class ExportacionComisionesService {
 
     const hoja = this.hojaConCabecera(libro, 'Detalle', columnas);
 
-    // Se pagina para que el consumo de memoria no dependa del tamaño del mes.
+    /* Se pagina la LECTURA, que es lo único que esto acota: el libro sigue
+       creciendo fila a fila en memoria (ver la cabecera del archivo). Sirve
+       para no traer 50.000 filas de PostgreSQL de una vez, no para que el
+       Excel cueste lo mismo con 500 que con 50.000. */
     let saltar = 0;
     for (;;) {
       const filas = await this.prisma.ventaImportada.findMany({
