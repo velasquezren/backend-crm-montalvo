@@ -22,8 +22,12 @@ const prisma = new PrismaService(url);
 const config = new ConfiguracionComisionesService(prisma);
 const audit = new AuditService(prisma);
 const anual = new ResumenAnualService(prisma, config);
-const calculo = new CalculoComisionesService(prisma, config, audit, new AnaliticaComisionesService(prisma), anual);
-const planilla = new PlanillaComisionesService(prisma, config, audit, new CatalogoClinicoService(prisma), anual, new TipoCambioService(prisma, audit));
+/* La MISMA instancia que recibe el motor: la caché vive en el objeto, así que
+   dos instancias distintas harían pasar una prueba de invalidación que en
+   producción no se cumpliría. */
+const analitica = new AnaliticaComisionesService(prisma);
+const calculo = new CalculoComisionesService(prisma, config, audit, analitica, anual);
+const planilla = new PlanillaComisionesService(prisma, config, audit, new CatalogoClinicoService(prisma), anual, analitica, new TipoCambioService(prisma, audit));
 let periodoId: string;
 let ventaId: string;
 let administradores: string[];

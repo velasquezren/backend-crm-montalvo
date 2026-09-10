@@ -61,16 +61,21 @@ function montar(opciones: { estadoPeriodo?: string; venta?: VentaFalsa | null } 
     },
   };
 
+  /* Qué claves se invalidaron en la caché de analítica. Es lo que separa
+     "se recalcula" de "se sigue sirviendo el minuto viejo". */
+  const analiticaInvalidada: Array<string | undefined> = [];
+
   const servicio = new PlanillaComisionesService(
     prisma as never,
     {} as never,
     audit as never,
     { invalidar: () => undefined } as never,
     { invalidar: () => undefined } as never,
+    { invalidar: (clave?: string) => analiticaInvalidada.push(clave) } as never,
     { configuracion: async () => ({ modo: 'FIJO', valorFijo: 6.97 }) } as never,
   );
 
-  return { servicio, actualizaciones, auditorias };
+  return { servicio, actualizaciones, auditorias, analiticaInvalidada };
 }
 
 describe('ajustarVenta · excluir del cálculo', () => {
@@ -155,5 +160,50 @@ describe('ajustarVenta · excluir del cálculo', () => {
     await expect(servicio.ajustarVenta('nope', { comisionable: true }, 'u1')).rejects.toThrow(
       NotFoundException,
     );
+  });
+});
+
+/*
+ * `AnaliticaComisionesService` cachea por periodo durante 60 s y, hasta esta
+ * corrección, **solo `calcular()` la invalidaba**. Ajustar una fila llama a
+ * `invalidarCalculo()`, que BORRA los `ResultadoComision` del mes: durante ese
+ * minuto la pestaña Analítica —y las hojas «Resumen», «Distribución» y
+ * «Rankings» del Excel, que salen de la misma llamada cacheada— seguían
+ * declarando una liquidación que ya no existía en la base.
+ *
+ * Se prueba aquí y no en integración porque lo que falla es la LLAMADA, no la
+ * caché: `cache-memoria.spec.ts` ya cubre que invalidar borra.
+ */
+describe('ajustarVenta · caché de analítica', () => {
+  it('invalida la analítica del mes al ajustar una fila', async () => {
+    const { servicio, analiticaInvalidada } = montar();
+
+    await servicio.ajustarVenta('v1', { clasif: 'LAB' } as never, 'u1');
+
+    expect(analiticaInvalidada).toEqual(['p1']);
+  });
+
+  /* La clave de la caché es el PERIODO. Invalidar con el id de la venta no
+     lanza, no deja log y no borra nada: la analítica se sigue sirviendo vieja
+     exactamente igual que antes del arreglo. */
+  it('la clave es el periodo, nunca la venta', async () => {
+    const { servicio, analiticaInvalidada } = montar();
+
+    await servicio.ajustarVenta('v1', { clasif: 'LAB' } as never, 'u1');
+
+    expect(analiticaInvalidada).not.toContain('v1');
+  });
+
+  /* Si el ajuste no llega a escribirse, tampoco hay nada que recalcular —y
+     tirar la caché de un mes que no cambió es trabajo regalado en un VPS de un
+     core. */
+  it('un ajuste rechazado no la toca', async () => {
+    const { servicio, analiticaInvalidada } = montar();
+
+    await expect(servicio.ajustarVenta('v1', { comisionable: false }, 'u1')).rejects.toThrow(
+      BadRequestException,
+    );
+
+    expect(analiticaInvalidada).toEqual([]);
   });
 });

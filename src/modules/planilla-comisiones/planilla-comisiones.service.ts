@@ -21,6 +21,7 @@ import {
   normalizar,
   ReglaDiccionario,
 } from './clasificador';
+import { AnaliticaComisionesService } from './analitica-comisiones.service';
 import { CatalogoClinicoService } from './catalogo-clinico.service';
 import { ConfiguracionComisionesService } from './configuracion-comisiones.service';
 import { EQUIPO_OFICIAL, TIPO_CAMBIO_POR_DEFECTO } from './configuracion-por-defecto';
@@ -153,8 +154,41 @@ export class PlanillaComisionesService {
     private readonly audit: AuditService,
     private readonly catalogo: CatalogoClinicoService,
     private readonly resumenAnual: ResumenAnualService,
+    private readonly analitica: AnaliticaComisionesService,
     private readonly tipoCambio: TipoCambioService,
   ) {}
+
+  /**
+   * Un mes cambió: se caen las dos cachés que lo describen.
+   *
+   * Existe como un solo punto y no como dos líneas repetidas en cada mutación
+   * porque así entró el fallo que cierra: `AnaliticaComisionesService` cachea
+   * 60 s por periodo y **solo `calcular()` la invalidaba**. Importar de nuevo,
+   * excluir una fila o reclasificar dejaba la pestaña Analítica —y con ella
+   * las hojas «Resumen», «Distribución» y «Rankings» del Excel, que salen de
+   * la misma llamada cacheada— mostrando los números anteriores durante un
+   * minuto. El caso feo no era la pestaña: `ajustarVenta` llama a
+   * `invalidarCalculo()`, que **borra los `ResultadoComision`**, así que
+   * durante ese minuto el Excel descargado declaraba una liquidación que ya no
+   * existía en la base.
+   *
+   * Nueve mutaciones tocan un periodo y las nueve llaman aquí. La tentación de
+   * escribir `this.analitica.invalidar(id)` suelta al lado de cada
+   * `resumenAnual.invalidar()` es exactamente cómo se llega a la décima que se
+   * olvida — el mismo error que ya documentan las cinco comprobaciones de
+   * editabilidad de `esEditable()`.
+   *
+   * **No lo llaman las mutaciones de vendedora** (`crearVendedora`,
+   * `actualizarVendedora`): la analítica agrega `VentaImportada` y
+   * `ResultadoComision` sin mirar a `VendedoraComision` —ni siquiera para
+   * filtrar las ocultas—, así que tirarla ahí solo costaría recalcular diez
+   * agregados para el mismo resultado. Esas siguen invalidando la anual, que sí
+   * lista personas.
+   */
+  private invalidarCachesDelPeriodo(periodoId: string): void {
+    this.analitica.invalidar(periodoId);
+    this.resumenAnual.invalidar();
+  }
 
   /* ── Importación ────────────────────────────────────────────────────── */
 
@@ -307,10 +341,13 @@ export class PlanillaComisionesService {
 
     /* El catálogo del modal de ventas sale de estas filas: si no se invalida,
        los servicios del mes recién importado tardarían una hora en aparecer
-       como sugerencia. La vista anual lee estas mismas filas: mismo motivo,
-       con TTL de 60 s en vez de una hora. */
+       como sugerencia. La analítica del mes y la vista anual leen estas mismas
+       filas: mismo motivo, con TTL de 60 s en vez de una hora. Reimportar
+       reemplaza TODAS las filas del periodo, así que sin esto la pestaña
+       Analítica —y el Excel, que sale de la misma llamada— seguirían
+       describiendo el archivo anterior. */
     this.catalogo.invalidar();
-    this.resumenAnual.invalidar();
+    this.invalidarCachesDelPeriodo(actualizado.id);
 
     this.logger.log(
       `Planilla ${mes}/${anio}: ${filas.length} filas (${filasValidas} comisionables, ${sinClasificar} sin clasificar)`,
@@ -578,8 +615,10 @@ export class PlanillaComisionesService {
       await tx.periodoComision.delete({ where: { id } });
     });
     /* El mes borrado desaparece del año: sin esto seguiría pintado hasta 60 s
-       en una vista que ya no tiene respaldo en la base. */
-    this.resumenAnual.invalidar();
+       en una vista que ya no tiene respaldo en la base. Y su analítica cacheada
+       sobreviviría al periodo, respondiendo 200 con las cifras de un mes que ya
+       no está en vez del 404 que corresponde. */
+    this.invalidarCachesDelPeriodo(id);
     return { eliminado: true };
   }
 
@@ -665,7 +704,7 @@ export class PlanillaComisionesService {
       });
       return actualizado;
     });
-    this.resumenAnual.invalidar();
+    this.invalidarCachesDelPeriodo(id);
     return actualizado;
   }
 
@@ -726,7 +765,7 @@ export class PlanillaComisionesService {
 
       return { cerrado: true, ...revision };
     });
-    this.resumenAnual.invalidar();
+    this.invalidarCachesDelPeriodo(id);
     return respuesta;
   }
 
@@ -749,7 +788,7 @@ export class PlanillaComisionesService {
       });
     });
 
-    this.resumenAnual.invalidar();
+    this.invalidarCachesDelPeriodo(id);
     return actualizado;
   }
 
@@ -784,7 +823,7 @@ export class PlanillaComisionesService {
       });
     });
 
-    this.resumenAnual.invalidar();
+    this.invalidarCachesDelPeriodo(id);
     return actualizado;
   }
 
@@ -801,7 +840,7 @@ export class PlanillaComisionesService {
       });
       return actualizado;
     });
-    this.resumenAnual.invalidar();
+    this.invalidarCachesDelPeriodo(id);
     return actualizado;
   }
 
@@ -1069,8 +1108,9 @@ export class PlanillaComisionesService {
     });
 
     /* Incluir o excluir una fila mueve el vendido del mes —y con él el promedio
-       del trimestre— en la vista anual. */
-    this.resumenAnual.invalidar();
+       del trimestre— en la vista anual, y todos los agregados de la analítica.
+       Ojo: la clave es el PERIODO, no la venta que se acaba de tocar. */
+    this.invalidarCachesDelPeriodo(destino.periodoId);
 
     return actualizada;
   }
@@ -1187,10 +1227,13 @@ export class PlanillaComisionesService {
         await invalidarCalculo(tx, periodoId, 'Reclasificación de ventas pendientes', usuarioId);
         await AuditService.registrarFinanciero(tx, 'PeriodoComision', periodoId, 'RECLASIFICAR', usuarioId, { regla, ventas });
       }
-      return actualizadas;
+      /* Los periodos alcanzados salen de la transacción porque cada uno tiene su
+         propia entrada en la caché de analítica: una regla nueva puede tocar
+         varios meses de una vez. */
+      return { actualizadas, periodos: [...afectadas.keys()] };
     });
-    if (total > 0) this.resumenAnual.invalidar();
-    return total;
+    for (const periodoId of total.periodos) this.invalidarCachesDelPeriodo(periodoId);
+    return total.actualizadas;
   }
 
   /* ── Alertas ────────────────────────────────────────────────────────── */

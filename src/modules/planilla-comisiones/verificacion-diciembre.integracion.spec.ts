@@ -98,6 +98,7 @@ beforeAll(async () => {
     audit,
     new CatalogoClinicoService(prisma),
     { invalidar: () => undefined } as never,
+    { invalidar: () => undefined } as never,
     /* El de verdad: sin fila de configuración cae en FIJO 6,97, que es
        exactamente el tipo de cambio con el que se liquidó diciembre. */
     new TipoCambioService(prisma, audit),

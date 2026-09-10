@@ -113,6 +113,7 @@ function montar(opciones: Opciones = {}) {
     audit as never,
     {} as never,
     { invalidar: () => undefined } as never,
+    { invalidar: () => undefined } as never,
     { configuracion: async () => ({ modo: 'FIJO', valorFijo: 6.97 }) } as never,
   );
 
