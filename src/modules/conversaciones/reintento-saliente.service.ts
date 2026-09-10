@@ -137,13 +137,9 @@ export class ReintentoSalienteService implements OnModuleInit, OnModuleDestroy {
     ahora: Date,
   ): Promise<boolean> {
     try {
-      const intentos = mensaje.intentosEnvio + 1;
-      const { count } = await this.prisma.mensaje.updateMany({
-        /* La reclamación. Ver la nota 1 de la cabecera. */
-        where: { id: mensaje.id, estadoEnvio: 'FALLIDO', proximoIntento: { lte: ahora } },
-        data: { intentosEnvio: intentos, proximoIntento: proximoReintento(intentos, ahora) },
-      });
-      if (count === 0) return false; // otro barrido se lo llevó, o ya se resolvió
+      if (!(await this.reclamar(mensaje.id, mensaje.intentosEnvio + 1, ahora))) {
+        return false; // otro barrido se lo llevó, o ya se resolvió
+      }
 
       if (!(await this.ventanaAbierta(mensaje.conversacionId, ahora))) {
         await this.prisma.mensaje.updateMany({
@@ -171,6 +167,30 @@ export class ReintentoSalienteService implements OnModuleInit, OnModuleDestroy {
       this.logger.error(`Falló el reintento del mensaje ${mensaje.id}`, error);
       return false;
     }
+  }
+
+  /**
+   * Se queda con la fila, o descubre que otro se la llevó.
+   *
+   * Es la nota 1 de la cabecera, y está en un método propio para que la prueba
+   * de integración pueda dispararla DOS VECES A LA VEZ sobre la misma fila —
+   * que es la única forma de comprobar de verdad la garantía. Probarlo lanzando
+   * dos barridos completos no sirve: se serializan, el segundo ya no ve la fila
+   * y el test pasa aunque el `where` esté mal escrito. Se comprobó.
+   *
+   * El `where` exige el estado y el turno que se asumen ahora mismo. De dos
+   * llamadas concurrentes, PostgreSQL deja que exactamente una afecte la fila;
+   * la otra recibe cero y no necesita saber por qué. Mismo patrón que reclamar
+   * una conversación del pool con `agenteId: null`.
+   *
+   * @param intentos Cuál es el intento que se está reclamando (el que va a ocurrir).
+   */
+  async reclamar(mensajeId: string, intentos: number, ahora: Date): Promise<boolean> {
+    const { count } = await this.prisma.mensaje.updateMany({
+      where: { id: mensajeId, estadoEnvio: 'FALLIDO', proximoIntento: { lte: ahora } },
+      data: { intentosEnvio: intentos, proximoIntento: proximoReintento(intentos, ahora) },
+    });
+    return count > 0;
   }
 
   /**

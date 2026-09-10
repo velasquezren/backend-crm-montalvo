@@ -141,14 +141,25 @@ Tres puertas lo sostienen, y las tres tienen prueba:
   `npm run test:build`: **9/9**.
 - Frontend: typecheck de `tsconfig.app.json`, **80 pruebas en 9 suites**, y
   `npm run build` (check:tipos + check:skills + ng build).
-- **Las pruebas nuevas muerden.** Se comprobó a propósito quitando la
-  concurrencia acotada del barrido (`Promise.all` sobre el lote entero): la
-  prueba del tope de cinco falla, y vuelve a pasar al restaurarla. Es el mismo
-  método con el que se validó la regla de `check:skills` en la entrega 1.
-- **Sin suite de integración.** No hay PostgreSQL levantado en esta máquina
-  (`pg_isready -p 5433` sin respuesta), así que
-  `test:integracion` no se ejecutó y la migración **no se aplicó a ninguna base**.
-  Queda pendiente antes de desplegar.
+- **Integración contra PostgreSQL 16 real**, en un servidor descartable en
+  loopback (receta de `crm-backend-arquitectura §8`): **19 suites / 354 casos**,
+  en orden habitual **y en orden inverso** sobre la misma base. La migración
+  `20260909210000_envio_incierto_y_reintento` **aplica correctamente**, y se
+  comprobó el resultado en el esquema: el enum `EstadoMensaje` tiene los cinco
+  valores con `INCIERTO` al final, `intentosEnvio` es `integer NOT NULL DEFAULT 0`,
+  `proximoIntento` es `timestamp` nulable, y existe `Mensaje_proximoIntento_idx`.
+- **Las pruebas nuevas muerden**, comprobado rompiendo el código a propósito:
+  - quitando el troceado del barrido (`Promise.all` sobre el lote entero), falla
+    la prueba del tope de cinco;
+  - borrando la condición del `where` de la reclamación, fallan dos pruebas de
+    integración.
+- **Una prueba se tuvo que rehacer porque no probaba nada.** La primera versión
+  de la garantía de concurrencia lanzaba dos `barrerEnviosPendientes()` con
+  `Promise.all` y **pasaba en verde con la reclamación rota**: los dos barridos
+  se serializan y el segundo ya no ve la fila que el primero acaba de reagendar.
+  Se extrajo `reclamar()` a un método propio y la prueba ataca eso, que es donde
+  vive la garantía. Vale como recordatorio: una prueba de concurrencia que no se
+  ha visto fallar no es una prueba de concurrencia.
 
 ## Rollback
 
@@ -161,4 +172,6 @@ a mano antes de revertir: el código viejo no sabe leer ese estado y la UI lo
 pintaría como un envío normal.
 
 No se desplegó ni se consultó producción. Sigue pendiente de producción la
-migración de F05 (`20260907180000_sesion_revocable`); esta va después.
+migración de F05 (`20260907180000_sesion_revocable`); esta va después. El
+servidor de pruebas fue descartable y se apagó al terminar: **ninguna base
+persistente se tocó**.

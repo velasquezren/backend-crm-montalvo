@@ -102,9 +102,11 @@ con reintento, porque hoy lo que se pierda procesando no se recupera. La
 idempotencia de entrada ya existe (dedupe por wa msg id), pero durabilidad no es
 idempotencia. Después de eso, Performance/UX sale de análisis.
 
-Dos cosas quedan **sin verificar** de la entrega 2 y hay que cerrarlas antes de
-desplegar: la suite de integración no se ejecutó (no hay PostgreSQL en esta
-máquina) y por tanto **la migración nueva no se ha aplicado a ninguna base**.
+La entrega 2 queda **verificada también contra PostgreSQL real** (servidor
+descartable en loopback): 19 suites / 354 casos en orden normal e inverso, y la
+migración aplica con el esquema comprobado columna por columna. Lo que sigue sin
+verificar es lo de fuera: **nunca se probó contra Meta de verdad**, y **no se ha
+consultado producción**.
 
 ## Verificaciones
 
@@ -134,10 +136,16 @@ Verificación F07 del 9 de septiembre: **80 tests frontend (9 suites)**, incluid
 [auditoria-f07.md](auditoria-f07.md).
 
 Verificación F06 entrega 2, mismo día: **499 unitarias backend (32 suites)**,
-`npm run build` y `test:build` 9/9 en el backend; typecheck, 80 tests y build en
-el frontend. **Integración no ejecutada** — sin PostgreSQL local, la migración
-`20260909210000_envio_incierto_y_reintento` sigue sin aplicarse en ningún sitio.
-Detalle en [auditoria-f06-entrega2.md](auditoria-f06-entrega2.md).
+`npm run build` y `test:build` 9/9; **integración 19 suites / 354 casos** contra
+PostgreSQL 16 descartable, en orden normal e inverso, con la migración aplicada y
+el esquema comprobado. Frontend: typecheck, 80 tests y build. Detalle y los
+experimentos de "romper a propósito" en
+[auditoria-f06-entrega2.md](auditoria-f06-entrega2.md).
+
+**Aviso que conviene no olvidar:** `verificacion-diciembre` sale **PASS** sin
+comparar nada mientras `CRM_EXCELS_2025_DIR` no esté definida — lo dice por
+consola («los asserts de esta suite NO se ejecutaron»), pero el conteo de Jest
+la cuenta como aprobada. Antes de tocar comisiones, definir esa variable.
 
 Los builds incluyen check:skills; frontend también check:tipos; backend exige
 `dist/main.js`. En Linux pasaron 69 tests frontend, 472 unitarios backend,
