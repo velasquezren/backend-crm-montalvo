@@ -1,11 +1,13 @@
 # Estado actual
 
-**9 de septiembre de 2026 · único handoff de ambos repositorios.**
-F07 implementado y verificado localmente por solicitud explícita del usuario;
-[detalle y evidencia](auditoria-f07.md). **Ya commiteado y empujado** —frontend
-`b702fa0`, backend `b69a230`—; **sigue sin desplegar**.
-El saneamiento del 8 de septiembre se conserva abajo como baseline. Antes de
-trabajar, hacer fetch en ambos repos y leer este archivo.
+**9 de septiembre de 2026, 23:00 (-04) · único handoff de ambos repositorios.**
+
+**Todo lo trabajado está commiteado, empujado y EN PRODUCCIÓN.** No hay trabajo
+a medias, ni ramas, ni cambios sin subir en ninguna de las dos máquinas. Cerrados
+hoy: F07, **F06 entrega 2** (mitad saliente) y **F09**.
+
+Antes de trabajar, `git fetch` en ambos repos y leer este archivo. El saneamiento
+del 8 de septiembre se conserva abajo como baseline.
 
 ## Backend / Frontend
 
@@ -76,7 +78,7 @@ Las entregas 0–9 de §19 tienen otra numeración; no confundirlas.
 | F06 | **Entrega 1 cerrada; entrega 2 cerrada en el despacho SALIENTE, recepción durable pendiente**. Entrega 1: `58bae3a`, [evidencia](auditoria-f06.md). Entrega 2: `ResultadoEnvio` + `EstadoMensaje.INCIERTO` + `ReintentoSalienteService` + `biz_opaque_callback_data`; migración `20260909210000_envio_incierto_y_reintento`; [evidencia](auditoria-f06-entrega2.md). |
 | F07 | **Cerrado en código, commiteado y empujado (`b702fa0`); sin desplegar**. Retirados los comparadores parciales de `inbox` y `detalle`; 11 pruebas de regresión en `conversaciones-state.service.spec.ts`; [evidencia](auditoria-f07.md). |
 | F08 | Diagnosticado, pendiente: respuestas tardías que pisan selección/filtros. |
-| F09 | **Cerrado**. Un solo Service Worker (el de Angular) + `SwPush`; el payload de push pasa por `common/push/cuerpo-push.ts`; regla nueva en el `check:skills` del frontend; [evidencia](auditoria-f09.md). **No verificado en navegador** — comprobar a mano al desplegar. |
+| F09 | **Cerrado**. Un solo Service Worker (el de Angular) + `SwPush`; el payload de push pasa por `common/push/cuerpo-push.ts`; regla nueva en el `check:skills` del frontend; [evidencia](auditoria-f09.md). **No verificado en navegador**, y se decidió dejarlo así: el fallo se demostró leyendo el `ngsw-worker.js` que se despacha, y el arreglo, comprobando que el payload cumple lo que ese código exige. Si algún día alguien reporta que no le llegan avisos con la app cerrada, empezar por aquí. |
 | F10 | Pendiente: completitud de consultas (calendario/historiales). |
 
 No inferir el despliegue desde Git — pero **el 9/9/2026 sí se consultó**: ver
@@ -133,11 +135,26 @@ con reintento, porque hoy lo que se pierda procesando no se recupera. La
 idempotencia de entrada ya existe (dedupe por wa msg id), pero durabilidad no es
 idempotencia. Después de eso, Performance/UX sale de análisis.
 
-La entrega 2 queda **verificada también contra PostgreSQL real** (servidor
-descartable en loopback): 19 suites / 354 casos en orden normal e inverso, y la
-migración aplica con el esquema comprobado columna por columna. Lo que sigue sin
-verificar es lo de fuera: **nunca se probó contra Meta de verdad**, y **no se ha
-consultado producción**.
+Producción se consultó y se desplegó (ver la sección de más arriba). Lo que sigue
+sin verificarse es lo de fuera del proceso: **nada de esto se probó contra Meta
+de verdad** —todo el camino externo va con `fetch` simulado— ni en un navegador.
+Es una diferencia real respecto a F02–F05, y está aceptada a conciencia, no por
+descuido.
+
+### Deuda conocida que no es de código
+
+- **`verificacion-diciembre` sale PASS sin comparar nada** mientras
+  `CRM_EXCELS_2025_DIR` no esté definida. Lo avisa por consola —«los asserts de
+  esta suite NO se ejecutaron»— pero Jest la cuenta como aprobada. Es la única
+  prueba que contrasta el motor contra lo que administración pagó de verdad:
+  definir esa variable antes de tocar comisiones.
+- **Dos reglas `ReglaClasificacion` con el patrón `Colocación de T de Cobre o
+  DIU`**, misma prioridad y clasificaciones distintas (CONSULTA y ECOGRAFIA):
+  cuál gana queda al azar. Solo administración puede elegir una y borrar la otra.
+- **En `/root` del servidor hay un `backup-crm-20260909-210306.sql.gz` de 20
+  bytes** — un dump vacío por error de credenciales, del intento de las 21:03.
+  El bueno es el de 21:03:21. No se borró nada: conviene mirarlo y limpiarlo a
+  mano.
 
 ## Verificaciones
 
