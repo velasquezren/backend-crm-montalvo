@@ -94,8 +94,31 @@ const PERIODO = {
   configuracionUsada: null,
 };
 
+/** Una venta mínima con la forma que leen la hoja individual y la de Detalle. */
+function venta(vendedoraId: string, detalle: string) {
+  return {
+    vendedoraId,
+    vendedoraNombre: vendedoraId,
+    fecha: new Date('2026-01-15T00:00:00Z'),
+    modulo: 'CONSULTA',
+    detalle,
+    paciente: 'Paciente de prueba',
+    medico: 'Dr. Prueba',
+    captacion: 'FACEBOOK',
+    canal: 'EMPRESA',
+    clasif: 'CONSULTA',
+    tipo: 'C',
+    nivel: null,
+    precio: 100,
+    ingresoNeto: 87,
+    comisionable: true,
+    motivoExclusion: null,
+    codOrigen: 'CO1',
+  };
+}
+
 /** Zuany sigue en el equipo; Yelca está dada de baja. */
-function montar(conMarketing = false): ExportacionComisionesService {
+function montar(conMarketing = false, ventas: ReturnType<typeof venta>[] = []): ExportacionComisionesService {
   const prisma = {
     periodoComision: { findUnique: async () => PERIODO },
     resultadoComision: {
@@ -110,7 +133,33 @@ function montar(conMarketing = false): ExportacionComisionesService {
           : []),
       ],
     },
-    ventaImportada: { findMany: async () => [] },
+    /*
+     * Honra `where.vendedoraId.in` y `skip`/`take` a propósito.
+     *
+     * El filtro, porque las hojas individuales ya no consultan una por una:
+     * `hojasPorVendedora()` pide las ventas del mes de una vez y las agrupa en
+     * memoria, así que un doble que devolviera siempre todo daría por buena
+     * una hoja que lista las ventas de otra persona. Y `skip`, porque la hoja
+     * "Detalle" pagina hasta recibir cero filas: sin eso el bucle no termina.
+     */
+    ventaImportada: {
+      findMany: async ({ where, skip, take }: {
+        where?: { vendedoraId?: { in?: string[] }; clasif?: { in?: string[] } };
+        skip?: number;
+        take?: number;
+      } = {}) => {
+        const permitidas = where?.vendedoraId?.in;
+        const clasifs = where?.clasif?.in;
+        const filtradas = ventas.filter(
+          v =>
+            (!permitidas || permitidas.includes(v.vendedoraId)) &&
+            /* La hoja "Planes por Vendedora" pide solo PLANPAQ/PLANNIN. Sin
+               honrar este filtro, unas consultas se colarían como planes. */
+            (!clasifs || clasifs.includes(v.clasif)),
+        );
+        return take === undefined ? filtradas : filtradas.slice(skip ?? 0, (skip ?? 0) + take);
+      },
+    },
   };
 
   const calculo = new CalculoComisionesService(
@@ -161,13 +210,17 @@ function montar(conMarketing = false): ExportacionComisionesService {
 }
 
 /** Genera el .xlsx de verdad y lo vuelve a leer. */
-async function libroDe(incluirOcultas: boolean, conMarketing = false): Promise<Workbook> {
+async function libroDe(
+  incluirOcultas: boolean,
+  conMarketing = false,
+  ventas: ReturnType<typeof venta>[] = [],
+): Promise<Workbook> {
   const trozos: Buffer[] = [];
   const salida = new PassThrough();
   salida.on('data', c => trozos.push(c as Buffer));
   const cerrado = new Promise<void>(resolver => salida.on('end', () => resolver()));
 
-  await montar(conMarketing).exportar('p1', salida, incluirOcultas);
+  await montar(conMarketing, ventas).exportar('p1', salida, incluirOcultas);
   salida.end();
   await cerrado;
 
@@ -373,6 +426,59 @@ describe('Excel del periodo · vendedoras dadas de baja', () => {
       const resumen = (await libroDe(false, true)).getWorksheet('Resumen');
 
       expect(filaDe(resumen, 'De ellas, equipo de marketing (cobra bono, no comisiona)')).toBe(2);
+    });
+  });
+
+  /*
+   * Las hojas individuales dejaron de consultar la base una por una: se pide el
+   * mes entero de una vez y se agrupa en memoria. El riesgo del cambio no es de
+   * rendimiento sino de REPARTO —que a alguien le acaben apareciendo las ventas
+   * de otra persona en la hoja que lleva su nombre—, así que se fija sobre el
+   * .xlsx real y no sobre la consulta.
+   */
+  describe('hoja individual · a cada quien sus ventas', () => {
+    const VENTAS = [
+      venta('v1', 'Consulta de Zuany'),
+      venta('v2', 'Consulta de Yelca'),
+      venta('v1', 'Ecografía de Zuany'),
+    ];
+
+    /** Textos de la columna "Servicio" (4.ª) del bloque de ventas de la hoja. */
+    function serviciosDe(hoja: Worksheet | undefined): string[] {
+      const servicios: string[] = [];
+      hoja?.eachRow(fila => {
+        const valor = fila.getCell(4).value;
+        if (typeof valor === 'string' && valor.startsWith('Consulta de')) servicios.push(valor);
+        if (typeof valor === 'string' && valor.startsWith('Ecografía de')) servicios.push(valor);
+      });
+      return servicios;
+    }
+
+    /*
+     * Con `incluirOcultas` para que las DOS tengan hoja. Es lo que hace válida
+     * la prueba: si se pide sin ellas, la consulta ya devuelve solo las filas
+     * de quien tiene hoja y un reparto roto —darle a cada una todo lo que
+     * llegó— seguiría dando el resultado correcto por accidente. Con las dos
+     * vivas, un fallo de agrupamiento le mete a Zuany la venta de Yelca.
+     */
+    it('la hoja de una vendedora lista sus ventas y solo las suyas', async () => {
+      const libro = await libroDe(true, false, VENTAS);
+
+      expect(serviciosDe(libro.getWorksheet('Zuany')).sort()).toEqual([
+        'Consulta de Zuany',
+        'Ecografía de Zuany',
+      ]);
+      expect(serviciosDe(libro.getWorksheet('Yelca'))).toEqual(['Consulta de Yelca']);
+    });
+
+    /* La de baja no tiene hoja, pero sus ventas siguen siendo facturación de la
+       clínica: el Detalle —que no filtra por persona— las conserva. Es la misma
+       regla de siempre: se oculta la persona, nunca el dinero. */
+    it('el Detalle conserva las ventas de la vendedora dada de baja', async () => {
+      const libro = await libroDe(false, false, VENTAS);
+
+      expect(libro.getWorksheet('Yelca')).toBeUndefined();
+      expect(serviciosDe(libro.getWorksheet('Detalle'))).toContain('Consulta de Yelca');
     });
   });
 });

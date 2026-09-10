@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { AreaVendedora, ClasifComision, UnidadNegocio } from '../../prisma/prisma-client';
+import { AreaVendedora, ClasifComision, Prisma, UnidadNegocio } from '../../prisma/prisma-client';
 import { TableColumnProperties, Workbook, Worksheet } from 'exceljs';
 import { Writable } from 'stream';
 
@@ -793,13 +793,56 @@ export class ExportacionComisionesService {
    * congelado con el que se pagó, no algo que se recalcule aquí.
    */
   private async hojasPorVendedora(libro: Workbook, consolidado: ConsolidadoPeriodo): Promise<void> {
-    const resultados = await this.prisma.resultadoComision.findMany({
-      where: { periodoId: consolidado.periodo.id },
-      select: { vendedoraId: true, desglose: true },
-    });
+    const conHoja = consolidado.filas.filter(v => !esMarketing(v));
+
+    /*
+     * Las ventas del mes se piden UNA vez y se agrupan en memoria.
+     *
+     * Antes cada hoja hacía su propio `findMany` por `vendedoraId`: catorce
+     * vendedoras eran catorce consultas en serie dentro de la descarga, cada
+     * una con su ida y vuelta, para leer trozos de la misma tabla que la hoja
+     * "Detalle" ya recorre entera. Un mes real ronda las 500 filas y ya están
+     * acotadas por `periodoId`, así que traerlas juntas cuesta una consulta y
+     * unos cientos de KB — la comparación no es contra "no leerlas", es contra
+     * leerlas catorce veces.
+     *
+     * Se filtra por las vendedoras que de verdad van a tener hoja: si el libro
+     * se pidió sin las ocultas, sus filas no se traen.
+     */
+    const [resultados, ventas] = await Promise.all([
+      this.prisma.resultadoComision.findMany({
+        where: { periodoId: consolidado.periodo.id },
+        select: { vendedoraId: true, desglose: true },
+      }),
+      this.prisma.ventaImportada.findMany({
+        where: {
+          periodoId: consolidado.periodo.id,
+          vendedoraId: { in: conHoja.map(f => f.vendedoraId) },
+        },
+        orderBy: [{ fecha: 'asc' }, { detalle: 'asc' }],
+        select: {
+          vendedoraId: true,
+          fecha: true, modulo: true, detalle: true, paciente: true, medico: true,
+          captacion: true, canal: true, clasif: true, tipo: true, nivel: true,
+          precio: true, ingresoNeto: true, comisionable: true, motivoExclusion: true,
+          codOrigen: true,
+        },
+      }),
+    ]);
     const desglosePorVendedora = new Map(
       resultados.map(r => [r.vendedoraId, (r.desglose ?? []) as unknown as LineaDesglose[]]),
     );
+
+    /* El `orderBy` de la consulta se conserva al agrupar: un `Map` mantiene el
+       orden de inserción, así que cada lista sigue por fecha y detalle sin
+       reordenar nada. */
+    const ventasPorVendedora = new Map<string, VentaDeHoja[]>();
+    for (const venta of ventas) {
+      if (!venta.vendedoraId) continue;
+      const suyas = ventasPorVendedora.get(venta.vendedoraId) ?? [];
+      suyas.push(venta);
+      ventasPorVendedora.set(venta.vendedoraId, suyas);
+    }
 
     const nombresUsados = new Set<string>();
 
@@ -807,7 +850,7 @@ export class ExportacionComisionesService {
        la pestaña saldría vacía salvo el bono, que ya está en su bloque de la
        hoja "Liquidación". Dos pestañas en blanco entre las de las ejecutivas
        hacen más difícil encontrar la que sí tiene datos. */
-    for (const f of consolidado.filas.filter(v => !esMarketing(v))) {
+    for (const f of conHoja) {
       const hoja = libro.addWorksheet(this.nombreHojaUnico(f.nombre, nombresUsados), {
         views: [{ showGridLines: false }],
       });
@@ -820,7 +863,7 @@ export class ExportacionComisionesService {
       this.escribirDesgloseVendedora(hoja, f, desglosePorVendedora.get(f.vendedoraId) ?? []);
       hoja.addRow([]);
       hoja.addRow([]);
-      await this.escribirVentasVendedora(hoja, consolidado.periodo.id, f);
+      this.escribirVentasVendedora(hoja, f, ventasPorVendedora.get(f.vendedoraId) ?? []);
     }
   }
 
@@ -960,19 +1003,12 @@ export class ExportacionComisionesService {
     this.formatoRangoColumna(hoja, inicio, fin, 9, FORMATO.usd);
   }
 
-  private async escribirVentasVendedora(hoja: Worksheet, periodoId: string, f: FilaConsolidado): Promise<void> {
+  private escribirVentasVendedora(
+    hoja: Worksheet,
+    f: FilaConsolidado,
+    ventas: readonly VentaDeHoja[],
+  ): void {
     this.seccion(hoja, 'Ventas del mes que le corresponden a esta vendedora', 14);
-
-    const ventas = await this.prisma.ventaImportada.findMany({
-      where: { periodoId, vendedoraId: f.vendedoraId },
-      orderBy: [{ fecha: 'asc' }, { detalle: 'asc' }],
-      select: {
-        fecha: true, modulo: true, detalle: true, paciente: true, medico: true,
-        captacion: true, canal: true, clasif: true, tipo: true, nivel: true,
-        precio: true, ingresoNeto: true, comisionable: true, motivoExclusion: true,
-        codOrigen: true,
-      },
-    });
 
     if (ventas.length === 0) {
       const aviso = hoja.addRow(['Sin ventas asociadas a esta vendedora en el periodo.']);
@@ -1293,6 +1329,24 @@ interface PorcionInforme {
 type InformeAnalitica = Awaited<ReturnType<AnaliticaComisionesService['analitica']>>;
 type ConsolidadoPeriodo = Awaited<ReturnType<CalculoComisionesService['reporteConsolidado']>>;
 type FilaConsolidado = ConsolidadoPeriodo['filas'][number];
+
+/**
+ * Una venta tal como la necesita la hoja individual de una vendedora.
+ *
+ * Sale del `select` que hace `hojasPorVendedora()` de una vez para todo el
+ * libro: se declara con `Prisma.VentaImportadaGetPayload` en vez de a mano para
+ * que añadir una columna al `select` y olvidarse de la tabla —o al revés— sea
+ * un error de compilación y no una columna en blanco en el Excel que se firma.
+ */
+type VentaDeHoja = Prisma.VentaImportadaGetPayload<{
+  select: {
+    vendedoraId: true;
+    fecha: true; modulo: true; detalle: true; paciente: true; medico: true;
+    captacion: true; canal: true; clasif: true; tipo: true; nivel: true;
+    precio: true; ingresoNeto: true; comisionable: true; motivoExclusion: true;
+    codOrigen: true;
+  };
+}>;
 
 /**
  * Quién va en el bloque aparte de la planilla.
