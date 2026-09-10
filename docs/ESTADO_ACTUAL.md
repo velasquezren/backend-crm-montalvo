@@ -16,8 +16,8 @@ stashes ni worktrees extra. El directorio padre **no está versionado**.
 
 | Repositorio | Remoto | Último checkpoint verificado |
 | --- | --- | --- |
-| Backend | https://github.com/velasquezren/backend-crm-montalvo.git | `f2fc0424d7aec21020ca354837938530d1fe1613` (F06 entrega 2; verificado sin integración) |
-| Frontend | https://github.com/velasquezren/frontend-crm-montalvo.git | `7b45879947a542a10f0b3430d32fb7537c7a333b` |
+| Backend | https://github.com/velasquezren/backend-crm-montalvo.git | `3a03678b834ca8f7bd5d9abe52e12e2290de073c` — punta de `main`. **Desplegado: `7704e7e`**; lo posterior es solo documentación. |
+| Frontend | https://github.com/velasquezren/frontend-crm-montalvo.git | `2d4287ad258c897cf05d51fd5327bc43efc5bd86` — punta de `main`, **desplegado** en Vercel. |
 
 Baseline anterior, por si hace falta volver: backend `e91a2d0`, frontend `8e46f5a`.
 
