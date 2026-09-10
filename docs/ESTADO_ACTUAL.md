@@ -1,8 +1,10 @@
 # Estado actual
 
-**8 de septiembre de 2026 · único handoff de ambos repositorios.**
-Saneamiento en Linux del trabajo recibido de la Mac. No se continuó ninguna fase
-funcional. Antes de trabajar, hacer fetch en ambos repos y leer este archivo.
+**9 de septiembre de 2026 · único handoff de ambos repositorios.**
+F07 implementado y verificado localmente por solicitud explícita del usuario;
+[detalle y evidencia](auditoria-f07.md). Cambios todavía sin commit ni despliegue.
+El saneamiento del 8 de septiembre se conserva abajo como baseline. Antes de
+trabajar, hacer fetch en ambos repos y leer este archivo.
 
 ## Backend / Frontend
 
@@ -36,7 +38,8 @@ Las entregas 0–9 de §19 tienen otra numeración; no confundirlas.
 | F04 | **Cerrado**. `775abbd`; DTO de perfil, servicios de actividades/clientes/ventas; `autorizacion-http.integracion.spec.ts`; [matriz](auditoria-f04.md). |
 | F05 | **Cerrado en código**. `775abbd` + frontend `9aa073a`; auth/guard/gateway/interceptor; `sesion-http.integracion.spec.ts`, `auth.service.spec.ts`, tests frontend de auth/interceptor/realtime; [contrato](auditoria-f05.md). |
 | F06 | **Parcial: entrega 1 cerrada; entrega 2 pendiente**. `58bae3a`; `common/fiabilidad/en-segundo-plano.ts`, `rechazos-fuera-de-peticion.spec.ts` y check:skills; [evidencia](auditoria-f06.md). |
-| F07 / F08 | Diagnosticados, pendientes: igualdad del hilo y respuestas tardías que pisan selección/filtros. |
+| F07 | **Cerrado en código local**. Retirados los comparadores parciales de `inbox` y `detalle`; 11 pruebas de regresión en `conversaciones-state.service.spec.ts`; [evidencia](auditoria-f07.md). |
+| F08 | Diagnosticado, pendiente: respuestas tardías que pisan selección/filtros. |
 | F09 | Diagnosticado, pendiente: dos Service Workers en el mismo scope. |
 | F10 | Pendiente: completitud de consultas (calendario/historiales). |
 
@@ -74,9 +77,13 @@ No ejecutar su script histórico de despliegue ni confundirlo con la receta vige
 
 ## Cómo continuar
 
-**La siguiente tarea es F06 entrega 2: recepción/despacho persistentes, resultado
+F07 se atendió por petición explícita del usuario el 9 de septiembre. F06 entrega
+2 conserva su estado pendiente; este cambio no cierra la fiabilidad persistente
+ni las carreras de F08.
+
+**La siguiente tarea prioritaria pendiente es F06 entrega 2: recepción/despacho persistentes, resultado
 externo desconocido e idempotencia; Performance/UX permanece en análisis hasta
-cerrar esa entrega.** No iniciar esa tarea como parte del saneamiento.
+cerrar esa entrega.** No se inició esa tarea como parte del saneamiento ni de F07.
 
 ## Verificaciones
 
@@ -100,6 +107,10 @@ node node_modules/typescript/bin/tsc -p tsconfig.app.json --noEmit
 npm test -- --watch=false
 npm run build
 ```
+
+Verificación F07 del 9 de septiembre: **80 tests frontend (9 suites)**, incluidos
+11 de F07, y typecheck correctos. El resultado del build queda registrado en
+[auditoria-f07.md](auditoria-f07.md).
 
 Los builds incluyen check:skills; frontend también check:tipos; backend exige
 `dist/main.js`. En Linux pasaron 69 tests frontend, 472 unitarios backend,
@@ -129,4 +140,5 @@ Las suites se ejecutan en serie; no correr dos procesos contra el mismo crm_test
 - Los bugs frontend documentados siguen abiertos: `conversaciones-state.service.ts`
   (respuestas tardías/estado), `auth.service.ts` (stores entre sesiones),
   `app.config.ts` + `notificacion-nativa.service.ts` (dos SW). Riesgo: datos visibles
-  incorrectos o remanentes de otro usuario y conflictos push/caché; F07–F09.
+  incorrectos o remanentes de otro usuario y conflictos push/caché; pendientes de
+  aislamiento de estado y F08–F09. La igualdad parcial de F07 está corregida.
