@@ -19,14 +19,38 @@ stashes ni worktrees extra. El directorio padre **no está versionado**.
 
 Baseline anterior, por si hace falta volver: backend `e91a2d0`, frontend `8e46f5a`.
 
-**Orden de despliegue de F09:** el backend puede ir solo y **debe ir primero**
-(su payload es aditivo y el Service Worker anterior lo sigue entendiendo). El
-frontend antes que el backend deja un hueco sin notificaciones.
+## Producción — consultada y desplegada el 9/9/2026 22:52 (-04)
 
-**Hay DOS migraciones sin aplicar en producción**, y en este orden:
-`20260907180000_sesion_revocable` (F05) y `20260909210000_envio_incierto_y_reintento`
-(F06 e2). Ninguna de las dos se ha corrido contra ninguna base — tampoco local.
-Cuanto más se apilen, más arriesgado el despliegue que las lleve todas.
+**Ya no hay que suponer nada: se miró.** Backend en `7704e7e`, frontend en
+`2d4287a` (Vercel), ambos verificados en la máquina.
+
+| Comprobación | Resultado |
+| --- | --- |
+| `systemctl is-active crm_backend` | `active`, arranque limpio en el journal |
+| `GET /health` | 200, `baseDatos: "ok"` |
+| `POST /auth/login` con `{}` | **400** — ValidationPipe vivo |
+| `GET /planilla-comisiones/periodos` sin token | **401** — guard vivo |
+| Errores en el journal desde el arranque | **ninguno** |
+| Esquema | enum `EstadoMensaje` con `INCIERTO`, `intentosEnvio`, `proximoIntento`, `Mensaje_proximoIntento_idx` |
+| Respaldo previo | `/root/backup-crm-20260909-224636.sql.gz`, 3,5 MB, verificado |
+
+**Corrección al handoff anterior:** este documento afirmaba que había *dos*
+migraciones sin aplicar. Era falso: `20260907180000_sesion_revocable` (F05) ya
+constaba aplicada en producción. La única pendiente era la de F06 e2, y ya se
+aplicó. PostgreSQL de producción es **16.14**, así que el `ALTER TYPE ... ADD
+VALUE` de esa migración corre dentro de la transacción sin problema.
+
+**El orden de despliegue de F09 no se cumplió, y conviene saber por qué.** La
+regla es backend primero (su payload es aditivo; el Service Worker anterior lo
+sigue entendiendo) y frontend después. Pero **Vercel despliega solo con el push**:
+el frontend estuvo en producción a los 33 s del `git push`, unos ocho minutos
+antes que el backend. En esa ventana, quien recargara la app quedaba con ngsw
+activo recibiendo el payload viejo — es decir, sin notificaciones. La ventana ya
+está cerrada. Para la próxima: **si el orden importa, se empuja el backend, se
+despliega, y solo entonces se empuja el frontend.**
+
+Queda una comprobación que no se puede hacer desde aquí: **que llegue una
+notificación de verdad con la app cerrada**. F09 no se probó en navegador.
 
 El SHA del checkpoint completo del backend es el commit que contiene esta
 versión del handoff: `git log -1 --format=%H -- docs/ESTADO_ACTUAL.md`.
@@ -55,11 +79,9 @@ Las entregas 0–9 de §19 tienen otra numeración; no confundirlas.
 | F09 | **Cerrado**. Un solo Service Worker (el de Angular) + `SwPush`; el payload de push pasa por `common/push/cuerpo-push.ts`; regla nueva en el `check:skills` del frontend; [evidencia](auditoria-f09.md). **No verificado en navegador** — comprobar a mano al desplegar. |
 | F10 | Pendiente: completitud de consultas (calendario/historiales). |
 
-No inferir el despliegue desde Git: **producción no se consultó en este saneamiento**.
-La afirmación anterior «F05 sin desplegar» no está demostrada: hay evidencia
-histórica de Vercel para `9aa073a`, pero no confirma el backend actual. Antes de
-un futuro despliegue verificar su SHA y `20260907180000_sesion_revocable`; el
-esquema debe estar aplicado antes de arrancar esa versión. No desplegar aquí.
+No inferir el despliegue desde Git — pero **el 9/9/2026 sí se consultó**: ver
+la sección de producción más arriba. F05 estaba desplegado y su migración
+aplicada, al contrario de lo que suponía este documento.
 
 ## Segunda auditoría Performance / UX Premium
 
