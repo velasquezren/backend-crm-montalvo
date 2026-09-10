@@ -14,8 +14,15 @@ stashes ni worktrees extra. El directorio padre **no está versionado**.
 
 | Repositorio | Remoto | Último checkpoint verificado |
 | --- | --- | --- |
-| Backend | https://github.com/velasquezren/backend-crm-montalvo.git | `e91a2d03035efee947e913c591ef32dc714c46e5` (baseline de aplicación; saneamiento documental posterior) |
-| Frontend | https://github.com/velasquezren/frontend-crm-montalvo.git | `8e46f5a11efb9985d20191a618796ac1a86155bf` |
+| Backend | https://github.com/velasquezren/backend-crm-montalvo.git | `f2fc0424d7aec21020ca354837938530d1fe1613` (F06 entrega 2; verificado sin integración) |
+| Frontend | https://github.com/velasquezren/frontend-crm-montalvo.git | `7b45879947a542a10f0b3430d32fb7537c7a333b` |
+
+Baseline anterior, por si hace falta volver: backend `e91a2d0`, frontend `8e46f5a`.
+
+**Hay DOS migraciones sin aplicar en producción**, y en este orden:
+`20260907180000_sesion_revocable` (F05) y `20260909210000_envio_incierto_y_reintento`
+(F06 e2). Ninguna de las dos se ha corrido contra ninguna base — tampoco local.
+Cuanto más se apilen, más arriesgado el despliegue que las lleve todas.
 
 El SHA del checkpoint completo del backend es el commit que contiene esta
 versión del handoff: `git log -1 --format=%H -- docs/ESTADO_ACTUAL.md`.
