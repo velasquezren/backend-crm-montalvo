@@ -309,6 +309,12 @@ model Mensaje {
   estadoEnvio    EstadoMensaje?
   entregadoEn    DateTime?
   leidoEn        DateTime?
+  /// Cuántas veces se intentó despachar. Solo crece cuando CONSTA que no salió;
+  /// un INCIERTO no cuenta, porque no se reintenta.
+  intentosEnvio  Int              @default(0)
+  /// Cuándo toca reintentar. `null` = nada agendado, que es el caso de casi
+  /// todas las filas: solo un FALLIDO con intentos por delante lleva fecha.
+  proximoIntento DateTime?
   /// true = lo mandó el sistema (acuse fuera de horario), no una persona.
   ///
   /// Existe por el inbox, no por trazabilidad: la pestaña "Sin responder" detecta
@@ -321,6 +327,10 @@ model Mensaje {
   createdAt      DateTime         @default(now())
 
   @@index([conversacionId, createdAt])
+  /// Solo lo usa el barrido de reintentos, que pregunta por `proximoIntento`
+  /// vencido. Es un índice sobre una columna casi siempre nula, así que apenas
+  /// pesa y evita recorrer la tabla de mensajes entera cada minuto.
+  @@index([proximoIntento])
 }
 
 enum TipoMensaje {
@@ -337,6 +347,12 @@ enum EstadoMensaje {
   ENTREGADO
   LEIDO
   FALLIDO
+  /// No se sabe si llegó a la paciente: la red se cayó o Meta no contestó a
+  /// tiempo, con el POST ya viajando. NO es FALLIDO — decir "no salió" cuando
+  /// pudo salir hace que alguien lo reenvíe y la paciente lo reciba dos veces.
+  /// Se resuelve solo cuando llega el `statuses` de Meta, que trae de vuelta el
+  /// `biz_opaque_callback_data` con el id de esta fila.
+  INCIERTO
 }
 
 model Venta {

@@ -1,7 +1,12 @@
 import { Injectable, Logger } from '@nestjs/common';
 
 import { R2Service } from '../../common/storage/r2.service';
-import { ContenidoMensaje, WhatsappCloudService } from '../../common/whatsapp/whatsapp-cloud.service';
+import {
+  ContenidoMensaje,
+  ResultadoEnvio,
+  WhatsappCloudService,
+} from '../../common/whatsapp/whatsapp-cloud.service';
+import { Prisma } from '../../prisma/prisma-client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ConversacionesGateway } from './conversaciones.gateway';
 
@@ -16,6 +21,13 @@ export interface Destino {
   mensajeId: string;
   conversacionId: string;
   telefono: string;
+  /**
+   * True cuando quien despacha es el barrido de reintentos, que YA agendó el
+   * siguiente turno al reclamar la fila. Sin esta marca, el despachador
+   * volvería a agendar desde cero en cada vuelta y el backoff no crecería
+   * nunca: un mensaje muerto se reintentaría cada minuto para siempre.
+   */
+  reintento?: boolean;
 }
 
 /** Lo que hace falta para armar un `template` de Meta. */
@@ -66,38 +78,53 @@ export class DespachadorSalienteService {
       : contenidoSegunTexto(contenido);
 
     if (!contenidoMeta) {
-      await this.registrarResultadoEnvio(destino, null);
+      /* No se pudo firmar la media: no llegó a salir nada, y consta. */
+      await this.registrarResultadoEnvio(destino, {
+        estado: 'NO_SALIO',
+        motivo: 'No se pudo firmar la media del adjunto',
+      });
       return;
     }
 
-    await this.registrarResultadoEnvio(destino, await this.whatsapp.enviar(destino.telefono, contenidoMeta));
+    await this.registrarResultadoEnvio(
+      destino,
+      await this.whatsapp.enviar(destino.telefono, contenidoMeta, destino.mensajeId),
+    );
   }
 
   /** Acuse con botonera de respuesta rápida. Degrada a texto plano si Meta lo rechaza. */
   async botones(destino: Destino, texto: string, botones: string[]): Promise<void> {
-    const metaMsgId = await this.whatsapp.enviar(destino.telefono, {
-      type: 'interactive',
-      interactive: {
-        type: 'button',
-        body: { text: texto },
-        action: {
-          /* El `id` vuelve en el webhook junto al título; se numera para no
-             depender del texto, que la clínica puede reescribir. */
-          buttons: botones.map((titulo, i) => ({
-            type: 'reply',
-            reply: { id: `acuse_${i + 1}`, title: titulo },
-          })),
+    const resultado = await this.whatsapp.enviar(
+      destino.telefono,
+      {
+        type: 'interactive',
+        interactive: {
+          type: 'button',
+          body: { text: texto },
+          action: {
+            /* El `id` vuelve en el webhook junto al título; se numera para no
+               depender del texto, que la clínica puede reescribir. */
+            buttons: botones.map((titulo, i) => ({
+              type: 'reply',
+              reply: { id: `acuse_${i + 1}`, title: titulo },
+            })),
+          },
         },
       },
-    });
+      destino.mensajeId,
+    );
 
-    if (metaMsgId) {
-      await this.registrarResultadoEnvio(destino, metaMsgId);
+    if (resultado.estado !== 'NO_SALIO') {
+      /* ENVIADO se anota con su id; INCIERTO se anota como incierto y lo
+         resolverá el `statuses`. Degradar a texto plano un envío que quizá SÍ
+         salió le mandaría el acuse dos veces a la paciente. */
+      await this.registrarResultadoEnvio(destino, resultado);
       return;
     }
 
     /* Meta rechaza un interactivo malformado ENTERO. Antes de dejar al paciente
-       sin nada, se reintenta como texto plano: un acuse feo es mejor que ninguno. */
+       sin nada, se reintenta como texto plano: un acuse feo es mejor que ninguno.
+       Solo aquí, donde consta que no salió nada. */
     this.logger.warn('El acuse con botones no salió; se reintenta como texto plano');
     await this.texto(destino, texto);
   }
@@ -111,16 +138,24 @@ export class DespachadorSalienteService {
         ? [{ type: 'body', parameters: dto.parametros.map(text => ({ type: 'text', text })) }]
         : undefined;
 
-    const metaMsgId = await this.whatsapp.enviar(destino.telefono, {
-      type: 'template',
-      template: {
-        name: dto.plantilla,
-        language: { code: dto.idioma },
-        ...(componentes ? { components: componentes } : {}),
+    const resultado = await this.whatsapp.enviar(
+      destino.telefono,
+      {
+        type: 'template',
+        template: {
+          name: dto.plantilla,
+          language: { code: dto.idioma },
+          ...(componentes ? { components: componentes } : {}),
+        },
       },
-    });
+      destino.mensajeId,
+    );
 
-    await this.registrarResultadoEnvio(destino, metaMsgId);
+    /* `false`: una plantilla fallida no se reintenta sola. La fila guarda el
+       texto compuesto, no el nombre ni los parámetros, así que el barrido no
+       tendría con qué rearmarla — y mandarla como texto plano es justo lo que
+       Meta rechaza fuera de la ventana de 24 h, que es cuando se usan plantillas. */
+    await this.registrarResultadoEnvio(destino, resultado, false);
   }
 
   /** Arma el adjunto para Meta a partir de la clave de R2, firmando al vuelo. */
@@ -139,17 +174,23 @@ export class DespachadorSalienteService {
   }
 
   /**
-   * Anota en el mensaje lo que contestó Meta.
+   * Anota en el mensaje lo que pasó con el envío.
    *
-   * Lo comparten los tres caminos de envío (texto, plantilla y botones): sin el
-   * id no hubo entrega, así que el tick pasa a FALLIDO; con id se guarda para
-   * que el webhook de `statuses` pueda correlacionar entregado/leído de vuelta.
-   * En ambos casos se avisa por WebSocket, para que el tick cambie en pantalla
-   * sin que el agente recargue.
+   * Lo comparten los tres caminos (texto, plantilla y botones). Antes recibía
+   * `string | null` y ese `null` valía por igual para "Meta lo rechazó" y para
+   * "se cayó la red y no sé si llegó": los dos acababan en FALLIDO. El segundo
+   * es el que hacía daño — la agente lo reintentaba a mano y la paciente podía
+   * recibirlo dos veces—, así que ahora se anota INCIERTO y no se reintenta
+   * nada por su cuenta: lo resuelve el `statuses` de Meta, que vuelve con
+   * `biz_opaque_callback_data`. Ver `resultado-de-envio-desconocido.spec.ts`.
+   *
+   * En los tres casos se avisa por WebSocket, para que el tick cambie en
+   * pantalla sin que el agente recargue.
    */
   private async registrarResultadoEnvio(
-    { mensajeId, conversacionId }: Destino,
-    metaMsgId: string | null,
+    { mensajeId, conversacionId, reintento }: Destino,
+    resultado: ResultadoEnvio,
+    agendable = true,
   ): Promise<void> {
     /*
      * `updateMany` y no `update` porque `update` LANZA si la fila ya no está, y
@@ -169,14 +210,27 @@ export class DespachadorSalienteService {
      * sobre el test siguiente — un fallo intermitente (1 de cada 4 corridas)
      * que acusaba a una prueba que no tenía nada que ver.
      */
+    if (resultado.estado !== 'ENVIADO') {
+      this.logger.warn(`Mensaje ${mensajeId} — ${resultado.estado}: ${resultado.motivo}`);
+    }
+
     const { count } = await this.prisma.mensaje.updateMany({
-      where: { id: mensajeId },
-      data: metaMsgId ? { whatsappMsgId: metaMsgId } : { estadoEnvio: 'FALLIDO' },
+      /*
+       * El `where` excluye los ticks que ya avanzaron. Un `statuses` puede
+       * habernos ganado la carrera —Meta contesta el webhook mientras nuestra
+       * respuesta HTTP todavía viaja— y sobrescribir ENTREGADO/LEIDO con
+       * ENVIADO haría RETROCEDER el tick en pantalla, que es justo lo que
+       * `procesarEstadoMensaje` lleva evitando desde siempre.
+       */
+      where: { id: mensajeId, estadoEnvio: { notIn: ['ENTREGADO', 'LEIDO'] } },
+      data: datosSegunResultado(resultado, agendable && !reintento),
     });
 
     if (count === 0) {
       /* `debug` y no `warn`: en producción es rarísimo, pero en la suite pasa
-         once veces por corrida y un warn que sale siempre enseña a ignorarlos. */
+         once veces por corrida y un warn que sale siempre enseña a ignorarlos.
+         Cubre dos casos benignos: la conversación borrada mientras Meta
+         contestaba, y el tick que ya iba por delante. */
       this.logger.debug(`El mensaje ${mensajeId} ya no existe al anotar el resultado del envío.`);
     }
 
@@ -202,4 +256,59 @@ export function contenidoSegunTexto(contenido: string): ContenidoMensaje {
     return { type: 'document', document: { link: limpio, filename: 'Documento.pdf' } };
   }
   return { type: 'text', text: { body: contenido } };
+}
+
+/**
+ * Cuánto se espera antes de volver a intentar un envío que **consta** que no
+ * salió, y cuándo se deja de intentar.
+ *
+ * Tres intentos y se acaba. El tope no es prudencia decorativa: pasada la
+ * ventana de servicio al cliente de 24 h, Meta rechaza el texto libre de todas
+ * formas, así que insistir más allá solo gasta cuota y llena el journal. Y el
+ * reparto 1 / 5 / 25 min cubre lo que de verdad se recupera solo —un despliegue,
+ * un corte de red, un 5xx pasajero de Meta— sin convertirse en una cola que
+ * despierta al proceso cada minuto.
+ *
+ * Devuelve `null` cuando ya no hay que reintentar: el barrido lo lee como
+ * "ríndete" y limpia `proximoIntento` para que la fila deje de aparecer.
+ *
+ * @param intentos Cuántos van hechos ya, contando el que acaba de fallar.
+ */
+export function proximoReintento(intentos: number, desde = new Date()): Date | null {
+  const ESPERAS_MS = [60_000, 5 * 60_000, 25 * 60_000];
+  const espera = ESPERAS_MS[intentos - 1];
+  return espera === undefined ? null : new Date(desde.getTime() + espera);
+}
+
+/**
+ * Traduce el desenlace del envío a lo que se escribe en la fila.
+ *
+ * Está fuera de la clase para que se pueda leer de un vistazo lo único que
+ * importa aquí: **qué significa cada estado para la paciente.**
+ *
+ * - `ENVIADO` — salió. Se guarda el id de Meta para correlacionar el `statuses`
+ *   y se levanta el tick, que pudo quedar en FALLIDO si esto es un reintento.
+ * - `NO_SALIO` — consta que no llegó nada. FALLIDO y se agenda el reintento.
+ * - `INCIERTO` — **no se sabe**. Se anota como tal y NO se agenda nada:
+ *   reenviarlo por nuestra cuenta es lo que le duplicaría el mensaje a la
+ *   paciente. Si salió, el `statuses` con `biz_opaque_callback_data` lo dirá; si
+ *   no llega nunca, queda visible para que lo decida una persona.
+ */
+export function datosSegunResultado(
+  resultado: ResultadoEnvio,
+  agendar = true,
+): Prisma.MensajeUpdateManyMutationInput {
+  switch (resultado.estado) {
+    case 'ENVIADO':
+      return { whatsappMsgId: resultado.metaMsgId, estadoEnvio: 'ENVIADO', proximoIntento: null };
+    case 'NO_SALIO':
+      /* `agendar` es false en dos casos, por motivos distintos: en un reintento
+         porque el barrido ya agendó el siguiente turno, y en una plantilla
+         porque no se puede reconstruir (la fila guarda el texto ya compuesto,
+         no el nombre ni los parámetros). Reenviarla como texto plano fuera de
+         la ventana de 24 h la rebotaría igual. */
+      return { estadoEnvio: 'FALLIDO', ...(agendar ? { proximoIntento: proximoReintento(1) } : {}) };
+    case 'INCIERTO':
+      return { estadoEnvio: 'INCIERTO', proximoIntento: null };
+  }
 }

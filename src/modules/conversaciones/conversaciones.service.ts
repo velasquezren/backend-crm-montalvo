@@ -10,7 +10,7 @@ import { WhatsappCloudService } from '../../common/whatsapp/whatsapp-cloud.servi
 import { PrismaService } from '../../prisma/prisma.service';
 import { ClientesService } from '../clientes/clientes.service';
 import { ConversacionesGateway } from './conversaciones.gateway';
-import { DespachadorSalienteService } from './despachador-saliente.service';
+import { DespachadorSalienteService, proximoReintento } from './despachador-saliente.service';
 import { QueryConversacionesDto, TabInbox } from './dto/query-conversaciones.dto';
 
 /** Mensajes que trae el detalle inicial de una conversación (más recientes primero, luego se reordenan).
@@ -783,9 +783,26 @@ export class ConversacionesService {
    * Se correlaciona por `whatsappMsgId` — el id que Meta devolvió al enviar.
    * Un mensaje puede recibir varios statuses de mejor a peor (sent → delivered
    * → read); si llegan fuera de orden, nunca se retrocede LEIDO → ENTREGADO.
+   *
+   * `referencia` es el `biz_opaque_callback_data` que mandamos al enviar: el id
+   * de nuestra propia fila. Es la segunda vía de correlación, y existe para un
+   * caso concreto —F06 entrega 2—: cuando el envío se cortó sin respuesta HTTP,
+   * la fila quedó INCIERTA y **sin** `whatsappMsgId`, así que por la vía normal
+   * este status no encontraría a nadie y el mensaje se quedaría en duda para
+   * siempre. Con la referencia se reconoce igual, se adopta el id que Meta
+   * acaba de revelar, y la duda se cierra sin haber reenviado nada.
    */
-  async procesarEstadoMensaje(whatsappMsgId: string, status: string): Promise<void> {
-    const mensaje = await this.prisma.mensaje.findUnique({ where: { whatsappMsgId } });
+  async procesarEstadoMensaje(
+    whatsappMsgId: string,
+    status: string,
+    referencia?: string,
+  ): Promise<void> {
+    let mensaje = await this.prisma.mensaje.findUnique({ where: { whatsappMsgId } });
+
+    if (!mensaje && referencia) {
+      mensaje = await this.adoptarIdDeMeta(referencia, whatsappMsgId);
+    }
+
     if (!mensaje) {
       return; // status de un mensaje que no reconocemos (o llegó antes que el propio envío se guardara)
     }
@@ -804,13 +821,53 @@ export class ConversacionesService {
     } else if (status === 'failed') {
       await this.prisma.mensaje.update({
         where: { id: mensaje.id },
-        data: { estadoEnvio: 'FALLIDO' },
+        /* Meta dice que no salió, así que ya no es una duda: pasa a FALLIDO y
+           entra en el barrido de reintentos como cualquier otro fallo cierto. */
+        data: { estadoEnvio: 'FALLIDO', proximoIntento: proximoReintento(1) },
+      });
+    } else if (status === 'sent' && mensaje.estadoEnvio === 'INCIERTO') {
+      /* La otra mitad de F06 entrega 2. Un 'sent' normalmente no aporta nada
+         —la fila ya nace ENVIADO— pero sobre una fila INCIERTA es justo la
+         respuesta que faltaba: sí salió. Sin esta rama, un envío cuya respuesta
+         HTTP se perdió se quedaba en duda aunque Meta lo confirmara. */
+      await this.prisma.mensaje.update({
+        where: { id: mensaje.id },
+        data: { estadoEnvio: 'ENVIADO', proximoIntento: null },
       });
     } else {
-      return; // 'sent' o repetido: nada nuevo que reflejar
+      return; // 'sent' sobre un envío que ya constaba, o repetido: nada nuevo
     }
 
     this.gateway.emitirActividad(mensaje.conversacionId);
+  }
+
+  /**
+   * Le pone a la fila el id que Meta acaba de revelar por `biz_opaque_callback_data`.
+   *
+   * Solo actúa sobre una fila que **no tenga** id todavía: si ya lo tiene, el
+   * status llegó por la vía normal y aquí no hay nada que arreglar. Se usa
+   * `updateMany` con esa condición en el `where` —y no un `update` tras un
+   * `findUnique`— porque `whatsappMsgId` es único y dos statuses del mismo
+   * envío (sent y delivered llegan casi juntos) entrarían a la vez: de los dos,
+   * exactamente uno adopta el id y el otro afecta cero filas sin romper nada.
+   *
+   * Devuelve la fila ya actualizada, o `null` si la referencia no correspondía
+   * a ningún mensaje nuestro — Meta devuelve tal cual lo que le mandamos, pero
+   * la conversación pudo haberse borrado entretanto.
+   */
+  private async adoptarIdDeMeta(referencia: string, whatsappMsgId: string) {
+    const { count } = await this.prisma.mensaje.updateMany({
+      where: { id: referencia, whatsappMsgId: null },
+      data: { whatsappMsgId, proximoIntento: null },
+    });
+
+    if (count > 0) {
+      this.logger.log(
+        `Mensaje ${referencia}: Meta confirmó que sí salió (${whatsappMsgId}); se cierra el INCIERTO.`,
+      );
+    }
+
+    return this.prisma.mensaje.findUnique({ where: { id: referencia } });
   }
 
   /**

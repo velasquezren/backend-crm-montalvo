@@ -14,9 +14,15 @@ import { Logger } from '@nestjs/common';
  * Lo que se pierde al usar esto es la posibilidad de reaccionar al fallo, y esa
  * pérdida es deliberada **solo mientras el trabajo sea prescindible**. Si el
  * trabajo importa, no basta con no tumbar el proceso: hace falta estado y
- * reintento, que es la segunda entrega de F06 y todavía no existe. Hasta
- * entonces, un mensaje que no salió queda en FALLIDO y una agente lo reintenta
- * a mano; que es malo, pero es visible, y un proceso reiniciándose en bucle no.
+ * reintento.
+ *
+ * Para el envío de mensajes eso ya existe (F06 entrega 2): el resultado se
+ * guarda en la fila —distinguiendo FALLIDO de INCIERTO— y `ReintentoSalienteService`
+ * reintenta lo que consta que no salió. **Los demás caminos de esta lista siguen
+ * sin recuperación**: el barrido de recordatorios que se pierde una vuelta y la
+ * sincronización del tipo de cambio que falla se enteran en el siguiente
+ * disparo, y con eso basta porque son periódicos. Si algún día envuelves aquí un
+ * trabajo que NO es periódico ni tiene estado propio, este helper no alcanza.
  *
  * Recibe una función y no una promesa ya construida por un motivo concreto: así
  * también atrapa lo que lance ANTES de que exista la promesa. `enSegundoPlano('x',

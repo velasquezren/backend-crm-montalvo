@@ -14,6 +14,7 @@ import { ConversacionesService } from './conversaciones.service';
 import { DespachadorSalienteService } from './despachador-saliente.service';
 import { IngestaWhatsappService } from './ingesta-whatsapp.service';
 import { MediaEntranteService } from './media-entrante.service';
+import { ReintentoSalienteService } from './reintento-saliente.service';
 import { WhatsappWebhookController } from './webhooks/whatsapp-webhook.controller';
 
 @Module({
@@ -26,6 +27,7 @@ import { WhatsappWebhookController } from './webhooks/whatsapp-webhook.controlle
     AcuseAutomaticoService,
     DespachadorSalienteService,
     MediaEntranteService,
+    ReintentoSalienteService,
     MetaSignatureGuard,
     WhatsappCloudService,
     AlertasWhatsappService,

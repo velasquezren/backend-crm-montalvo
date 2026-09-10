@@ -26,6 +26,35 @@ import { ConfigService } from '@nestjs/config';
 const VERSION_API = 'v25.0';
 const BASE = `https://graph.facebook.com/${VERSION_API}`;
 
+/**
+ * Cuánto se espera a Meta antes de cortar.
+ *
+ * No había ninguno: sin `AbortSignal`, un socket que Meta deja abierto sin
+ * contestar dejaba el despacho esperando para siempre, en un proceso de un solo
+ * núcleo. El round-trip típico son 300-900 ms; diez segundos es holgado sin ser
+ * indefinido. La media va aparte porque descarga archivos, no JSON.
+ */
+const ESPERA_MS = 10_000;
+const ESPERA_MEDIA_MS = 30_000;
+
+/**
+ * Qué pasó con un envío, que NO es lo mismo que si tenemos su id.
+ *
+ * El `string | null` anterior colapsaba tres desenlaces distintos —sin
+ * credenciales, Meta lo rechazó, y la red se cayó sin saber si el POST llegó—
+ * y el despachador los anotaba todos como FALLIDO. Los dos primeros constan;
+ * el tercero es una afirmación que el CRM no puede sostener, y sostenerla hacía
+ * que una agente reintentara a mano un mensaje que la paciente quizá ya tenía.
+ * Ver `resultado-de-envio-desconocido.spec.ts`.
+ *
+ * `motivo` es para el journal, no para la paciente: sale en el log del
+ * despachador junto al id de la fila.
+ */
+export type ResultadoEnvio =
+  | { estado: 'ENVIADO'; metaMsgId: string }
+  | { estado: 'NO_SALIO'; motivo: string }
+  | { estado: 'INCIERTO'; motivo: string };
+
 /** Lo que Meta acepta como cuerpo de `/messages`, sin el `to` ni las constantes. */
 export type ContenidoMensaje =
   | { type: 'text'; text: { body: string } }
@@ -63,15 +92,34 @@ export class WhatsappCloudService {
   }
 
   /**
-   * Envía un mensaje y devuelve el id que asignó Meta.
+   * Envía un mensaje y dice **qué pasó**, no solo si tenemos su id.
    *
-   * `null` significa "no salió" —sin credenciales, error de Meta o de red— y el
-   * llamador decide si eso es un FALLIDO o si reintenta de otra forma. Nunca
-   * lanza: un problema hablando con Meta no puede tumbar la operación de negocio
-   * que ya está guardada.
+   * Nunca lanza: un problema hablando con Meta no puede tumbar la operación de
+   * negocio que ya está guardada. Pero tampoco miente — distingue "no salió" de
+   * "no se sabe", que es la diferencia entre reintentar tranquilo y duplicarle
+   * el mensaje a la paciente. El reparto:
+   *
+   * - **NO_SALIO**: sin credenciales, o Meta contestó 4xx. Meta rechazó el
+   *   cuerpo; no hay nada del otro lado.
+   * - **INCIERTO**: excepción de red, corte por tiempo, o un 5xx de Meta. El
+   *   POST pudo llegar. También el 200 sin id: Meta lo ACEPTÓ —lo dice el
+   *   propio 200— pero no queda con qué correlacionar su `statuses`.
+   * - **ENVIADO**: 200 con id.
+   *
+   * `referencia` viaja como `biz_opaque_callback_data` y Meta la devuelve en el
+   * webhook de `statuses`. Se manda el id de nuestra fila: es el único hilo que
+   * sobrevive a no recibir la respuesta HTTP, y lo que permite que un INCIERTO
+   * se resuelva solo. Ojo con la versión de la API — la documentación advierte
+   * que el campo se omite entero en v24; aquí se va en v25.
    */
-  async enviar(telefono: string, contenido: ContenidoMensaje): Promise<string | null> {
-    if (!this.habilitado) return null;
+  async enviar(
+    telefono: string,
+    contenido: ContenidoMensaje,
+    referencia?: string,
+  ): Promise<ResultadoEnvio> {
+    if (!this.habilitado) {
+      return { estado: 'NO_SALIO', motivo: 'WhatsApp deshabilitado: faltan token o phoneId' };
+    }
 
     /* Meta espera solo dígitos. El código anterior quitaba únicamente el `+`,
        así que un teléfono guardado como "+591 7 000 0001" —formato que puede
@@ -83,26 +131,42 @@ export class WhatsappCloudService {
       const respuesta = await fetch(`${BASE}/${this.phoneId}/messages`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${this.token}`, 'Content-Type': 'application/json' },
+        signal: AbortSignal.timeout(ESPERA_MS),
         body: JSON.stringify({
           messaging_product: 'whatsapp',
           recipient_type: 'individual',
           to: destino,
           ...contenido,
+          /* Solo si hay referencia: Meta no tiene por qué recibir el campo vacío. */
+          ...(referencia ? { biz_opaque_callback_data: referencia } : {}),
         }),
       });
 
       if (!respuesta.ok) {
-        this.logger.error(
-          `Meta rechazó un ${contenido.type} (${respuesta.status}): ${await respuesta.text()}`,
-        );
-        return null;
+        const detalle = `Meta devolvió ${respuesta.status} a un ${contenido.type}: ${await respuesta.text()}`;
+        this.logger.error(detalle);
+        /* Un 4xx es un rechazo del cuerpo: no hay nada del otro lado. Un 5xx es
+           un problema de Meta que puede haberse comido el mensaje DESPUÉS de
+           aceptarlo, así que no se puede afirmar que no salió. */
+        return respuesta.status >= 500
+          ? { estado: 'INCIERTO', motivo: detalle }
+          : { estado: 'NO_SALIO', motivo: detalle };
       }
 
       const datos = (await respuesta.json()) as { messages?: Array<{ id?: string }> };
-      return datos.messages?.[0]?.id ?? null;
+      const metaMsgId = datos.messages?.[0]?.id;
+      if (!metaMsgId) {
+        /* 200 sin id: Meta lo aceptó pero no dejó con qué correlacionar el
+           `statuses`. Lo rescata `biz_opaque_callback_data`, no este return. */
+        this.logger.warn(`Meta aceptó un ${contenido.type} sin devolver id de mensaje`);
+        return { estado: 'INCIERTO', motivo: 'Meta respondió 200 sin id de mensaje' };
+      }
+      return { estado: 'ENVIADO', metaMsgId };
     } catch (error) {
+      /* Aquí caen la red y el corte por tiempo. En ninguno de los dos se sabe
+         si el POST llegó a viajar entero: es incierto, nunca FALLIDO. */
       this.logger.error(`Excepción enviando un ${contenido.type} a Meta`, error);
-      return null;
+      return { estado: 'INCIERTO', motivo: motivoDe(error) };
     }
   }
 
@@ -119,6 +183,7 @@ export class WhatsappCloudService {
       const respuesta = await fetch(`${BASE}/${this.phoneId}/messages`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${this.token}`, 'Content-Type': 'application/json' },
+        signal: AbortSignal.timeout(ESPERA_MS),
         body: JSON.stringify({
           messaging_product: 'whatsapp',
           status: 'read',
@@ -141,7 +206,10 @@ export class WhatsappCloudService {
 
     try {
       const url = `${BASE}/${wabaId}/message_templates?fields=name,status,category,language,components&limit=100`;
-      const respuesta = await fetch(url, { headers: { Authorization: `Bearer ${this.token}` } });
+      const respuesta = await fetch(url, {
+        headers: { Authorization: `Bearer ${this.token}` },
+        signal: AbortSignal.timeout(ESPERA_MS),
+      });
       if (!respuesta.ok) {
         this.logger.error(`Error listando plantillas (${respuesta.status}): ${await respuesta.text()}`);
         return null;
@@ -160,6 +228,7 @@ export class WhatsappCloudService {
     try {
       const respuesta = await fetch(`${BASE}/${mediaId}`, {
         headers: { Authorization: `Bearer ${this.token}` },
+        signal: AbortSignal.timeout(ESPERA_MS),
       });
       if (!respuesta.ok) {
         this.logger.error(`No se pudo obtener URL de media ${mediaId} (${respuesta.status})`);
@@ -177,11 +246,31 @@ export class WhatsappCloudService {
   async descargarMedia(url: string): Promise<Response | null> {
     if (!this.token) return null;
     try {
-      const respuesta = await fetch(url, { headers: { Authorization: `Bearer ${this.token}` } });
+      const respuesta = await fetch(url, {
+        headers: { Authorization: `Bearer ${this.token}` },
+        /* Más holgado que el resto: esto baja el archivo, no un JSON. */
+        signal: AbortSignal.timeout(ESPERA_MEDIA_MS),
+      });
       return respuesta.ok ? respuesta : null;
     } catch (error) {
       this.logger.error('Excepción descargando media de Meta', error);
       return null;
     }
   }
+}
+
+/**
+ * Un motivo legible para el journal, sin volcar el error entero.
+ *
+ * `AbortSignal.timeout` rechaza con un `TimeoutError`, que sin este trato sale
+ * al log como "The operation was aborted" — indistinguible de una cancelación
+ * cualquiera justo cuando importa saber que Meta no contestó a tiempo.
+ */
+function motivoDe(error: unknown): string {
+  if (error instanceof Error) {
+    return error.name === 'TimeoutError'
+      ? `Meta no respondió en ${ESPERA_MS} ms`
+      : `${error.name}: ${error.message}`;
+  }
+  return String(error);
 }

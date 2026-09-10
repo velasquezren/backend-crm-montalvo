@@ -212,7 +212,11 @@ export class WhatsappWebhookController {
               : JSON.stringify(estado);
             this.logger.error(`Mensaje WhatsApp fallido en Meta (MsgId: ${estado.id}): ${errorDetalle}`);
           }
-          await this.conversacionesService.procesarEstadoMensaje(estado.id, estado.status);
+          await this.conversacionesService.procesarEstadoMensaje(
+            estado.id,
+            estado.status,
+            estado.biz_opaque_callback_data,
+          );
         } catch (error) {
           this.logger.error(
             `Error procesando estado de mensaje (MsgId: ${estado.id}); se continúa con el resto del lote`,

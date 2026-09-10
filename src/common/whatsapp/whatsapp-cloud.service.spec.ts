@@ -40,7 +40,9 @@ describe('WhatsappCloudService', () => {
       expect(servicio({ WHATSAPP_TOKEN: 'tok' }).habilitado).toBe(false);
       expect(servicio({ WHATSAPP_PHONE_ID: '123' }).habilitado).toBe(false);
 
-      expect(await servicio({}).enviar('+59170000001', { type: 'text', text: { body: 'x' } })).toBeNull();
+      expect(
+        (await servicio({}).enviar('+59170000001', { type: 'text', text: { body: 'x' } })).estado,
+      ).toBe('NO_SALIO');
       expect(fetchSpy).not.toHaveBeenCalled();
     });
 
@@ -60,12 +62,12 @@ describe('WhatsappCloudService', () => {
       const fetchSpy = jest.fn().mockResolvedValue(respuestaOk('wamid.xyz'));
       global.fetch = fetchSpy as unknown as typeof fetch;
 
-      const id = await servicio(CREDENCIALES).enviar('+591 70000001', {
+      const resultado = await servicio(CREDENCIALES).enviar('+591 70000001', {
         type: 'text',
         text: { body: 'Hola' },
       });
 
-      expect(id).toBe('wamid.xyz');
+      expect(resultado).toEqual({ estado: 'ENVIADO', metaMsgId: 'wamid.xyz' });
       const [url, opciones] = fetchSpy.mock.calls[0];
       expect(url).toBe('https://graph.facebook.com/v25.0/123/messages');
       const cuerpo = JSON.parse(opciones.body);
@@ -88,9 +90,11 @@ describe('WhatsappCloudService', () => {
       expect(cuerpo.interactive.type).toBe('button');
     });
 
-    /* `null` es "no salió". Nunca lanza: un problema con Meta no puede tumbar
-       la operación de negocio, que ya está guardada en base. */
-    it('devuelve null si Meta rechaza, sin lanzar', async () => {
+    /* Nunca lanza: un problema con Meta no puede tumbar la operación de negocio,
+       que ya está guardada en base. Lo que SÍ hace desde F06 entrega 2 es decir
+       cuál de los tres desenlaces fue — el reparto y su porqué están en
+       `common/fiabilidad/resultado-de-envio-desconocido.spec.ts`. */
+    it('un 4xx de Meta es NO_SALIO, sin lanzar', async () => {
       global.fetch = jest.fn().mockResolvedValue({
         ok: false,
         status: 400,
@@ -99,25 +103,39 @@ describe('WhatsappCloudService', () => {
 
       await expect(
         servicio(CREDENCIALES).enviar('+59170000001', { type: 'text', text: { body: 'x' } }),
-      ).resolves.toBeNull();
+      ).resolves.toEqual({ estado: 'NO_SALIO', motivo: expect.stringContaining('400') });
     });
 
-    it('devuelve null si la red falla, sin lanzar', async () => {
+    /* Un 5xx no es un rechazo del cuerpo: Meta pudo aceptarlo y perderlo
+       después, así que no se puede afirmar que no salió. */
+    it('un 5xx de Meta es INCIERTO', async () => {
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: false,
+        status: 503,
+        text: async () => 'Service Unavailable',
+      }) as unknown as typeof fetch;
+
+      await expect(
+        servicio(CREDENCIALES).enviar('+59170000001', { type: 'text', text: { body: 'x' } }),
+      ).resolves.toEqual({ estado: 'INCIERTO', motivo: expect.stringContaining('503') });
+    });
+
+    it('un fallo de red es INCIERTO, sin lanzar', async () => {
       global.fetch = jest.fn().mockRejectedValue(new Error('sin red')) as unknown as typeof fetch;
 
       await expect(
         servicio(CREDENCIALES).enviar('+59170000001', { type: 'text', text: { body: 'x' } }),
-      ).resolves.toBeNull();
+      ).resolves.toEqual({ estado: 'INCIERTO', motivo: expect.any(String) });
     });
 
-    it('devuelve null si Meta responde 200 pero sin id', async () => {
+    it('un 200 sin id es INCIERTO: Meta lo aceptó pero no dejó con qué correlacionar', async () => {
       global.fetch = jest
         .fn()
         .mockResolvedValue({ ok: true, status: 200, json: async () => ({}) }) as unknown as typeof fetch;
 
       await expect(
         servicio(CREDENCIALES).enviar('+59170000001', { type: 'text', text: { body: 'x' } }),
-      ).resolves.toBeNull();
+      ).resolves.toEqual({ estado: 'INCIERTO', motivo: expect.stringContaining('sin id') });
     });
   });
 

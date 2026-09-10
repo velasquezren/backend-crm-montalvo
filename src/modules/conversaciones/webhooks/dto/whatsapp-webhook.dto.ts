@@ -256,6 +256,21 @@ export class WhatsappStatusDto {
   @ValidateNested({ each: true })
   @Type(() => WhatsappStatusErrorDto)
   errors?: WhatsappStatusErrorDto[];
+
+  /**
+   * Lo que mandamos nosotros al enviar: el id de la fila de `Mensaje`.
+   *
+   * Es el único hilo que sobrevive a no recibir la respuesta HTTP de Meta. Si
+   * el envío quedó INCIERTO —red caída con el POST ya viajando— la fila no
+   * tiene `whatsappMsgId` con el que correlacionar, y este campo permite
+   * reconocerla igual y cerrar el caso sin reenviar nada.
+   *
+   * Meta solo lo devuelve si se mandó al enviar, y la documentación advierte
+   * que se omite entero en v24; el CRM va en v25.
+   */
+  @IsOptional()
+  @IsString()
+  biz_opaque_callback_data?: string;
 }
 
 /** Restricción concreta que Meta impuso a la cuenta (`ACCOUNT_RESTRICTION`). */

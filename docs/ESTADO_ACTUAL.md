@@ -2,7 +2,8 @@
 
 **9 de septiembre de 2026 · único handoff de ambos repositorios.**
 F07 implementado y verificado localmente por solicitud explícita del usuario;
-[detalle y evidencia](auditoria-f07.md). Cambios todavía sin commit ni despliegue.
+[detalle y evidencia](auditoria-f07.md). **Ya commiteado y empujado** —frontend
+`b702fa0`, backend `b69a230`—; **sigue sin desplegar**.
 El saneamiento del 8 de septiembre se conserva abajo como baseline. Antes de
 trabajar, hacer fetch en ambos repos y leer este archivo.
 
@@ -37,8 +38,8 @@ Las entregas 0–9 de §19 tienen otra numeración; no confundirlas.
 | F03 | **Cerrado**. `775abbd`; `transaccion-periodo.ts`, servicios de planilla/cálculo/configuración; `consistencia-periodo.integracion.spec.ts`, `cierre-periodo.spec.ts`; [evidencia](auditoria-f03.md). |
 | F04 | **Cerrado**. `775abbd`; DTO de perfil, servicios de actividades/clientes/ventas; `autorizacion-http.integracion.spec.ts`; [matriz](auditoria-f04.md). |
 | F05 | **Cerrado en código**. `775abbd` + frontend `9aa073a`; auth/guard/gateway/interceptor; `sesion-http.integracion.spec.ts`, `auth.service.spec.ts`, tests frontend de auth/interceptor/realtime; [contrato](auditoria-f05.md). |
-| F06 | **Parcial: entrega 1 cerrada; entrega 2 pendiente**. `58bae3a`; `common/fiabilidad/en-segundo-plano.ts`, `rechazos-fuera-de-peticion.spec.ts` y check:skills; [evidencia](auditoria-f06.md). |
-| F07 | **Cerrado en código local**. Retirados los comparadores parciales de `inbox` y `detalle`; 11 pruebas de regresión en `conversaciones-state.service.spec.ts`; [evidencia](auditoria-f07.md). |
+| F06 | **Entrega 1 cerrada; entrega 2 cerrada en el despacho SALIENTE, recepción durable pendiente**. Entrega 1: `58bae3a`, [evidencia](auditoria-f06.md). Entrega 2: `ResultadoEnvio` + `EstadoMensaje.INCIERTO` + `ReintentoSalienteService` + `biz_opaque_callback_data`; migración `20260909210000_envio_incierto_y_reintento`; [evidencia](auditoria-f06-entrega2.md). |
+| F07 | **Cerrado en código, commiteado y empujado (`b702fa0`); sin desplegar**. Retirados los comparadores parciales de `inbox` y `detalle`; 11 pruebas de regresión en `conversaciones-state.service.spec.ts`; [evidencia](auditoria-f07.md). |
 | F08 | Diagnosticado, pendiente: respuestas tardías que pisan selección/filtros. |
 | F09 | Diagnosticado, pendiente: dos Service Workers en el mismo scope. |
 | F10 | Pendiente: completitud de consultas (calendario/historiales). |
@@ -70,20 +71,33 @@ No ejecutar su script histórico de despliegue ni confundirlo con la receta vige
 - Publicación atómica F02 y lock mensual + REPEATABLE READ F03; conservar auditoría transaccional.
 - Fórmulas financieras, fotografía de configuración y TC del periodo; FIJO manda sobre la serie diaria.
 - Sesión revocable (`type`, `sid`, `versionSesion`) en HTTP y WebSocket.
-- `enSegundoPlano`: captura fallos, **todavía no garantiza entrega ni reintento**.
+- `enSegundoPlano`: captura fallos, **no garantiza entrega ni reintento** por sí
+  solo. Para el envío saliente esa garantía la da ahora el estado en la fila más
+  `ReintentoSalienteService`; los demás caminos que envuelve siguen sin recuperación.
+- **Solo se reintenta lo que consta que no salió.** Un `INCIERTO` no se reenvía
+  nunca por cuenta propia: se resuelve con el `statuses` de Meta correlacionado
+  por `biz_opaque_callback_data`. Decisión del usuario, no detalle de
+  implementación — reenviarlo duplica el mensaje en el WhatsApp de la paciente.
 - Calendario de Actividades sin `@defer` (`4f7dff9`): volver a diferirlo exige
   reproducir primero el fallo de visualización; ver skill `crm-rendimiento`.
 - Versiones actuales de Angular/Nest/Prisma/xlsx; upgrades en trabajo independiente.
 
 ## Cómo continuar
 
-F07 se atendió por petición explícita del usuario el 9 de septiembre. F06 entrega
-2 conserva su estado pendiente; este cambio no cierra la fiabilidad persistente
-ni las carreras de F08.
+F07 se atendió por petición explícita del usuario el 9 de septiembre, y a
+continuación **F06 entrega 2, en su mitad saliente**: el envío ya distingue "no
+salió" de "no se sabe si salió", reintenta solo lo primero y resuelve lo segundo
+con el `statuses` de Meta. Ninguno de los dos cambios toca las carreras de F08.
 
-**La siguiente tarea prioritaria pendiente es F06 entrega 2: recepción/despacho persistentes, resultado
-externo desconocido e idempotencia; Performance/UX permanece en análisis hasta
-cerrar esa entrega.** No se inició esa tarea como parte del saneamiento ni de F07.
+**La siguiente tarea prioritaria pendiente es la mitad que queda de F06: la
+recepción durable** — persistir el webhook antes de responder 200 y despacharlo
+con reintento, porque hoy lo que se pierda procesando no se recupera. La
+idempotencia de entrada ya existe (dedupe por wa msg id), pero durabilidad no es
+idempotencia. Después de eso, Performance/UX sale de análisis.
+
+Dos cosas quedan **sin verificar** de la entrega 2 y hay que cerrarlas antes de
+desplegar: la suite de integración no se ejecutó (no hay PostgreSQL en esta
+máquina) y por tanto **la migración nueva no se ha aplicado a ninguna base**.
 
 ## Verificaciones
 
@@ -111,6 +125,12 @@ npm run build
 Verificación F07 del 9 de septiembre: **80 tests frontend (9 suites)**, incluidos
 11 de F07, y typecheck correctos. El resultado del build queda registrado en
 [auditoria-f07.md](auditoria-f07.md).
+
+Verificación F06 entrega 2, mismo día: **499 unitarias backend (32 suites)**,
+`npm run build` y `test:build` 9/9 en el backend; typecheck, 80 tests y build en
+el frontend. **Integración no ejecutada** — sin PostgreSQL local, la migración
+`20260909210000_envio_incierto_y_reintento` sigue sin aplicarse en ningún sitio.
+Detalle en [auditoria-f06-entrega2.md](auditoria-f06-entrega2.md).
 
 Los builds incluyen check:skills; frontend también check:tipos; backend exige
 `dist/main.js`. En Linux pasaron 69 tests frontend, 472 unitarios backend,
