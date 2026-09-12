@@ -292,8 +292,8 @@ export class PlanillaComisionesController {
    * Lleva las tres firmas, y los tres nombres son fijos: no dependen de quién
    * baje el archivo, así que acá no hace falta saber quién lo pidió.
    *
-   * A diferencia del Excel no va en streaming: un .docx es un ZIP y se arma
-   * entero antes de poder escribirse. No es un problema de memoria porque el
+   * No va en streaming: un .docx es un ZIP y se arma entero antes de poder
+   * escribirse. No es un problema de memoria porque el
    * documento pesa unos 10 KB — son diez filas y tres firmas, no las 500 del
    * detalle.
    */
@@ -319,8 +319,9 @@ export class PlanillaComisionesController {
   /**
    * Las métricas del mes en PDF: el acompañante del informe Word.
    *
-   * No lleva firmas ni pide usuario — no se firma, se imprime y se adjunta. Va
-   * en streaming como el Excel: son gráficos, no un ZIP que haya que cerrar.
+   * No lleva firmas — no se firma, se imprime y se adjunta. Este sí se escribe
+   * en streaming sobre la respuesta: son gráficos, no un ZIP que haya que
+   * cerrar antes de mandarlo.
    */
   @Get('periodos/:id/exportar-metricas')
   async exportarMetricas(
