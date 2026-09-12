@@ -575,8 +575,9 @@ hay dos botones. Se imprimen juntos.
 ### Informe Word — el que se firma
 
 Un **.docx de una hoja vertical** con la planilla del mes y las tres firmas.
-**Elaborado por** y **Revisado por** salen del usuario que lo genera;
-**Autorizado por** es siempre la dirección.
+Las tres firmas son siempre las mismas, sin importar quién baje el archivo:
+**Elaborado por** Lic. Viviana Guzman, **Revisado por** Lic. Sara Bueno y
+**Autorizado por** Dr. Juan Carlos Montalvo.
 
 Es Word y no PDF para que administración pueda **corregir o anotar** antes de
 firmarlo, y exportarlo a PDF desde Word cuando toque archivarlo.

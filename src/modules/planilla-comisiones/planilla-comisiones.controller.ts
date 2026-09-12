@@ -289,8 +289,8 @@ export class PlanillaComisionesController {
    * El informe del mes en Word: el documento que administración revisa, edita
    * si hace falta y firma.
    *
-   * Lleva las tres firmas, y `Elaborado`/`Revisado` salen del usuario que lo
-   * genera — por eso hace falta el `@CurrentUser()` que el Excel no necesita.
+   * Lleva las tres firmas, y los tres nombres son fijos: no dependen de quién
+   * baje el archivo, así que acá no hace falta saber quién lo pidió.
    *
    * A diferencia del Excel no va en streaming: un .docx es un ZIP y se arma
    * entero antes de poder escribirse. No es un problema de memoria porque el
@@ -301,13 +301,11 @@ export class PlanillaComisionesController {
   async exportarWord(
     @Param('id') id: string,
     @Query() query: QueryInformeDto,
-    @CurrentUser() usuario: UsuarioJwt,
     @Res({ passthrough: false }) res: Response,
   ) {
     const nombre = await this.exportacionWord.nombreArchivo(id);
     const documento = await this.exportacionWord.generar(id, {
       incluirOcultas: query.incluirOcultas ?? false,
-      usuarioId: usuario.sub,
     });
 
     res.setHeader(

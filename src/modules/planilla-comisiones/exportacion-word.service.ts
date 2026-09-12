@@ -21,7 +21,7 @@ import {
   armarInforme,
   FilaInforme,
   Firmantes,
-  firmantesPara,
+  FIRMANTES_PLANILLA,
   formatearNumero,
   InformeComisiones,
   TotalesBloque,
@@ -124,22 +124,14 @@ export class ExportacionWordService {
 
   async generar(
     periodoId: string,
-    opciones: { incluirOcultas?: boolean; usuarioId?: string } = {},
+    opciones: { incluirOcultas?: boolean } = {},
   ): Promise<Buffer> {
     const consolidado = await this.calculo.reporteConsolidado(
       periodoId,
       opciones.incluirOcultas ?? false,
     );
 
-    const usuario = opciones.usuarioId
-      ? await this.prisma.usuario.findUnique({
-          where: { id: opciones.usuarioId },
-          select: { nombre: true },
-        })
-      : null;
-
     const informe = armarInforme(consolidado.filas);
-    const firmantes = firmantesPara(usuario);
     const periodo = consolidado.periodo;
 
     const hijos: Array<Paragraph | Table> = [
@@ -148,7 +140,6 @@ export class ExportacionWordService {
         periodo.anio,
         Number(periodo.tipoCambio) || 1,
         periodo.estado,
-        firmantes,
       ),
       ...this.bloque('Equipo de ventas', informe.ventas, informe.totalVentas, false),
     ];
@@ -163,7 +154,7 @@ export class ExportacionWordService {
     hijos.push(
       ...this.totalComisiones(informe),
       ...this.avisoOcultas(consolidado),
-      ...this.firmas(firmantes),
+      ...this.firmas(FIRMANTES_PLANILLA),
     );
 
     const doc = new Document({
@@ -199,7 +190,6 @@ export class ExportacionWordService {
     anio: number,
     tipoCambio: number,
     estado: string,
-    firmantes: Firmantes,
   ): Paragraph[] {
     const definitivo = estado === 'CERRADO' || estado === 'PAGADO';
 
@@ -234,9 +224,8 @@ export class ExportacionWordService {
       ),
     ];
 
-    if (firmantes.elaboradoPor) {
-      parrafos.push(this.lineaDato('Elaborado por', firmantes.elaboradoPor));
-    }
+    /* El "Elaborado por" no se repite acá: los tres firmantes son fijos y ya
+       van, con su línea para firmar, en el bloque de firmas del final. */
 
     /*
      * El estado del periodo no lleva línea propia: solo importa decirlo

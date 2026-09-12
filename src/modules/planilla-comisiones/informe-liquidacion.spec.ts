@@ -7,10 +7,12 @@ import {
   armarInforme,
   AUTORIZA_PLANILLA,
   comisionesDe,
+  ELABORA_PLANILLA,
   FilaInforme,
-  firmantesPara,
+  FIRMANTES_PLANILLA,
   formatearNumero,
   formatearPorcentaje,
+  REVISA_PLANILLA,
 } from './informe-liquidacion';
 
 /**
@@ -144,30 +146,40 @@ describe('formatearPorcentaje', () => {
   });
 });
 
-describe('firmantesPara', () => {
-  it('elaborado y revisado son quien genera el informe', () => {
-    const f = firmantesPara({ nombre: 'Lic. Sara Bueno' });
-
-    expect(f.elaboradoPor).toBe('Lic. Sara Bueno');
-    expect(f.revisadoPor).toBe('Lic. Sara Bueno');
+describe('FIRMANTES_PLANILLA', () => {
+  /* Los tres nombres son de las personas que firman el papel, no de quien baja
+     el archivo: el informe se imprime igual lo descargue quien lo descargue. */
+  it('son los tres cargos que firman, siempre los mismos', () => {
+    expect(FIRMANTES_PLANILLA).toEqual({
+      elaboradoPor: 'Lic. Viviana Guzman',
+      revisadoPor: 'Lic. Sara Bueno',
+      autorizadoPor: 'Dr. Juan Carlos Montalvo',
+    });
   });
 
-  /* La autorización es de la dirección de la clínica, no de quien imprime. */
-  it('autoriza siempre la dirección', () => {
-    expect(firmantesPara({ nombre: 'Cualquiera' }).autorizadoPor).toBe(AUTORIZA_PLANILLA);
+  /* Las tres constantes están sueltas para poder cambiar un cargo tocando una
+     sola línea; si alguna dejara de alimentar al informe, el cambio no se
+     vería en el documento. */
+  it('las tres constantes son las que arman el bloque', () => {
+    expect(FIRMANTES_PLANILLA.elaboradoPor).toBe(ELABORA_PLANILLA);
+    expect(FIRMANTES_PLANILLA.revisadoPor).toBe(REVISA_PLANILLA);
+    expect(FIRMANTES_PLANILLA.autorizadoPor).toBe(AUTORIZA_PLANILLA);
   });
 
-  /* Sin usuario NO se inventa un nombre: la línea queda para firmar a mano.
-     Poner "Sistema" ahí sería atribuir una revisión que nadie hizo. */
-  it('sin usuario deja la línea en blanco', () => {
-    expect(firmantesPara(null).elaboradoPor).toBe('');
-    expect(firmantesPara({ nombre: '   ' }).revisadoPor).toBe('');
+  it('ninguna línea queda en blanco', () => {
+    for (const nombre of Object.values(FIRMANTES_PLANILLA)) {
+      expect(nombre.trim()).not.toBe('');
+    }
   });
 });
 
 /* ── El documento generado ───────────────────────────────────────────── */
 
-function montarServicio(cantidadVendedoras: number, estado = 'CERRADO') {
+function montarServicio(
+  cantidadVendedoras: number,
+  estado = 'CERRADO',
+  opciones: { sinUsuarios?: boolean } = {},
+) {
   const resultados = Array.from({ length: cantidadVendedoras }, (_, i) => ({
     vendedoraId: `v${i}`,
     montoVendido: 1000,
@@ -213,7 +225,11 @@ function montarServicio(cantidadVendedoras: number, estado = 'CERRADO') {
       findUnique: async () => ({ id: 'p1', anio: 2026, mes: 6, tipoCambio: 6.97, estado }),
     },
     resultadoComision: { findMany: async () => resultados },
-    usuario: { findUnique: async () => ({ nombre: 'Lic. Sara Bueno' }) },
+    /* Sin tabla de usuarios: si el informe volviera a buscar quién lo genera,
+       esta prueba reventaría en vez de pasar sin que nadie lo note. */
+    usuario: opciones.sinUsuarios
+      ? undefined
+      : { findUnique: async () => ({ nombre: 'Lic. Sara Bueno' }) },
   };
 
   const calculo = new CalculoComisionesService(
@@ -231,7 +247,7 @@ describe('documento Word generado', () => {
      cosa —un stream, un string— Word abriría un archivo corrupto y el fallo
      solo se vería al abrirlo. */
   it('es un .docx válido', async () => {
-    const doc = await montarServicio(4).generar('p1', { usuarioId: 'u1' });
+    const doc = await montarServicio(4).generar('p1');
 
     expect(doc.subarray(0, 2).toString()).toBe('PK');
     expect(doc.length).toBeGreaterThan(3000);
@@ -244,13 +260,15 @@ describe('documento Word generado', () => {
    * equipo creciera diez veces sigue siendo irrelevante.
    */
   it('pesa poco aunque el equipo crezca', async () => {
-    const doc = await montarServicio(40).generar('p1', { usuarioId: 'u1' });
+    const doc = await montarServicio(40).generar('p1');
 
     expect(doc.length).toBeLessThan(200_000);
   });
 
-  it('se genera igual sin usuario que lo firme', async () => {
-    const doc = await montarServicio(4).generar('p1');
+  /* El documento no consulta al usuario de la sesión: los firmantes son fijos
+     y se arma igual sin nadie identificado detrás. */
+  it('se genera sin pedir quién lo descarga', async () => {
+    const doc = await montarServicio(4, 'CERRADO', { sinUsuarios: true }).generar('p1');
 
     expect(doc.subarray(0, 2).toString()).toBe('PK');
   });

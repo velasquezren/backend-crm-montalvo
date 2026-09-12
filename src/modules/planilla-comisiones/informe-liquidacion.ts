@@ -172,9 +172,11 @@ export const bob = (valor: number): string => `Bs ${formatearNumero(valor)}`;
 /**
  * Quién firma el informe.
  *
- * `elaboradoPor` y `revisadoPor` salen del usuario que genera el documento —es
- * quien lo produjo y quien responde por él— y `autorizadoPor` es fijo: la
- * autorización es del director de la clínica, no de quien imprime.
+ * Los tres nombres son fijos. El informe siempre lo elabora la jefatura de
+ * ventas, lo revisa administración y lo autoriza la dirección de la clínica:
+ * quien aprieta el botón de descarga no es quien firma —puede bajarlo
+ * cualquiera con acceso al periodo— y poner su nombre en la línea de
+ * "Elaborado por" le atribuía una responsabilidad que no es suya.
  */
 export interface Firmantes {
   elaboradoPor: string;
@@ -183,20 +185,18 @@ export interface Firmantes {
 }
 
 /**
- * Quién autoriza la planilla. Está acá y no incrustado en el dibujo para que se
- * encuentre buscando el nombre: el día que cambie la dirección de la clínica,
- * esta línea es lo único que hay que tocar.
+ * Los tres firmantes de la planilla.
+ *
+ * Están acá y no incrustados en el dibujo del documento para que se encuentren
+ * buscando el nombre: el día que cambie alguno de los cargos, estas tres
+ * líneas son lo único que hay que tocar.
  */
+export const ELABORA_PLANILLA = 'Lic. Viviana Guzman';
+export const REVISA_PLANILLA = 'Lic. Sara Bueno';
 export const AUTORIZA_PLANILLA = 'Dr. Juan Carlos Montalvo';
 
-export function firmantesPara(usuario: { nombre: string } | null): Firmantes {
-  /* Sin usuario no se inventa un nombre: se deja la línea en blanco para que se
-     firme a mano. Poner "Sistema" o el nombre de otra persona en un documento
-     que se archiva sería atribuir una revisión que nadie hizo. */
-  const nombre = usuario?.nombre?.trim() || '';
-  return {
-    elaboradoPor: nombre,
-    revisadoPor: nombre,
-    autorizadoPor: AUTORIZA_PLANILLA,
-  };
-}
+export const FIRMANTES_PLANILLA: Firmantes = {
+  elaboradoPor: ELABORA_PLANILLA,
+  revisadoPor: REVISA_PLANILLA,
+  autorizadoPor: AUTORIZA_PLANILLA,
+};
