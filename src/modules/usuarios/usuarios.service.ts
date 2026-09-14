@@ -1,3 +1,5 @@
+import { tieneAlcanceGlobal } from '../../common/auth/roles';
+import { Prisma, Rol } from '../../prisma/prisma-client';
 import {
   BadRequestException,
   ConflictException,
@@ -12,6 +14,7 @@ import { UpdateUsuarioDto } from './dto/update-usuario.dto';
 
 const SIN_PASSWORD = {
   id: true,
+  lineasWhatsapp: { select: { lineaId: true } },
   nombre: true,
   email: true,
   rol: true,
@@ -36,12 +39,14 @@ export class UsuariosService {
       throw new ConflictException(`Ya existe un usuario con el email ${dto.email}`);
     }
 
+    await this.validarLineas(dto.lineaIds ?? [], dto.rol ?? 'AGENTE');
     return this.prisma.usuario.create({
       data: {
         nombre: dto.nombre,
         email: dto.email,
         passwordHash: await bcrypt.hash(dto.password, 10),
         rol: dto.rol,
+        lineasWhatsapp: { create: (dto.lineaIds ?? []).map(lineaId => ({ lineaId })) },
         codigo: await this.normalizarCodigo(dto.codigo),
       },
       select: SIN_PASSWORD,
@@ -66,43 +71,54 @@ export class UsuariosService {
   }
 
   async update(id: string, dto: UpdateUsuarioDto, ejecutorId?: string) {
-    const actual = await this.findOne(id);
-    const { password, ...resto } = dto;
-
-    /* Un admin no puede quitarse a sí mismo el rol ni desactivarse: se quedaría
-       sin acceso a la gestión y, si es el único, nadie podría recuperarla. */
-    if (ejecutorId && ejecutorId === id) {
-      if (resto.rol && resto.rol !== actual.rol) {
+    const { password, lineaIds, ...resto } = dto;
+    const passwordHash = password ? await bcrypt.hash(password, 10) : undefined;
+    return this.prisma.$transaction(async tx => {
+      // Una sola orden para todas las mutaciones de acceso; protege también al último superadmin.
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(730013)::text`;
+      const actual = await tx.usuario.findUnique({ where: { id }, select: SIN_PASSWORD });
+      if (!actual) throw new NotFoundException(`Usuario ${id} no encontrado`);
+      const permisos = lineaIds ?? actual.lineasWhatsapp.map(l => l.lineaId);
+      await this.validarLineas(permisos, dto.rol ?? actual.rol, tx);
+      if (ejecutorId === id && resto.rol && resto.rol !== actual.rol) {
         throw new BadRequestException('No puedes cambiarte a ti mismo el rol.');
       }
-      if (resto.activo === false) {
+      if (ejecutorId === id && resto.activo === false) {
         throw new BadRequestException('No puedes desactivar tu propia cuenta.');
       }
-    }
-
-    /* Tampoco se puede dejar el sistema sin ningún super administrador activo. */
-    const dejaDeSerSuperAdmin =
-      actual.rol === 'SUPER_ADMIN' &&
-      ((resto.rol && resto.rol !== 'SUPER_ADMIN') || resto.activo === false);
-    if (dejaDeSerSuperAdmin) {
-      await this.verificarQueQuedaOtroSuperAdmin(id);
-    }
-
-    return this.prisma.usuario.update({
-      where: { id },
-      data: {
-        ...resto,
-        ...(resto.codigo !== undefined
-          ? { codigo: await this.normalizarCodigo(resto.codigo, id) }
-          : {}),
-        ...(password ? { passwordHash: await bcrypt.hash(password, 10) } : {}),
-        // Un solo UPDATE: no hay ventana entre cambiar privilegios y revocar.
-        ...(password || resto.rol !== undefined || resto.activo !== undefined
-          ? { versionSesion: { increment: 1 } }
-          : {}),
-      },
-      select: SIN_PASSWORD,
+      if (actual.rol === 'SUPER_ADMIN' && ((resto.rol && resto.rol !== 'SUPER_ADMIN') || resto.activo === false)) {
+        await this.verificarQueQuedaOtroSuperAdmin(id, tx);
+      }
+      const actualizado = await tx.usuario.update({
+        where: { id },
+        data: {
+          ...resto,
+          ...(resto.codigo !== undefined ? { codigo: await this.normalizarCodigo(resto.codigo, id, tx) } : {}),
+          ...(passwordHash ? { passwordHash } : {}),
+          ...(password || resto.rol !== undefined || resto.activo !== undefined || lineaIds !== undefined
+            ? { versionSesion: { increment: 1 } } : {}),
+          ...(lineaIds !== undefined ? { lineasWhatsapp: { deleteMany: {}, create: lineaIds.map(lineaId => ({ lineaId })) } } : {}),
+        }, select: SIN_PASSWORD,
+      });
+      if (lineaIds !== undefined || resto.rol !== undefined || resto.activo !== undefined) {
+        if (!actualizado.activo || !tieneAlcanceGlobal(actualizado.rol)) {
+          await tx.conversacion.updateMany({ where: { agenteId: id, ...(actualizado.activo ? { lineaId: { notIn: permisos } } : {}) }, data: { agenteId: null } });
+        }
+      }
+      if (lineaIds !== undefined) {
+        await tx.auditLog.create({ data: { entidad: 'Usuario', entidadId: id, accion: 'LINEAS_ASIGNADAS', usuarioId: ejecutorId, cambios: { lineaIds } } });
+      }
+      return actualizado;
     });
+  }
+
+  private async validarLineas(ids: string[], rol: Rol, db: Prisma.TransactionClient = this.prisma): Promise<void> {
+    if (!ids.length) return;
+    const lineas = await db.lineaWhatsapp.findMany({ where: { id: { in: ids } }, select: { id: true, comercial: true } });
+    if (lineas.length !== ids.length) throw new BadRequestException('Alguna línea no existe o está repetida.');
+    if (rol === 'RECEPCION' && lineas.some(l => l.comercial)) {
+      throw new BadRequestException('Recepción solo puede acceder a líneas de atención; la línea comercial corresponde a agentes de ventas.');
+    }
   }
 
   /**
@@ -110,11 +126,11 @@ export class UsuariosService {
    * varias cadenas vacías chocarían contra el índice único, mientras que Postgres
    * permite tantos NULL como haga falta.
    */
-  private async normalizarCodigo(codigo: string | undefined, exceptoId?: string) {
+  private async normalizarCodigo(codigo: string | undefined, exceptoId?: string, db: Prisma.TransactionClient = this.prisma) {
     const limpio = codigo?.trim();
     if (!limpio) return null;
 
-    const enUso = await this.prisma.usuario.findUnique({
+    const enUso = await db.usuario.findUnique({
       where: { codigo: limpio },
       select: { id: true, nombre: true },
     });
@@ -128,20 +144,7 @@ export class UsuariosService {
 
   /** Desactivación en vez de borrado — el historial de ventas/comisiones se preserva. */
   async desactivar(id: string, ejecutorId?: string) {
-    const usuario = await this.findOne(id);
-
-    if (ejecutorId && ejecutorId === id) {
-      throw new BadRequestException('No puedes desactivar tu propia cuenta.');
-    }
-    if (usuario.rol === 'SUPER_ADMIN') {
-      await this.verificarQueQuedaOtroSuperAdmin(id);
-    }
-
-    return this.prisma.usuario.update({
-      where: { id },
-      data: { activo: false, versionSesion: { increment: 1 } },
-      select: SIN_PASSWORD,
-    });
+    return this.update(id, { activo: false }, ejecutorId);
   }
 
   /**
@@ -151,8 +154,8 @@ export class UsuariosService {
    * códigos de empresa de los que depende la planilla— y además es el único que
    * puede volver a crear otro super admin.
    */
-  private async verificarQueQuedaOtroSuperAdmin(excluyendoId: string): Promise<void> {
-    const otros = await this.prisma.usuario.count({
+  private async verificarQueQuedaOtroSuperAdmin(excluyendoId: string, db: Prisma.TransactionClient = this.prisma): Promise<void> {
+    const otros = await db.usuario.count({
       where: { rol: 'SUPER_ADMIN', activo: true, id: { not: excluyendoId } },
     });
     if (otros === 0) {

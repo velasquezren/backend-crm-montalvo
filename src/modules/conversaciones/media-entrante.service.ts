@@ -1,3 +1,4 @@
+import { LineasWhatsappService } from '../lineas-whatsapp/lineas-whatsapp.service';
 import { Injectable, Logger } from '@nestjs/common';
 import { TipoMensaje } from '../../prisma/prisma-client';
 
@@ -45,6 +46,7 @@ export class MediaEntranteService {
     private readonly gateway: ConversacionesGateway,
     private readonly r2: R2Service,
     private readonly whatsapp: WhatsappCloudService,
+    private readonly lineas: LineasWhatsappService,
   ) {}
 
   /** `false` si no hay R2 configurado: sin destino no vale la pena bajar nada. */
@@ -60,11 +62,12 @@ export class MediaEntranteService {
   async traer(mensajeId: string, conversacionId: string, media: MediaEntrante): Promise<void> {
     try {
       /* 1) media_id → URL temporal (válida 5 min). */
-      const url = await this.whatsapp.urlDeMedia(media.mediaId);
+      const cuenta = await this.lineas.cuentaDeConversacion(conversacionId);
+      const url = await this.whatsapp.urlDeMedia(media.mediaId, cuenta);
       if (!url) return;
 
       /* 2) Descargar los bytes (el CDN de Meta también pide el token). */
-      const archivo = await this.whatsapp.descargarMedia(url);
+      const archivo = await this.whatsapp.descargarMedia(url, cuenta);
       if (!archivo) {
         this.logger.error(`No se pudo descargar media ${media.mediaId}`);
         return;

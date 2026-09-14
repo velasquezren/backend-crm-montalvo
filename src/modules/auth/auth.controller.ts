@@ -1,3 +1,4 @@
+import { Roles } from '../../common/decorators/roles.decorator';
 import type { CookieOptions, Request, Response } from 'express';
 import { Body, Controller, Get, HttpCode, HttpStatus, Patch, Post, Req, Res } from '@nestjs/common';
 
@@ -42,6 +43,7 @@ function opcionesCookieRefresh(): CookieOptions {
   };
 }
 
+@Roles('RECEPCION')
 @Controller('auth')
 export class AuthController {
   constructor(private readonly authService: AuthService) {}

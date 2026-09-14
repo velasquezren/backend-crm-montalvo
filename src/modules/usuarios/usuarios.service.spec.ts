@@ -27,16 +27,20 @@ function montar(usuarios: UsuarioFalso[] = [
 ]) {
   const actualizaciones: Array<{ id: string; data: Record<string, unknown> }> = [];
 
+  const registros = usuarios.map(u => ({ ...u, lineasWhatsapp: [] }));
   const prisma = {
+    $queryRaw: async () => [],
+    conversacion: { updateMany: async () => ({ count: 0 }) },
+    $transaction: async (fn: (tx: unknown) => Promise<unknown>): Promise<unknown> => fn(prisma),
     usuario: {
       findUnique: async ({
         where,
       }: {
         where: { id?: string; email?: string; codigo?: string };
       }) => {
-        if (where.id !== undefined) return usuarios.find(u => u.id === where.id) ?? null;
-        if (where.email !== undefined) return usuarios.find(u => u.email === where.email) ?? null;
-        if (where.codigo !== undefined) return usuarios.find(u => u.codigo === where.codigo) ?? null;
+        if (where.id !== undefined) return registros.find(u => u.id === where.id) ?? null;
+        if (where.email !== undefined) return registros.find(u => u.email === where.email) ?? null;
+        if (where.codigo !== undefined) return registros.find(u => u.codigo === where.codigo) ?? null;
         return null;
       },
       update: async ({

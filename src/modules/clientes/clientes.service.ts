@@ -73,6 +73,7 @@ const CAMPOS_CLIENTE = {
   agenteId: true,
   agente: { select: { id: true, nombre: true } },
   conversaciones: {
+    where: { linea: { comercial: true } },
     select: { agenteId: true, agente: { select: { id: true, nombre: true } } },
     take: 1,
     orderBy: { updatedAt: 'desc' },
@@ -377,7 +378,7 @@ export class ClientesService {
               data: { agenteId: dto.agenteId },
             }),
             this.prisma.conversacion.updateMany({
-              where: { clienteId: id },
+              where: { clienteId: id, linea: { comercial: true } },
               data: { agenteId: dto.agenteId },
             }),
           ]

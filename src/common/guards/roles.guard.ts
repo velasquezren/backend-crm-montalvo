@@ -3,6 +3,7 @@ import { Reflector } from '@nestjs/core';
 import { Rol } from '../../prisma/prisma-client';
 
 import { cubreRol } from '../auth/roles';
+import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
 import { ROLES_KEY } from '../decorators/roles.decorator';
 
 /**
@@ -17,13 +18,11 @@ export class RolesGuard implements CanActivate {
   constructor(private readonly reflector: Reflector) {}
 
   canActivate(context: ExecutionContext): boolean {
+    if (this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [context.getHandler(), context.getClass()])) return true;
     const rolesRequeridos = this.reflector.getAllAndOverride<Rol[]>(ROLES_KEY, [
       context.getHandler(),
       context.getClass(),
-    ]);
-    if (!rolesRequeridos || rolesRequeridos.length === 0) {
-      return true;
-    }
+    ]) ?? [Rol.AGENTE];
 
     const { user } = context.switchToHttp().getRequest();
     const rol = user?.rol as Rol | undefined;

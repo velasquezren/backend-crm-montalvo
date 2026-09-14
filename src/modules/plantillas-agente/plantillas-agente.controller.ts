@@ -1,9 +1,11 @@
+import { Roles } from '../../common/decorators/roles.decorator';
 import { Body, Controller, Delete, Get, Param, Patch, Post } from '@nestjs/common';
 import { CurrentUser, UsuarioJwt } from '../../common/decorators/current-user.decorator';
 import { CreatePlantillaAgenteDto } from './dto/create-plantilla-agente.dto';
 import { UpdatePlantillaAgenteDto } from './dto/update-plantilla-agente.dto';
 import { PlantillasAgenteService } from './plantillas-agente.service';
 
+@Roles('RECEPCION')
 @Controller('plantillas-agente')
 export class PlantillasAgenteController {
   constructor(private readonly service: PlantillasAgenteService) {}

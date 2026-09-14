@@ -191,7 +191,7 @@ describe('DespachadorSalienteService — anotar lo que contestó Meta', () => {
       prisma as never,
       { emitirActividad: jest.fn() } as never,
       { urlFirmada: jest.fn().mockResolvedValue('https://r2.example/firmada') } as never,
-      { enviar: jest.fn().mockResolvedValue('wamid.MOCK') } as never,
+      { enviar: jest.fn().mockResolvedValue('wamid.MOCK') } as never, { cuentaDeConversacion: async () => ({ token: "tok", phoneId: "123" }) } as never,
     );
   }
 

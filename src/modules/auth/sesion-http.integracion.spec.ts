@@ -1,3 +1,4 @@
+import { LineasWhatsappService } from '../lineas-whatsapp/lineas-whatsapp.service';
 import { Controller, Get, INestApplication, Module, ValidationPipe } from '@nestjs/common';
 import { APP_GUARD, NestFactory } from '@nestjs/core';
 import { JwtModule, JwtService } from '@nestjs/jwt';
@@ -25,7 +26,7 @@ class RecursoProtegido {
 @Module({
   imports: [JwtModule.register({ secret: 'clave-ficticia-F05-local', signOptions: { expiresIn: '8h' } })],
   controllers: [AuthController, UsuariosController, RecursoProtegido],
-  providers: [AuthService, UsuariosService, ConversacionesGateway,
+  providers: [{ provide: LineasWhatsappService, useValue: { destinatarios: async () => [usuarioId] } }, AuthService, UsuariosService, ConversacionesGateway,
     { provide: PrismaService, useValue: prisma }, { provide: PushService, useValue: {} },
     { provide: APP_GUARD, useClass: JwtAuthGuard }, { provide: APP_GUARD, useClass: RolesGuard }],
 })

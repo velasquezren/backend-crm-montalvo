@@ -1,3 +1,5 @@
+import { LineasWhatsappService } from '../lineas-whatsapp/lineas-whatsapp.service';
+import { MemoriaAgenteService } from '../memoria-agente/memoria-agente.service';
 import { NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
@@ -106,14 +108,14 @@ beforeEach(async () => {
      API cortan antes del fetch. Es el comportamiento real documentado. */
   const config = new ConfigService({});
   clientesService = new ClientesService(prisma, new AuditService(prisma), new ServiciosService(prisma));
-  const whatsappService = new WhatsappCloudService(config);
+  const whatsappService = new WhatsappCloudService();
   /* Un solo despachador, compartido — igual que en producción, donde es un
      provider singleton que Nest inyecta en los dos services. */
   const despachadorService = new DespachadorSalienteService(
     prisma,
     gateway as unknown as ConversacionesGateway,
     r2 as unknown as R2Service,
-    whatsappService,
+    whatsappService, new LineasWhatsappService(prisma, config),
   );
   service = new ConversacionesService(
     prisma,
@@ -122,7 +124,7 @@ beforeEach(async () => {
     r2 as unknown as R2Service,
     /* Sin credenciales queda deshabilitado: no sale ni una petición a Meta. */
     whatsappService,
-    despachadorService,
+    despachadorService, new LineasWhatsappService(prisma, config), new MemoriaAgenteService(prisma, r2 as unknown as R2Service),
   );
   ingesta = new IngestaWhatsappService(
     prisma,
@@ -134,7 +136,7 @@ beforeEach(async () => {
       prisma,
       gateway as unknown as ConversacionesGateway,
       r2 as unknown as R2Service,
-      whatsappService,
+      whatsappService, new LineasWhatsappService(prisma, config),
     ),
   );
   jest.spyOn(service['logger'], 'warn').mockImplementation(() => undefined);
@@ -145,7 +147,7 @@ beforeEach(async () => {
 
 async function crearAgente(nombre: string, rol: 'AGENTE' | 'ADMIN' = 'AGENTE') {
   return prisma.usuario.create({
-    data: { nombre, email: `${nombre}@test.local`, passwordHash: 'x', rol, activo: true },
+    data: { nombre, email: `${nombre}@test.local`, passwordHash: 'x', rol, activo: true, lineasWhatsapp: { create: { lineaId: '00000000-0000-4000-8000-000000000001' } } },
   });
 }
 
@@ -420,8 +422,8 @@ describe('Conversaciones contra Postgres real', () => {
     });
   });
 
-  describe('asignarAgente arrastra cliente y leads, y queda auditado', () => {
-    it('reasigna en cascada sin que este módulo escriba en tablas ajenas', async () => {
+  describe('asignarAgente solo cambia la conversación y queda auditado', () => {
+    it('reasigna el chat preservando la atribución del cliente y sus leads', async () => {
       const a = await crearAgente('agente-a');
       const b = await crearAgente('agente-b');
       const { cliente, conversacion } = await crearChat({
@@ -436,22 +438,22 @@ describe('Conversaciones contra Postgres real', () => {
       await service.asignarAgente(conversacion.id, b.id, 'usuario-admin');
 
       expect((await prisma.conversacion.findUniqueOrThrow({ where: { id: conversacion.id } })).agenteId).toBe(b.id);
-      expect((await prisma.cliente.findUniqueOrThrow({ where: { id: cliente.id } })).agenteId).toBe(b.id);
-      expect(await prisma.lead.count({ where: { clienteId: cliente.id, agenteId: b.id } })).toBe(1);
+      expect((await prisma.cliente.findUniqueOrThrow({ where: { id: cliente.id } })).agenteId).toBe(a.id);
+      expect(await prisma.lead.count({ where: { clienteId: cliente.id, agenteId: a.id } })).toBe(1);
     });
 
     it('deja rastro en AuditLog de quién reasignó', async () => {
       const a = await crearAgente('agente-a');
-      const { cliente, conversacion } = await crearChat({ telefono: '+59171000010', agenteCliente: a.id });
+      const { conversacion } = await crearChat({ telefono: '+59171000010', agenteCliente: a.id });
 
       await service.asignarAgente(conversacion.id, null, 'usuario-admin');
 
-      const registros = await prisma.auditLog.findMany({ where: { entidadId: cliente.id } });
+      const registros = await prisma.auditLog.findMany({ where: { entidadId: conversacion.id } });
       expect(registros).toHaveLength(1);
       expect(registros[0].usuarioId).toBe('usuario-admin');
     });
 
-    it('desasignar devuelve cliente y chat al pool', async () => {
+    it('desasignar devuelve el chat al pool y conserva al dueño comercial', async () => {
       const a = await crearAgente('agente-a');
       const { cliente, conversacion } = await crearChat({
         telefono: '+59171000011',
@@ -462,7 +464,7 @@ describe('Conversaciones contra Postgres real', () => {
       await service.asignarAgente(conversacion.id, null, 'usuario-admin');
 
       expect((await prisma.conversacion.findUniqueOrThrow({ where: { id: conversacion.id } })).agenteId).toBeNull();
-      expect((await prisma.cliente.findUniqueOrThrow({ where: { id: cliente.id } })).agenteId).toBeNull();
+      expect((await prisma.cliente.findUniqueOrThrow({ where: { id: cliente.id } })).agenteId).toBe(a.id);
     });
   });
 
@@ -606,13 +608,13 @@ describe('Conversaciones contra Postgres real', () => {
       expect(gateway.notificados[0].agenteId).toBeNull();
     });
 
-    it('con dueña, el aviso lleva su id', async () => {
+    it('el aviso lleva la asignación del chat; el gateway resuelve los destinatarios con permisos', async () => {
       const a = await crearAgente('agente-a');
       await crearChat({ telefono: '+59172000012', agenteCliente: a.id });
 
       await ingesta.procesarEntrante('+59172000012', 'Hola', 'wamid.n3');
 
-      expect(gateway.notificados[0].agenteId).toBe(a.id);
+      expect(gateway.notificados[0].agenteId).toBeNull();
     });
 
     /**
@@ -726,7 +728,7 @@ describe('Conversaciones contra Postgres real', () => {
       await prisma.conversacion.update({ where: { id: conv.id }, data: { agenteId: b.id } });
       await prisma.cliente.updateMany({ data: { agenteId: b.id } });
 
-      expect(await service.marcarLeido(conv.id, a.id, false)).toEqual({ ok: false });
+      await expect(service.marcarLeido(conv.id, a.id, false)).rejects.toThrow(NotFoundException);
       expect(await prisma.mensaje.count({ where: { direccion: 'ENTRANTE', leidoEn: null } })).toBe(1);
     });
   });
@@ -851,7 +853,7 @@ describe('Acuse automático fuera de horario', () => {
    * por cada combinación de horario que se prueba aquí.
    */
   function servicioCon(config: ConfigService, ahora: Date) {
-    const whatsapp = new WhatsappCloudService(config);
+    const whatsapp = new WhatsappCloudService();
     const s = new IngestaWhatsappService(
       prisma,
       clientesService,
@@ -861,13 +863,13 @@ describe('Acuse automático fuera de horario', () => {
         prisma,
         gateway as unknown as ConversacionesGateway,
         r2 as unknown as R2Service,
-        whatsapp,
+        whatsapp, new LineasWhatsappService(prisma, config),
       ),
       new MediaEntranteService(
         prisma,
         gateway as unknown as ConversacionesGateway,
         r2 as unknown as R2Service,
-        whatsapp,
+        whatsapp, new LineasWhatsappService(prisma, config),
       ),
     );
     /* Se sustituye el reloj en vez de congelar los temporizadores: los fake

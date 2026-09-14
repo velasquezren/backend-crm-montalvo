@@ -1,3 +1,5 @@
+import { LineasWhatsappService } from '../lineas-whatsapp/lineas-whatsapp.service';
+import { MemoriaAgenteService } from '../memoria-agente/memoria-agente.service';
 import { ConfigService } from '@nestjs/config';
 
 import { AuditService } from '../../common/audit/audit.service';
@@ -86,7 +88,7 @@ beforeEach(async () => {
   const r2 = new R2Espia();
   const config = new ConfigService({});
   const clientesService = new ClientesService(prisma, new AuditService(prisma), new ServiciosService(prisma));
-  const whatsapp = new WhatsappCloudService(config);
+  const whatsapp = new WhatsappCloudService();
 
   service = new ConversacionesService(
     prisma,
@@ -98,8 +100,8 @@ beforeEach(async () => {
       prisma,
       gateway as unknown as ConversacionesGateway,
       r2 as unknown as R2Service,
-      whatsapp,
-    ),
+      whatsapp, new LineasWhatsappService(prisma, config),
+    ), new LineasWhatsappService(prisma, config), new MemoriaAgenteService(prisma, r2 as unknown as R2Service),
   );
 
   admin = await prisma.usuario.create({
@@ -109,7 +111,7 @@ beforeEach(async () => {
 
 async function crearAgente(nombre: string) {
   return prisma.usuario.create({
-    data: { nombre, email: `${nombre}@test.local`, passwordHash: 'x', rol: 'AGENTE', activo: true },
+    data: { nombre, email: `${nombre}@test.local`, passwordHash: 'x', rol: 'AGENTE', activo: true, lineasWhatsapp: { create: { lineaId: '00000000-0000-4000-8000-000000000001' } } },
   });
 }
 

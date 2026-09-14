@@ -1,5 +1,19 @@
 # Estado actual
 
+## 14 de septiembre de 2026 · líneas de WhatsApp
+
+Se implementaron catálogo de cuatro líneas (actual + tres nuevas), rol RECEPCION,
+asignación explícita por usuario y aislamiento de conversaciones en backend y frontend.
+La migración conserva el historial comercial. [Diseño, activación y límites](lineas-whatsapp.md).
+Las tres líneas nuevas quedan desactivadas hasta completar el alta en Meta y sus credenciales.
+No se ha realizado despliegue ni activación de números reales en esta sesión.
+Validación: builds correctos, 93 pruebas frontend, 509 unitarias backend y 376 casos de integración reportados; migración con historial ficticio comprobada. Se conserva la limitación de las pruebas financieras sin Excel privados.
+
+La base de trabajo ya incluía en Git los cambios de Finanzas mencionados abajo.
+Las referencias siguientes a trabajo sin commitear corresponden al handoff histórico del día 10.
+
+## Handoff histórico del 10 de septiembre
+
 **10 de septiembre de 2026 · único handoff de ambos repositorios.**
 
 **Hay trabajo SIN COMMITEAR y SIN DESPLEGAR en las dos máquinas de este

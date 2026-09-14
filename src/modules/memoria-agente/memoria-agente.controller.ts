@@ -1,3 +1,4 @@
+import { Roles } from '../../common/decorators/roles.decorator';
 import { ArchivoSubido } from './archivo-subido';
 import {
   Body,
@@ -18,6 +19,7 @@ import { QueryRecursoMemoriaDto } from './dto/query-recurso-memoria.dto';
 import { UpdateRecursoMemoriaDto } from './dto/update-recurso-memoria.dto';
 import { MemoriaAgenteService } from './memoria-agente.service';
 
+@Roles('RECEPCION')
 @Controller('memoria-agente')
 export class MemoriaAgenteController {
   constructor(private readonly service: MemoriaAgenteService) {}

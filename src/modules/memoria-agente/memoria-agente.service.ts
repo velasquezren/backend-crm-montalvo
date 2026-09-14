@@ -44,6 +44,12 @@ function tipoBase(mime: string): string {
 
 @Injectable()
 export class MemoriaAgenteService {
+  async poseeArchivo(usuarioId: string, mediaKey: string): Promise<boolean> {
+    return Boolean(await this.prisma.recursoMemoriaAgente.findFirst({
+      where: { usuarioId, mediaKey }, select: { id: true },
+    }));
+  }
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly r2: R2Service,

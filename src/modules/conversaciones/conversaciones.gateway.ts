@@ -1,3 +1,5 @@
+import { LineasWhatsappService } from '../lineas-whatsapp/lineas-whatsapp.service';
+import { cubreRol } from '../../common/auth/roles';
 import { Logger, UnauthorizedException } from '@nestjs/common';
 import {
   OnGatewayConnection,
@@ -29,6 +31,7 @@ export class ConversacionesGateway implements OnGatewayInit, OnGatewayConnection
   constructor(
     private readonly authService: AuthService,
     private readonly pushService: PushService,
+    private readonly lineas: LineasWhatsappService,
   ) {}
 
   /** Middleware: la conexión no se acepta mientras se consulta la sesión. */
@@ -60,18 +63,19 @@ export class ConversacionesGateway implements OnGatewayInit, OnGatewayConnection
     this.sesiones.delete(client.id);
   }
 
-  private async emitirAutenticados(evento: string, payload: object): Promise<void> {
+  private async emitirAutenticados(evento: string, payload: object, conversacionId?: string): Promise<void> {
     if (!this.server) return;
     const clientes = [...this.server.sockets.values()];
     const accesos = clientes.flatMap(c => {
       const sesion = this.sesiones.get(c.id);
       return sesion ? [sesion.acceso] : [];
     });
+    const permitidos = conversacionId ? new Set(await this.lineas.destinatarios(conversacionId)) : null;
     const vigentes = await this.authService.accesosVigentes(accesos);
     for (const client of clientes) {
       const acceso = this.sesiones.get(client.id)?.acceso;
       if (!acceso || !vigentes.has(acceso) || acceso.exp * 1000 <= Date.now()) client.disconnect(true);
-      else if (client.connected) client.emit(evento, payload);
+      else if (client.connected && (permitidos ? permitidos.has(acceso.sub) : cubreRol(acceso.rol, 'AGENTE'))) client.emit(evento, payload);
     }
   }
 
@@ -90,7 +94,7 @@ export class ConversacionesGateway implements OnGatewayInit, OnGatewayConnection
    * manda notificación push**: ver `notificarEntrante`.
    */
   emitirActividad(conversacionId: string): void {
-    this.difundir('conversacion:actividad', { conversacionId });
+    void this.emitirAutenticados('conversacion:actividad', { conversacionId }, conversacionId).catch(() => this.logger.warn('No se pudo difundir la conversación'));
   }
 
   /**
@@ -121,9 +125,12 @@ export class ConversacionesGateway implements OnGatewayInit, OnGatewayConnection
       tag: `chat-${conversacionId}`,
     };
 
-    void (info.agenteId
-      ? this.pushService.enviarAUsuario(info.agenteId, aviso)
-      : this.pushService.enviarATodosLosAgentes(aviso));
+    void this.lineas.destinatarios(conversacionId).then(async ids => {
+      for (let i = 0; i < ids.length; i += 5) {
+        await Promise.all(ids.slice(i, i + 5).map(id => this.pushService.enviarAUsuario(id, aviso)));
+      }
+    }).catch(() => this.logger.warn('No se pudo notificar la conversación'));
+
   }
 
   /**

@@ -622,3 +622,7 @@ roles de `@Roles(...)` contra el `enum Rol` de `schema.prisma`, y los helpers de
 Si añades un rol al enum y este skill no lo menciona, el check falla a propósito: esa es
 exactamente la desincronización que dejó el escopado por rol enseñando el patrón viejo.
 Verifica **datos, no criterio** — las decisiones y cicatrices de arriba se actualizan a mano.
+
+## Líneas de WhatsApp y recepción (2026-09-13)
+
+`RECEPCION` tiene acceso a conversaciones, perfil, push y recursos propios. Las rutas sin `@Roles` requieren `AGENTE`; los endpoints públicos conservan `@Public`. `ADMIN` y `SUPER_ADMIN` tienen alcance global. Las demás cuentas necesitan membresía explícita `AccesoLineaWhatsapp` además del alcance de asignación. Recepción no admite membresía comercial. La identidad de un chat es `(clienteId, lineaId)`. No usar solo clienteId ni credenciales globales para enviar. El webhook resuelve `metadata.phone_number_id` y confirma HTTP después de persistir, devolviendo 503 si falla un elemento para permitir reintento. Reasignar un chat no cambia el cliente ni los leads.

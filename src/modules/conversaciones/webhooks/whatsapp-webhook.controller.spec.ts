@@ -1,4 +1,4 @@
-import { ForbiddenException } from '@nestjs/common';
+import { ForbiddenException, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 import { AlertasWhatsappService } from '../../../common/whatsapp/alertas-whatsapp.service';
@@ -48,6 +48,7 @@ function montar(config: Record<string, string> = {}) {
     conversaciones as unknown as ConversacionesService,
     ingesta as unknown as IngestaWhatsappService,
     alertas as unknown as AlertasWhatsappService,
+    { desdeWebhook: async () => ({ id: "linea-1" }) } as never,
   );
   jest.spyOn(controller['logger'], 'error').mockImplementation(() => undefined);
   jest.spyOn(controller['logger'], 'log').mockImplementation(() => undefined);
@@ -90,14 +91,16 @@ describe('WhatsappWebhookController', () => {
   });
 
   describe('respuesta a Meta', () => {
-    it('responde 200 sin esperar el procesamiento (Meta corta a los 3s)', () => {
+    it('confirma solo después de persistir', async () => {
       const { controller } = montar();
-      const lento = jest
-        .spyOn(controller, 'procesarWebhook')
-        .mockReturnValue(new Promise(() => undefined)); // nunca resuelve
-
-      expect(controller.recibir(payload({ messages: [texto('wamid.1')] }))).toEqual({ received: true });
-      expect(lento).toHaveBeenCalled();
+      let completar!: () => void;
+      jest.spyOn(controller, 'procesarWebhook').mockReturnValue(new Promise<void>(resolve => { completar = resolve; }));
+      let confirmado = false;
+      const respuesta = controller.recibir(payload({ messages: [texto('wamid.1')] })).then(r => { confirmado = true; return r; });
+      await Promise.resolve();
+      expect(confirmado).toBe(false);
+      completar();
+      await expect(respuesta).resolves.toEqual({ received: true });
     });
   });
 
@@ -110,9 +113,9 @@ describe('WhatsappWebhookController', () => {
           : Promise.resolve({ id: 'ok' }),
       );
 
-      await controller.procesarWebhook(
+      await expect(controller.procesarWebhook(
         payload({ messages: [texto('wamid.1'), texto('wamid.2'), texto('wamid.3')] }),
-      );
+      )).rejects.toThrow(ServiceUnavailableException);
 
       expect(servicio.procesarEntrante).toHaveBeenCalledTimes(3);
       expect(servicio.procesarEntrante.mock.calls.map(c => c[2])).toEqual([
@@ -126,14 +129,14 @@ describe('WhatsappWebhookController', () => {
       const { controller, servicio } = montar();
       servicio.procesarEntrante.mockRejectedValue(new Error('caída de base simulada'));
 
-      await controller.procesarWebhook(
+      await expect(controller.procesarWebhook(
         payload({
           messages: [texto('wamid.1')],
           statuses: [{ id: 'wamid.out.1', status: 'delivered' }],
         }),
-      );
+      )).rejects.toThrow(ServiceUnavailableException);
 
-      expect(servicio.procesarEstadoMensaje).toHaveBeenCalledWith('wamid.out.1', 'delivered', undefined);
+      expect(servicio.procesarEstadoMensaje).toHaveBeenCalledWith('wamid.out.1', 'delivered', undefined, "linea-1");
     });
 
     it('sigue con el resto de statuses si uno lanza', async () => {
@@ -142,7 +145,7 @@ describe('WhatsappWebhookController', () => {
         id === 'wamid.out.2' ? Promise.reject(new Error('boom')) : Promise.resolve(undefined),
       );
 
-      await controller.procesarWebhook(
+      await expect(controller.procesarWebhook(
         payload({
           statuses: [
             { id: 'wamid.out.1', status: 'sent' },
@@ -150,17 +153,17 @@ describe('WhatsappWebhookController', () => {
             { id: 'wamid.out.3', status: 'read' },
           ],
         }),
-      );
+      )).rejects.toThrow(ServiceUnavailableException);
 
       expect(servicio.procesarEstadoMensaje).toHaveBeenCalledTimes(3);
     });
 
-    it('no propaga la excepción al llamador (se dispara con `void`)', async () => {
+    it('propaga 503 para que Meta reintente el lote', async () => {
       const { controller, servicio } = montar();
       servicio.procesarEntrante.mockRejectedValue(new Error('boom'));
       await expect(
         controller.procesarWebhook(payload({ messages: [texto('wamid.1')] })),
-      ).resolves.toBeUndefined();
+      ).rejects.toThrow(ServiceUnavailableException);
     });
   });
 
@@ -178,7 +181,7 @@ describe('WhatsappWebhookController', () => {
         '+59170000001',
         'cuerpo de wamid.1',
         'wamid.1',
-        'Ana Pérez',
+        'Ana Pérez', undefined, undefined, false, "linea-1",
       );
     });
 
@@ -228,7 +231,7 @@ describe('WhatsappWebhookController', () => {
         undefined,
         undefined,
         undefined,
-        true, // esRespuestaBotonAcuse: dispara el pedido de nombre y edad
+        true, "linea-1", // esRespuestaBotonAcuse: dispara el pedido de nombre y edad
       );
     });
 
@@ -283,7 +286,7 @@ describe('WhatsappWebhookController', () => {
         'Mi estudio',
         'wamid.doc',
         undefined,
-        { tipo: 'DOCUMENTO', mediaId: 'media-123', mime: 'application/pdf', nombre: 'estudio.pdf' },
+        { tipo: 'DOCUMENTO', mediaId: 'media-123', mime: 'application/pdf', nombre: 'estudio.pdf' }, undefined, false, "linea-1",
       );
     });
 
@@ -340,7 +343,7 @@ describe('WhatsappWebhookController', () => {
           cuerpo: 'Agenda tu cita de valoración con descuento',
           origenUrl: 'https://fb.me/ad123',
           imagenUrl: 'https://facebook.com/ad-img.jpg',
-        },
+        }, false, "linea-1",
       );
     });
 
@@ -393,7 +396,7 @@ describe('WhatsappWebhookController', () => {
       await controller.procesarWebhook(
         payload({ statuses: [{ id: 'wamid.out.1', status: 'read' }] }),
       );
-      expect(servicio.procesarEstadoMensaje).toHaveBeenCalledWith('wamid.out.1', 'read', undefined);
+      expect(servicio.procesarEstadoMensaje).toHaveBeenCalledWith('wamid.out.1', 'read', undefined, "linea-1");
     });
 
     it('ignora statuses incompletos', async () => {
@@ -421,7 +424,7 @@ describe('WhatsappWebhookController', () => {
       );
 
       expect(log).toHaveBeenCalledWith(expect.stringContaining('131047: Re-engagement message'));
-      expect(servicio.procesarEstadoMensaje).toHaveBeenCalledWith('wamid.out.1', 'failed', undefined);
+      expect(servicio.procesarEstadoMensaje).toHaveBeenCalledWith('wamid.out.1', 'failed', undefined, "linea-1");
     });
   });
 
@@ -451,7 +454,7 @@ describe('WhatsappWebhookController', () => {
       const { controller, alertas, servicio } = montar();
       jest.spyOn(alertas, 'procesar').mockRejectedValueOnce(new Error('boom'));
 
-      await controller.procesarWebhook({
+      await expect(controller.procesarWebhook({
         object: 'whatsapp_business_account',
         entry: [
           {
@@ -461,7 +464,7 @@ describe('WhatsappWebhookController', () => {
             ],
           },
         ],
-      });
+      })).rejects.toThrow(ServiceUnavailableException);
 
       expect(servicio.procesarEntrante).toHaveBeenCalledTimes(1);
     });

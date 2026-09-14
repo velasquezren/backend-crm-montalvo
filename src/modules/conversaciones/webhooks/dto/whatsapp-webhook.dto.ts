@@ -304,7 +304,17 @@ export class WhatsappBanDto {
   waba_ban_date?: string;
 }
 
+export class WhatsappMetadataDto {
+  @IsString()
+  phone_number_id!: string;
+}
+
 export class WhatsappValueDto {
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => WhatsappMetadataDto)
+  metadata?: WhatsappMetadataDto;
+
   @IsOptional()
   @IsArray()
   @ValidateNested({ each: true })

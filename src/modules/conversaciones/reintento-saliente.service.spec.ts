@@ -1,4 +1,3 @@
-import { Logger } from '@nestjs/common';
 
 import { proximoReintento } from './despachador-saliente.service';
 import { ReintentoSalienteService } from './reintento-saliente.service';

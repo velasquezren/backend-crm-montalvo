@@ -1,3 +1,6 @@
+import { ConfigService } from '@nestjs/config';
+import { LineasWhatsappService } from '../../modules/lineas-whatsapp/lineas-whatsapp.service';
+import { MemoriaAgenteService } from '../../modules/memoria-agente/memoria-agente.service';
 import { INestApplication, Module, ValidationPipe } from '@nestjs/common';
 import { APP_GUARD, NestFactory } from '@nestjs/core';
 import { JwtModule, JwtService } from '@nestjs/jwt';
@@ -43,7 +46,7 @@ const telefonos = { startsWith: '+59170004' };
 @Module({
   imports: [JwtModule.register({ secret: 'secreto-ficticio-f04-solo-tests', signOptions: { expiresIn: '15m' } })],
   controllers: [AuthController, UsuariosController, ClientesController, ActividadesController, VentasController, LeadsController, ConversacionesController],
-  providers: [
+  providers: [LineasWhatsappService, MemoriaAgenteService, { provide: ConfigService, useValue: new ConfigService({}) },
     { provide: PrismaService, useValue: prisma }, AuditService, AuthService, UsuariosService,
     ClientesService, ServiciosService, ActividadesService, VentasService, LeadsService,
     ConversacionesService, CatalogoClinicoService,
@@ -119,7 +122,7 @@ beforeEach(async () => {
   await limpiar();
   const usuarios = await Promise.all((['agente', 'otro', 'admin', 'super', 'inactivo'] as const).map(nombre =>
     prisma.usuario.create({ data: {
-      nombre: `F04 ${nombre}`, email: nombre + sufijo, passwordHash: hash,
+      nombre: `F04 ${nombre}`, email: nombre + sufijo, passwordHash: hash, lineasWhatsapp: { create: { lineaId: "00000000-0000-4000-8000-000000000001" } },
       rol: nombre === 'super' ? 'SUPER_ADMIN' : nombre === 'admin' ? 'ADMIN' : 'AGENTE',
       activo: nombre !== 'inactivo', codigo: 'F04-' + nombre,
     } })));

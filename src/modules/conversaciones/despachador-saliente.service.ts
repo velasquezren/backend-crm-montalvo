@@ -1,3 +1,4 @@
+import { LineasWhatsappService } from '../lineas-whatsapp/lineas-whatsapp.service';
 import { Injectable, Logger } from '@nestjs/common';
 
 import { R2Service } from '../../common/storage/r2.service';
@@ -66,6 +67,7 @@ export class DespachadorSalienteService {
     private readonly gateway: ConversacionesGateway,
     private readonly r2: R2Service,
     private readonly whatsapp: WhatsappCloudService,
+    private readonly lineas: LineasWhatsappService,
   ) {}
 
   /** Texto del agente, con adjunto opcional guardado en R2. */
@@ -88,7 +90,7 @@ export class DespachadorSalienteService {
 
     await this.registrarResultadoEnvio(
       destino,
-      await this.whatsapp.enviar(destino.telefono, contenidoMeta, destino.mensajeId),
+      await this.whatsapp.enviar(destino.telefono, contenidoMeta, destino.mensajeId, await this.lineas.cuentaDeConversacion(destino.conversacionId)),
     );
   }
 
@@ -112,6 +114,7 @@ export class DespachadorSalienteService {
         },
       },
       destino.mensajeId,
+      await this.lineas.cuentaDeConversacion(destino.conversacionId),
     );
 
     if (resultado.estado !== 'NO_SALIO') {
@@ -149,6 +152,7 @@ export class DespachadorSalienteService {
         },
       },
       destino.mensajeId,
+      await this.lineas.cuentaDeConversacion(destino.conversacionId),
     );
 
     /* `false`: una plantilla fallida no se reintenta sola. La fila guarda el

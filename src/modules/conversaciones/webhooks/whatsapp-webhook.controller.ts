@@ -1,3 +1,4 @@
+import { LineasWhatsappService } from '../../lineas-whatsapp/lineas-whatsapp.service';
 import {
   Body,
   Controller,
@@ -5,6 +6,7 @@ import {
   Get,
   HttpCode,
   Logger,
+  ServiceUnavailableException,
   Post,
   Query,
   UseGuards,
@@ -15,7 +17,6 @@ import { SkipThrottle } from '@nestjs/throttler';
 import { TipoMensaje } from '../../../prisma/prisma-client';
 
 import { Public } from '../../../common/decorators/public.decorator';
-import { enSegundoPlano } from '../../../common/fiabilidad/en-segundo-plano';
 import { MetaSignatureGuard } from '../../../common/guards/meta-signature.guard';
 import { AlertasWhatsappService } from '../../../common/whatsapp/alertas-whatsapp.service';
 import { ConversacionesService } from '../conversaciones.service';
@@ -114,6 +115,7 @@ export class WhatsappWebhookController {
     private readonly conversacionesService: ConversacionesService,
     private readonly ingesta: IngestaWhatsappService,
     private readonly alertas: AlertasWhatsappService,
+    private readonly lineas: LineasWhatsappService,
   ) {}
 
   @Public()
@@ -147,27 +149,16 @@ export class WhatsappWebhookController {
      un 2xx que su documentación no promete es apostar gratis: si algún día lo
      trata como fallo, reintenta y acaba desactivando la suscripción. */
   @HttpCode(200)
-  recibir(@Body() payload: WhatsappWebhookDto): { received: true } {
-    /* Meta exige un 200 rápido (< 3s); procesamos el payload de forma asíncrona
-       para responder en < 2ms y evitar desactivación por timeouts durante ráfagas. */
-    void enSegundoPlano('proceso del webhook de WhatsApp', this.logger, () =>
-      this.procesarWebhook(payload),
-    );
+  async recibir(@Body() payload: WhatsappWebhookDto): Promise<{ received: true }> {
+    // Confirmar solo después de persistir. Fallos parciales devuelven 503:
+    // Meta reintenta el lote y whatsappMsgId deduplica lo ya guardado.
+    await this.procesarWebhook(payload);
     return { received: true };
   }
 
-  /**
-   * Procesa el payload ya verificado. Público (no privado) para poder probarlo
-   * esperando su promesa: desde `recibir` se dispara con `void` a propósito, así
-   * que en una prueba no habría forma de saber cuándo terminó.
-   *
-   * **Cada mensaje y cada estado van en su propio try/catch.** Antes había uno
-   * solo envolviendo los dos bucles: si el mensaje 2 de 5 lanzaba, los 3
-   * restantes y todos los `statuses` de ese cambio se perdían — y como ya se
-   * respondió 200, Meta nunca los reintenta. Eran mensajes de pacientes
-   * desapareciendo en silencio.
-   */
+  /** Procesa cada elemento por separado y devuelve 503 si alguno no pudo persistirse. */
   async procesarWebhook(payload: WhatsappWebhookDto): Promise<void> {
+    let fallos = 0;
     const cambios = payload.entry?.flatMap(e => e.changes ?? []) ?? [];
 
     for (const cambio of cambios) {
@@ -179,18 +170,24 @@ export class WhatsappWebhookController {
         try {
           await this.alertas.procesar(cambio.field, cambio.value ?? {});
         } catch (error) {
+          fallos++;
           this.logger.error(`Error procesando el aviso "${cambio.field}" de WhatsApp`, error);
         }
         continue;
       }
 
+      if (!cambio.value?.messages?.length && !cambio.value?.statuses?.length) continue;
+      let lineaId: string;
+      try { lineaId = (await this.lineas.desdeWebhook(cambio.value?.metadata?.phone_number_id)).id; }
+      catch { fallos++; this.logger.error('Webhook sin línea receptora registrada'); continue; }
       let procesados = 0;
       for (const mensaje of cambio.value?.messages ?? []) {
         try {
-          if (await this.procesarMensaje(cambio.value?.contacts, mensaje)) {
+          if (await this.procesarMensaje(cambio.value?.contacts, mensaje, lineaId)) {
             procesados++;
           }
         } catch (error) {
+          fallos++;
           this.logger.error(
             `Error procesando mensaje entrante de WhatsApp (MsgId: ${mensaje.id ?? 'sin id'}); se continúa con el resto del lote`,
             error,
@@ -216,8 +213,10 @@ export class WhatsappWebhookController {
             estado.id,
             estado.status,
             estado.biz_opaque_callback_data,
+            lineaId,
           );
         } catch (error) {
+          fallos++;
           this.logger.error(
             `Error procesando estado de mensaje (MsgId: ${estado.id}); se continúa con el resto del lote`,
             error,
@@ -225,93 +224,25 @@ export class WhatsappWebhookController {
         }
       }
     }
+    if (fallos) throw new ServiceUnavailableException('No se pudo persistir todo el webhook');
   }
 
   /** Persiste un mensaje entrante. Devuelve false si no es de un tipo que el CRM registre. */
   private async procesarMensaje(
     contactos: WhatsappContactDto[] | undefined,
     mensaje: WhatsappMessageDto,
+    lineaId: string,
   ): Promise<boolean> {
-    if (!mensaje.from) return false;
-
+    if (!mensaje.from || !mensaje.id) return false;
     const contacto = contactos?.find(c => c.wa_id === mensaje.from);
-    const nombrePerfil = contacto?.profile?.name?.trim() || undefined;
-    const telefono = `+${mensaje.from}`;
-    const referral = extraerReferral(mensaje);
-
-    if (mensaje.type === 'text' && mensaje.text?.body) {
-      if (referral) {
-        await this.ingesta.procesarEntrante(
-          telefono,
-          mensaje.text.body,
-          mensaje.id,
-          nombrePerfil,
-          undefined,
-          referral,
-        );
-      } else {
-        await this.ingesta.procesarEntrante(
-          telefono,
-          mensaje.text.body,
-          mensaje.id,
-          nombrePerfil,
-        );
-      }
-      return true;
-    }
-
     const respuestaBoton = extraerRespuestaBoton(mensaje);
-    if (respuestaBoton) {
-      /* `true` al final: es un clic en un botón (del acuse fuera de horario,
-         hoy la única botonera que manda el CRM), no un mensaje escrito a
-         mano — dispara el pedido de nombre y edad. Ver IngestaWhatsappService. */
-      if (referral) {
-        await this.ingesta.procesarEntrante(
-          telefono,
-          respuestaBoton,
-          mensaje.id,
-          nombrePerfil,
-          undefined,
-          referral,
-          true,
-        );
-      } else {
-        await this.ingesta.procesarEntrante(
-          telefono,
-          respuestaBoton,
-          mensaje.id,
-          nombrePerfil,
-          undefined,
-          undefined,
-          true,
-        );
-      }
-      return true;
-    }
-
     const media = extraerMedia(mensaje);
-    if (media) {
-      if (referral) {
-        await this.ingesta.procesarEntrante(
-          telefono,
-          media.caption ?? '',
-          mensaje.id,
-          nombrePerfil,
-          { tipo: media.tipo, mediaId: media.mediaId, mime: media.mime, nombre: media.nombre },
-          referral,
-        );
-      } else {
-        await this.ingesta.procesarEntrante(
-          telefono,
-          media.caption ?? '',
-          mensaje.id,
-          nombrePerfil,
-          { tipo: media.tipo, mediaId: media.mediaId, mime: media.mime, nombre: media.nombre },
-        );
-      }
-      return true;
-    }
-
-    return false;
+    const texto = mensaje.type === 'text' ? mensaje.text?.body : respuestaBoton ?? media?.caption ?? (media ? '' : undefined);
+    if (texto === undefined || texto === null) return false;
+    await this.ingesta.procesarEntrante(
+      `+${mensaje.from}`, texto, mensaje.id, contacto?.profile?.name?.trim() || undefined,
+      media ? { tipo: media.tipo, mediaId: media.mediaId, mime: media.mime, nombre: media.nombre } : undefined, extraerReferral(mensaje), Boolean(respuestaBoton), lineaId,
+    );
+    return true;
   }
 }

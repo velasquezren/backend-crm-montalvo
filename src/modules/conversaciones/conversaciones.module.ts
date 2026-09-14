@@ -1,3 +1,5 @@
+import { MemoriaAgenteModule } from '../memoria-agente/memoria-agente.module';
+import { LineasWhatsappModule } from '../lineas-whatsapp/lineas-whatsapp.module';
 import { Module } from '@nestjs/common';
 
 import { MetaSignatureGuard } from '../../common/guards/meta-signature.guard';
@@ -18,7 +20,7 @@ import { ReintentoSalienteService } from './reintento-saliente.service';
 import { WhatsappWebhookController } from './webhooks/whatsapp-webhook.controller';
 
 @Module({
-  imports: [ClientesModule, StorageModule, PushModule, AuthModule],
+  imports: [MemoriaAgenteModule, LineasWhatsappModule, ClientesModule, StorageModule, PushModule, AuthModule],
   controllers: [ConversacionesController, WhatsappWebhookController],
   providers: [
     ConversacionesService,

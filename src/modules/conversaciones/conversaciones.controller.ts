@@ -11,6 +11,7 @@ import { QueryBuscarMensajesDto } from './dto/query-buscar-mensajes.dto';
 import { QueryConversacionesDto } from './dto/query-conversaciones.dto';
 import { QueryMensajesAnterioresDto } from './dto/query-mensajes-anteriores.dto';
 
+@Roles('RECEPCION')
 @Controller('conversaciones')
 export class ConversacionesController {
   constructor(private readonly conversacionesService: ConversacionesService) {}
@@ -52,12 +53,13 @@ export class ConversacionesController {
 
   /** Plantillas aprobadas de la WABA — para el selector al escribir fuera de la ventana de 24h. */
   @Get('meta/plantillas')
-  listarPlantillas(@Query('refresh') refresh?: string) {
-    return this.conversacionesService.listarPlantillas(refresh === 'true');
+  listarPlantillas(@CurrentUser() usuario: UsuarioJwt, @Query('refresh') refresh?: string, @Query('lineaId') lineaId?: string) {
+    return this.conversacionesService.listarPlantillas(refresh === 'true', lineaId, alcanceAgente(usuario));
   }
 
   /** Agentes activos — alimenta los desplegables y lectura de agente asignado en CRM. */
   @Get('meta/agentes')
+  @Roles('ADMIN')
   findAgentes() {
     return this.conversacionesService.findAgentes();
   }
@@ -147,8 +149,7 @@ export class ConversacionesController {
     @Body() dto: AsignarAgenteDto,
     @CurrentUser() usuario: UsuarioJwt,
   ) {
-    /* `usuario.sub` va para el AuditLog: reasignar mueve al cliente y a sus
-       leads, y tiene que quedar constancia de quién lo hizo. */
+    /* El actor queda registrado en la auditoría de esta conversación. */
     return this.conversacionesService.asignarAgente(id, dto.agenteId, usuario.sub);
   }
 }

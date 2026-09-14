@@ -1,4 +1,3 @@
-import { ConfigService } from '@nestjs/config';
 
 import { DespachadorSalienteService } from '../../modules/conversaciones/despachador-saliente.service';
 import { WhatsappCloudService } from '../whatsapp/whatsapp-cloud.service';
@@ -41,13 +40,13 @@ import { WhatsappCloudService } from '../whatsapp/whatsapp-cloud.service';
  * `rechazos-fuera-de-peticion.spec.ts`: los cinco fallaban.
  */
 
-const CREDENCIALES = { WHATSAPP_TOKEN: 'tok', WHATSAPP_PHONE_ID: '123' };
+const CUENTA = { token: 'tok', phoneId: '123' };
 const TELEFONO = '+591 7 000 0001';
 const TEXTO = { type: 'text' as const, text: { body: 'hola' } };
 const DESTINO = { mensajeId: 'msg-1', conversacionId: 'conv-1', telefono: TELEFONO };
 
-function servicio(config: Record<string, string> = CREDENCIALES): WhatsappCloudService {
-  const s = new WhatsappCloudService({ get: (clave: string) => config[clave] } as ConfigService);
+function servicio(): WhatsappCloudService {
+  const s = new WhatsappCloudService();
   jest.spyOn(s['logger'], 'error').mockImplementation(() => undefined);
   jest.spyOn(s['logger'], 'warn').mockImplementation(() => undefined);
   return s;
@@ -68,7 +67,7 @@ describe('WhatsappCloudService — los tres desenlaces de un envío', () => {
   it('Meta responde 4xx: consta que NO salió', async () => {
     conFetch(() => Promise.resolve({ ok: false, status: 400, text: async () => 'malformado' }));
 
-    expect(await servicio().enviar(TELEFONO, TEXTO)).toEqual({
+    expect(await servicio().enviar(TELEFONO, TEXTO, undefined, CUENTA)).toEqual({
       estado: 'NO_SALIO',
       motivo: expect.stringContaining('400'),
     });
@@ -77,7 +76,7 @@ describe('WhatsappCloudService — los tres desenlaces de un envío', () => {
   it('sin credenciales: consta que NO salió, y no se llama a nadie', async () => {
     const espia = conFetch(() => Promise.resolve(null));
 
-    expect(await servicio({}).enviar(TELEFONO, TEXTO)).toEqual({
+    expect(await servicio().enviar(TELEFONO, TEXTO, undefined, null)).toEqual({
       estado: 'NO_SALIO',
       motivo: expect.any(String),
     });
@@ -92,7 +91,7 @@ describe('WhatsappCloudService — los tres desenlaces de un envío', () => {
   it('la red revienta: el resultado es INCIERTO, no FALLIDO', async () => {
     conFetch(() => Promise.reject(new Error('ECONNRESET')));
 
-    expect(await servicio().enviar(TELEFONO, TEXTO)).toEqual({
+    expect(await servicio().enviar(TELEFONO, TEXTO, undefined, CUENTA)).toEqual({
       estado: 'INCIERTO',
       motivo: expect.any(String),
     });
@@ -106,7 +105,7 @@ describe('WhatsappCloudService — los tres desenlaces de un envío', () => {
   it('Meta acepta pero no devuelve id: INCIERTO', async () => {
     conFetch(() => Promise.resolve({ ok: true, status: 200, json: async () => ({}) }));
 
-    expect((await servicio().enviar(TELEFONO, TEXTO)).estado).toBe('INCIERTO');
+    expect((await servicio().enviar(TELEFONO, TEXTO, undefined, CUENTA)).estado).toBe('INCIERTO');
   });
 
   it('todo bien: ENVIADO con el id de Meta', async () => {
@@ -114,7 +113,7 @@ describe('WhatsappCloudService — los tres desenlaces de un envío', () => {
       Promise.resolve({ ok: true, status: 200, json: async () => ({ messages: [{ id: 'wamid.ok' }] }) }),
     );
 
-    expect(await servicio().enviar(TELEFONO, TEXTO)).toEqual({
+    expect(await servicio().enviar(TELEFONO, TEXTO, undefined, CUENTA)).toEqual({
       estado: 'ENVIADO',
       metaMsgId: 'wamid.ok',
     });
@@ -136,7 +135,7 @@ describe('WhatsappCloudService — corte por tiempo', () => {
       Promise.resolve({ ok: true, status: 200, json: async () => ({ messages: [{ id: 'x' }] }) }),
     );
 
-    await servicio().enviar(TELEFONO, TEXTO);
+    await servicio().enviar(TELEFONO, TEXTO, undefined, CUENTA);
 
     expect(espia.mock.calls[0][1].signal).toBeInstanceOf(AbortSignal);
   });
@@ -149,7 +148,7 @@ describe('WhatsappCloudService — corte por tiempo', () => {
     porTiempo.name = 'TimeoutError';
     conFetch(() => Promise.reject(porTiempo));
 
-    const resultado = await servicio().enviar(TELEFONO, TEXTO);
+    const resultado = await servicio().enviar(TELEFONO, TEXTO, undefined, CUENTA);
 
     expect(resultado.estado).toBe('INCIERTO');
     expect(resultado).toHaveProperty('motivo', expect.stringContaining('no respondió'));
@@ -173,7 +172,7 @@ describe('WhatsappCloudService — correlación de vuelta', () => {
       Promise.resolve({ ok: true, status: 200, json: async () => ({ messages: [{ id: 'x' }] }) }),
     );
 
-    await servicio().enviar(TELEFONO, TEXTO, 'msg-1');
+    await servicio().enviar(TELEFONO, TEXTO, 'msg-1', CUENTA);
 
     expect(JSON.parse(espia.mock.calls[0][1].body).biz_opaque_callback_data).toBe('msg-1');
   });
@@ -183,7 +182,7 @@ describe('WhatsappCloudService — correlación de vuelta', () => {
       Promise.resolve({ ok: true, status: 200, json: async () => ({ messages: [{ id: 'x' }] }) }),
     );
 
-    await servicio().enviar(TELEFONO, TEXTO);
+    await servicio().enviar(TELEFONO, TEXTO, undefined, CUENTA);
 
     expect(JSON.parse(espia.mock.calls[0][1].body)).not.toHaveProperty('biz_opaque_callback_data');
   });
@@ -196,7 +195,7 @@ describe('DespachadorSalienteService — qué se anota en la fila', () => {
       { mensaje: { updateMany } } as never,
       { emitirActividad: jest.fn() } as never,
       { urlFirmada: jest.fn() } as never,
-      { enviar: jest.fn().mockResolvedValue(resultado) } as never,
+      { enviar: jest.fn().mockResolvedValue(resultado) } as never, { cuentaDeConversacion: async () => ({ token: "tok", phoneId: "123" }) } as never,
     );
     return { despachador, updateMany };
   }

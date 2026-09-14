@@ -1,3 +1,4 @@
+import { Roles } from '../decorators/roles.decorator';
 import { Body, Controller, Delete, Get, Post, Query } from '@nestjs/common';
 
 import { CurrentUser, UsuarioJwt } from '../decorators/current-user.decorator';
@@ -5,6 +6,7 @@ import { DesuscribirPushDto } from './dto/desuscribir-push.dto';
 import { SuscribirPushDto } from './dto/suscribir-push.dto';
 import { PushService } from './push.service';
 
+@Roles('RECEPCION')
 @Controller('push')
 export class PushController {
   constructor(private readonly pushService: PushService) {}

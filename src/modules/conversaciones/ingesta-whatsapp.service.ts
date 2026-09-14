@@ -1,3 +1,4 @@
+import { LINEA_COMERCIAL_INICIAL } from './acceso-conversacion';
 import { Injectable, Logger } from '@nestjs/common';
 import { OrigenLead, Prisma } from '../../prisma/prisma-client';
 
@@ -77,7 +78,9 @@ export class IngestaWhatsappService {
     referral?: ReferenciaCampana,
     /** true = este mensaje entrante es el clic en un botón del acuse fuera de horario (ver `WhatsappWebhookController`). */
     esRespuestaBotonAcuse = false,
+    lineaId = LINEA_COMERCIAL_INICIAL,
   ) {
+    const linea = await this.prisma.lineaWhatsapp.findUniqueOrThrow({ where: { id: lineaId } });
     if (whatsappMsgId) {
       const yaExiste = await this.prisma.mensaje.findUnique({ where: { whatsappMsgId } });
       if (yaExiste) {
@@ -93,7 +96,7 @@ export class IngestaWhatsappService {
       telefono,
     );
 
-    const { conversacion, esNueva } = await this.obtenerOCrearConversacion(cliente.id);
+    const { conversacion, esNueva } = await this.obtenerOCrearConversacion(cliente.id, lineaId);
 
     /* Contexto de campaña / anuncio de Meta (Click-to-WhatsApp Ads) */
     const esInstagram = Boolean(
@@ -104,7 +107,7 @@ export class IngestaWhatsappService {
       ? (esInstagram ? OrigenLead.INSTAGRAM_LEAD_AD : OrigenLead.FACEBOOK_LEAD_AD)
       : OrigenLead.WHATSAPP_DIRECTO;
 
-    if (referral?.titular || referral?.anuncioId || referral?.cuerpo) {
+    if (linea.comercial && (referral?.titular || referral?.anuncioId || referral?.cuerpo)) {
       if (referral.titular) {
         const yaTieneInteres = await this.prisma.interes.findFirst({
           where: { clienteId: cliente.id, descripcion: referral.titular },
@@ -190,7 +193,7 @@ export class IngestaWhatsappService {
        fuera de horario— es lo que hace que alguien atienda a la paciente; el
        lead es contabilidad. Si algún día vuelve a fallar esta escritura, que se
        pierda el registro, no el aviso. */
-    if (esNueva) {
+    if (esNueva && linea.comercial) {
       try {
         await this.prisma.lead.create({
           data: {
@@ -224,12 +227,12 @@ export class IngestaWhatsappService {
     this.gateway.notificarEntrante(conversacion.id, {
       clienteNombre: cliente.nombre,
       texto: contenido,
-      agenteId: conversacion.agenteId ?? cliente.agenteId,
+      agenteId: conversacion.agenteId,
     });
 
     /* Acuse fuera de horario. Sin `await`, como todo lo que habla con Meta: el
        webhook tiene que responder en milisegundos. */
-    void enSegundoPlano('acuse fuera de horario', this.logger, () =>
+    if (linea.comercial) void enSegundoPlano('acuse fuera de horario', this.logger, () =>
       this.responderFueraDeHorario(conversacion.id, cliente.telefono),
     );
 
@@ -237,7 +240,7 @@ export class IngestaWhatsappService {
        quedaba en el chat como si el paciente lo hubiera escrito, y ahí se
        cortaba. Esto pide nombre y edad para que quien abra el chat después
        ya sepa con quién habla. */
-    if (esRespuestaBotonAcuse) {
+    if (linea.comercial && esRespuestaBotonAcuse) {
       void enSegundoPlano('pedido de nombre y edad tras el acuse', this.logger, () =>
         this.pedirDatosDelPaciente(conversacion.id, cliente.telefono),
       );
@@ -260,17 +263,18 @@ export class IngestaWhatsappService {
    */
   private async obtenerOCrearConversacion(
     clienteId: string,
+    lineaId: string,
   ): Promise<{ conversacion: { id: string; agenteId: string | null }; esNueva: boolean }> {
-    const existente = await this.prisma.conversacion.findUnique({ where: { clienteId } });
+    const existente = await this.prisma.conversacion.findUnique({ where: { clienteId_lineaId: { clienteId, lineaId } } });
     if (existente) {
       return { conversacion: existente, esNueva: false };
     }
     try {
-      const creada = await this.prisma.conversacion.create({ data: { clienteId } });
+      const creada = await this.prisma.conversacion.create({ data: { clienteId, lineaId } });
       return { conversacion: creada, esNueva: true };
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
-        const yaCreada = await this.prisma.conversacion.findUnique({ where: { clienteId } });
+        const yaCreada = await this.prisma.conversacion.findUnique({ where: { clienteId_lineaId: { clienteId, lineaId } } });
         if (yaCreada) {
           return { conversacion: yaCreada, esNueva: false };
         }

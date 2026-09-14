@@ -762,3 +762,5 @@ fuera del repo — nadie los va a detectar desincronizados automáticamente. Si
 el servidor cambia (más RAM, otra máquina, otro proveedor), **actualizá este
 archivo a mano** en el mismo cambio, o se vuelve la misma clase de mentira
 silenciosa que `check:skills` existe para evitar en el resto de los skills.
+
+Recepción (`RECEPCION`) atiende solo líneas asignadas. `LineasWhatsappModule` administra catálogo, credenciales y destinatarios; los transportes reciben credenciales explícitas por conversación. La identidad del chat es cliente + línea.

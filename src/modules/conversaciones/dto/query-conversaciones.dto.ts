@@ -17,6 +17,10 @@ export type TabInbox = (typeof TABS_INBOX)[number];
  * también para el buscador. Ver `findAll` para el razonamiento completo.
  */
 export class QueryConversacionesDto extends PaginationDto {
+  @IsOptional()
+  @IsUUID()
+  lineaId?: string;
+
   /**
    * "Solo míos": asignadas a mí o sin dueño.
    *

@@ -1,5 +1,8 @@
+import { MemoriaAgenteService } from '../memoria-agente/memoria-agente.service';
+import { whereAccesoConversacion as whereVisibilidad, SELECT_LINEA } from './acceso-conversacion';
+import { LineasWhatsappService } from '../lineas-whatsapp/lineas-whatsapp.service';
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { Prisma, TipoMensaje } from '../../prisma/prisma-client';
+import { Prisma, Rol, TipoMensaje } from '../../prisma/prisma-client';
 
 import { CacheMemoria } from '../../common/cache/cache-memoria';
 import { escaparComodinesLike, terminoBusqueda } from '../../common/dto/busqueda';
@@ -41,7 +44,6 @@ const POR_PAGINA_INBOX = 50;
 /* Estas dos cachés guardan un único valor cada una, así que la clave es
    simbólica: existe porque `CacheMemoria` está pensada para varias entradas. */
 const CLAVE_AGENTES = 'activos';
-const CLAVE_PLANTILLAS = 'aprobadas';
 
 /** Forma cruda de una plantilla en la respuesta de Meta (solo lo que usamos). */
 interface PlantillaMeta {
@@ -76,6 +78,8 @@ export interface PlantillaResumen {
 export interface AgenteResumen {
   id: string;
   nombre: string;
+  rol: Rol;
+  lineasWhatsapp: { lineaId: string }[];
 }
 
 /**
@@ -91,21 +95,6 @@ export interface AgenteResumen {
  * de la misma regla en sitios distintos terminan divergiendo. Si cambias una,
  * cambias la otra — están pegadas para que se note.
  */
-function whereVisibilidad(soloAgenteId?: string): Prisma.ConversacionWhereInput | undefined {
-  if (!soloAgenteId) return undefined;
-  return {
-    OR: [
-      { agenteId: soloAgenteId },
-      { agenteId: null },
-      /* Sus pacientes, aunque otra agente haya contestado el chat.
-         `enviarMensaje` reclama la conversación del pool para quien responde,
-         pero NO mueve `Cliente.agenteId`: sin esta rama, que una compañera
-         conteste una vez le quita a la dueña de la paciente el chat de su
-         propia paciente — y con él el seguimiento y la comisión. */
-      { cliente: { agenteId: soloAgenteId } },
-    ],
-  };
-}
 
 /**
  * Filtro "Solo míos" del inbox: asignadas a mí o sin dueño.
@@ -194,6 +183,7 @@ function whereAgente(agenteId: string | undefined): Prisma.ConversacionWhereInpu
  */
 const SELECT_INBOX = {
   id: true,
+  linea: { select: SELECT_LINEA },
   updatedAt: true,
   esperandoRespuesta: true,
   cliente: {
@@ -269,7 +259,8 @@ function aFilaDeInbox(fila: FilaCruda): ConversacionDeInbox {
   const { _count, ...resto } = fila;
   return {
     ...resto,
-    agente: fila.agente ?? fila.cliente?.agente ?? null,
+    cliente: fila.linea.comercial ? fila.cliente : { ...fila.cliente, agente: null },
+    agente: fila.agente ?? (fila.linea.comercial ? fila.cliente?.agente : null) ?? null,
     noLeidosCount: _count.mensajes,
   };
 }
@@ -292,18 +283,6 @@ function tipoSegunMime(mime: string | undefined): TipoMensaje {
   return 'DOCUMENTO';
 }
 
-/** Contraparte en memoria de `whereVisibilidad`, para las lecturas por ID. */
-function puedeVerConversacion(
-  conversacion: { agenteId: string | null; cliente?: { agenteId?: string | null } | null },
-  soloAgenteId?: string,
-): boolean {
-  if (!soloAgenteId) return true;
-  return (
-    conversacion.agenteId === soloAgenteId ||
-    conversacion.agenteId === null ||
-    conversacion.cliente?.agenteId === soloAgenteId
-  );
-}
 
 @Injectable()
 export class ConversacionesService {
@@ -316,6 +295,8 @@ export class ConversacionesService {
     private readonly r2: R2Service,
     private readonly whatsapp: WhatsappCloudService,
     private readonly despachador: DespachadorSalienteService,
+    private readonly lineas: LineasWhatsappService,
+    private readonly memoria: MemoriaAgenteService,
   ) {}
 
   /** Dropdown de asignación del admin: cambia solo al dar de alta o baja a alguien. */
@@ -343,7 +324,7 @@ export class ConversacionesService {
    */
   private readonly cachePlantillas = new CacheMemoria<PlantillaResumen[]>({
     ttlMs: 3_600_000,
-    maxEntradas: 1,
+    maxEntradas: 100,
   });
 
   /**
@@ -381,6 +362,7 @@ export class ConversacionesService {
       whereTab(query.tab, usuarioId),
       whereBusqueda(query.busqueda),
       whereAgente(query.agenteId),
+      query.lineaId ? { lineaId: query.lineaId } : undefined,
     );
 
     const dto = { pagina: query.pagina, limite: query.limite ?? POR_PAGINA_INBOX };
@@ -400,7 +382,7 @@ export class ConversacionesService {
 
     return {
       ...paginar(conversaciones.map(aFilaDeInbox), total, dto),
-      contadores: await this.contadoresInbox(soloAgenteId, usuarioId, query.soloMios),
+      contadores: await this.contadoresInbox(soloAgenteId, usuarioId, query.soloMios, query.lineaId),
     };
   }
 
@@ -420,10 +402,12 @@ export class ConversacionesService {
     soloAgenteId: string | undefined,
     usuarioId: string,
     soloMios?: boolean,
+    lineaId?: string,
   ): Promise<ContadoresInbox> {
     const base = combinar(
       whereVisibilidad(soloAgenteId),
       soloMios ? whereSoloMios(usuarioId) : undefined,
+      lineaId ? { lineaId } : undefined,
     );
 
     const conBase = (extra?: Prisma.ConversacionWhereInput) => combinar(base, extra);
@@ -465,13 +449,14 @@ export class ConversacionesService {
         whereTab(query.tab, usuarioId),
         whereBusqueda(query.busqueda),
         whereAgente(query.agenteId),
+      query.lineaId ? { lineaId: query.lineaId } : undefined,
       ),
       select: SELECT_INBOX,
     });
 
     return {
       conversacion: fila ? aFilaDeInbox(fila) : null,
-      contadores: await this.contadoresInbox(soloAgenteId, usuarioId, query.soloMios),
+      contadores: await this.contadoresInbox(soloAgenteId, usuarioId, query.soloMios, query.lineaId),
     };
   }
 
@@ -482,9 +467,10 @@ export class ConversacionesService {
    *   quién la tenía asignada. 404 en vez de 403 para no confirmar existencia.
    */
   async findOne(id: string, soloAgenteId?: string) {
-    const conversacion = await this.prisma.conversacion.findUnique({
-      where: { id },
+    const conversacion = await this.prisma.conversacion.findFirst({
+      where: { id, ...whereVisibilidad(soloAgenteId) },
       include: {
+        linea: { select: SELECT_LINEA },
         cliente: {
           select: {
             id: true,
@@ -513,7 +499,7 @@ export class ConversacionesService {
         mensajes: { orderBy: { createdAt: 'desc' }, take: LIMITE_MENSAJES_DETALLE },
       },
     });
-    if (!conversacion || !puedeVerConversacion(conversacion, soloAgenteId)) {
+    if (!conversacion) {
       throw new NotFoundException(`Conversación ${id} no encontrada`);
     }
     conversacion.mensajes.reverse();
@@ -529,7 +515,8 @@ export class ConversacionesService {
     );
     return {
       ...conversacion,
-      agente: conversacion.agente ?? conversacion.cliente?.agente ?? null,
+      agente: conversacion.agente ?? (conversacion.linea.comercial ? conversacion.cliente?.agente : null) ?? null,
+      cliente: conversacion.linea.comercial ? conversacion.cliente : { ...conversacion.cliente, datosExtra: null, intereses: [], agente: null, agenteId: null },
       mensajes,
     };
   }
@@ -614,16 +601,17 @@ export class ConversacionesService {
    *  la usan `enviarMensaje`/`asignarAgente`, que solo necesitan confirmar
    *  dueño + el teléfono del cliente, no el historial completo del chat. */
   private async obtenerConversacionPropia(id: string, soloAgenteId?: string) {
-    const conversacion = await this.prisma.conversacion.findUnique({
-      where: { id },
+    const conversacion = await this.prisma.conversacion.findFirst({
+      where: { id, ...whereVisibilidad(soloAgenteId) },
       select: {
         id: true,
         agenteId: true,
         clienteId: true,
+        linea: { select: SELECT_LINEA },
         cliente: { select: { telefono: true, agenteId: true } },
       },
     });
-    if (!conversacion || !puedeVerConversacion(conversacion, soloAgenteId)) {
+    if (!conversacion) {
       throw new NotFoundException(`Conversación ${id} no encontrada`);
     }
     return conversacion;
@@ -682,6 +670,11 @@ export class ConversacionesService {
   ) {
     const conversacion = await this.obtenerConversacionPropia(conversacionId, soloAgenteId);
     await this.verificarVentana24h(conversacionId);
+    if (adjunto?.mediaKey) {
+      const propia = await this.memoria.poseeArchivo(agenteId, adjunto.mediaKey);
+      const delChat = propia ? null : await this.prisma.mensaje.findFirst({ where: { mediaKey: adjunto.mediaKey, conversacionId }, select: { id: true } });
+      if (!propia && !delChat) throw new NotFoundException('Adjunto no encontrado en esta conversación ni en tu memoria');
+    }
 
     /* Un solo round-trip a la base para ambos writes, y atómico: si el update
        de la conversación falla, no queda un mensaje huérfano sin reflejarse
@@ -736,7 +729,7 @@ export class ConversacionesService {
        que el mensaje quedaba guardado en el CRM y NO SALÍA hacia la paciente.
        La agente veía un 500 sobre un mensaje que ya aparecía en el hilo, y al
        reintentar lo duplicaba. */
-    await this.clientesService
+    if (conversacion.linea.comercial) await this.clientesService
       .reclamarSiNoTieneDuena(conversacion.clienteId, agenteId, agenteId)
       .catch(error =>
         this.logger.error(
@@ -796,7 +789,15 @@ export class ConversacionesService {
     whatsappMsgId: string,
     status: string,
     referencia?: string,
+    lineaId?: string,
   ): Promise<void> {
+    if (lineaId) {
+      const reconocido = await this.prisma.mensaje.findFirst({ where: {
+        conversacion: { lineaId },
+        OR: [{ whatsappMsgId }, ...(referencia ? [{ id: referencia, whatsappMsgId: null }] : [])],
+      }, select: { id: true } });
+      if (!reconocido) return;
+    }
     let mensaje = await this.prisma.mensaje.findUnique({ where: { whatsappMsgId } });
 
     if (!mensaje && referencia) {
@@ -875,19 +876,23 @@ export class ConversacionesService {
    * Solo las aprobadas se pueden enviar (Meta rechaza el resto). Se piden los
    * campos mínimos que la UI necesita para previsualizar y contar variables.
    */
-  async listarPlantillas(forceRefresh = false): Promise<PlantillaResumen[]> {
+  async listarPlantillas(forceRefresh = false, lineaId?: string, soloAgenteId?: string): Promise<PlantillaResumen[]> {
+    if (!lineaId) return [];
+    const linea = await this.lineas.porId(lineaId, soloAgenteId);
+    const cuenta = this.lineas.credenciales(linea);
+    const clave = `${linea.id}:${cuenta?.wabaId ?? ''}`;
     if (!forceRefresh) {
-      const cacheado = this.cachePlantillas.obtener(CLAVE_PLANTILLAS);
+      const cacheado = this.cachePlantillas.obtener(clave);
       if (cacheado) return cacheado;
     }
 
     try {
-      const crudas = await this.whatsapp.listarPlantillas();
+      const crudas = await this.whatsapp.listarPlantillas(cuenta);
       /* null = no se pudieron pedir. Se devuelve lo último bueno que hubiera en
          caché antes que una lista vacía: un selector vacío parece "no tienes
          plantillas", que es otra cosa. Por eso se pide "aunque haya vencido":
          justo cuando Meta no responde es cuando la entrada suele estar caducada. */
-      if (!crudas) return this.cachePlantillas.obtenerAunqueVencido(CLAVE_PLANTILLAS) ?? [];
+      if (!crudas) return this.cachePlantillas.obtenerAunqueVencido(clave) ?? [];
 
       const data = { data: crudas as PlantillaMeta[] };
       const resultado = (data.data ?? [])
@@ -905,11 +910,11 @@ export class ConversacionesService {
           };
         });
 
-      this.cachePlantillas.guardar(CLAVE_PLANTILLAS, resultado);
+      this.cachePlantillas.guardar(clave, resultado);
       return resultado;
     } catch (error) {
       this.logger.error('Excepción al listar plantillas de Meta', error);
-      return this.cachePlantillas.obtenerAunqueVencido(CLAVE_PLANTILLAS) ?? [];
+      return this.cachePlantillas.obtenerAunqueVencido(clave) ?? [];
     }
   }
 
@@ -964,13 +969,7 @@ export class ConversacionesService {
    * como en cualquier CRM de primer nivel. Fire-and-forget: nunca demora la UI.
    */
   async marcarLeido(conversacionId: string, soloAgenteId?: string, typing = false): Promise<{ ok: boolean }> {
-    const conv = await this.prisma.conversacion.findUnique({
-      where: { id: conversacionId },
-      select: { id: true, agenteId: true, cliente: { select: { agenteId: true } } },
-    });
-    if (!conv || !puedeVerConversacion(conv, soloAgenteId)) {
-      return { ok: false };
-    }
+    await this.obtenerConversacionPropia(conversacionId, soloAgenteId);
 
     /* Marca todos los mensajes entrantes sin leer como leídos en la BD */
     await this.prisma.mensaje.updateMany({
@@ -987,50 +986,45 @@ export class ConversacionesService {
     const msgIdEntrante = ultimoEntrante?.whatsappMsgId;
     if (msgIdEntrante) {
       void enSegundoPlano('acuse de lectura hacia Meta', this.logger, () =>
-        this.enviarEstadoLectura(msgIdEntrante, typing),
+        this.enviarEstadoLectura(msgIdEntrante, typing, conversacionId),
       );
     }
     return { ok: true };
   }
 
   /** Ver `marcarLeido`: se dispara sin await a propósito. */
-  private async enviarEstadoLectura(whatsappMsgId: string, typing: boolean): Promise<void> {
-    await this.whatsapp.marcarLeido(whatsappMsgId, typing);
+  private async enviarEstadoLectura(whatsappMsgId: string, typing: boolean, conversacionId: string): Promise<void> {
+    await this.whatsapp.marcarLeido(whatsappMsgId, typing, await this.lineas.cuentaDeConversacion(conversacionId));
   }
 
-  /**
-   * Asignar/reasignar un agente a una conversación (solo ADMIN).
-   *
-   * Reasignar un chat arrastra al cliente y a sus leads — si no, el inbox diría
-   * una cosa y Oportunidades otra. Pero esas dos tablas son de otros dominios:
-   * antes se escribían aquí con `prisma.cliente.update` y `prisma.lead.updateMany`,
-   * saltándose la regla de oro nº1 y, de paso, la auditoría. `ClientesService.update()`
-   * ya hacía exactamente esta cascada (cliente + leads + conversaciones) y además
-   * registra en `AuditLog`, así que la reasignación es suya y aquí solo se pide.
-   */
+  /** Reasignar solo este chat; la atribución comercial del paciente no cambia. */
   async asignarAgente(conversacionId: string, agenteId: string | null, usuarioId?: string) {
     const conversacion = await this.prisma.conversacion.findUnique({
       where: { id: conversacionId },
-      select: { id: true, clienteId: true },
+      select: { id: true, clienteId: true, lineaId: true },
     });
     if (!conversacion) {
       throw new NotFoundException(`Conversación ${conversacionId} no encontrada`);
     }
 
     if (agenteId) {
-      const agente = await this.prisma.usuario.findUnique({ where: { id: agenteId } });
+      const agente = await this.prisma.usuario.findFirst({ where: { id: agenteId, activo: true, OR: [{ rol: { in: ['ADMIN', 'SUPER_ADMIN'] } }, { lineasWhatsapp: { some: { lineaId: conversacion.lineaId } } }] } });
       if (!agente || !agente.activo) {
         throw new NotFoundException(`Agente ${agenteId} no encontrado o inactivo`);
       }
     }
 
-    await this.clientesService.update(conversacion.clienteId, { agenteId }, usuarioId);
+    await this.prisma.$transaction([
+      this.prisma.conversacion.update({ where: { id: conversacionId }, data: { agenteId } }),
+      this.prisma.auditLog.create({ data: { entidad: 'Conversacion', entidadId: conversacionId, accion: 'AGENTE_ASIGNADO', usuarioId, cambios: { agenteId } } }),
+    ]);
+    this.gateway.emitirActividad(conversacionId);
 
-    /* Se relee para devolver la misma forma de antes: el update vive en Clientes
-       y devuelve un cliente, no la conversación que espera el inbox. */
+    /* La respuesta incluye la identidad de la línea. */
     const actualizada = await this.prisma.conversacion.findUniqueOrThrow({
       where: { id: conversacionId },
       include: {
+        linea: { select: SELECT_LINEA },
         cliente: {
           select: {
             id: true,
@@ -1046,7 +1040,7 @@ export class ConversacionesService {
 
     return {
       ...actualizada,
-      agente: actualizada.agente ?? actualizada.cliente?.agente ?? null,
+      agente: actualizada.agente,
     };
   }
 
@@ -1055,7 +1049,7 @@ export class ConversacionesService {
     return this.cacheAgentes.resolver(CLAVE_AGENTES, () =>
       this.prisma.usuario.findMany({
         where: { activo: true },
-        select: { id: true, nombre: true, rol: true },
+        select: { id: true, nombre: true, rol: true, lineasWhatsapp: { select: { lineaId: true } } },
         orderBy: { nombre: 'asc' },
       }),
     );

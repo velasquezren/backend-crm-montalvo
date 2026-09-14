@@ -26,6 +26,7 @@ datasource db {
 }
 
 enum Rol {
+  RECEPCION
   /// Manda sobre todo: gestiona agentes (les asigna el código de empresa) e
   /// importa el Excel de la planilla. Cubre todo lo que puede hacer un ADMIN.
   SUPER_ADMIN
@@ -91,6 +92,7 @@ model Usuario {
   intereses             Interes[]
   leads                 Lead[]
   conversaciones        Conversacion[]
+  lineasWhatsapp        AccesoLineaWhatsapp[]
   ventas                Venta[]
   plantillas            PlantillaAgente[]
   recursosMemoria       RecursoMemoriaAgente[]
@@ -249,13 +251,38 @@ model Lead {
   @@index([agenteId, estado])
 }
 
+model LineaWhatsapp {
+  id             String @id @default(uuid())
+  nombre         String @db.VarChar(120)
+  telefono       String? @unique @db.VarChar(20)
+  phoneNumberId  String? @unique @db.VarChar(80)
+  wabaId         String? @db.VarChar(80)
+  /// Nombre de variable del servidor; nunca se almacena ni devuelve el token.
+  tokenEnv       String @db.VarChar(100)
+  activa         Boolean @default(false)
+  comercial      Boolean @default(false)
+  usuarios       AccesoLineaWhatsapp[]
+  conversaciones Conversacion[]
+}
+
+model AccesoLineaWhatsapp {
+  usuarioId String
+  lineaId   String
+  usuario   Usuario @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  linea     LineaWhatsapp @relation(fields: [lineaId], references: [id], onDelete: Cascade)
+
+  @@id([usuarioId, lineaId])
+  @@index([lineaId])
+}
+
 model Conversacion {
   id                 String    @id @default(uuid())
   cliente            Cliente   @relation(fields: [clienteId], references: [id], onDelete: Cascade)
-  /// Único: un inbox de WhatsApp tiene UN hilo por contacto (igual que la app
-  /// de WhatsApp). Además cierra la race de dos webhooks entrantes simultáneos
-  /// creando dos conversaciones para el mismo cliente — ver procesarEntrante.
-  clienteId          String    @unique
+  /// Un hilo por contacto y línea; la restricción compuesta evita duplicados
+  /// cuando llegan webhooks simultáneos del mismo paciente al mismo número.
+  clienteId          String
+  lineaId            String @default("00000000-0000-4000-8000-000000000001")
+  linea              LineaWhatsapp @relation(fields: [lineaId], references: [id])
   agente             Usuario?  @relation(fields: [agenteId], references: [id])
   agenteId           String?
   mensajes           Mensaje[]
@@ -283,6 +310,8 @@ model Conversacion {
   @@index([agenteId])
   @@index([updatedAt])
   @@index([agenteId, updatedAt])
+  @@unique([clienteId, lineaId])
+  @@index([lineaId, updatedAt])
   /// Sirve al filtro y al contador de la pestaña "Sin responder" a la vez.
   @@index([esperandoRespuesta, updatedAt])
 }

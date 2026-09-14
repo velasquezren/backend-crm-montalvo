@@ -1,7 +1,14 @@
 import { Rol } from '../../../prisma/prisma-client';
-import { IsEmail, IsEnum, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
+import { ArrayMaxSize, ArrayUnique, IsArray, IsUUID, IsEmail, IsEnum, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
 
 export class CreateUsuarioDto {
+  @IsOptional()
+  @IsArray()
+  @ArrayUnique()
+  @ArrayMaxSize(100)
+  @IsUUID('all', { each: true })
+  lineaIds?: string[];
+
   @IsString()
   @MinLength(2)
   nombre!: string;

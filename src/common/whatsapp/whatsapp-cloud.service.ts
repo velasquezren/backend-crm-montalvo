@@ -1,5 +1,4 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 
 /**
  * Único punto del CRM que habla con la Cloud API de Meta.
@@ -63,33 +62,12 @@ export type ContenidoMensaje =
   | { type: 'template'; template: Record<string, unknown> }
   | { type: 'interactive'; interactive: Record<string, unknown> };
 
+export interface CredencialesWhatsapp { token: string; phoneId: string; wabaId?: string; }
+
 @Injectable()
 export class WhatsappCloudService {
   private readonly logger = new Logger(WhatsappCloudService.name);
 
-  constructor(private readonly config: ConfigService) {}
-
-  /**
-   * Ambos pares admiten dos nombres por historia del `.env` de producción, que
-   * los tiene duplicados. Se resuelve aquí y en ningún otro sitio.
-   */
-  private get token(): string | undefined {
-    return (
-      this.config.get<string>('WHATSAPP_TOKEN') || this.config.get<string>('WHATSAPP_ACCESS_TOKEN')
-    );
-  }
-
-  private get phoneId(): string | undefined {
-    return (
-      this.config.get<string>('WHATSAPP_PHONE_ID') ||
-      this.config.get<string>('WHATSAPP_PHONE_NUMBER_ID')
-    );
-  }
-
-  /** Sin credenciales el CRM sigue funcionando: guarda el mensaje y no lo manda. */
-  get habilitado(): boolean {
-    return Boolean(this.token && this.phoneId);
-  }
 
   /**
    * Envía un mensaje y dice **qué pasó**, no solo si tenemos su id.
@@ -115,9 +93,10 @@ export class WhatsappCloudService {
   async enviar(
     telefono: string,
     contenido: ContenidoMensaje,
-    referencia?: string,
+    referencia: string | undefined,
+    cuenta: CredencialesWhatsapp | null,
   ): Promise<ResultadoEnvio> {
-    if (!this.habilitado) {
+    if (!cuenta) {
       return { estado: 'NO_SALIO', motivo: 'WhatsApp deshabilitado: faltan token o phoneId' };
     }
 
@@ -128,9 +107,9 @@ export class WhatsappCloudService {
     const destino = telefono.replace(/\D/g, '');
 
     try {
-      const respuesta = await fetch(`${BASE}/${this.phoneId}/messages`, {
+      const respuesta = await fetch(`${BASE}/${cuenta.phoneId}/messages`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${this.token}`, 'Content-Type': 'application/json' },
+        headers: { Authorization: `Bearer ${cuenta.token}`, 'Content-Type': 'application/json' },
         signal: AbortSignal.timeout(ESPERA_MS),
         body: JSON.stringify({
           messaging_product: 'whatsapp',
@@ -176,13 +155,13 @@ export class WhatsappCloudService {
    * No devuelve nada útil: es cosmético para el paciente y su fallo no cambia
    * nada del CRM.
    */
-  async marcarLeido(whatsappMsgId: string, typing = false): Promise<void> {
-    if (!this.habilitado) return;
+  async marcarLeido(whatsappMsgId: string, typing: boolean, cuenta: CredencialesWhatsapp | null): Promise<void> {
+    if (!cuenta) return;
 
     try {
-      const respuesta = await fetch(`${BASE}/${this.phoneId}/messages`, {
+      const respuesta = await fetch(`${BASE}/${cuenta.phoneId}/messages`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${this.token}`, 'Content-Type': 'application/json' },
+        headers: { Authorization: `Bearer ${cuenta.token}`, 'Content-Type': 'application/json' },
         signal: AbortSignal.timeout(ESPERA_MS),
         body: JSON.stringify({
           messaging_product: 'whatsapp',
@@ -200,14 +179,14 @@ export class WhatsappCloudService {
   }
 
   /** Plantillas aprobadas de la WABA. Devuelve null si no se pudieron pedir. */
-  async listarPlantillas(): Promise<unknown[] | null> {
-    const wabaId = this.config.get<string>('WHATSAPP_WABA_ID');
-    if (!this.token || !wabaId) return null;
+  async listarPlantillas(cuenta: CredencialesWhatsapp | null): Promise<unknown[] | null> {
+    const wabaId = cuenta?.wabaId;
+    if (!cuenta || !wabaId) return null;
 
     try {
       const url = `${BASE}/${wabaId}/message_templates?fields=name,status,category,language,components&limit=100`;
       const respuesta = await fetch(url, {
-        headers: { Authorization: `Bearer ${this.token}` },
+        headers: { Authorization: `Bearer ${cuenta.token}` },
         signal: AbortSignal.timeout(ESPERA_MS),
       });
       if (!respuesta.ok) {
@@ -223,11 +202,11 @@ export class WhatsappCloudService {
   }
 
   /** `media_id` → URL temporal (5 min) desde donde bajar el archivo. */
-  async urlDeMedia(mediaId: string): Promise<string | null> {
-    if (!this.token) return null;
+  async urlDeMedia(mediaId: string, cuenta: CredencialesWhatsapp | null): Promise<string | null> {
+    if (!cuenta) return null;
     try {
       const respuesta = await fetch(`${BASE}/${mediaId}`, {
-        headers: { Authorization: `Bearer ${this.token}` },
+        headers: { Authorization: `Bearer ${cuenta.token}` },
         signal: AbortSignal.timeout(ESPERA_MS),
       });
       if (!respuesta.ok) {
@@ -243,11 +222,11 @@ export class WhatsappCloudService {
   }
 
   /** El CDN de Meta también exige el token. */
-  async descargarMedia(url: string): Promise<Response | null> {
-    if (!this.token) return null;
+  async descargarMedia(url: string, cuenta: CredencialesWhatsapp | null): Promise<Response | null> {
+    if (!cuenta) return null;
     try {
       const respuesta = await fetch(url, {
-        headers: { Authorization: `Bearer ${this.token}` },
+        headers: { Authorization: `Bearer ${cuenta.token}` },
         /* Más holgado que el resto: esto baja el archivo, no un JSON. */
         signal: AbortSignal.timeout(ESPERA_MEDIA_MS),
       });

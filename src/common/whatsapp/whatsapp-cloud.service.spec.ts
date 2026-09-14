@@ -1,4 +1,3 @@
-import { ConfigService } from '@nestjs/config';
 
 import { WhatsappCloudService } from './whatsapp-cloud.service';
 
@@ -10,16 +9,14 @@ import { WhatsappCloudService } from './whatsapp-cloud.service';
  * cada corrida de pruebas no es una opción.
  */
 
-function servicio(config: Record<string, string> = {}): WhatsappCloudService {
-  const s = new WhatsappCloudService({
-    get: (clave: string) => config[clave],
-  } as ConfigService);
+function servicio(): WhatsappCloudService {
+  const s = new WhatsappCloudService();
   jest.spyOn(s['logger'], 'error').mockImplementation(() => undefined);
   jest.spyOn(s['logger'], 'warn').mockImplementation(() => undefined);
   return s;
 }
 
-const CREDENCIALES = { WHATSAPP_TOKEN: 'tok', WHATSAPP_PHONE_ID: '123' };
+const CUENTA = { token: 'tok', phoneId: '123' };
 
 /** Respuesta de Meta cuando acepta el mensaje. */
 function respuestaOk(id = 'wamid.abc') {
@@ -31,30 +28,10 @@ afterEach(() => {
 });
 
 describe('WhatsappCloudService', () => {
-  describe('credenciales', () => {
-    it('sin token o sin phoneId queda deshabilitado y no llama a nadie', async () => {
-      const fetchSpy = jest.fn();
-      global.fetch = fetchSpy as unknown as typeof fetch;
-
-      expect(servicio({}).habilitado).toBe(false);
-      expect(servicio({ WHATSAPP_TOKEN: 'tok' }).habilitado).toBe(false);
-      expect(servicio({ WHATSAPP_PHONE_ID: '123' }).habilitado).toBe(false);
-
-      expect(
-        (await servicio({}).enviar('+59170000001', { type: 'text', text: { body: 'x' } })).estado,
-      ).toBe('NO_SALIO');
-      expect(fetchSpy).not.toHaveBeenCalled();
-    });
-
-    /* El `.env` de producción tiene los dos nombres de cada par por historia.
-       Se resuelven aquí y en ningún otro sitio: antes se leían en cuatro
-       métodos y rotar solo uno dejaba envíos usando el viejo en silencio. */
-    it('acepta los dos nombres de cada variable', () => {
-      expect(servicio(CREDENCIALES).habilitado).toBe(true);
-      expect(
-        servicio({ WHATSAPP_ACCESS_TOKEN: 'tok', WHATSAPP_PHONE_NUMBER_ID: '123' }).habilitado,
-      ).toBe(true);
-    });
+  it('una cuenta sin configurar no llama a Meta', async () => {
+    const fetchSpy = jest.spyOn(global, 'fetch');
+    expect((await servicio().enviar('+59170000001', { type: 'text', text: { body: 'x' } }, undefined, null)).estado).toBe('NO_SALIO');
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 
   describe('enviar', () => {
@@ -62,10 +39,10 @@ describe('WhatsappCloudService', () => {
       const fetchSpy = jest.fn().mockResolvedValue(respuestaOk('wamid.xyz'));
       global.fetch = fetchSpy as unknown as typeof fetch;
 
-      const resultado = await servicio(CREDENCIALES).enviar('+591 70000001', {
+      const resultado = await servicio().enviar('+591 70000001', {
         type: 'text',
         text: { body: 'Hola' },
-      });
+      }, undefined, CUENTA);
 
       expect(resultado).toEqual({ estado: 'ENVIADO', metaMsgId: 'wamid.xyz' });
       const [url, opciones] = fetchSpy.mock.calls[0];
@@ -81,10 +58,10 @@ describe('WhatsappCloudService', () => {
       const fetchSpy = jest.fn().mockResolvedValue(respuestaOk());
       global.fetch = fetchSpy as unknown as typeof fetch;
 
-      await servicio(CREDENCIALES).enviar('+59170000001', {
+      await servicio().enviar('+59170000001', {
         type: 'interactive',
         interactive: { type: 'button', body: { text: 'Hola' } },
-      });
+      }, undefined, CUENTA);
 
       const cuerpo = JSON.parse(fetchSpy.mock.calls[0][1].body);
       expect(cuerpo.interactive.type).toBe('button');
@@ -102,7 +79,7 @@ describe('WhatsappCloudService', () => {
       }) as unknown as typeof fetch;
 
       await expect(
-        servicio(CREDENCIALES).enviar('+59170000001', { type: 'text', text: { body: 'x' } }),
+        servicio().enviar('+59170000001', { type: 'text', text: { body: 'x' } }, undefined, CUENTA),
       ).resolves.toEqual({ estado: 'NO_SALIO', motivo: expect.stringContaining('400') });
     });
 
@@ -116,7 +93,7 @@ describe('WhatsappCloudService', () => {
       }) as unknown as typeof fetch;
 
       await expect(
-        servicio(CREDENCIALES).enviar('+59170000001', { type: 'text', text: { body: 'x' } }),
+        servicio().enviar('+59170000001', { type: 'text', text: { body: 'x' } }, undefined, CUENTA),
       ).resolves.toEqual({ estado: 'INCIERTO', motivo: expect.stringContaining('503') });
     });
 
@@ -124,7 +101,7 @@ describe('WhatsappCloudService', () => {
       global.fetch = jest.fn().mockRejectedValue(new Error('sin red')) as unknown as typeof fetch;
 
       await expect(
-        servicio(CREDENCIALES).enviar('+59170000001', { type: 'text', text: { body: 'x' } }),
+        servicio().enviar('+59170000001', { type: 'text', text: { body: 'x' } }, undefined, CUENTA),
       ).resolves.toEqual({ estado: 'INCIERTO', motivo: expect.any(String) });
     });
 
@@ -134,7 +111,7 @@ describe('WhatsappCloudService', () => {
         .mockResolvedValue({ ok: true, status: 200, json: async () => ({}) }) as unknown as typeof fetch;
 
       await expect(
-        servicio(CREDENCIALES).enviar('+59170000001', { type: 'text', text: { body: 'x' } }),
+        servicio().enviar('+59170000001', { type: 'text', text: { body: 'x' } }, undefined, CUENTA),
       ).resolves.toEqual({ estado: 'INCIERTO', motivo: expect.stringContaining('sin id') });
     });
   });
@@ -143,18 +120,18 @@ describe('WhatsappCloudService', () => {
     it('manda el id del mensaje y el indicador solo si se pide', async () => {
       const fetchSpy = jest.fn().mockResolvedValue({ ok: true, status: 200 });
       global.fetch = fetchSpy as unknown as typeof fetch;
-      const s = servicio(CREDENCIALES);
+      const s = servicio();
 
-      await s.marcarLeido('wamid.in', false);
+      await s.marcarLeido('wamid.in', false, CUENTA);
       expect(JSON.parse(fetchSpy.mock.calls[0][1].body).typing_indicator).toBeUndefined();
 
-      await s.marcarLeido('wamid.in', true);
+      await s.marcarLeido('wamid.in', true, CUENTA);
       expect(JSON.parse(fetchSpy.mock.calls[1][1].body).typing_indicator).toEqual({ type: 'text' });
     });
 
     it('no lanza si Meta falla', async () => {
       global.fetch = jest.fn().mockRejectedValue(new Error('x')) as unknown as typeof fetch;
-      await expect(servicio(CREDENCIALES).marcarLeido('wamid.in')).resolves.toBeUndefined();
+      await expect(servicio().marcarLeido('wamid.in', false, CUENTA)).resolves.toBeUndefined();
     });
   });
 
@@ -165,12 +142,12 @@ describe('WhatsappCloudService', () => {
         json: async () => ({ url: 'https://cdn.meta/x' }),
       }) as unknown as typeof fetch;
 
-      expect(await servicio(CREDENCIALES).urlDeMedia('media-1')).toBe('https://cdn.meta/x');
+      expect(await servicio().urlDeMedia('media-1', CUENTA)).toBe('https://cdn.meta/x');
     });
 
     it('null si Meta no la da', async () => {
       global.fetch = jest.fn().mockResolvedValue({ ok: false, status: 404 }) as unknown as typeof fetch;
-      expect(await servicio(CREDENCIALES).urlDeMedia('media-1')).toBeNull();
+      expect(await servicio().urlDeMedia('media-1', CUENTA)).toBeNull();
     });
 
     /* El CDN de Meta también exige el token: sin él la descarga da 401. */
@@ -178,7 +155,7 @@ describe('WhatsappCloudService', () => {
       const fetchSpy = jest.fn().mockResolvedValue({ ok: true });
       global.fetch = fetchSpy as unknown as typeof fetch;
 
-      await servicio(CREDENCIALES).descargarMedia('https://cdn.meta/x');
+      await servicio().descargarMedia('https://cdn.meta/x', CUENTA);
 
       expect(fetchSpy.mock.calls[0][1].headers.Authorization).toBe('Bearer tok');
     });

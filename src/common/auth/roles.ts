@@ -14,6 +14,7 @@ import { UsuarioJwt } from '../decorators/current-user.decorator';
 
 /** Cada rol cubre a los de rango menor. */
 export const RANGO_ROL: Readonly<Record<Rol, number>> = {
+  [Rol.RECEPCION]: 0,
   [Rol.AGENTE]: 1,
   [Rol.ADMIN]: 2,
   [Rol.SUPER_ADMIN]: 3,
