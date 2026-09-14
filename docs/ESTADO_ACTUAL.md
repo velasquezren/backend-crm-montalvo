@@ -1,5 +1,42 @@
 # Estado actual
 
+## 14 de septiembre de 2026 (cierre) · barrido de duplicación — DESPLEGADO
+
+Frontend en **`2af3575`**, verificado contra Vercel: `styles-I3DSGGZR.css` y el
+chunk del helper de teléfono **idénticos byte a byte** al build local, con **una
+sola** construcción de `wa.me` y **cero** rastro del prefijo `591`. Backend sin
+cambios, sigue en `7194843`.
+
+**El fallo que encontró el barrido.** El enlace de WhatsApp estaba escrito
+CUATRO veces con dos nombres, y dos copias anteponían el prefijo de Bolivia «si
+faltaba». Con un número que ya trae su país eso da un enlace muerto: una
+paciente de México (+52 1 55 1234 5678) salía como `wa.me/5915215512345678`
+desde Actividades y Ventas, y correcta desde el chat. No fallaba con error —
+abría un chat con un número inexistente. El `591` nunca hizo falta:
+`Cliente.telefono` siempre llega internacional porque el DTO lo exige con
+`@IsPhoneNumber()` sin región.
+
+**Lo demás del mismo barrido** (detector de cuerpos de función idénticos; el
+comando queda en `crm-feature-page`): `nombreMes` tenía **seis** copias con tres
+fallbacks distintos para un mes fuera de 1-12 —`Mes 13`, `13` y **cadena
+vacía**—, y la última dejaba una etiqueta de periodo invisible en Comisiones.
+`MESES` vivía en un feature y lo importaba un átomo de `shared/` (dependencia al
+revés). Las etiquetas de paciente estaban duplicadas con dos nombres.
+
+De los once candidatos se extrajeron cuatro; los siete restantes son
+delegaciones de una línea y se dejaron a propósito. El criterio quedó escrito:
+si la duplicación puede dar dos respuestas distintas a la misma pregunta de
+negocio, se extrae.
+
+**Además:** el punto de `.crm-linea` pasó a `secondary` (el token declarado para
+indicadores); el filtro de líneas del inbox dejó de ser un `<select>` a mano y
+desaparece cuando solo hay una línea; y `/lineas-whatsapp` entró a la caché de
+referencia, con prueba de que `/lineas-whatsapp/:id` NO se cachea.
+
+Validación: build sin avisos de presupuesto, **142 pruebas frontend / 15 suites**
+(eran 98 al empezar el día).
+
+
 ## 14 de septiembre de 2026 (noche) · contexto de campaña de Meta — DESPLEGADO
 
 | Repo | Commit | Cómo se comprobó |
