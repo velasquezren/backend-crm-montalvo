@@ -6,8 +6,11 @@ Se implementaron catálogo de cuatro líneas (actual + tres nuevas), rol RECEPCI
 asignación explícita por usuario y aislamiento de conversaciones en backend y frontend.
 La migración conserva el historial comercial. [Diseño, activación y límites](lineas-whatsapp.md).
 Las tres líneas nuevas quedan desactivadas hasta completar el alta en Meta y sus credenciales.
-No se ha realizado despliegue ni activación de números reales en esta sesión.
-Validación: builds correctos, 93 pruebas frontend, 509 unitarias backend y 376 casos de integración reportados; migración con historial ficticio comprobada. Se conserva la limitación de las pruebas financieras sin Excel privados.
+Backend desplegado el 14-09-2026 (`8ef88c1`) con migración y respaldo verificado.
+Se corrigió el desfase con Vercel: frontend publicado antes de actualizar el VPS.
+Producción conserva 423 chats y 3.160 mensajes en ventas; los dos agentes conservan acceso.
+Las tres líneas nuevas siguen pendientes de conexión real con Meta.
+Validación: builds correctos, 98 pruebas frontend, 509 unitarias backend y 376 casos de integración reportados; migración con historial ficticio comprobada. Se conserva la limitación de las pruebas financieras sin Excel privados.
 
 La base de trabajo ya incluía en Git los cambios de Finanzas mencionados abajo.
 Las referencias siguientes a trabajo sin commitear corresponden al handoff histórico del día 10.

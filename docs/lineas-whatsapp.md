@@ -21,7 +21,7 @@ El frontend muestra nombre y número del canal en el hilo y permite filtrar la b
 
 ## Conexión y operación
 
-1. Desplegar backend y frontend coordinadamente y ejecutar `prisma migrate deploy` con respaldo previo. El frontend nuevo requiere la respuesta `linea` del backend nuevo.
+1. Publicar y desplegar **primero el backend**: respaldo, `prisma migrate deploy`, generación del cliente, build y reinicio. Comprobar salud, catálogo de líneas y presencia de `linea` en listado/detalle/resumen. Solo después publicar el frontend: su push a `main` dispara Vercel, mientras que el push del backend no actualiza el VPS. El frontend nuevo requiere la respuesta `linea` del backend nuevo.
 2. Registrar o incorporar cada número en la plataforma de Meta y obtener su **Phone Number ID** y **WABA ID**. El teléfono visible no sustituye esos identificadores.
 3. Configurar las variables del servidor `WHATSAPP_CLIMON_TOKEN`, `WHATSAPP_RECEPCION_TOKEN` y `WHATSAPP_CENTRO_TOKEN`, con acceso a sus cuentas correspondientes. No pegar tokens en el CRM: la pantalla solo pide el nombre de la variable.
 4. Como SUPER_ADMIN, abrir **Líneas de WhatsApp**, completar teléfono, Phone Number ID, WABA ID y referencia de credencial. Habilitar después de comprobar la asociación correcta en Meta. “Configurada” indica presencia de configuración, no una prueba de conectividad en vivo.
@@ -48,3 +48,11 @@ Referencias oficiales para el alta: [WhatsApp Cloud API de Meta](https://www.pos
 La integración se ejecuta exclusivamente contra `crm_test` descartable en loopback: no ejecutar `test:integracion:preparar` sobre una base con datos que deban conservarse. Las pruebas de conciliación de comisiones que dependen de Excel privados mantienen su limitación anterior cuando faltan esos archivos. No se probó el envío a Meta real ni se usó navegador en esta entrega.
 
 Resultado del 14-09-2026: builds de ambos repositorios correctos; 93 pruebas frontend; 509 unitarias backend; 20 suites / 376 casos de integración reportados (22 nuevos de líneas); 9 pruebas del artefacto de build. Los conteos financieros incluyen casos sin aserciones por Excel ausentes. Se comprobó además la migración sobre un historial ficticio previo: conserva mensaje y chat, asigna la línea comercial, conserva el acceso del agente y permite otro chat del mismo paciente en CLIMON.
+
+## Incidente de despliegue del 14-09-2026
+
+Vercel había publicado `ae4ddb8`, pero el VPS seguía en `e80fc9f`: faltaba `/lineas-whatsapp` y los chats no incluían `linea`. Esto produjo “No se pudieron cargar las líneas” y el TypeError al leer `linea.nombre`.
+
+Se respaldó la base (`/root/backups-crm/crm-20260914-004058.sql.gz`, 3.599.151 bytes, `gzip -t` correcto), se desplegó `8ef88c1` y se aplicó `20260913120000_lineas_whatsapp_y_accesos`. Servicio activo y salud pública correctos; cuatro líneas registradas, 423 chats y 3.160 mensajes en ventas; dos agentes existentes con acceso comercial. La línea existente resuelve sus credenciales; las tres nuevas permanecen inactivas y sin conectar.
+
+El frontend valida la identidad del canal antes de incorporar listado, detalle, paginación o resumen realtime. Un contrato incompleto presenta un error recuperable y no habilita el compositor. Los consumidores de recursos con error comprueban `hasValue()` antes de leer `value()`; el respaldo vuelve a pedir el catálogo si falló. Validación de la corrección: 98 pruebas frontend y build correctos, incluidas respuestas antiguas sin canal y recuperación al reintentar. No se enviaron mensajes a pacientes durante la verificación.
