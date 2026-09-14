@@ -1,5 +1,52 @@
 # Estado actual
 
+## 14 de septiembre de 2026 (noche) · contexto de campaña de Meta — DESPLEGADO
+
+| Repo | Commit | Cómo se comprobó |
+| --- | --- | --- |
+| Backend | `7194843` | VPS: binario recompilado 13:23:49, «successfully started», `/health` 200 `baseDatos: ok`, login vacío → 400, periodos sin token → 401, **webhook sin firma / con firma inventada / verify con token malo → 403**, cero errores en el journal |
+| Frontend | `4874622` | Vercel sirve `styles-FNQAEN77.css` y `chunk-KOOJTOJY.js` **idénticos byte a byte** al build local, con el banner nuevo dentro |
+
+Respaldo previo: `/root/backups-crm/crm-20260914-132112.sql.gz`, 3.605.549
+bytes, con el OK del script. Sin migraciones (el dato vive en `datosExtra`, que
+es JSON).
+
+**Se capturaban mal cuatro campos del `referral` de Meta.** Contrastado con la
+referencia oficial del webhook (*Text messages webhook reference*, actualizada
+el 17-jun-2026):
+
+- `welcome_message.text` **no estaba en el DTO**, así que `whitelist: true` lo
+  borraba entero. Es el saludo que el anuncio deja escrito: casi siempre, el
+  primer mensaje literal de la paciente. Mismo modo de fallo que
+  `SuscribirPushDto` en agosto.
+- `media_type`, `thumbnail_url` y `ctwa_clid` estaban declarados pero
+  `extraerReferral` no los mapeaba.
+- **Fallo de atribución real:** un anuncio de VIDEO no trae `image_url` sino
+  `video_url` + `thumbnail_url`. Al mapear solo `image_url`, todos los anuncios
+  de video quedaban sin imagen.
+
+`ctwa_clid` se guarda y **no se muestra**: es lo que la Conversions API pide
+para atribuir una venta a su campaña, solo llega en este webhook y no se puede
+reconstruir después. Hay una prueba que fija que no se filtra a la vista.
+
+**En el frontend, el móvil.** El banner del hilo daba el titular y nada más; el
+cuerpo del anuncio vivía solo en el panel lateral, que en el teléfono hay que
+abrir aparte. Ahora se pliega: cerrado ocupa lo mismo, y un toque despliega
+imagen, cuerpo, saludo y enlace al anuncio.
+
+**Deuda cerrada:** `campanaDe()` estaba duplicada en el hilo y en el panel y las
+copias ya habían divergido —siete campos contra cuatro—, así que el mismo chat
+mostraba distinto contexto según dónde se mirara. Ahora es `campanaOrigenDe()`
+en `shared/models/`, con siete pruebas sobre el contrato de un JSON sin esquema.
+
+Los 423 chats existentes siguen funcionando: todo campo se lee como opcional.
+Contrato completo en el skill `crm-conversaciones`.
+
+Validación: backend 516 unitarias / 33 suites (eran 514) y 376 de integración /
+20 suites contra PostgreSQL real; frontend 126 / 13 suites (eran 119). Sin
+probar contra Meta real ni en navegador, como el resto de esta entrega.
+
+
 ## 14 de septiembre de 2026 (tarde) · pasada de estética — DESPLEGADO
 
 Frontend en **`64eefd9`**, verificado contra Vercel: sirve
