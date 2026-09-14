@@ -1,5 +1,43 @@
 # Estado actual
 
+## 14 de septiembre de 2026 · rendimiento de arranque, campana y webhook — DESPLEGADO
+
+Todo lo de abajo está **commiteado, empujado y en producción**, verificado en el
+servidor y en Vercel, no inferido de Git.
+
+| Repo | Commit | Dónde se comprobó |
+| --- | --- | --- |
+| Backend | `ead8c16` | VPS: binario recompilado 10:57:16, «Nest application successfully started», `/health` 200 `baseDatos: ok`, login sin cuerpo → 400, periodos sin token → 401, cero errores en el journal |
+| Frontend | `47658cc` | Vercel sirve `styles-ZJURO4VW.css` de **72.558 B** (antes 100.985) con **cero** reglas `sx__` |
+
+Respaldo previo al despliegue: `/root/backups-crm/crm-20260914-105405.sql.gz`,
+3.602.885 bytes, con el OK del script. Sin migraciones pendientes.
+
+**Backend** — un `phone_number_id` desconocido ya no devuelve 503 (ver la sección
+siguiente). **Frontend** — tres cosas:
+
+1. `PreloadAllModules` → `PreloadPorRol`. El precargador de Angular no consulta
+   `canActivate` (comprobado en la fuente 21.2.22), así que una agente se bajaba
+   **109,6 kB gzip** de pantallas de ADMIN que no puede abrir.
+2. El tema de Schedule-X sale del paquete inicial: **429,37 → 401,11 kB brutos**,
+   **109,88 → 105,71 kB transferidos**.
+3. Presupuestos de `angular.json` ajustados a la realidad (avisa a 415 kB, falla
+   a 440), en vez de 500 kB/1 MB que dejaban 99 kB de deriva silenciosa.
+
+**Y el bug que reportó el usuario: la campana no se enteraba de lo que pasaba
+fuera de ella.** Completar una reunión desde la página dejaba el badge con el
+número viejo hasta el respaldo de 60 s. La campana (layout, montada siempre) y
+la página tenían cada una su `httpResource` del mismo `/actividades/resumen`, y
+solo quien mutaba recargaba lo suyo; «Actividad Rápida» desde el chat tenía el
+mismo fallo. La invalidación pasó al servicio (`ActividadesService.cambios`).
+Se revisó si el patrón se repetía: de los seis recursos que piden dos
+componentes, los otros cinco son páginas distintas —nunca montadas a la vez— y
+el layout no tiene más estado remoto. Regla en `crm-feature-page`.
+
+Pruebas: backend 514 unitarias / 376 integración; frontend 119 / 12 suites
+(eran 98). Sigue sin probarse contra Meta real ni en navegador.
+
+
 ## 14 de septiembre de 2026 · líneas de WhatsApp
 
 **Corrección posterior del mismo día · el 503 del número desconocido.** El
@@ -40,7 +78,7 @@ Verificado en esta máquina: build correcto, **514 unitarias / 33 suites**
 :5433 (cinco corridas seguidas). Cinco pruebas nuevas del controlador —incluida la que fija que un fallo
 transitorio SIGUE siendo 503— y las dos de integración de línea desconocida
 reescritas a 200 conservando lo que de verdad protegen: no se persiste nada y
-nada cae en ventas. **Sin commitear y sin desplegar.**
+nada cae en ventas. **Desplegado en `ead8c16`** (ver la cabecera de este archivo).
 
 Se implementaron catálogo de cuatro líneas (actual + tres nuevas), rol RECEPCION,
 asignación explícita por usuario y aislamiento de conversaciones en backend y frontend.
