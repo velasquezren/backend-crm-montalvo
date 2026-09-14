@@ -307,6 +307,14 @@ export class WhatsappBanDto {
 export class WhatsappMetadataDto {
   @IsString()
   phone_number_id!: string;
+
+  /* Declarado solo para poder NOMBRAR la línea en el log cuando el número no
+     está registrado: un operador reconoce "+591 62140323", no un id de 15
+     dígitos. Sin decorador no llegaría —`whitelist: true` vacía lo que no se
+     declara— y el aviso quedaría sin el dato que hace falta para arreglarlo. */
+  @IsOptional()
+  @IsString()
+  display_phone_number?: string;
 }
 
 export class WhatsappValueDto {

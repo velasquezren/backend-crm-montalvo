@@ -593,6 +593,34 @@ Con datos reales en la base, revisa siempre el SQL antes de aplicarlo (`--create
   campos que no modelamos) y tras varios 400 Meta desactiva la suscripción. `whitelist` solo ya
   protege contra que un cliente cuele campos inesperados; no lo reactives sin filtrar antes por ruta.
 
+### Un 503 solo vale para fallos TRANSITORIOS
+
+Un 5xx le pide a Meta que reintente el lote. Eso es exactamente lo que quieres
+si lo que falló fue la base: el reintento entra y no se pierde el mensaje. Es lo
+contrario de lo que quieres si el fallo es **permanente** — el reintento va a
+fallar idéntico, para siempre, y Meta acaba desactivando la suscripción. Es la
+misma familia del `forbidNonWhitelisted` de arriba, por otra puerta.
+
+El caso real (2026-09-14): un `metadata.phone_number_id` que no está registrado
+en `LineaWhatsapp` contaba como fallo de persistencia y el POST salía 503. Y las
+cuatro líneas comparten **una sola app de Meta y un solo `META_APP_SECRET`**, así
+que un número sin dar de alta podía dejar mudas a las cuatro — incluida la
+comercial, la única con tráfico real de pacientes. La ventana no es teórica: el
+procedimiento de alta suscribe la app a la WABA *antes* de registrar el Phone
+Number ID en el CRM.
+
+**La regla:** antes de contar algo como `fallos`, pregúntate si un reintento
+podría arreglarlo. Si no, descártalo con 200 y deja un aviso que permita
+recuperarlo a mano. `LineasWhatsappService.desdeWebhook` lo hace explícito en la
+firma —devuelve `null` para «no es nuestro» y lanza para un error de base—, en
+vez de dejar que quien llama lo adivine por el tipo de excepción.
+
+Y el aviso tiene que llevar **lo que hace falta para arreglarlo**: el
+`phone_number_id` (que es lo que se da de alta), el `display_phone_number` legible
+—declarado en el DTO solo para eso, porque `whitelist` lo borraría— y los ids de
+lo descartado. La versión anterior decía `'Webhook sin línea receptora
+registrada'` y nada más: sabías que pasó, no de qué número.
+
   **Consecuencia que muerde:** `whitelist` descarta toda propiedad **sin decorador de
   `class-validator`**. Un DTO declarado sin decoradores no llega incompleto al service —
   llega `{}`, siempre, sin excepción y sin una línea en el log. Pasó con `SuscribirPushDto`
@@ -625,4 +653,4 @@ Verifica **datos, no criterio** — las decisiones y cicatrices de arriba se act
 
 ## Líneas de WhatsApp y recepción (2026-09-13)
 
-`RECEPCION` tiene acceso a conversaciones, perfil, push y recursos propios. Las rutas sin `@Roles` requieren `AGENTE`; los endpoints públicos conservan `@Public`. `ADMIN` y `SUPER_ADMIN` tienen alcance global. Las demás cuentas necesitan membresía explícita `AccesoLineaWhatsapp` además del alcance de asignación. Recepción no admite membresía comercial. La identidad de un chat es `(clienteId, lineaId)`. No usar solo clienteId ni credenciales globales para enviar. El webhook resuelve `metadata.phone_number_id` y confirma HTTP después de persistir, devolviendo 503 si falla un elemento para permitir reintento. Reasignar un chat no cambia el cliente ni los leads.
+`RECEPCION` tiene acceso a conversaciones, perfil, push y recursos propios. Las rutas sin `@Roles` requieren `AGENTE`; los endpoints públicos conservan `@Public`. `ADMIN` y `SUPER_ADMIN` tienen alcance global. Las demás cuentas necesitan membresía explícita `AccesoLineaWhatsapp` además del alcance de asignación. Recepción no admite membresía comercial. La identidad de un chat es `(clienteId, lineaId)`. No usar solo clienteId ni credenciales globales para enviar. El webhook resuelve `metadata.phone_number_id` y confirma HTTP después de persistir, devolviendo 503 si falla un elemento para permitir reintento — **salvo que el número receptor no esté registrado, que se descarta con 200** (ver «Un 503 solo vale para fallos transitorios»). Reasignar un chat no cambia el cliente ni los leads.

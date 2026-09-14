@@ -520,12 +520,19 @@ it("webhook firmado conserva metadata, separa dos líneas del mismo paciente y d
     await prisma.lead.count({ where: { clienteId: chats[0].clienteId } }),
   ).toBe(1);
 });
+/* Responde 200, no 503, ADREDE: un número sin registrar es un fallo permanente
+   y el reintento que pide un 503 nunca podría entrar — Meta acabaría
+   desactivando la suscripción de la app, que es la misma para las cuatro
+   líneas. Lo que NO cambia y es lo que de verdad protege esta prueba: no se
+   persiste nada y nada cae en ventas. */
 it.each([undefined, "999999"])(
-  "webhook con línea desconocida %s devuelve 503 y no cae en ventas",
+  "webhook con línea desconocida %s se descarta con 200 y no cae en ventas",
   async (phoneId) => {
     const antes = await prisma.mensaje.count();
-    expect((await webhook(phoneId, "wamid.no-registrado")).status).toBe(503);
+    const chatsAntes = await prisma.conversacion.count();
+    expect((await webhook(phoneId, "wamid.no-registrado")).status).toBe(200);
     expect(await prisma.mensaje.count()).toBe(antes);
+    expect(await prisma.conversacion.count()).toBe(chatsAntes);
   },
 );
 it("status de otra línea no adopta ni modifica un mensaje saliente", async () => {
@@ -556,12 +563,35 @@ it("push usa el mismo alcance que REST y no avisa de ventas a recepción", async
       select: { id: true },
     })
   ).map((u) => u.id);
-  await esperar(
-    () => push.enviarAUsuario.mock.calls.length === admins.length + 1,
+
+  /* Se miran SOLO los avisos de ESTE chat (por su `tag`) y SOLO los usuarios de
+     esta suite. Antes se exigía un total exacto de llamadas al mock y eso la
+     hacía flaky —2 de cada 4 corridas de la suite completa, nunca al correrla
+     sola—: `crm_test` es compartido y otras tres suites (`autorizacion-http`,
+     `inbox-escala`, `conversaciones`) crean usuarios CON acceso a la línea
+     comercial. Si alguna corre antes —el orden de archivos de jest no es
+     estable entre corridas— esos usuarios son destinatarios LEGÍTIMOS de un
+     chat comercial sin asignar, y el conteo exacto se rompe. No era un fallo
+     del producto: era una prueba afirmando aislamiento de fixtures en vez de
+     permisos. Lo que de verdad protege —quién entra y quién no— se afirma
+     ahora explícitamente, y por eso es más fuerte que el conteo que sustituye. */
+  const avisosDelChat = () =>
+    push.enviarAUsuario.mock.calls
+      .filter((c) => (c[1] as { tag?: string })?.tag === `chat-${comercial}`)
+      .map((c) => c[0] as string);
+
+  await esperar(() =>
+    [usuarios.ventas.id, ...admins].every((id) => avisosDelChat().includes(id)),
   );
-  expect(push.enviarAUsuario.mock.calls.map((c) => c[0]).sort()).toEqual(
-    [usuarios.ventas.id, ...admins].sort(),
-  );
+  /* Y a quien no le toca no le llega: recepción de otra línea, recepción sin la
+     comercial y un agente sin ninguna línea. */
+  for (const ajeno of [
+    usuarios.recepcion.id,
+    usuarios.otra.id,
+    usuarios.vacio.id,
+  ])
+    expect(avisosDelChat()).not.toContain(ajeno);
+
   expect(
     (await app.get(LineasWhatsappService).destinatarios(clinico)).sort(),
   ).toEqual([usuarios.recepcion.id, ...admins].sort());

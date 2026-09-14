@@ -31,7 +31,13 @@ class AlertasEspia {
   }
 }
 
-function montar(config: Record<string, string> = {}) {
+/** Doble por defecto: toda línea entrante resuelve a la comercial. */
+const lineaConocida = { desdeWebhook: async () => ({ id: 'linea-1' }) };
+
+function montar(
+  config: Record<string, string> = {},
+  lineas: { desdeWebhook: (id?: string) => Promise<{ id: string } | null> } = lineaConocida,
+) {
   const conversaciones: ServicioConversaciones = {
     procesarEstadoMensaje: jest.fn().mockResolvedValue(undefined),
   };
@@ -48,7 +54,7 @@ function montar(config: Record<string, string> = {}) {
     conversaciones as unknown as ConversacionesService,
     ingesta as unknown as IngestaWhatsappService,
     alertas as unknown as AlertasWhatsappService,
-    { desdeWebhook: async () => ({ id: "linea-1" }) } as never,
+    lineas as never,
   );
   jest.spyOn(controller['logger'], 'error').mockImplementation(() => undefined);
   jest.spyOn(controller['logger'], 'log').mockImplementation(() => undefined);
@@ -164,6 +170,86 @@ describe('WhatsappWebhookController', () => {
       await expect(
         controller.procesarWebhook(payload({ messages: [texto('wamid.1')] })),
       ).rejects.toThrow(ServiceUnavailableException);
+    });
+  });
+
+  /**
+   * La distinción que protege este bloque: un 503 le pide a Meta que reintente.
+   * Para un número que no está registrado el reintento NUNCA puede entrar, así
+   * que el lote quedaría reintentándose hasta que Meta desactive la suscripción
+   * — y las cuatro líneas comparten una sola app, con lo que se llevaría por
+   * delante también la comercial. Permanente se descarta con 200; transitorio
+   * sigue siendo 503.
+   */
+  describe('línea receptora desconocida', () => {
+    const sinLinea = { desdeWebhook: async () => null };
+
+    it.each([
+      ['sin phone_number_id', {}],
+      ['con un phone_number_id ajeno', { metadata: { phone_number_id: '999999' } }],
+    ])('%s: responde 200 y NO persiste nada', async (_caso, extra) => {
+      const { controller, servicio } = montar({}, sinLinea);
+
+      await expect(
+        controller.procesarWebhook(
+          payload({ ...extra, messages: [texto('wamid.huerfano')], statuses: [{ id: 'wamid.out', status: 'read' }] }),
+        ),
+      ).resolves.toBeUndefined();
+
+      expect(servicio.procesarEntrante).not.toHaveBeenCalled();
+      expect(servicio.procesarEstadoMensaje).not.toHaveBeenCalled();
+    });
+
+    it('el aviso nombra el identificador, el número y lo descartado', async () => {
+      const { controller } = montar({}, sinLinea);
+      const aviso = jest.spyOn(controller['logger'], 'error');
+
+      await controller.procesarWebhook(
+        payload({
+          metadata: { phone_number_id: '999999', display_phone_number: '+59162140323' },
+          messages: [texto('wamid.huerfano')],
+        }),
+      );
+
+      const texto_ = aviso.mock.calls.at(-1)?.[0] as string;
+      expect(texto_).toContain('999999');
+      expect(texto_).toContain('+59162140323');
+      expect(texto_).toContain('wamid.huerfano');
+    });
+
+    it('un fallo TRANSITORIO resolviendo la línea sigue siendo 503', async () => {
+      const { controller, servicio } = montar({}, {
+        desdeWebhook: async () => { throw new Error('base caída'); },
+      });
+
+      await expect(
+        controller.procesarWebhook(payload({ messages: [texto('wamid.1')] })),
+      ).rejects.toThrow(ServiceUnavailableException);
+
+      expect(servicio.procesarEntrante).not.toHaveBeenCalled();
+    });
+
+    it('un cambio sin línea no se lleva los cambios de otras líneas del mismo lote', async () => {
+      const { controller, servicio } = montar({}, {
+        desdeWebhook: async (id?: string) => (id === '101' ? { id: 'linea-1' } : null),
+      });
+
+      await expect(
+        controller.procesarWebhook({
+          object: 'whatsapp_business_account',
+          entry: [
+            {
+              changes: [
+                { value: { metadata: { phone_number_id: '999999' }, messages: [texto('wamid.ajeno')] } },
+                { value: { metadata: { phone_number_id: '101' }, messages: [texto('wamid.mio')] } },
+              ],
+            },
+          ],
+        }),
+      ).resolves.toBeUndefined();
+
+      expect(servicio.procesarEntrante).toHaveBeenCalledTimes(1);
+      expect(servicio.procesarEntrante.mock.calls[0][2]).toBe('wamid.mio');
     });
   });
 

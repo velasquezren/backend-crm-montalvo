@@ -2,6 +2,46 @@
 
 ## 14 de septiembre de 2026 · líneas de WhatsApp
 
+**Corrección posterior del mismo día · el 503 del número desconocido.** El
+webhook contaba un `phone_number_id` no registrado como fallo de persistencia y
+devolvía 503. El 503 es correcto para un fallo transitorio —Meta reintenta y
+entra— y venenoso para uno permanente: el reintento de un número sin dar de alta
+falla idéntico para siempre y Meta termina desactivando la suscripción. Como las
+cuatro líneas comparten una app y un `META_APP_SECRET`, eso dejaba mudas a las
+cuatro, incluida la comercial. Y la ventana la abre el propio procedimiento de
+alta, que suscribe la app a la WABA antes de registrar el Phone Number ID.
+
+Ahora `LineasWhatsappService.desdeWebhook` devuelve `null` para «no es nuestro»
+y sigue lanzando para un error de base; el controlador descarta el primero con
+200 y mantiene el 503 para el segundo. El aviso incluye `phone_number_id`,
+`display_phone_number` (declarado en el DTO solo para esto, porque `whitelist` lo
+borraría) y los ids descartados. Regla escrita en `crm-backend-module`
+§«Un 503 solo vale para fallos TRANSITORIOS».
+
+**De paso, una prueba flaky que había que quitar de en medio.**
+`lineas-whatsapp.integracion` → «push usa el mismo alcance que REST» fallaba **2
+de cada 4 corridas** de la suite completa (nunca al correrla sola), y ya lo hacía
+antes de este cambio: se comprobó corriendo el código original cuatro veces. No
+era un fallo del producto. Exigía un total exacto de llamadas al mock de push,
+pero `crm_test` es compartido y otras tres suites —`autorizacion-http`,
+`inbox-escala`, `conversaciones`— crean usuarios **con acceso a la línea
+comercial**; si alguna corre antes (el orden de archivos de jest no es estable
+entre corridas) esos usuarios son destinatarios legítimos de un chat comercial
+sin asignar y el conteo se rompe. Ahora se filtra por el `tag` del chat y se
+afirma explícitamente quién entra (ventas + admins) y quién NO (las dos
+recepciones y el agente sin líneas), que es más fuerte que el conteo que
+sustituye. Cinco corridas limpias seguidas.
+
+Importa más de lo que parece: una prueba que falla la mitad de las veces enseña
+a ignorarla, y ésta cubre justamente el aislamiento de avisos entre líneas.
+
+Verificado en esta máquina: build correcto, **514 unitarias / 33 suites**
+(eran 509) y **376 casos de integración / 20 suites** contra PostgreSQL real en
+:5433 (cinco corridas seguidas). Cinco pruebas nuevas del controlador —incluida la que fija que un fallo
+transitorio SIGUE siendo 503— y las dos de integración de línea desconocida
+reescritas a 200 conservando lo que de verdad protegen: no se persiste nada y
+nada cae en ventas. **Sin commitear y sin desplegar.**
+
 Se implementaron catálogo de cuatro líneas (actual + tres nuevas), rol RECEPCION,
 asignación explícita por usuario y aislamiento de conversaciones en backend y frontend.
 La migración conserva el historial comercial. [Diseño, activación y límites](lineas-whatsapp.md).

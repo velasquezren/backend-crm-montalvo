@@ -94,28 +94,44 @@ export class LineasWhatsappService {
     return linea;
   }
 
-  async desdeWebhook(phoneNumberId: string | undefined) {
-    if (!phoneNumberId)
-      throw new BadRequestException(
-        "El webhook no identifica la línea receptora",
-      );
-    let linea = await this.prisma.lineaWhatsapp.findUnique({
+  /**
+   * Resuelve la línea receptora de un cambio del webhook, o `null` si ese
+   * número **no es nuestro** —falta el `phone_number_id` o no está registrado
+   * en el CRM—.
+   *
+   * **Devuelve `null` en vez de lanzar, y esa distinción es el punto.** Antes
+   * lanzaba, el controlador lo contaba como fallo de persistencia y el lote
+   * entero salía 503. El 503 es correcto para un fallo TRANSITORIO —la base
+   * caída— porque Meta reintenta y acaba entrando; para uno PERMANENTE es un
+   * mensaje envenenado: un número que no está registrado va a fallar idéntico
+   * en cada reintento, para siempre, y Meta termina desactivando la
+   * suscripción. Como las cuatro líneas comparten una sola app y un solo
+   * `META_APP_SECRET`, eso deja mudas a las CUATRO, incluida la comercial, que
+   * es la única que hoy lleva tráfico real de pacientes. Es la misma familia de
+   * fallo por la que este webhook no usa `forbidNonWhitelisted`.
+   *
+   * Un error de base sigue propagándose como excepción: eso SÍ es transitorio y
+   * tiene que acabar en 503. Ver `procesarWebhook`.
+   */
+  async desdeWebhook(
+    phoneNumberId: string | undefined,
+  ): Promise<LineaWhatsapp | null> {
+    if (!phoneNumberId) return null;
+    const linea = await this.prisma.lineaWhatsapp.findUnique({
       where: { phoneNumberId },
     });
-    if (!linea) {
-      const inicial = await this.prisma.lineaWhatsapp.findUnique({
-        where: { id: LINEA_COMERCIAL_INICIAL },
-      });
-      if (
-        inicial &&
-        !inicial.phoneNumberId &&
-        (this.config.get<string>("WHATSAPP_PHONE_ID") ||
-          this.config.get<string>("WHATSAPP_PHONE_NUMBER_ID")) === phoneNumberId
-      )
-        linea = inicial;
-    }
-    if (!linea) throw new BadRequestException("Línea receptora no registrada");
-    return linea;
+    if (linea) return linea;
+    /* La línea comercial puede no tener `phoneNumberId` en base todavía: nació
+       en la migración y sus credenciales siguen viviendo en el `.env`. */
+    const inicial = await this.prisma.lineaWhatsapp.findUnique({
+      where: { id: LINEA_COMERCIAL_INICIAL },
+    });
+    const phoneIdEnv =
+      this.config.get<string>("WHATSAPP_PHONE_ID") ||
+      this.config.get<string>("WHATSAPP_PHONE_NUMBER_ID");
+    return inicial && !inicial.phoneNumberId && phoneIdEnv === phoneNumberId
+      ? inicial
+      : null;
   }
 
   async cuentaDeConversacion(id: string) {

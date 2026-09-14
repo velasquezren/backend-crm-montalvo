@@ -156,7 +156,9 @@ export class WhatsappWebhookController {
     return { received: true };
   }
 
-  /** Procesa cada elemento por separado y devuelve 503 si alguno no pudo persistirse. */
+  /** Procesa cada elemento por separado y devuelve 503 si alguno no pudo
+   *  persistirse. Un número receptor desconocido NO es eso: se descarta con
+   *  200, porque su reintento nunca podría entrar. */
   async procesarWebhook(payload: WhatsappWebhookDto): Promise<void> {
     let fallos = 0;
     const cambios = payload.entry?.flatMap(e => e.changes ?? []) ?? [];
@@ -177,9 +179,45 @@ export class WhatsappWebhookController {
       }
 
       if (!cambio.value?.messages?.length && !cambio.value?.statuses?.length) continue;
-      let lineaId: string;
-      try { lineaId = (await this.lineas.desdeWebhook(cambio.value?.metadata?.phone_number_id)).id; }
-      catch { fallos++; this.logger.error('Webhook sin línea receptora registrada'); continue; }
+
+      /* Resolver la línea receptora tiene DOS finales distintos y confundirlos
+         sale caro (ver `LineasWhatsappService.desdeWebhook`):
+
+         - excepción → fallo TRANSITORIO (la base no responde). Cuenta como
+           fallo, el lote sale 503 y Meta lo reintenta hasta que entre.
+         - `null`    → el número NO es nuestro. Es PERMANENTE: reintentarlo no
+           lo va a arreglar nunca, así que se descarta con 200. Un 503 aquí
+           sería un mensaje envenenado que acaba con Meta desactivando la
+           suscripción de la app — y las cuatro líneas comparten app, así que
+           se llevaría por delante también a la comercial.
+
+         El precio de descartar es que ese mensaje se pierde, así que el aviso
+         lleva TODO lo necesario para recuperarlo a mano desde el journal: el
+         `phone_number_id` (que es lo que hay que dar de alta), el número legible
+         y los ids de lo que se descartó. */
+      const metadata = cambio.value?.metadata;
+      let linea: Awaited<ReturnType<typeof this.lineas.desdeWebhook>>;
+      try {
+        linea = await this.lineas.desdeWebhook(metadata?.phone_number_id);
+      } catch (error) {
+        fallos++;
+        this.logger.error('Error resolviendo la línea receptora del webhook', error);
+        continue;
+      }
+      if (!linea) {
+        const descartados = [
+          ...(cambio.value?.messages ?? []).map(m => m.id ?? 'sin id'),
+          ...(cambio.value?.statuses ?? []).map(e => e.id ?? 'sin id'),
+        ];
+        this.logger.error(
+          `WhatsApp: línea receptora NO registrada en el CRM — se descarta el cambio y se responde 200 ` +
+            `(phone_number_id: ${metadata?.phone_number_id ?? 'ausente'}, ` +
+            `número: ${metadata?.display_phone_number ?? 'desconocido'}). ` +
+            `Da de alta ese identificador en Líneas de WhatsApp. Descartado: ${descartados.join(', ') || 'nada'}`,
+        );
+        continue;
+      }
+      const lineaId = linea.id;
       let procesados = 0;
       for (const mensaje of cambio.value?.messages ?? []) {
         try {
