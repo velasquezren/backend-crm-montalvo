@@ -429,8 +429,77 @@ describe('WhatsappWebhookController', () => {
           cuerpo: 'Agenda tu cita de valoración con descuento',
           origenUrl: 'https://fb.me/ad123',
           imagenUrl: 'https://facebook.com/ad-img.jpg',
+          mediaTipo: undefined,
+          videoUrl: undefined,
+          saludo: undefined,
+          clickId: undefined,
         }, false, "linea-1",
       );
+    });
+
+    /**
+     * Los cuatro campos que Meta manda y el CRM tiraba. `welcome_message` ni
+     * siquiera estaba en el DTO, así que `whitelist: true` lo borraba entero
+     * antes de llegar acá — es el modo de fallo que documenta `crm-backend-module`:
+     * no llega a medias, llega vacío y sin una línea en el log.
+     */
+    it('captura saludo, miniatura de video, tipo de media y ctwa_clid', async () => {
+      const { controller, servicio } = montar();
+      await controller.procesarWebhook(
+        payload({
+          messages: [
+            {
+              from: '59170000002',
+              id: 'wamid.ad2',
+              type: 'text',
+              text: { body: 'Hola' },
+              referral: {
+                source_type: 'ad',
+                source_id: '999',
+                headline: 'Botox 50U',
+                media_type: 'video',
+                video_url: 'https://fb.cdn/ad.mp4',
+                thumbnail_url: 'https://fb.cdn/ad-thumb.jpg',
+                ctwa_clid: 'Aff-n8ZTODiE79d22KtAwQ',
+                welcome_message: { text: 'Hola, quiero información' },
+              },
+            },
+          ],
+        }),
+      );
+
+      const referencia = servicio.procesarEntrante.mock.calls[0][5] as Record<string, unknown>;
+      expect(referencia.saludo).toBe('Hola, quiero información');
+      expect(referencia.mediaTipo).toBe('video');
+      expect(referencia.videoUrl).toBe('https://fb.cdn/ad.mp4');
+      expect(referencia.clickId).toBe('Aff-n8ZTODiE79d22KtAwQ');
+      /* Un anuncio de VIDEO no trae `image_url`: la miniatura es la imagen. */
+      expect(referencia.imagenUrl).toBe('https://fb.cdn/ad-thumb.jpg');
+    });
+
+    it('un anuncio de imagen conserva su `image_url`, no la miniatura', async () => {
+      const { controller, servicio } = montar();
+      await controller.procesarWebhook(
+        payload({
+          messages: [
+            {
+              from: '59170000003',
+              id: 'wamid.ad3',
+              type: 'text',
+              text: { body: 'Hola' },
+              referral: {
+                source_type: 'ad',
+                media_type: 'image',
+                image_url: 'https://fb.cdn/real.jpg',
+                thumbnail_url: 'https://fb.cdn/no-deberia-ganar.jpg',
+              },
+            },
+          ],
+        }),
+      );
+
+      const referencia = servicio.procesarEntrante.mock.calls[0][5] as Record<string, unknown>;
+      expect(referencia.imagenUrl).toBe('https://fb.cdn/real.jpg');
     });
 
     it('ignora mensajes sin `from`, sin cuerpo, o de tipos que el CRM no registra', async () => {

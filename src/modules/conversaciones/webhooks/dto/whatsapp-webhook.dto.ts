@@ -95,6 +95,18 @@ export class WhatsappInteractiveDto {
  * Contexto de campaña publicitaria / anuncio de Meta (Click-to-WhatsApp Ads).
  * Llega cuando el paciente hace clic en un anuncio de Facebook/Instagram y abre el chat.
  */
+/**
+ * Saludo que el anuncio dejó escrito en el chat. Es, casi siempre, el primer
+ * mensaje literal que la paciente envió — el contexto más útil que hay para
+ * quien contesta, y no estaba modelado, así que `whitelist: true` lo borraba
+ * entero antes de llegar al servicio.
+ */
+export class WhatsappWelcomeMessageDto {
+  @IsOptional()
+  @IsString()
+  text?: string;
+}
+
 export class WhatsappReferralDto {
   @IsOptional()
   @IsString()
@@ -137,9 +149,20 @@ export class WhatsappReferralDto {
   @IsString()
   thumbnail_url?: string;
 
+  /**
+   * Id del clic en el anuncio. Es lo que la Conversions API pide para atribuir
+   * una venta a su campaña; se guarda aunque hoy no se use, porque el dato solo
+   * llega en este webhook y no se puede reconstruir después.
+   * Meta lo omite en anuncios de Estados de WhatsApp.
+   */
   @IsOptional()
   @IsString()
   ctwa_clid?: string;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => WhatsappWelcomeMessageDto)
+  welcome_message?: WhatsappWelcomeMessageDto;
 }
 
 export class WhatsappMessageDto {

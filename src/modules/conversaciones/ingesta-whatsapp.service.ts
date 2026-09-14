@@ -17,7 +17,15 @@ export interface ReferenciaCampana {
   titular?: string;
   cuerpo?: string;
   origenUrl?: string;
+  /** Imagen del anuncio, o la miniatura si era un anuncio de video. */
   imagenUrl?: string;
+  /** `image` | `video`. */
+  mediaTipo?: string;
+  videoUrl?: string;
+  /** Saludo que el anuncio dejó escrito en el chat de la paciente. */
+  saludo?: string;
+  /** `ctwa_clid` — lo pide la Conversions API para atribuir una venta a su campaña. */
+  clickId?: string;
 }
 
 /**
@@ -133,12 +141,19 @@ export class IngestaWhatsappService {
         data: {
           datosExtra: {
             ...datosActuales,
+            /* Los campos nuevos se suman sin migración —`datosExtra` es JSON— y
+               los registros viejos simplemente no los traen: quien los lee ya
+               los trata como opcionales. */
             campanaOrigen: {
               titular: referral.titular ?? null,
               anuncioId: referral.anuncioId ?? null,
               cuerpo: referral.cuerpo ?? null,
               origenUrl: referral.origenUrl ?? null,
               imagenUrl: referral.imagenUrl ?? null,
+              mediaTipo: referral.mediaTipo ?? null,
+              videoUrl: referral.videoUrl ?? null,
+              saludo: referral.saludo ?? null,
+              clickId: referral.clickId ?? null,
               fecha: new Date().toISOString(),
             },
           },

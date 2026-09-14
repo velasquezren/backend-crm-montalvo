@@ -79,13 +79,23 @@ function extraerRespuestaBoton(mensaje: WhatsappMessageDto): string | null {
  */
 function extraerReferral(mensaje: WhatsappMessageDto) {
   if (!mensaje.referral) return undefined;
+  const r = mensaje.referral;
   return {
-    origenTipo: mensaje.referral.source_type,
-    anuncioId: mensaje.referral.source_id,
-    titular: mensaje.referral.headline?.trim() || undefined,
-    cuerpo: mensaje.referral.body?.trim() || undefined,
-    origenUrl: mensaje.referral.source_url,
-    imagenUrl: mensaje.referral.image_url,
+    origenTipo: r.source_type,
+    anuncioId: r.source_id,
+    titular: r.headline?.trim() || undefined,
+    cuerpo: r.body?.trim() || undefined,
+    origenUrl: r.source_url,
+    /* Un anuncio de video NO trae `image_url`: trae `video_url` y
+       `thumbnail_url`. Mapear solo `image_url` dejaba esos anuncios sin ninguna
+       imagen, y son la mitad del catálogo de Meta. */
+    imagenUrl: r.image_url || r.thumbnail_url,
+    mediaTipo: r.media_type,
+    videoUrl: r.video_url,
+    /* El saludo que el anuncio dejó escrito: casi siempre es, literalmente, el
+       primer mensaje que mandó la paciente. */
+    saludo: r.welcome_message?.text?.trim() || undefined,
+    clickId: r.ctwa_clid,
   };
 }
 
