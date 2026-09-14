@@ -1,5 +1,48 @@
 # Estado actual
 
+## 14 de septiembre de 2026 (tarde) · pasada de estética — DESPLEGADO
+
+Frontend en **`64eefd9`**, verificado contra Vercel: sirve
+`styles-SUIHN2NP.css` (74.174 bytes) **idéntico byte a byte** al build local,
+con las cinco utilidades nuevas presentes y cero `sx__` en el CSS inicial (el
+tema del calendario sigue viajando en el chunk de Actividades). Backend sin
+cambios: sigue en `ead8c16`.
+
+Alcance: Actividades y su calendario, los cajones de Venta y Recordatorio del
+chat, `/usuarios` y `/lineas-whatsapp`.
+
+**Dos fallos reales corregidos, no solo estética:**
+
+- **«Recepción» nunca se pintaba como seleccionado** en `/usuarios`, en los dos
+  formularios. Era un `<app-button variant="secondary">` mientras los otros
+  roles eran `<button>` a mano con estado activo, y ese átomo no sabe pintarse
+  activo: elegirlo no daba ninguna señal.
+- **El realce de actividad vencida era invisible**: `bg-critical-bg/20` sobre un
+  token que ya es un 6% de negro ≈ 1,2%. Se aplicaba; no se veía.
+
+**Lo estructural:** se fueron los siete hexadecimales literales del `.ts` del
+calendario (ahora referencian los tokens; se puede porque `setColors()` de
+Schedule-X hace un `setProperty` plano, verificado en su fuente); los modales
+escritos a mano pasaron a `<app-drawer>` —Venta y Recordatorio del chat llevaban
+anchos fuera de la escala y **sin trampa de foco ni Escape**—; y diecisiete
+`<button>` maquetados a mano pasaron al átomo. Nuevos: `<app-switch>` (era el
+único control que seguía siendo un checkbox nativo, y enciende el envío real de
+WhatsApp a pacientes), `variant="critical"` en `<app-button>`, y las utilidades
+`.crm-tipo` / `.crm-accion-enlace` / `.crm-vencida` / `.crm-segmento`.
+
+Pendiente anotado: el control segmentado vive en **siete** plantillas; se migró
+en Actividades y Usuarios, faltan cinco (Ventas, Tipo de cambio, Ventas por
+agente, Configuración de comisiones, Planilla y el sidebar de Conversaciones).
+
+**Aviso que no conviene perder:** esta entrega es puramente visual y **no se
+probó en navegador** —la regla del proyecto lo prohíbe—, así que está verificada
+compilando, leyendo y comparando los bytes servidos. Si algo se ve mal, el
+commit es único a propósito: `git revert 64eefd9` deshace la pasada entera.
+
+Validación: build sin avisos de presupuesto, 119 pruebas frontend / 12 suites
+(eran 98 esta mañana), inicial 402,73 kB / 105,91 kB.
+
+
 ## 14 de septiembre de 2026 · rendimiento de arranque, campana y webhook — DESPLEGADO
 
 Todo lo de abajo está **commiteado, empujado y en producción**, verificado en el
