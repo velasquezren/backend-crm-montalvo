@@ -145,9 +145,9 @@ describe('WhatsappCloudService', () => {
       expect(await servicio().urlDeMedia('media-1', CUENTA)).toBe('https://cdn.meta/x');
     });
 
-    it('null si Meta no la da', async () => {
+    it('clasifica como permanente una media inexistente en el origen', async () => {
       global.fetch = jest.fn().mockResolvedValue({ ok: false, status: 404 }) as unknown as typeof fetch;
-      expect(await servicio().urlDeMedia('media-1', CUENTA)).toBeNull();
+      await expect(servicio().urlDeMedia('media-1', CUENTA)).rejects.toMatchObject({ codigo: 'MEDIA_NO_DISPONIBLE', categoria: 'PERMANENTE' });
     });
 
     /* El CDN de Meta también exige el token: sin él la descarga da 401. */

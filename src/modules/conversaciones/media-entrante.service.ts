@@ -1,13 +1,14 @@
-import { LineasWhatsappService } from '../lineas-whatsapp/lineas-whatsapp.service';
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { TipoMensaje } from '../../prisma/prisma-client';
-
+import { ErrorMedia, sanitizarErrorMedia } from '../../common/fiabilidad/error-media';
+import { enSegundoPlano } from '../../common/fiabilidad/en-segundo-plano';
 import { R2Service } from '../../common/storage/r2.service';
 import { WhatsappCloudService } from '../../common/whatsapp/whatsapp-cloud.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import { LineasWhatsappService } from '../lineas-whatsapp/lineas-whatsapp.service';
 import { ConversacionesGateway } from './conversaciones.gateway';
+import { MAX_INTENTOS_MEDIA, PLAZO_MEDIA_MS, resultadoFalloMedia, TIEMPO_MEDIA_MS } from './politica-media-entrante';
 
-/** Media entrante ya normalizada por el webhook (ver extraerMedia). */
 export interface MediaEntrante {
   tipo: TipoMensaje;
   mediaId: string;
@@ -15,31 +16,31 @@ export interface MediaEntrante {
   nombre?: string;
 }
 
-/**
- * Tope de la media entrante que se baja a memoria. WhatsApp acepta documentos
- * de hasta 100 MB, y `arrayBuffer()` los carga enteros: dos o tres a la vez
- * tumban un VPS de 1,7 GB donde además viven otras dos apps. 25 MB cubre de
- * sobra fotos, audios y PDFs de estudios, que es lo que manda un paciente.
- */
-const MAX_BYTES_MEDIA = 25 * 1024 * 1024;
-
-const MB = (bytes: number) => Math.round(bytes / 1024 / 1024);
+export const MAX_BYTES_MEDIA = 25 * 1024 * 1024;
+const TOPE_BARRIDO = 10;
+const CONCURRENCIA = 2;
+const INTERVALO_MS = 60_000;
 
 /**
- * Trae a R2 la foto o el PDF que mandó el paciente.
+ * F06-R1. PostgreSQL conserva el trabajo aunque este proceso no llegue a arrancar
+ * la descarga. El mensaje y el trabajo nacen en la misma transacción de ingesta.
  *
- * Va **siempre en segundo plano**: el webhook de Meta tiene que contestar en
- * milisegundos o Meta reintenta y acaba desactivando la suscripción, y bajar
- * un PDF de 20 MB no cabe en ese presupuesto. Por eso ningún camino de aquí
- * lanza: si la descarga falla, el mensaje del paciente ya está guardado y lo
- * único que se pierde es el adjunto.
- *
- * Se guarda la **clave** de R2, nunca la URL: `urlFirmada()` caduca a los 15
- * minutos y una URL guardada deja la burbuja rota esa misma tarde.
+ * El advisory lock de transacción permanece durante TODO el intento; un segundo
+ * worker no puede apropiarse de un trabajo por el mero vencimiento de una fecha.
+ * La conexión del lock dura como máximo 90 s; la red se cancela a los 60 s.
+ * PROCESANDO/intentos se confirman en transacciones cortas independientes;
+ * el resultado final y mediaKey se confirman con el lock todavía tomado.
+ * PROCESANDO es observable y sobrevive a un crash. Al morir la conexión se libera
+ * el lock y otro barrido puede retomar ese estado. No se mantiene un lock de fila
+ * de Mensaje mientras se espera a la red.
  */
 @Injectable()
-export class MediaEntranteService {
+export class MediaEntranteService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(MediaEntranteService.name);
+  private intervalo?: NodeJS.Timeout;
+  private enCurso = false;
+  private detenido = false;
+  private readonly cancelaciones = new Set<AbortController>();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -49,68 +50,188 @@ export class MediaEntranteService {
     private readonly lineas: LineasWhatsappService,
   ) {}
 
-  /** `false` si no hay R2 configurado: sin destino no vale la pena bajar nada. */
-  get habilitado(): boolean {
-    return this.r2.habilitado;
+  protected ahora(): Date { return new Date(); }
+
+  onModuleInit(): void {
+    if (process.env.NODE_ENV === 'test') return;
+    this.intervalo = setInterval(() => this.despertar(), INTERVALO_MS);
+    this.intervalo.unref();
+    this.despertar();
   }
 
-  /**
-   * media_id → URL temporal de Meta → bytes → PUT en R2 con clave
-   * `wa/<conversacionId>/<mensajeId>`. Al terminar guarda `mediaKey` y avisa
-   * por WebSocket para que la foto aparezca sola en el chat abierto.
-   */
-  async traer(mensajeId: string, conversacionId: string, media: MediaEntrante): Promise<void> {
+  onModuleDestroy(): void {
+    this.detenido = true;
+    if (this.intervalo) clearInterval(this.intervalo);
+    for (const cancelacion of this.cancelaciones) cancelacion.abort();
+  }
+
+  /** El despertar acelera el caso normal; el timer y la base garantizan recuperación. */
+  despertar(): void {
+    if (this.detenido || process.env.NODE_ENV === 'test') return;
+    void enSegundoPlano('barrido de media entrante', this.logger, () => this.barrerPendientes());
+  }
+
+  async resumen() {
+    const grupos = await this.prisma.trabajoMediaEntrante.groupBy({ by: ['estado'], _count: true });
+    return Object.fromEntries(grupos.map(g => [g.estado, g._count]));
+  }
+
+  async barrerPendientes(): Promise<number> {
+    // Acota ráfagas de despertares y timers locales. La exclusión real está en PG.
+    if (this.detenido || this.enCurso) return 0;
+    this.enCurso = true;
     try {
-      /* 1) media_id → URL temporal (válida 5 min). */
-      const cuenta = await this.lineas.cuentaDeConversacion(conversacionId);
-      const url = await this.whatsapp.urlDeMedia(media.mediaId, cuenta);
-      if (!url) return;
-
-      /* 2) Descargar los bytes (el CDN de Meta también pide el token). */
-      const archivo = await this.whatsapp.descargarMedia(url, cuenta);
-      if (!archivo) {
-        this.logger.error(`No se pudo descargar media ${media.mediaId}`);
-        return;
+      const pendientes = await this.prisma.trabajoMediaEntrante.findMany({
+        where: { proximoIntento: { lte: this.ahora() } },
+        select: { mensajeId: true },
+        orderBy: [{ proximoIntento: 'asc' }, { mensajeId: 'asc' }],
+        take: TOPE_BARRIDO,
+      });
+      if (pendientes.length === TOPE_BARRIDO) {
+        this.logger.warn('Media entrante: lote de 10 completo; puede quedar trabajo para el siguiente barrido');
       }
-
-      const bytes = await this.leerAcotado(archivo, media.mediaId);
-      if (!bytes) return;
-
-      /* 3) Subir a R2 y registrar la clave en el mensaje. */
-      const key = `wa/${conversacionId}/${mensajeId}`;
-      await this.r2.subir(key, bytes, media.mime);
-      await this.prisma.mensaje.update({ where: { id: mensajeId }, data: { mediaKey: key } });
-
-      this.gateway.emitirActividad(conversacionId);
-    } catch (error) {
-      this.logger.error(`Excepción bajando/subiendo media ${media.mediaId}`, error);
+      let reclamados = 0;
+      for (let i = 0; i < pendientes.length && !this.detenido; i += CONCURRENCIA) {
+        const resultados = await Promise.all(
+          pendientes.slice(i, i + CONCURRENCIA).map(p => this.procesarUno(p.mensajeId)),
+        );
+        reclamados += resultados.filter(Boolean).length;
+      }
+      if (pendientes.length) this.logger.log(`Media entrante: reclamados=${reclamados} estados=${JSON.stringify(await this.resumen())}`);
+      return reclamados;
+    } finally {
+      this.enCurso = false;
     }
   }
 
-  /**
-   * Bytes del archivo, o `null` si pasa del tope.
-   *
-   * El corte real lo hace `content-length`, que Meta siempre manda: descarta
-   * antes de reservar un solo byte. La comprobación de después es la red de
-   * seguridad por si algún día llega sin cabecera — ahí ya se pagó la memoria,
-   * pero al menos no se sube a R2 ni se guarda.
-   */
-  private async leerAcotado(archivo: Response, mediaId: string): Promise<ArrayBuffer | null> {
-    const declarado = Number(archivo.headers.get('content-length'));
-    if (Number.isFinite(declarado) && declarado > MAX_BYTES_MEDIA) {
-      this.logger.warn(
-        `Media ${mediaId} descartada: ${MB(declarado)} MB supera el tope de ${MB(MAX_BYTES_MEDIA)} MB`,
-      );
-      return null;
-    }
+  /** Pública para probar dos reclamaciones simultáneas contra PostgreSQL real. */
+  async procesarUno(mensajeId: string): Promise<boolean> {
+    if (this.detenido) return false;
+    let refrescar: string | undefined;
+    let aviso: string | undefined;
+    try {
+      const resultado = await this.prisma.$transaction(async bloqueo => {
+        const [lock] = await bloqueo.$queryRaw<Array<{ obtenido: boolean }>>`
+          SELECT pg_try_advisory_xact_lock(hashtextextended(${mensajeId}, 60061)) AS obtenido
+        `;
+        if (!lock?.obtenido) return false;
 
-    const bytes = await archivo.arrayBuffer();
-    if (bytes.byteLength > MAX_BYTES_MEDIA) {
-      this.logger.warn(
-        `Media ${mediaId} descartada tras descargar: ${MB(bytes.byteLength)} MB supera el tope`,
-      );
-      return null;
+        const trabajo = await this.prisma.trabajoMediaEntrante.findUnique({
+          where: { mensajeId },
+          include: { mensaje: { select: { conversacionId: true, mediaMime: true, mediaKey: true } } },
+        });
+        const ahora = this.ahora();
+        if (!trabajo?.proximoIntento || trabajo.proximoIntento > ahora) return false;
+        if (trabajo.mensaje.mediaKey) {
+          await bloqueo.trabajoMediaEntrante.update({
+            where: { mensajeId }, data: { estado: 'COMPLETADO', proximoIntento: null, ultimoError: null },
+          });
+          return true;
+        }
+        if (ahora.getTime() >= trabajo.createdAt.getTime() + PLAZO_MEDIA_MS || trabajo.intentos >= MAX_INTENTOS_MEDIA) {
+          await bloqueo.trabajoMediaEntrante.update({
+            where: { mensajeId },
+            data: resultadoFalloMedia(new ErrorMedia('INTENTO_INTERRUMPIDO'), trabajo.intentos, trabajo.createdAt, ahora),
+          });
+          return true;
+        }
+
+        await this.prisma.trabajoMediaEntrante.update({
+          where: { mensajeId },
+          data: { estado: 'PROCESANDO', reclamadoEn: ahora, proximoIntento: new Date(ahora.getTime() + INTERVALO_MS) },
+        });
+        const cancelacion = new AbortController();
+        this.cancelaciones.add(cancelacion);
+        const signal = AbortSignal.any([cancelacion.signal, AbortSignal.timeout(TIEMPO_MEDIA_MS)]);
+        let intentos = trabajo.intentos;
+        try {
+          if (!this.r2.habilitado) throw new ErrorMedia('R2_SIN_CONFIGURAR', 'CONFIGURACION');
+          const cuenta = await this.lineas.cuentaDeConversacion(trabajo.mensaje.conversacionId);
+          if (!cuenta) throw new ErrorMedia('META_SIN_CONFIGURAR', 'CONFIGURACION');
+          signal.throwIfAborted();
+          // La configuración ausente no consume intentos. Un intento interrumpido sí.
+          await this.prisma.trabajoMediaEntrante.update({
+            where: { mensajeId }, data: { intentos: { increment: 1 } },
+          });
+          intentos++;
+          const url = await this.whatsapp.urlDeMedia(trabajo.mediaId, cuenta, signal);
+          const archivo = await this.whatsapp.descargarMedia(url, cuenta, signal);
+          const bytes = await this.leerAcotado(archivo, signal);
+          const key = `wa/${trabajo.mensaje.conversacionId}/${mensajeId}`;
+          // No empezar otro efecto si la conexión que mantenía el lock se perdió.
+          await bloqueo.$queryRaw`SELECT 1`;
+          signal.throwIfAborted();
+          await this.r2.subirMediaEntrante(key, bytes, trabajo.mensaje.mediaMime ?? 'application/octet-stream', signal);
+          await bloqueo.$queryRaw`SELECT 1`;
+          // Ambas escrituras se confirman al terminar la transacción DEL LOCK.
+          // Si el lock se pierde o vence, PostgreSQL no puede confirmar un dueño viejo.
+          await bloqueo.mensaje.update({ where: { id: mensajeId }, data: { mediaKey: key } });
+          await bloqueo.trabajoMediaEntrante.update({
+            where: { mensajeId }, data: { estado: 'COMPLETADO', proximoIntento: null, ultimoError: null },
+          });
+          refrescar = trabajo.mensaje.conversacionId;
+        } catch (error) {
+          await bloqueo.$queryRaw`SELECT 1`; // no sobrescribir al sucesor si perdimos el lock
+          const fallo = sanitizarErrorMedia(error);
+          // Un 401/403 también es configuración: no gastar el presupuesto por credenciales.
+          if (fallo.categoria === 'CONFIGURACION') intentos = trabajo.intentos;
+          const resultado = resultadoFalloMedia(fallo, intentos, trabajo.createdAt, this.ahora());
+          await bloqueo.trabajoMediaEntrante.update({
+            where: { mensajeId }, data: { ...resultado, intentos },
+          });
+          aviso = `Media ${mensajeId}: ${resultado.estado} intento=${intentos} error=${resultado.ultimoError} proximo=${resultado.proximoIntento?.toISOString() ?? '-'}`;
+        } finally {
+          this.cancelaciones.delete(cancelacion);
+        }
+        return true;
+      }, { timeout: 90_000, maxWait: 5_000 });
+      if (aviso) this.logger.warn(aviso);
+      if (refrescar) {
+        this.logger.log(`Media ${mensajeId}: COMPLETADO`);
+        // Después del commit. Un fallo de WebSocket no reabre una tarea completada.
+        try { this.gateway.emitirActividad(refrescar); }
+        catch { this.logger.warn(`Media ${mensajeId}: refresco WebSocket no disponible`); }
+      }
+      return resultado;
+    } catch {
+      // PG puede estar caído; queda PROCESANDO/PENDIENTE en base para otro barrido.
+      this.logger.error(`Media ${mensajeId}: fallo de persistencia/reclamacion; se conserva el trabajo`);
+      return false;
     }
-    return bytes;
+  }
+
+  /** Limita también streams sin content-length; cancela antes de acumular >25 MB. */
+  private async leerAcotado(archivo: Response, signal: AbortSignal): Promise<ArrayBuffer> {
+    if (Number(archivo.headers.get('content-length')) > MAX_BYTES_MEDIA) {
+      await archivo.body?.cancel();
+      throw new ErrorMedia('TAMANO_EXCEDIDO', 'PERMANENTE');
+    }
+    if (!archivo.body) throw new ErrorMedia('CUERPO_MEDIA_VACIO');
+    const lector = archivo.body.getReader();
+    const partes: Uint8Array[] = [];
+    let total = 0;
+    const cancelar = () => { void lector.cancel().catch(() => undefined); };
+    signal.addEventListener('abort', cancelar, { once: true });
+    try {
+      while (true) {
+        signal.throwIfAborted();
+        const { done, value } = await lector.read();
+        signal.throwIfAborted();
+        if (done) break;
+        total += value.byteLength;
+        if (total > MAX_BYTES_MEDIA) {
+          await lector.cancel();
+          throw new ErrorMedia('TAMANO_EXCEDIDO', 'PERMANENTE');
+        }
+        partes.push(value);
+      }
+      const bytes = new Uint8Array(total);
+      let posicion = 0;
+      for (const parte of partes) { bytes.set(parte, posicion); posicion += parte.byteLength; }
+      return bytes.buffer;
+    } finally {
+      signal.removeEventListener('abort', cancelar);
+      lector.releaseLock();
+    }
   }
 }

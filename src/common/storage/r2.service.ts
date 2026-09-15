@@ -1,3 +1,4 @@
+import { ErrorMedia, errorHttpMedia, sanitizarErrorMedia } from '../fiabilidad/error-media';
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AwsClient } from 'aws4fetch';
@@ -53,6 +54,29 @@ export class R2Service {
     });
     if (!resp.ok) {
       throw new Error(`R2 PUT ${resp.status}: ${await resp.text()}`);
+    }
+  }
+
+  /**
+   * Un PUT por intento de recepción, sin el retry interno de AwsClient.fetch.
+   * La cancelación abarca firma y transporte; la clave es determinista.
+   * Los otros consumidores conservan subir() y su contrato actual.
+   */
+  async subirMediaEntrante(key: string, cuerpo: ArrayBuffer, mime: string, signal: AbortSignal): Promise<void> {
+    if (!this.client) throw new ErrorMedia('R2_SIN_CONFIGURAR', 'CONFIGURACION');
+    try {
+      signal.throwIfAborted();
+      const peticion = await this.client.sign(`${this.baseUrl}/${key}`, {
+        method: 'PUT', body: new Blob([cuerpo], { type: mime }), signal,
+        headers: { 'If-None-Match': '*' },
+      });
+      signal.throwIfAborted();
+      const respuesta = await fetch(peticion, { signal });
+      await respuesta.body?.cancel();
+      // El objeto de un Mensaje es inmutable: 412 confirma que ya existe.
+      if (!respuesta.ok && respuesta.status !== 412) throw errorHttpMedia('R2', respuesta.status);
+    } catch (error) {
+      throw sanitizarErrorMedia(error);
     }
   }
 

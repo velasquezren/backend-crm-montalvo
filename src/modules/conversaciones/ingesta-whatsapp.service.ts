@@ -176,6 +176,8 @@ export class IngestaWhatsappService {
           tipo: media?.tipo ?? 'TEXTO',
           mediaMime: media?.mime ?? null,
           mediaNombre: media?.nombre ?? null,
+          // El trabajo nace con el mensaje, incluso si R2/Meta no están configurados.
+          ...(media ? { trabajoMedia: { create: { mediaId: media.mediaId } } } : {}),
         },
       }),
       this.prisma.conversacion.update({
@@ -186,15 +188,9 @@ export class IngestaWhatsappService {
       }),
     ]);
 
-    /* La media se descarga de Meta y se sube a R2 SIN await: el webhook debe
-       responder 200 rápido (si tarda, Meta reintenta y termina desactivando la
-       suscripción). Al terminar, se actualiza mediaKey y se avisa por WebSocket
-       para que el chat muestre la foto sin recargar. */
-    if (media && this.mediaEntrante.habilitado) {
-      void enSegundoPlano(`descarga de la media del mensaje ${mensaje.id}`, this.logger, () =>
-        this.mediaEntrante.traer(mensaje.id, conversacion.id, media),
-      );
-    }
+    // Ya quedó durable en la transacción. Este despertar solo reduce la latencia;
+    // si el proceso muere aquí, el barrido de arranque retoma el trabajo.
+    if (media) this.mediaEntrante.despertar();
 
     /* Auto-crear el Lead de Oportunidades SOLO en el primer contacto: se ata a
        que la conversación se haya creado nueva en ESTA petición. Antes se hacía

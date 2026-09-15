@@ -1,5 +1,11 @@
 # F06 — Envío durable, resultado desconocido e idempotencia (entrega 2 de 2)
 
+> Actualización 14/9: la descripción de recepción de este informe es histórica.
+> Desde `8ef88c1` el webhook espera la persistencia antes de confirmar 200.
+> F06-R1 ahora cuenta con [recuperación durable de adjuntos](auditoria-f06-r1.md).
+> F06-R2 sigue abierto; ver la
+> [revisión actual y reproducciones](auditoria-f06-recepcion-2026-09-14.md).
+
 9 de septiembre de 2026. Cierra el **despacho saliente**. La recepción durable
 —persistir el webhook antes de procesarlo— queda fuera y se explica al final.
 Sin cambios en reglas financieras, autorización ni sesión.

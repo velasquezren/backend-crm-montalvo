@@ -10,9 +10,9 @@ import { WhatsappWebhookController } from './whatsapp-webhook.controller';
 /**
  * Esta es la única puerta por la que entra lo que escriben los pacientes. Lo que
  * se fija acá es, sobre todo, que un mensaje que falla no se lleve puestos a los
- * demás del lote: como se responde 200 antes de procesar, lo que se pierda acá
- * Meta no lo reintenta nunca — son mensajes de pacientes desapareciendo sin que
- * nadie se entere.
+ * demás del lote. La respuesta espera la persistencia y los fallos parciales
+ * terminan en 503 para permitir el reenvío. Estas pruebas no garantizan la
+ * recuperación de efectos posteriores al guardado, como adjuntos y leads.
  */
 
 interface ServicioConversaciones {

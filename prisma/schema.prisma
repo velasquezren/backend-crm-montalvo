@@ -332,6 +332,8 @@ model Mensaje {
   mediaMime      String?
   /// Nombre original del archivo (documentos). Null para imágenes/audio.
   mediaNombre    String?
+  /// Trabajo interno; no se incluye en lecturas REST.
+  trabajoMedia   TrabajoMediaEntrante?
   /// Solo aplica a SALIENTE — el paciente no tiene "estado de entrega" hacia nosotros.
   /// Ticks estilo WhatsApp: ENVIADO al crear, luego lo actualiza la respuesta de Meta
   /// (FALLIDO) o el webhook de `statuses` (ENTREGADO/LEIDO).
@@ -360,6 +362,22 @@ model Mensaje {
   /// vencido. Es un índice sobre una columna casi siempre nula, así que apenas
   /// pesa y evita recorrer la tabla de mensajes entera cada minuto.
   @@index([proximoIntento])
+}
+
+/// Una recuperación por mensaje. CHECK en SQL: estados internos, fuera de la API.
+model TrabajoMediaEntrante {
+  mensajeId      String    @id
+  mensaje        Mensaje   @relation(fields: [mensajeId], references: [id], onDelete: Cascade)
+  mediaId        String    @db.VarChar(255)
+  estado         String    @default("PENDIENTE") @db.VarChar(20)
+  intentos       Int       @default(0)
+  proximoIntento DateTime? @default(now())
+  ultimoError    String?   @db.VarChar(80)
+  reclamadoEn    DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([proximoIntento, mensajeId])
 }
 
 enum TipoMensaje {

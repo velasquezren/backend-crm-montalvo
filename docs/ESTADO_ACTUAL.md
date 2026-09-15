@@ -1,5 +1,56 @@
 # Estado actual
 
+## 14 de septiembre de 2026 · F06-R1 — IMPLEMENTADO Y VALIDADO LOCALMENTE
+
+**Solo recuperación durable de adjuntos entrantes. Sin despliegue.**
+[Contrato, pruebas, riesgos y rollback](auditoria-f06-r1.md).
+
+`TrabajoMediaEntrante` se crea con el mensaje en la misma transacción.
+El worker retoma pendientes e interrumpidos sin nuevo webhook; bloqueo
+PostgreSQL durante el intento, lote 10/concurrencia 2, plazo de red 60 s y
+retry acotado. Conserva la clave determinista y usa PUT condicional en R2:
+una respuesta perdida no causa otra publicación efectiva.
+
+Se mantienen el HTTP 200 después de persistir, el 503 por fallo de persistencia,
+el aislamiento del lote y la deduplicación por `whatsappMsgId`. No se modifican
+frontend, permisos, sesión, lead de primer contacto ni reintentos salientes.
+
+Migración aditiva `20260914234808_media_entrante_durable`, probada desde base
+limpia y sobre esquema anterior con mensaje ficticio conservado. PK, FK,
+cascada, índice y cinco CHECK verificados en PostgreSQL 16 descartable.
+
+Validación definitiva: **545 unitarias / 36 suites**, **402 integraciones /
+21 suites**, incluidas **26 nuevas PostgreSQL**; build, typecheck estricto de
+código/tests, `test:build` **9/9**, `check:skills` y `git diff --check`.
+Los casos financieros con Excel privados ausentes conservan la limitación
+histórica de asserts omitidos; no se cambiaron.
+
+El reproductor de auditoría conserva solo F06-R2 (dos fallos esperados);
+F06-R1 vive en regresiones habituales con PostgreSQL real.
+
+**DETENERSE al dejar esta entrega commiteada y limpia. F06-R2 permanece abierto.**
+F08, F10 y el resto de auditorías no se retoman automáticamente.
+
+## 14 de septiembre de 2026 · continuación de auditoría F06 — LOCAL
+
+Revisión sobre backend `c793a33` y frontend `2af3575`, sincronizados al comenzar.
+**Auditoría y reproducciones; sin cambios funcionales ni despliegue.**
+
+El pendiente describía código antiguo: desde `8ef88c1` el webhook **espera la
+persistencia antes del 200** y devuelve 503 ante fallos parciales. Quedan:
+
+- **Adjuntos:** no se persiste el identificador de media y el reenvío sale por
+  deduplicación antes de descargar otra vez. Prioridad alta.
+- **Lead de primer contacto:** se pierde si falla su INSERT o el mensaje después
+  de crear el chat; el reenvío tampoco lo reconstruye. Prioridad media.
+
+[Informe y siguiente entrega](auditoria-f06-recepcion-2026-09-14.md).
+[Reproductor](auditoria-f06/recepcion.repro.cjs): un control aprobado y tres
+aserciones de recuperación fallidas, fuera de la suite habitual. Build correcto
+y **516 unitarias / 33 suites** aprobadas. Sin integración con PostgreSQL ni
+servicios reales. F06 sigue abierto: repetir la ingesta actual no recupera los
+efectos pendientes, aunque se guarde el webhook entero.
+
 ## 14 de septiembre de 2026 (cierre) · barrido de duplicación — DESPLEGADO
 
 Frontend en **`2af3575`**, verificado contra Vercel: `styles-I3DSGGZR.css` y el
@@ -363,7 +414,7 @@ Las entregas 0–9 de §19 tienen otra numeración; no confundirlas.
 | F03 | **Cerrado**. `775abbd`; `transaccion-periodo.ts`, servicios de planilla/cálculo/configuración; `consistencia-periodo.integracion.spec.ts`, `cierre-periodo.spec.ts`; [evidencia](auditoria-f03.md). |
 | F04 | **Cerrado**. `775abbd`; DTO de perfil, servicios de actividades/clientes/ventas; `autorizacion-http.integracion.spec.ts`; [matriz](auditoria-f04.md). |
 | F05 | **Cerrado en código**. `775abbd` + frontend `9aa073a`; auth/guard/gateway/interceptor; `sesion-http.integracion.spec.ts`, `auth.service.spec.ts`, tests frontend de auth/interceptor/realtime; [contrato](auditoria-f05.md). |
-| F06 | **Entrega 1 cerrada; entrega 2 cerrada en el despacho SALIENTE, recepción durable pendiente**. Entrega 1: `58bae3a`, [evidencia](auditoria-f06.md). Entrega 2: `ResultadoEnvio` + `EstadoMensaje.INCIERTO` + `ReintentoSalienteService` + `biz_opaque_callback_data`; migración `20260909210000_envio_incierto_y_reintento`; [evidencia](auditoria-f06-entrega2.md). |
+| F06 | **Entrega 1 y despacho saliente cerrados; F06-R1 implementado y validado localmente; F06-R2 pendiente**. [Adjuntos durables](auditoria-f06-r1.md). Entrega 1: `58bae3a`, [evidencia](auditoria-f06.md). Entrega 2: `ResultadoEnvio` + `EstadoMensaje.INCIERTO` + `ReintentoSalienteService` + `biz_opaque_callback_data`; migración `20260909210000_envio_incierto_y_reintento`; [evidencia](auditoria-f06-entrega2.md). |
 | F07 | **Cerrado en código, commiteado y empujado (`b702fa0`); sin desplegar**. Retirados los comparadores parciales de `inbox` y `detalle`; 11 pruebas de regresión en `conversaciones-state.service.spec.ts`; [evidencia](auditoria-f07.md). |
 | F08 | Diagnosticado, pendiente: respuestas tardías que pisan selección/filtros. |
 | F09 | **Cerrado**. Un solo Service Worker (el de Angular) + `SwPush`; el payload de push pasa por `common/push/cuerpo-push.ts`; regla nueva en el `check:skills` del frontend; [evidencia](auditoria-f09.md). **No verificado en navegador**, y se decidió dejarlo así: el fallo se demostró leyendo el `ngsw-worker.js` que se despacha, y el arreglo, comprobando que el payload cumple lo que ese código exige. Si algún día alguien reporta que no le llegan avisos con la app cerrada, empezar por aquí. |
@@ -417,11 +468,10 @@ sustituían y dejaban el push mudo o `SwUpdate` muerto según cuál quedara acti
 Va antes que la recepción durable a propósito: rompía en silencio lo único que
 avisa a una agente cuando escribe una paciente.
 
-**La siguiente tarea prioritaria pendiente es la mitad que queda de F06: la
-recepción durable** — persistir el webhook antes de responder 200 y despacharlo
-con reintento, porque hoy lo que se pierda procesando no se recupera. La
-idempotencia de entrada ya existe (dedupe por wa msg id), pero durabilidad no es
-idempotencia. Después de eso, Performance/UX sale de análisis.
+**F06-R1 está implementado y validado localmente.** La instrucción vigente del
+usuario es detenerse después de commitear y dejar limpio este cambio.
+F06-R2 (lead de primer contacto) será otra entrega; no iniciarla, ni F08/F10,
+sin la siguiente instrucción. Ver [F06-R1](auditoria-f06-r1.md).
 
 Producción se consultó y se desplegó (ver la sección de más arriba). Lo que sigue
 sin verificarse es lo de fuera del proceso: **nada de esto se probó contra Meta

@@ -1,3 +1,4 @@
+import { ErrorMedia, errorHttpMedia, sanitizarErrorMedia } from '../fiabilidad/error-media';
 import { Injectable, Logger } from '@nestjs/common';
 
 /**
@@ -201,41 +202,54 @@ export class WhatsappCloudService {
     }
   }
 
-  /** `media_id` → URL temporal (5 min) desde donde bajar el archivo. */
-  async urlDeMedia(mediaId: string, cuenta: CredencialesWhatsapp | null): Promise<string | null> {
-    if (!cuenta) return null;
+  /** URL temporal: no se persiste. Los fallos de media deben llegar al worker. */
+  async urlDeMedia(
+    mediaId: string, cuenta: CredencialesWhatsapp | null,
+    signal: AbortSignal = AbortSignal.timeout(ESPERA_MS),
+  ): Promise<string> {
+    if (!cuenta) throw new ErrorMedia('META_SIN_CONFIGURAR', 'CONFIGURACION');
     try {
-      const respuesta = await fetch(`${BASE}/${mediaId}`, {
-        headers: { Authorization: `Bearer ${cuenta.token}` },
-        signal: AbortSignal.timeout(ESPERA_MS),
+      signal.throwIfAborted();
+      const respuesta = await fetch(`${BASE}/${encodeURIComponent(mediaId)}`, {
+        headers: { Authorization: `Bearer ${cuenta.token}` }, signal,
       });
       if (!respuesta.ok) {
-        this.logger.error(`No se pudo obtener URL de media ${mediaId} (${respuesta.status})`);
-        return null;
+        await respuesta.body?.cancel();
+        throw errorHttpMedia('META_ORIGEN', respuesta.status);
       }
-      const { url } = (await respuesta.json()) as { url?: string };
-      return url ?? null;
+      const datos: unknown = await respuesta.json();
+      if (!datos || typeof datos !== 'object' || !('url' in datos) || typeof datos.url !== 'string') {
+        throw new ErrorMedia('RESPUESTA_META_INVALIDA');
+      }
+      const url = new URL(datos.url);
+      if (url.protocol !== 'https:') throw new ErrorMedia('RESPUESTA_META_INVALIDA');
+      return url.href;
     } catch (error) {
-      this.logger.error(`Excepción pidiendo la URL de media ${mediaId}`, error);
-      return null;
+      throw sanitizarErrorMedia(error);
     }
   }
 
-  /** El CDN de Meta también exige el token. */
-  async descargarMedia(url: string, cuenta: CredencialesWhatsapp | null): Promise<Response | null> {
-    if (!cuenta) return null;
+  /** El CDN exige token. Un 404 temporal aquí permite pedir otra URL al reintentar. */
+  async descargarMedia(
+    url: string, cuenta: CredencialesWhatsapp | null,
+    signal: AbortSignal = AbortSignal.timeout(ESPERA_MEDIA_MS),
+  ): Promise<Response> {
+    if (!cuenta) throw new ErrorMedia('META_SIN_CONFIGURAR', 'CONFIGURACION');
     try {
+      signal.throwIfAborted();
       const respuesta = await fetch(url, {
-        headers: { Authorization: `Bearer ${cuenta.token}` },
-        /* Más holgado que el resto: esto baja el archivo, no un JSON. */
-        signal: AbortSignal.timeout(ESPERA_MEDIA_MS),
+        headers: { Authorization: `Bearer ${cuenta.token}` }, signal,
       });
-      return respuesta.ok ? respuesta : null;
+      if (!respuesta.ok) {
+        await respuesta.body?.cancel();
+        throw errorHttpMedia('META_DESCARGA', respuesta.status);
+      }
+      return respuesta;
     } catch (error) {
-      this.logger.error('Excepción descargando media de Meta', error);
-      return null;
+      throw sanitizarErrorMedia(error);
     }
   }
+
 }
 
 /**
