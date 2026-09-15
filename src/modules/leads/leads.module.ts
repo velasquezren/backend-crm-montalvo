@@ -3,6 +3,7 @@ import { Module } from '@nestjs/common';
 import { MetaSignatureGuard } from '../../common/guards/meta-signature.guard';
 import { ClientesModule } from '../clientes/clientes.module';
 import { LeadsController } from './leads.controller';
+import { PrimerContactoService } from './primer-contacto.service';
 import { LeadsService } from './leads.service';
 import { LeadAdsGraphService } from './webhooks/lead-ads-graph.service';
 import { MetaWebhookController } from './webhooks/meta-webhook.controller';
@@ -10,7 +11,7 @@ import { MetaWebhookController } from './webhooks/meta-webhook.controller';
 @Module({
   imports: [ClientesModule],
   controllers: [LeadsController, MetaWebhookController],
-  providers: [LeadsService, LeadAdsGraphService, MetaSignatureGuard],
-  exports: [LeadsService],
+  providers: [PrimerContactoService, LeadsService, LeadAdsGraphService, MetaSignatureGuard],
+  exports: [LeadsService, PrimerContactoService],
 })
 export class LeadsModule {}

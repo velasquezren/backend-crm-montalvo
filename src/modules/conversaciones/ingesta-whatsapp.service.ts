@@ -1,10 +1,11 @@
 import { LINEA_COMERCIAL_INICIAL } from './acceso-conversacion';
 import { Injectable, Logger } from '@nestjs/common';
-import { OrigenLead, Prisma } from '../../prisma/prisma-client';
+import { Mensaje, OrigenLead, Prisma } from '../../prisma/prisma-client';
 
 import { enSegundoPlano } from '../../common/fiabilidad/en-segundo-plano';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ClientesService, nombreProvisional } from '../clientes/clientes.service';
+import { PrimerContactoService } from '../leads/primer-contacto.service';
 import { AcuseAutomaticoService } from './acuse-automatico.service';
 import { ConversacionesGateway } from './conversaciones.gateway';
 import { DespachadorSalienteService } from './despachador-saliente.service';
@@ -52,6 +53,7 @@ export class IngestaWhatsappService {
     private readonly acuse: AcuseAutomaticoService,
     private readonly despachador: DespachadorSalienteService,
     private readonly mediaEntrante: MediaEntranteService,
+    private readonly primerContacto: PrimerContactoService,
   ) {}
 
   /**
@@ -104,7 +106,7 @@ export class IngestaWhatsappService {
       telefono,
     );
 
-    const { conversacion, esNueva } = await this.obtenerOCrearConversacion(cliente.id, lineaId);
+    const conversacion = await this.obtenerOCrearConversacion(cliente.id, lineaId, linea.comercial);
 
     /* Contexto de campaña / anuncio de Meta (Click-to-WhatsApp Ads) */
     const esInstagram = Boolean(
@@ -164,71 +166,50 @@ export class IngestaWhatsappService {
     /* `conversacion.update` bumpea `updatedAt` — sin esto un mensaje entrante
        no subía el chat al tope del inbox (ordenado por updatedAt desc), y el
        agente podía no notar que había algo nuevo hasta revisar chat por chat. */
-    const [mensaje] = await this.prisma.$transaction([
-      this.prisma.mensaje.create({
-        data: {
-          conversacionId: conversacion.id,
-          direccion: 'ENTRANTE',
-          contenido,
-          whatsappMsgId,
-          /* Para media: se guarda el tipo/mime/nombre ya; `mediaKey` queda null
-             hasta que la descarga+subida a R2 termine en segundo plano. */
-          tipo: media?.tipo ?? 'TEXTO',
-          mediaMime: media?.mime ?? null,
-          mediaNombre: media?.nombre ?? null,
-          // El trabajo nace con el mensaje, incluso si R2/Meta no están configurados.
-          ...(media ? { trabajoMedia: { create: { mediaId: media.mediaId } } } : {}),
-        },
-      }),
-      this.prisma.conversacion.update({
-        where: { id: conversacion.id },
-        /* Escribió la paciente: queda esperando a una persona, que es lo que
-           alimenta la pestaña "Sin responder" del inbox. */
-        data: { updatedAt: new Date(), esperandoRespuesta: true },
-      }),
-    ]);
+    let mensaje: Mensaje;
+    try {
+      mensaje = await this.prisma.$transaction(async tx => {
+        const creado = await tx.mensaje.create({
+          data: {
+            conversacionId: conversacion.id,
+            direccion: 'ENTRANTE',
+            contenido,
+            whatsappMsgId,
+            /* Para media: se guarda el tipo/mime/nombre ya; `mediaKey` queda null
+               hasta que la descarga+subida a R2 termine en segundo plano. */
+            tipo: media?.tipo ?? 'TEXTO',
+            mediaMime: media?.mime ?? null,
+            mediaNombre: media?.nombre ?? null,
+            // El trabajo nace con el mensaje, incluso si R2/Meta no están configurados.
+            ...(media ? { trabajoMedia: { create: { mediaId: media.mediaId } } } : {}),
+          },
+        });
+        await tx.conversacion.update({
+          where: { id: conversacion.id },
+          data: { updatedAt: new Date(), esperandoRespuesta: true },
+        });
+        if (linea.comercial) await this.primerContacto.preparar(
+          tx, conversacion.id, creado.id, origenLead, referral?.anuncioId,
+        );
+        return creado;
+      });
+    } catch (error) {
+      // El índice resuelve también la carrera que pasó el precheck simultáneamente.
+      if (whatsappMsgId && error instanceof Prisma.PrismaClientKnownRequestError &&
+          error.code === 'P2002') {
+        const existente = await this.prisma.mensaje.findUnique({ where: { whatsappMsgId } });
+        if (existente) return existente;
+      }
+      throw error;
+    }
 
     // Ya quedó durable en la transacción. Este despertar solo reduce la latencia;
     // si el proceso muere aquí, el barrido de arranque retoma el trabajo.
     if (media) this.mediaEntrante.despertar();
 
-    /* Auto-crear el Lead de Oportunidades SOLO en el primer contacto: se ata a
-       que la conversación se haya creado nueva en ESTA petición. Antes se hacía
-       con `lead.findFirst → create` sin escopar, que bajo carrera creaba un lead
-       por cada webhook simultáneo (Lead no es único por cliente — un cliente
-       puede tener varias oportunidades). Como la creación de la conversación
-       está serializada por el índice único, exactamente un webhook ve `esNueva`. */
-    /* El lead va en su propio try/catch, y no por desconfiar de la línea de
-       arriba: es la misma regla que el webhook aplica a cada elemento de un
-       lote. Lo que viene después —la notificación push a la agente y el acuse
-       fuera de horario— es lo que hace que alguien atienda a la paciente; el
-       lead es contabilidad. Si algún día vuelve a fallar esta escritura, que se
-       pierda el registro, no el aviso. */
-    if (esNueva && linea.comercial) {
-      try {
-        await this.prisma.lead.create({
-          data: {
-            clienteId: cliente.id,
-            origen: origenLead,
-            estado: 'NUEVO',
-            /* El id del ANUNCIO va a su columna, que no es única.
-               Estuvo yendo a `metaLeadId`, que sí lo es porque guarda el
-               `leadgen_id` de Lead Ads —uno por persona— y con él deduplica
-               `procesarLeadMeta` los reintentos del webhook. Un anuncio lo
-               clican muchas pacientes: la primera creaba su lead y de la
-               segunda en adelante el INSERT reventaba con P2002. */
-            anuncioId: referral?.anuncioId || null,
-            agenteId: cliente.agenteId,
-          },
-        });
-      } catch (error) {
-        this.logger.error(
-          `No se pudo crear el lead de primer contacto para ${cliente.id} ` +
-            `(anuncio ${referral?.anuncioId ?? 'ninguno'})`,
-          error,
-        );
-      }
-    }
+    // El alta es independiente del aviso, pero su obligación ya está confirmada.
+    // Si falla o el proceso termina, el barrido la completa sin otro webhook.
+    await this.primerContacto.procesarUno(conversacion.id);
 
     /* Refresca el inbox de quien lo tenga abierto y avisa al teléfono de quien
        no. **Es el único sitio del módulo que manda notificación push**: aquí y
@@ -261,34 +242,27 @@ export class IngestaWhatsappService {
   }
 
   /**
-   * Get-or-create de la conversación de un cliente, a prueba de concurrencia.
-   * Un inbox de WhatsApp tiene UN hilo por contacto (`Conversacion.clienteId`
-   * es único). Mismo patrón que el cliente: intentar crear y, si el único
-   * rebota (P2002) porque otro webhook simultáneo la creó primero, releer.
-   *
-   * Devuelve `esNueva` para que el llamador sepa si ESTA petición fue la que
-   * la creó — bajo carrera, exactamente una lo será (el único lo garantiza).
-   * Se usa para disparar el auto-alta del Lead una sola vez (ver
-   * `procesarEntrante`), que si no tendría su propia race (Lead no es único
-   * por cliente porque un cliente puede tener varias oportunidades).
+   * Una conversación por paciente + línea. La reserva comercial nace en el
+   * mismo INSERT; una conversación anterior nunca se rearma por un reintento.
    */
   private async obtenerOCrearConversacion(
     clienteId: string,
     lineaId: string,
-  ): Promise<{ conversacion: { id: string; agenteId: string | null }; esNueva: boolean }> {
+    comercial: boolean,
+  ): Promise<{ id: string; agenteId: string | null }> {
     const existente = await this.prisma.conversacion.findUnique({ where: { clienteId_lineaId: { clienteId, lineaId } } });
-    if (existente) {
-      return { conversacion: existente, esNueva: false };
-    }
+    if (existente) return existente;
     try {
-      const creada = await this.prisma.conversacion.create({ data: { clienteId, lineaId } });
-      return { conversacion: creada, esNueva: true };
+      return await this.prisma.conversacion.create({
+        data: {
+          clienteId, lineaId,
+          ...(comercial ? { primerContacto: { create: {} } } : {}),
+        },
+      });
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
         const yaCreada = await this.prisma.conversacion.findUnique({ where: { clienteId_lineaId: { clienteId, lineaId } } });
-        if (yaCreada) {
-          return { conversacion: yaCreada, esNueva: false };
-        }
+        if (yaCreada) return yaCreada;
       }
       throw error;
     }

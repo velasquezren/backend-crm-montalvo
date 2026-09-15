@@ -1,3 +1,4 @@
+import { PrimerContactoService } from '../leads/primer-contacto.service';
 import { ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -53,10 +54,11 @@ function worker(db = prisma, almacenamiento = new R2Service(config)) {
 }
 
 function ingesta(s = worker()) {
+  const clientes = new ClientesService(prisma, new AuditService(prisma), new ServiciosService(prisma));
   return new IngestaWhatsappService(prisma,
-    new ClientesService(prisma, new AuditService(prisma), new ServiciosService(prisma)),
+    clientes,
     gateway as unknown as ConversacionesGateway, new AcuseAutomaticoService(config),
-    {} as DespachadorSalienteService, s);
+    {} as DespachadorSalienteService, s, new PrimerContactoService(prisma, clientes));
 }
 
 const recibir = (s = ingesta(), id = 'wamid.f06', mediaId = 'media-f06') =>

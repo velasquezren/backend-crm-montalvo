@@ -211,6 +211,7 @@ model Interes {
 }
 
 model Lead {
+  primerContacto PrimerContactoWhatsapp?
   id            String     @id @default(uuid())
   cliente       Cliente    @relation(fields: [clienteId], references: [id], onDelete: Cascade)
   clienteId     String
@@ -276,6 +277,7 @@ model AccesoLineaWhatsapp {
 }
 
 model Conversacion {
+  primerContacto PrimerContactoWhatsapp?
   id                 String    @id @default(uuid())
   cliente            Cliente   @relation(fields: [clienteId], references: [id], onDelete: Cascade)
   /// Un hilo por contacto y línea; la restricción compuesta evita duplicados
@@ -317,6 +319,7 @@ model Conversacion {
 }
 
 model Mensaje {
+  primerContacto PrimerContactoWhatsapp?
   id             String           @id @default(uuid())
   conversacion   Conversacion     @relation(fields: [conversacionId], references: [id], onDelete: Cascade)
   conversacionId String
@@ -1194,4 +1197,23 @@ model Actividad {
   // notificar, cuya hora ya está cerca — sin este índice compuesto es un
   // Seq Scan cada 5 minutos.
   @@index([estado, notificadaEn, fechaProgramada])
+}
+
+/// Reserva durable del alta inicial. Estados y coherencia definidos por CHECK SQL.
+model PrimerContactoWhatsapp {
+  conversacionId String @id
+  conversacion Conversacion @relation(fields: [conversacionId], references: [id], onDelete: Cascade)
+  mensajeId String? @unique
+  mensaje Mensaje? @relation(fields: [mensajeId], references: [id], onDelete: Cascade)
+  origen OrigenLead?
+  anuncioId String? @db.VarChar(64)
+  leadId String? @unique
+  lead Lead? @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  intentos Int @default(0)
+  proximoIntento DateTime?
+  ultimoError String? @db.VarChar(80)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([proximoIntento, conversacionId])
 }

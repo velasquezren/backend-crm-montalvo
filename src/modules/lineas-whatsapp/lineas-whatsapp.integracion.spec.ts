@@ -1,3 +1,4 @@
+import { PrimerContactoService } from '../leads/primer-contacto.service';
 import { createHmac } from "node:crypto";
 import { INestApplication, Module, ValidationPipe } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
@@ -80,6 +81,7 @@ const r2 = {
     DespachadorSalienteService,
     MediaEntranteService,
     IngestaWhatsappService,
+    PrimerContactoService,
     AcuseAutomaticoService,
     WhatsappCloudService,
     AlertasWhatsappService,

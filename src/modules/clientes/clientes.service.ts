@@ -314,6 +314,15 @@ export class ClientesService {
     }
   }
 
+  /** Serializa el alta comercial recuperada con las reasignaciones del paciente (F04). */
+  async agenteParaAltaInicial(tx: Prisma.TransactionClient, clienteId: string): Promise<string | null> {
+    const filas = await tx.$queryRaw<Array<{ agenteId: string | null }>>`
+      SELECT "agenteId" FROM "Cliente" WHERE "id" = ${clienteId} FOR UPDATE
+    `;
+    if (!filas.length) throw new NotFoundException('Cliente no encontrado');
+    return filas[0].agenteId;
+  }
+
   /** `soloAgenteId` — ver la nota de `findOne`: mismo hueco existía en edición. */
   async update(id: string, dto: UpdateClienteDto, usuarioId?: string, soloAgenteId?: string) {
     const cliente = await this.findOne(id, soloAgenteId);

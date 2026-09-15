@@ -1,3 +1,4 @@
+import { PrimerContactoService } from '../leads/primer-contacto.service';
 import { LineasWhatsappService } from '../lineas-whatsapp/lineas-whatsapp.service';
 import { MemoriaAgenteService } from '../memoria-agente/memoria-agente.service';
 import { NotFoundException } from '@nestjs/common';
@@ -138,6 +139,7 @@ beforeEach(async () => {
       r2 as unknown as R2Service,
       whatsappService, new LineasWhatsappService(prisma, config),
     ),
+    new PrimerContactoService(prisma, clientesService),
   );
   jest.spyOn(service['logger'], 'warn').mockImplementation(() => undefined);
   jest.spyOn(service['logger'], 'error').mockImplementation(() => undefined);
@@ -871,6 +873,7 @@ describe('Acuse automático fuera de horario', () => {
         r2 as unknown as R2Service,
         whatsapp, new LineasWhatsappService(prisma, config),
       ),
+      new PrimerContactoService(prisma, clientesService),
     );
     /* Se sustituye el reloj en vez de congelar los temporizadores: los fake
        timers de Jest paran también los que Prisma usa por dentro. */
