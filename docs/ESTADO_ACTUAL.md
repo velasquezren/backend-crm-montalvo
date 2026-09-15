@@ -1,6 +1,28 @@
 # Estado actual
 
-## 14 de septiembre de 2026 · F06-R2 — IMPLEMENTADO Y VALIDADO LOCALMENTE
+## F06 — CERRADO
+
+Cierre técnico aceptado por el usuario. Commits publicados por push normal:
+**F06-R1: CERRADO** en `8faa263`; **F06-R2: CERRADO** en `b6ec462`.
+El alcance de R2 se revisó: solo alta inicial durable y ajustes indispensables
+de integración con la ingesta/F06-R1 y ownership F04.
+
+Quedan explícitamente fuera de F06: entrega durable de notificaciones,
+recuperación retrospectiva de leads históricos sin identidad fiable,
+pruebas contra Meta/R2 reales y despliegue de producción.
+Estos límites no impiden el cierre de F06.
+
+La comprobación final conserva las nueve garantías aceptadas: persistencia antes
+de confirmar el webhook; deduplicación de mensajes; adjuntos recuperables tras
+reinicio con exclusión entre workers; un lead inicial por primer contacto comercial,
+recuperable por retry/reinicio; líneas no comerciales sin autoalta; oportunidades
+históricas conservadas y F04 vigente. Sin cambios de implementación en este cierre.
+
+Evidencia y límites detallados en [F06-R1](auditoria-f06-r1.md) y
+[F06-R2](f06-r2-primer-contacto-durable.md). **Detenerse con Git sincronizado y limpio.
+No iniciar F08/F09/F10.**
+
+## 14 de septiembre de 2026 · F06-R2 — CERRADO
 
 Entrega autorizada después del cierre de F06-R1 en `8faa263`.
 **Alta inicial durable por conversación (paciente + línea)** mediante
@@ -29,7 +51,7 @@ PostgreSQL real. No hay despliegue ni cambios en producción/frontend.
 ---
 
 
-## 14 de septiembre de 2026 · F06-R1 — IMPLEMENTADO Y VALIDADO LOCALMENTE
+## 14 de septiembre de 2026 · F06-R1 — CERRADO
 
 **Solo recuperación durable de adjuntos entrantes. Sin despliegue.**
 [Contrato, pruebas, riesgos y rollback](auditoria-f06-r1.md).
@@ -54,10 +76,10 @@ código/tests, `test:build` **9/9**, `check:skills` y `git diff --check`.
 Los casos financieros con Excel privados ausentes conservan la limitación
 histórica de asserts omitidos; no se cambiaron.
 
-El reproductor de auditoría conserva solo F06-R2 (dos fallos esperados);
-F06-R1 vive en regresiones habituales con PostgreSQL real.
+El reproductor de auditoría ejecuta ahora las regresiones PostgreSQL de F06-R2;
+F06-R1 también vive en regresiones habituales con PostgreSQL real.
 
-**DETENERSE al dejar esta entrega commiteada y limpia. F06-R2 permanece abierto.**
+**F06-R1 y F06-R2 están CERRADOS. Detenerse con Git sincronizado y limpio.**
 F08, F10 y el resto de auditorías no se retoman automáticamente.
 
 ## 14 de septiembre de 2026 · continuación de auditoría F06 — LOCAL
@@ -77,8 +99,9 @@ persistencia antes del 200** y devuelve 503 ante fallos parciales. Quedan:
 [Reproductor](auditoria-f06/recepcion.repro.cjs): un control aprobado y tres
 aserciones de recuperación fallidas, fuera de la suite habitual. Build correcto
 y **516 unitarias / 33 suites** aprobadas. Sin integración con PostgreSQL ni
-servicios reales. F06 sigue abierto: repetir la ingesta actual no recupera los
-efectos pendientes, aunque se guarde el webhook entero.
+servicios reales. En aquel diagnóstico F06 seguía abierto: repetir la ingesta
+no recuperaba los efectos pendientes. R1 y R2 cerraron esos hallazgos; véase el
+estado vigente al comienzo de este documento.
 
 ## 14 de septiembre de 2026 (cierre) · barrido de duplicación — DESPLEGADO
 
@@ -443,7 +466,7 @@ Las entregas 0–9 de §19 tienen otra numeración; no confundirlas.
 | F03 | **Cerrado**. `775abbd`; `transaccion-periodo.ts`, servicios de planilla/cálculo/configuración; `consistencia-periodo.integracion.spec.ts`, `cierre-periodo.spec.ts`; [evidencia](auditoria-f03.md). |
 | F04 | **Cerrado**. `775abbd`; DTO de perfil, servicios de actividades/clientes/ventas; `autorizacion-http.integracion.spec.ts`; [matriz](auditoria-f04.md). |
 | F05 | **Cerrado en código**. `775abbd` + frontend `9aa073a`; auth/guard/gateway/interceptor; `sesion-http.integracion.spec.ts`, `auth.service.spec.ts`, tests frontend de auth/interceptor/realtime; [contrato](auditoria-f05.md). |
-| F06 | **Entrega 1 y despacho saliente cerrados; F06-R1 y F06-R2 implementados y validados localmente**. [Adjuntos durables](auditoria-f06-r1.md). Entrega 1: `58bae3a`, [evidencia](auditoria-f06.md). Entrega 2: `ResultadoEnvio` + `EstadoMensaje.INCIERTO` + `ReintentoSalienteService` + `biz_opaque_callback_data`; migración `20260909210000_envio_incierto_y_reintento`; [evidencia](auditoria-f06-entrega2.md). |
+| F06 | **CERRADO**. F06-R1: `8faa263`; F06-R2: `b6ec462`. Entrega 1 y despacho saliente cerrados. [Adjuntos durables](auditoria-f06-r1.md). Entrega 1: `58bae3a`, [evidencia](auditoria-f06.md). Entrega 2: `ResultadoEnvio` + `EstadoMensaje.INCIERTO` + `ReintentoSalienteService` + `biz_opaque_callback_data`; migración `20260909210000_envio_incierto_y_reintento`; [evidencia](auditoria-f06-entrega2.md). |
 | F07 | **Cerrado en código, commiteado y empujado (`b702fa0`); sin desplegar**. Retirados los comparadores parciales de `inbox` y `detalle`; 11 pruebas de regresión en `conversaciones-state.service.spec.ts`; [evidencia](auditoria-f07.md). |
 | F08 | Diagnosticado, pendiente: respuestas tardías que pisan selección/filtros. |
 | F09 | **Cerrado**. Un solo Service Worker (el de Angular) + `SwPush`; el payload de push pasa por `common/push/cuerpo-push.ts`; regla nueva en el `check:skills` del frontend; [evidencia](auditoria-f09.md). **No verificado en navegador**, y se decidió dejarlo así: el fallo se demostró leyendo el `ngsw-worker.js` que se despacha, y el arreglo, comprobando que el payload cumple lo que ese código exige. Si algún día alguien reporta que no le llegan avisos con la app cerrada, empezar por aquí. |
@@ -497,8 +520,8 @@ sustituían y dejaban el push mudo o `SwUpdate` muerto según cuál quedara acti
 Va antes que la recepción durable a propósito: rompía en silencio lo único que
 avisa a una agente cuando escribe una paciente.
 
-**F06-R1 y F06-R2 están implementados y validados localmente.** La instrucción
-vigente es detenerse con F06-R2 commiteado y limpio. No iniciar F08/F09/F10.
+**F06, F06-R1 y F06-R2 están CERRADOS.** La instrucción vigente es detenerse
+con Git sincronizado y limpio. No iniciar F08/F09/F10.
 Ver [F06-R1](auditoria-f06-r1.md) y [F06-R2](f06-r2-primer-contacto-durable.md).
 
 Producción se consultó y se desplegó (ver la sección de más arriba). Lo que sigue

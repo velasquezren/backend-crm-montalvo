@@ -1,7 +1,10 @@
 # F06-R1 — Recuperación durable de adjuntos entrantes
 
-14 de septiembre de 2026. Entrega local; sin despliegue ni acceso a producción.
-Alcance exclusivo: F06-R1. F06-R2 (lead de primer contacto) sigue abierto.
+14 de septiembre de 2026. **F06-R1: CERRADO**, commit `8faa263` publicado.
+Alcance exclusivo de este informe: F06-R1. F06-R2 también está CERRADO en
+`b6ec462`; véase [su informe](f06-r2-primer-contacto-durable.md).
+F06 completo está CERRADO; límites aceptados en [ESTADO_ACTUAL](ESTADO_ACTUAL.md).
+Sin despliegue ni acceso a producción.
 
 ## Causa raíz
 
@@ -232,7 +235,7 @@ contra la base real; solo el límite externo está simulado.
 Las unitarias cubren política, sanitización, lectura acotada sin content-length,
 cancelación de un read pendiente y transporte R2 condicional sin retries ocultos.
 F06-R1 ya no depende del reproductor de auditoría: vive en regresiones normales.
-El reproductor restante documenta únicamente F06-R2, todavía abierto.
+El reproductor histórico ejecuta ahora las regresiones PostgreSQL de F06-R2, también cerrado.
 
 ## Comportamiento cambiado y conservado
 
@@ -260,7 +263,7 @@ lógica del lead. Ningún webhook duplicado se vuelve a procesar completo.
   se introduce purga ni reintento manual en esta entrega.
 - La suite financiera histórica sigue avisando que omite asserts cuando faltan
   los Excel privados. No se modificó ese dominio.
-- F06-R2 permanece abierto. No se inicia su corrección.
+- F06-R2 se cerró por separado en `b6ec462`; no forma parte de esta implementación.
 
 ## Rollback
 

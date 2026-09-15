@@ -1,5 +1,9 @@
 # F06-R2 — primer contacto durable
 
+**F06-R2: CERRADO**, commit `b6ec462` publicado. F06-R1 está CERRADO en
+`8faa263`. F06 completo está CERRADO; límites aceptados en
+[ESTADO_ACTUAL](ESTADO_ACTUAL.md). Sin despliegue de producción.
+
 ## Reconstrucción antes del cambio
 Webhook espera ingesta por elemento → buscar mensaje por whatsappMsgId → obtener/crear
 paciente → obtener/crear conversación por (clienteId, lineaId), devolviendo esNueva
@@ -233,5 +237,6 @@ Resultados finales:
 4. No ejecutar DROP TABLE, borrar reservas ni eliminar leads como rollback.
    Eliminar el modelo exigiría una entrega separada tras resolver pendientes.
 
-No se ejecutó rollback ni migración en producción. F06-R2 termina con commit local
-y Git limpio; no autoriza continuar con F08/F09/F10.
+No se ejecutó rollback ni migración en producción. F06-R2 está CERRADO con
+`b6ec462` publicado; el cierre requiere Git sincronizado y limpio y no autoriza
+continuar con F08/F09/F10.
