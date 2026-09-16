@@ -1,5 +1,112 @@
 # Estado actual
 
+## 16 de septiembre de 2026 · límite de subida de la planilla — COMMITEADO, SIN DESPLEGAR
+
+**El único P0 que seguía vivo del informe maestro, arreglado** en `a383f3d`.
+`FileInterceptor('archivo')` de `/planilla-comisiones/importar` iba sin `limits`:
+el tope de 15 MB se comprobaba con el archivo ya entero en memoria. Ahora multer
+corta en 20 MB —por encima del tope de negocio a propósito, para que quien se
+pasa poco siga leyendo «pesa 16,2 MB; el máximo es 15 MB» en vez de un 413
+pelado—. Ventas y Memoria ya cortaban en transporte; este era el último.
+
+**Matiz que corrige al informe maestro.** §8 lo lista P0 sin decir por dónde se
+entra. En Nest los guards corren ANTES que los interceptores, así que multer no
+lee un byte hasta que `JwtAuthGuard` y `RolesGuard` autorizan: **no es alcanzable
+sin un token SUPER_ADMIN válido**. El riesgo comprobado es **agotamiento de
+memoria por un upload administrativo demasiado grande** —VPS de un núcleo con
+`MemoryMax=400M`, compartido con el webhook de WhatsApp—, no exposición anónima.
+Sigue mereciendo el arreglo: ese es justamente el caso probable.
+
+Cuatro pruebas nuevas (`limite-upload-planilla.spec.ts`) con Nest HTTP real y
+multipart de verdad, sin PostgreSQL. Comprobadas revirtiendo el interceptor: los
+25 MB volvían a responder 400 con «pesa 25,0 MB», que es la firma de haberlo
+leído entero. Esa comprobación desmintió de paso dos cosas, y quedaron escritas
+en el spec: `files: 1` **no** es lo que rechaza una segunda parte —eso ya lo
+hacía `.single()`— y un `Buffer` no vale como `BodyInit` de `fetch` bajo
+TypeScript 5.9 aunque en ejecución funcione.
+
+**Sin desplegar. Sin tocar frontend.**
+
+### La integración pendiente desde el 10 de septiembre: SALDADA
+
+El handoff de Finanzas dejó escrito que había que correr `test:integracion`
+completo contra PostgreSQL descartable antes de desplegar aquello, y que no se
+había hecho porque esta máquina no tenía base en el 5433. **Se hizo el 16 de
+septiembre aquí**: PostgreSQL 16.15 descartable con la receta de
+[crm-backend-arquitectura §8](../.claude/skills/crm-backend-arquitectura/SKILL.md),
+**las 44 migraciones aplicadas limpias desde cero** y **425 casos / 22 suites en
+verde**, antes y después del cambio de este día. El servidor se detuvo y se
+borró al terminar. `verificacion-diciembre` conserva su limitación: sale PASS
+avisando por consola que sus asserts NO se ejecutaron.
+
+Compuertas de este día: `npm run build` con `check:skills` y `check:build`,
+**551 unitarias / 38 suites** (eran 547/37), `test:build` **9/9**, typecheck
+estricto de `src/**/*.ts` con specs incluidos, y `git diff --check` limpio.
+Frontend sin cambios: build verde y 142 pruebas / 15 suites.
+
+### Deriva documental corregida
+
+Cinco cosas que este archivo o el informe maestro daban por abiertas y se
+comprobaron **cerradas en el código**:
+
+- **F08, mitad inbox: hecha.** `cargarMas` y `refrescarFilaPorRealtime` ya
+  descartan con `filtros !== this.filtros()`. F08 queda reducido a Planilla.
+- **Último superadministrador: ya es atómico.** `usuarios.service.ts` toma
+  `pg_advisory_xact_lock(730013)` dentro de la transacción. El §9 del informe
+  maestro lo sigue listando como carrera abierta.
+- **Caché de detalles del chat: eliminada.** Era el candidato nº 1 de
+  simplificación del §17.
+- **Push a usuario desactivado:** la ruta real —`LineasWhatsappService.destinatarios`—
+  filtra `activo: true` y aplica alcance. Lo que queda abierto del §12 es otra
+  cosa, el logout; ver los pendientes de abajo.
+- **`reintento-saliente.service.spec.ts`** ya no importa `Logger` sin usarlo.
+
+### Pendientes reales, comprobados en el código el 16/9
+
+Solo lo que se verificó abierto leyendo el código de hoy. Lo que no aparece
+aquí, o está cerrado o no se pudo comprobar desde esta máquina.
+
+- **F08 en Planilla.** `refrescarPanelesDelPeriodo(id)` y `cargarConsolidado(id)`
+  escriben `alertas`/`consolidado` sin comprobar que `periodoId()` siga siendo
+  `id` al llegar la respuesta; `alternarOcultas()` tiene la misma forma. Y el
+  `catch → null` pinta «Todavía no hay liquidación calculada»
+  (`planilla-comisiones.page.html:1029`) cuando lo que falló fue la red: dice que
+  no hay dinero calculado, que es distinto de no haberlo podido traer.
+- **F10, calendario.** `actividadesCalendario` pide `limite: 100` **sin
+  `desde`/`hasta`** y el backend ordena `fechaProgramada: 'asc'`: con suficiente
+  historial, el mes visible puede no entrar en esa primera página. El backend
+  **ya acepta** `desde`/`hasta` (`actividades.service.ts:144`): el arreglo es de
+  frontend, no hace falta endpoint nuevo.
+- **F10, historiales.** `historialPaciente` corta en 500 y `historialPorPac` en
+  200, con las sumas sobre el array recortado. Riesgo bajo hoy: el comentario
+  mide que el máximo real por paciente son 20 filas.
+- **F10, cursor de mensajes.** `obtenerMensajesAnteriores` filtra solo por
+  `createdAt`; sin desempate por id, una frontera de página con timestamps
+  iguales deja mensajes fuera.
+- **Push después del logout.** `AuthService.logout()` no llama a
+  `/push/desuscribir` —el endpoint existe y no tiene consumidor— ni da de baja la
+  suscripción del `SwPush`. Mitigado a medias: `guardarSuscripcion` reasigna por
+  `endpoint`, así que la siguiente agente que abra el inbox se la lleva. Entre
+  medias, un equipo compartido sigue recibiendo nombre de paciente y resumen del
+  mensaje a nombre de quien ya salió.
+- **`PushService.enviarATodosLosAgentes` es código muerto sin un solo filtro.**
+  Cero llamadas en `src/`; hace `findMany()` **sin `where`**. Si alguien lo
+  vuelve a llamar manda datos de paciente a todas las suscripciones, RECEPCION
+  incluida — que es justo lo que el aislamiento por línea impide en el resto.
+- **Dependencias, sin cambios desde el 5/9.** `xlsx` 0.18.5 sigue con `fix: no` y
+  está en el camino real de importación; `multer` 2.0.2 clavado por
+  `@nestjs/platform-express`. Frontend limpio, 0 avisos. **Trampa:** `npm audit`
+  propone «arreglar» Prisma bajando a 6.19.3, que es un downgrade desde 7.10.0.
+- **`temporal-polyfill` sigue sin declarar** en el `package.json` del frontend.
+- **Índice duplicado** `@@unique([anio, mes])` + `@@index([anio, mes])` en
+  `schema.prisma:641-642`.
+- **`buscarMensajes` del servicio frontend sigue sin consumidor**; el endpoint
+  backend existe y está probado. Conectar o decidir su alcance, no borrar a ciegas.
+
+No se pudo comprobar desde aquí, y sigue anotado abajo: las dos
+`ReglaClasificacion` con el mismo patrón y el dump de 20 bytes en `/root` del
+servidor. Los dos son datos de producción.
+
 ## F06 — CERRADO
 
 Cierre técnico aceptado por el usuario. Commits publicados por push normal:
@@ -365,8 +472,10 @@ y un typecheck de `src/**/*.ts` con tipos de jest pasa limpio.
 > Antes de desplegar estos cambios, ejecutar `test:integracion` completo contra
 > PostgreSQL descartable.
 
-Esa verificación **está pendiente**: no se ha ejecutado y no debe darse por
-hecha. La receta de la base descartable está en
+Esa verificación **ya se hizo**, el 16 de septiembre: 425 casos / 22 suites en
+verde contra PostgreSQL 16.15 descartable, con las 44 migraciones aplicadas desde
+cero (ver la sección del 16/9 al principio de este archivo). La receta de la base
+descartable está en
 [crm-backend-arquitectura §8](../.claude/skills/crm-backend-arquitectura/SKILL.md);
 recordar que `test:integracion:preparar` **borra `crm_test`**.
 
@@ -387,9 +496,6 @@ recordar que `test:integracion:preparar` **borra `crm_test`**.
   motor contra lo que administración pagó de verdad. Aquí solo se le adaptó el
   constructor —infraestructura, forzada por la inyección nueva—; el problema de
   fondo sigue igual que en el handoff anterior.
-- **`reintento-saliente.service.spec.ts` importa `Logger` sin usarlo** (F06 e2,
-  commit `f2fc042`). De antes y sin relación con Finanzas. Una línea; no rompe
-  el build porque `tsconfig.build.json` excluye los specs.
 
 ## Lo anterior (9 de septiembre)
 
@@ -468,9 +574,9 @@ Las entregas 0–9 de §19 tienen otra numeración; no confundirlas.
 | F05 | **Cerrado en código**. `775abbd` + frontend `9aa073a`; auth/guard/gateway/interceptor; `sesion-http.integracion.spec.ts`, `auth.service.spec.ts`, tests frontend de auth/interceptor/realtime; [contrato](auditoria-f05.md). |
 | F06 | **CERRADO**. F06-R1: `8faa263`; F06-R2: `b6ec462`. Entrega 1 y despacho saliente cerrados. [Adjuntos durables](auditoria-f06-r1.md). Entrega 1: `58bae3a`, [evidencia](auditoria-f06.md). Entrega 2: `ResultadoEnvio` + `EstadoMensaje.INCIERTO` + `ReintentoSalienteService` + `biz_opaque_callback_data`; migración `20260909210000_envio_incierto_y_reintento`; [evidencia](auditoria-f06-entrega2.md). |
 | F07 | **Cerrado en código, commiteado y empujado (`b702fa0`); sin desplegar**. Retirados los comparadores parciales de `inbox` y `detalle`; 11 pruebas de regresión en `conversaciones-state.service.spec.ts`; [evidencia](auditoria-f07.md). |
-| F08 | Diagnosticado, pendiente: respuestas tardías que pisan selección/filtros. |
+| F08 | **Mitad hecha.** El inbox ya descarta por filtros (`cargarMas`, `refrescarFilaPorRealtime`). Queda Planilla: `refrescarPanelesDelPeriodo`/`cargarConsolidado`/`alternarOcultas` escriben sin comprobar `periodoId()`, y el `catch → null` presenta un fallo de red como «no hay liquidación». |
 | F09 | **Cerrado**. Un solo Service Worker (el de Angular) + `SwPush`; el payload de push pasa por `common/push/cuerpo-push.ts`; regla nueva en el `check:skills` del frontend; [evidencia](auditoria-f09.md). **No verificado en navegador**, y se decidió dejarlo así: el fallo se demostró leyendo el `ngsw-worker.js` que se despacha, y el arreglo, comprobando que el payload cumple lo que ese código exige. Si algún día alguien reporta que no le llegan avisos con la app cerrada, empezar por aquí. |
-| F10 | Pendiente: completitud de consultas (calendario/historiales). |
+| F10 | Pendiente, comprobado el 16/9. Calendario: `limite: 100` sin `desde`/`hasta` y orden ascendente —el backend ya acepta el rango, el arreglo es de frontend—. Historiales 200/500 (riesgo bajo: máximo real medido, 20 filas). Cursor de mensajes sin desempate por id. |
 
 No inferir el despliegue desde Git — pero **el 9/9/2026 sí se consultó**: ver
 la sección de producción más arriba. F05 estaba desplegado y su migración
@@ -609,8 +715,9 @@ Las suites se ejecutan en serie; no correr dos procesos contra el mismo crm_test
   `dotenv/config`; backend usa tipos/augmentación `express`. Llegan por el lockfile,
   pero no están declarados directamente. Corregir su declaración en una fase de
   dependencias autorizada; aquí no se cambiaron versiones ni manifests.
-- Los bugs frontend documentados siguen abiertos: `conversaciones-state.service.ts`
-  (respuestas tardías/estado), `auth.service.ts` (stores entre sesiones),
-  `app.config.ts` + `notificacion-nativa.service.ts` (dos SW). Riesgo: datos visibles
-  incorrectos o remanentes de otro usuario y conflictos push/caché; pendientes de
-  aislamiento de estado y F08–F09. La igualdad parcial de F07 está corregida.
+- De los bugs frontend que este archivo daba por abiertos quedan menos de los que
+  decía, comprobado el 16/9: los dos Service Workers se cerraron con F09 y las
+  respuestas tardías de `conversaciones-state.service.ts` ya se descartan por
+  filtros. Siguen abiertos el estado entre sesiones de `auth.service.ts` —incluida
+  la suscripción push que el logout no da de baja— y la mitad de F08 que vive en
+  Planilla. La igualdad parcial de F07 está corregida.
