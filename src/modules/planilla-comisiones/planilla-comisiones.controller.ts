@@ -62,6 +62,22 @@ interface ArchivoSubido {
 /** Tope del Excel mensual: el VPS tiene poca RAM y un mes real pesa muy por debajo. */
 const TAMANO_MAXIMO_BYTES = 15 * 1024 * 1024;
 
+/**
+ * Corte de multer, deliberadamente POR ENCIMA de `TAMANO_MAXIMO_BYTES`.
+ *
+ * `FileInterceptor` sin `limits` lee el archivo ENTERO en memoria y solo
+ * después el handler mira `archivo.size`: para cuando se rechaza uno de 400 MB
+ * ya está completo en la RAM de un VPS de un núcleo con `MemoryMax=400M`,
+ * compartida con el webhook de WhatsApp. Ventas y Memoria ya cortaban en
+ * transporte; este endpoint era el último que comprobaba el tamaño tarde.
+ *
+ * Los 5 MB de margen no son un descuido. Quien se pasa poco del tope de negocio
+ * debe leer «pesa 16,2 MB; el máximo es 15 MB» y no un 413 pelado: multer corta
+ * la sangría, y el handler sigue siendo quien explica la regla. Mismo criterio
+ * que `memoria-agente.controller.ts` (8 MB en transporte, 5 MB de negocio).
+ */
+const TOPE_MULTER_BYTES = 20 * 1024 * 1024;
+
 const EXTENSIONES_VALIDAS = ['.xlsx', '.xls'];
 
 /**
@@ -92,7 +108,7 @@ export class PlanillaComisionesController {
 
   @Post('importar')
   @Roles('SUPER_ADMIN')
-  @UseInterceptors(FileInterceptor('archivo'))
+  @UseInterceptors(FileInterceptor('archivo', { limits: { fileSize: TOPE_MULTER_BYTES, files: 1 } }))
   importar(
     @UploadedFile() archivo: ArchivoSubido | undefined,
     @Body() dto: ImportarExcelDto,
