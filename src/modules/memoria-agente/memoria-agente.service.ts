@@ -1,5 +1,5 @@
 import { ArchivoSubido } from './archivo-subido';
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma, TipoRecursoMemoria } from '../../prisma/prisma-client';
 import { terminoBusqueda } from '../../common/dto/busqueda';
 import { calcularPaginacion, paginar } from '../../common/dto/pagination.dto';
@@ -246,6 +246,23 @@ export class MemoriaAgenteService {
     });
   }
 
+  /**
+   * Baja de un recurso de Mi Memoria.
+   *
+   * Ojo con el orden: primero se comprueba que NADIE lo esté usando y solo
+   * después se toca R2. El mismo endpoint que sube los recursos de la
+   * biblioteca sube también los adjuntos del chat, así que un `mediaKey` puede
+   * estar referenciado por mensajes ya enviados — y lo que se guarda en el
+   * mensaje es la CLAVE, no el archivo: el servidor firma una URL nueva en
+   * cada lectura. Borrar el objeto dejaba la imagen rota para siempre en el
+   * historial de la paciente, sin aviso ni forma de recuperarla, y de paso
+   * condenaba al fracaso cualquier reintento técnico del barrido sobre ese
+   * mensaje, que vuelve a firmar la misma clave.
+   *
+   * Se rechaza la operación entera, no solo el borrado en R2: quitar la fila y
+   * dejar el objeto huérfano sería peor todavía, porque nadie volvería a verlo
+   * para poder gestionarlo.
+   */
   async remove(id: string, usuarioId: string) {
     const existe = await this.prisma.recursoMemoriaAgente.findFirst({
       where: { id, usuarioId },
@@ -255,6 +272,16 @@ export class MemoriaAgenteService {
     }
 
     if (existe.mediaKey) {
+      const enUso = await this.prisma.mensaje.findFirst({
+        where: { mediaKey: existe.mediaKey },
+        select: { id: true },
+      });
+      if (enUso) {
+        throw new ConflictException(
+          'Este archivo ya se envió en una conversación. Si se borra, la imagen se rompe en el historial de la paciente.',
+        );
+      }
+
       try {
         await this.r2.eliminar(existe.mediaKey);
       } catch (err) {
