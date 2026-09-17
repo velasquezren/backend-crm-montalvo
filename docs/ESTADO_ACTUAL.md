@@ -24,9 +24,11 @@ sin clasificar.
 | **Desplegado en producción** | **`7194843`** (14/9) | **`6e16040`** |
 
 **La producción del backend lleva nueve commits de retraso** e incluye **dos
-migraciones sin aplicar**: `20260914234808_media_entrante_durable` (F06-R1,
-`8faa263`) y `20260915002934_primer_contacto_durable` (F06-R2, `b6ec462`).
-F06 está cerrado en código desde el 14 de septiembre y **nunca se desplegó**.
+migraciones de la auditoría sin aplicar**: `20260914234808_media_entrante_durable`
+(F06-R1, `8faa263`) y `20260915002934_primer_contacto_durable` (F06-R2,
+`b6ec462`). F06 está cerrado en código desde el 14 de septiembre y **nunca se
+desplegó**. Contando también la rama de Agenda, el atraso real de producción son
+**tres** migraciones: ver «Agenda / Actividades» más abajo.
 
 Al desplegar, **el backend va primero**: el frontend pendiente depende de
 contratos nuevos suyos (`limiteLista` del historial, `antesDeId` del cursor).
@@ -132,6 +134,72 @@ app instala ese global**. Hoy funciona porque el navegador lo trae nativo; en
 uno que no lo traiga, la vista Calendario revienta con `ReferenceError`. Salió
 al montar las pruebas del calendario. Es una línea en el arranque, pero es
 compatibilidad y no F10: queda como entrega propia, sin decidir.
+
+## Agenda / Actividades — mejora de producto, TERMINADA EN RAMA
+
+**Esto no es auditoría.** No sale de ningún finding: es trabajo de producto
+sobre el módulo de Actividades, y se lee aparte de F01–F10. Vive entero en la
+rama `agenda-actividades-v2` de los dos repos.
+
+| Fase | Qué resolvió | Estado |
+| --- | --- | --- |
+| **A1** · zona de la clínica | Una sola definición de «hoy», `America/La_Paz`, con gemelos en los dos runtimes | **CERRADO** |
+| **A2** · completar + siguiente | «Completar y agendar siguiente paso» dejó de perder el seguimiento | **CERRADO** |
+| **A3** · extracción del formulario | El formulario de crear/editar pasó a componente propio | **CERRADO** |
+| **A4.1** · selector de paciente | Búsqueda, lead y alta express, con un solo dueño | **CERRADO** |
+| **A4.2** · cajón de detalle | Presenta y propone; la página sigue siendo quien muta | **CERRADO** |
+| **A5** · series repetitivas | Identidad de serie y dos operaciones sobre las siguientes | **CERRADO** |
+
+### Qué es A5, en concreto
+
+- **Identidad, no motor de recurrencias.** `serieId` (`uuid`) + `frecuenciaSerie`
+  en cada ocurrencia. No se guarda el patrón ni una fecha de fin: las filas ya
+  existen todas desde el alta, y son ellas las que dicen cuándo es cada una.
+- **La cadencia es canónica y sale de Prisma.** `enum FrecuenciaRepeticion
+  { SEMANAL QUINCENAL MENSUAL }` en `schema.prisma`; el frontend la recibe por
+  `db-enums.ts` y `check:tipos` falla si divergen. **No hay frecuencia diaria**,
+  y nunca la hubo en el código.
+- **Cancelar esta y las siguientes** — `PATCH /actividades/:id/esta-y-siguientes/cancelar`.
+- **Cambiar la hora de esta y las siguientes** — `PATCH /actividades/:id/esta-y-siguientes/hora`,
+  con `{ hora: "HH:MM" }`. **Cada ocurrencia conserva su propio día de
+  calendario**; solo cambia la hora de reloj de la clínica.
+- **FUTURAS = misma serie, `fechaProgramada >= la de la elegida`, solo
+  PENDIENTES, y dentro del alcance de quien pide.** Compartir `serieId` no da
+  permiso sobre lo que es de otra agente: F04 sigue mandando.
+- **No hubo backfill.** Lo agendado con «repetir» antes de A5.1 tiene
+  `serieId = null` y se comporta como actividad individual, porque entonces no
+  se guardaba nada que enlazara las ocurrencias. La migración es puramente
+  aditiva y no reescribió ni una fila existente.
+- **El máximo de 12 se conserva** tal cual estaba; A5 no tocó el alta.
+- **No existe** editar la serie entera, ni mover su día, ni eliminarla:
+  eliminar afecta siempre a una sola actividad. Para detener seguimientos
+  futuros se cancela.
+- **La interfaz solo ofrece «esta y las siguientes» para un cambio de hora
+  puro** (mismo día de clínica, nada más tocado). Es deliberado: un solo
+  «Guardar» no puede ser dos intenciones.
+
+### Dónde está A5, y dónde no
+
+| | |
+| --- | --- |
+| Implementado en rama `agenda-actividades-v2` | **Sí** — backend `ab04a16`, frontend `a9245c1` |
+| En `main` | **No** |
+| Desplegado | **No** |
+
+**Migraciones pendientes en producción: exactamente tres.**
+
+| Migración | Origen | ¿En `origin/main`? |
+| --- | --- | --- |
+| `20260914234808_media_entrante_durable` | F06-R1 | sí |
+| `20260915002934_primer_contacto_durable` | F06-R2 | sí |
+| `20260917013320_serie_actividades` | A5.1 | no — solo en la rama |
+
+Contadas contra Git, no de memoria: 47 migraciones en la rama, 46 en
+`origin/main`, 44 en el commit desplegado `7194843`.
+
+**A6 (recordatorios y motivo de cancelación) y A7 (calendario interactivo) son
+fases futuras de producto, no findings pendientes.** Nadie las ha empezado y
+nada las bloquea.
 
 ## 16 de septiembre de 2026 · límite de subida de la planilla — COMMITEADO, SIN DESPLEGAR
 
@@ -749,8 +817,13 @@ atender: lo que viene después es trabajo nuevo, no continuación de esta.
 
 Lo único pendiente de ella es **desplegar**, y es una decisión aparte. Ver la
 tabla del principio: producción lleva nueve commits de retraso en el backend y
-dos migraciones sin aplicar, y el frontend nuevo depende de contratos del
-backend nuevo. Backend primero, siempre.
+dos migraciones de la auditoría sin aplicar, y el frontend nuevo depende de
+contratos del backend nuevo. Backend primero, siempre.
+
+Aparte de la auditoría, y sin mezclarla con ella, está **Agenda / Actividades
+(A1–A5)**: terminada en la rama `agenda-actividades-v2`, sin llevar a `main` y
+sin desplegar. Suma una tercera migración pendiente en producción. Su sección
+propia dice qué incluye y qué NO soporta.
 
 Lo que sigue sin verificarse es lo de fuera del proceso: **nada de F06 se probó
 contra Meta de verdad** —todo el camino externo va con `fetch` simulado— ni nada

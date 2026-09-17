@@ -380,7 +380,7 @@ describe('ActividadesService.create — repetir', () => {
     expect(total).toBe(1);
   });
 
-  it('con repetir SEMANAL x4 crea 4 filas independientes, una por semana', async () => {
+  it('con repetir SEMANAL x4 crea 4 filas propias, una por semana', async () => {
     const yo = await usuario('Yo', 'yo@test.local');
     const clienteYo = await cliente('Ana', '+59170000001', yo.id);
     const inicio = new Date('2026-09-07T15:00:00.000Z'); // lunes
@@ -408,7 +408,9 @@ describe('ActividadesService.create — repetir', () => {
       '2026-09-21T15:00:00.000Z',
       '2026-09-28T15:00:00.000Z',
     ]);
-    // Independientes de verdad: cada una se puede completar por separado.
+    /* Cuatro Actividades de verdad, cada una con su id y su estado: desde A5.1
+       comparten `serieId`, pero compartir identidad no las funde en una. Lo que
+       la serie habilita —«esta y las siguientes»— se prueba aparte. */
     expect(new Set(filas.map(f => f.id)).size).toBe(4);
     expect(filas.every(f => f.estado === 'PENDIENTE')).toBe(true);
   });
