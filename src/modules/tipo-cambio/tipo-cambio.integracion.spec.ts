@@ -43,6 +43,12 @@ beforeAll(async () => {
 afterAll(async () => {
   await prisma.tipoCambioDiario.deleteMany();
   await prisma.configuracionTipoCambio.deleteMany();
+  /* `Actividad` y `Venta` antes que `Usuario`: son las dos únicas FKs RESTRICT
+     que apuntan a `Usuario` (las otras once son CASCADE o SET NULL). Esta
+     suite no borra `Cliente`, así que no le llega la cascada que protege a las
+     demás y era la que fallaba con `Actividad_agenteId_fkey`. */
+  await prisma.actividad.deleteMany();
+  await prisma.venta.deleteMany();
   await prisma.usuario.deleteMany();
   await prisma.$disconnect();
   global.fetch = fetchOriginal;

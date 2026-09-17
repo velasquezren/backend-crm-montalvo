@@ -36,6 +36,11 @@ beforeEach(async () => {
   await prisma.auditLog.deleteMany();
   await prisma.lead.deleteMany();
   await prisma.conversacion.deleteMany();
+  /* `Venta` antes que `Cliente`: `Venta.clienteId` es RESTRICT, así que una
+     venta que otra suite dejó atrás bloquea este borrado y tumba el archivo
+     entero. `Actividad` no hace falta aquí — su `clienteId` es CASCADE y cae
+     sola al borrar el cliente. */
+  await prisma.venta.deleteMany();
   await prisma.cliente.deleteMany();
   await prisma.usuario.deleteMany();
   service = new LeadsService(prisma, new ClientesService(prisma, new AuditService(prisma), new ServiciosService(prisma)));
