@@ -21,6 +21,9 @@ import { QueryMedicosDto, QueryPacientesDto, QueryServiciosDto } from './dto/que
  */
 const LIMITE_HISTORIAL = 500;
 
+/** Tope de la lista que se muestra dentro de la ficha del cliente. */
+const LIMITE_FICHA = 200;
+
 /**
  * Traducción de la clave que manda el cliente a la expresión SQL real.
  *
@@ -255,11 +258,57 @@ export class ServiciosService {
     return paginar(datos, Number(total[0]?.total ?? 0), query);
   }
 
+  /**
+   * El resumen de un paciente contado sobre TODAS sus filas, no sobre la página.
+   *
+   * Existe porque el resumen no puede heredar el tope de la lista. Contando el
+   * array recortado, un paciente con 520 servicios veía «500 servicios» y un
+   * gasto corto — y, peor, «primera visita» salía siendo la 500ª MÁS RECIENTE,
+   * porque la lista va en `fecha desc`: ese dato no quedaba incompleto, quedaba
+   * equivocado, y la pantalla lo imprime como «Línea de tiempo — del X al Y».
+   *
+   * No es un riesgo de laboratorio: en el diciembre real un paciente acumuló
+   * **31 servicios en un solo mes**. A ese ritmo, el tope de 200 de la ficha se
+   * cruza en unos siete meses y el de 500 en unos diecisiete. El comentario que
+   * decía «hoy el máximo real son 20» medía otra cosa.
+   *
+   * Una sola consulta agregada: cinco cifras que resuelve Postgres sin traer
+   * una fila a Node. `count(DISTINCT)` ignora los NULL, igual que el `filter`
+   * que sustituye.
+   */
+  async resumenHistorialPorPac(pac: string) {
+    const filas = await this.prisma.$queryRaw<
+      Array<{
+        servicios: bigint;
+        gastado: Prisma.Decimal | null;
+        primeraVisita: Date | null;
+        ultimaVisita: Date | null;
+        medicos: bigint;
+      }>
+    >`
+      SELECT count(*) AS servicios,
+             coalesce(sum(v."precio"), 0) AS gastado,
+             min(v."fecha") AS "primeraVisita",
+             max(v."fecha") AS "ultimaVisita",
+             count(DISTINCT v."medicoPk") AS medicos
+      FROM "VentaImportada" v
+      WHERE v."pac" = ${pac}
+    `;
+    const fila = filas[0];
+    return {
+      servicios: Number(fila?.servicios ?? 0),
+      gastado: Number(fila?.gastado ?? 0),
+      primeraVisita: fila?.primeraVisita ?? null,
+      ultimaVisita: fila?.ultimaVisita ?? null,
+      medicos: Number(fila?.medicos ?? 0),
+    };
+  }
+
   /** Ficha del paciente (si existe) y su línea de tiempo de servicios. */
   async historialPaciente(pac: string) {
     const codigo = pac.toUpperCase();
 
-    const [ficha, servicios] = await Promise.all([
+    const [ficha, servicios, resumen] = await Promise.all([
       this.prisma.cliente.findUnique({
         where: { pac: codigo },
         select: {
@@ -273,8 +322,11 @@ export class ServiciosService {
       this.prisma.ventaImportada.findMany({
         where: { pac: codigo },
         orderBy: [{ fecha: 'desc' }, { detalle: 'asc' }],
-        // Tope duro: un paciente con años de historial no debe poder tumbar la
-        // pantalla ni traerse miles de filas. Hoy el máximo real son 20.
+        /* Tope duro de la LISTA, no del resumen: un paciente con años de
+           historial no debe traerse miles de filas a la pantalla. Cuántos
+           servicios tiene de verdad lo dice `resumen.servicios`, que se cuenta
+           aparte; si es mayor que lo devuelto, la vista está recortada y la
+           pantalla lo dice. */
         take: LIMITE_HISTORIAL,
         select: {
           id: true, fecha: true, modulo: true, detalle: true, precio: true,
@@ -283,13 +335,13 @@ export class ServiciosService {
           periodo: { select: { anio: true, mes: true } },
         },
       }),
+      this.resumenHistorialPorPac(codigo),
     ]);
 
     if (!ficha && servicios.length === 0) {
       throw new NotFoundException(`No hay historial para el paciente ${pac}`);
     }
 
-    const gastado = servicios.reduce((s, v) => s + Number(v.precio), 0);
     const edad = edadEnAnios(ficha?.fechaNacimiento ?? null);
 
     return {
@@ -302,18 +354,21 @@ export class ServiciosService {
        */
       nombre: ficha?.nombre ?? servicios.find(s => s.paciente)?.paciente ?? codigo,
       ficha: ficha ? { ...ficha, edad, saldoTotal: Number(ficha.saldoTotal ?? 0) } : null,
-      resumen: {
-        servicios: servicios.length,
-        gastado,
-        primeraVisita: servicios.at(-1)?.fecha ?? null,
-        ultimaVisita: servicios[0]?.fecha ?? null,
-        medicos: new Set(servicios.map(s => s.medicoPk).filter(Boolean)).size,
-      },
+      resumen,
+      /** Cuántas filas admite la línea de tiempo. Si `resumen.servicios` la
+       *  supera, lo que se ve es un recorte y la pantalla debe decirlo. */
+      limiteLista: LIMITE_HISTORIAL,
       servicios: servicios.map(s => ({ ...s, precio: Number(s.precio) })),
     };
   }
 
-  /** Historial de servicios de un paciente por su código PAC de FileMaker (para otros dominios). */
+  /**
+   * Historial de servicios de un paciente por su código PAC (para otros dominios).
+   *
+   * Devuelve como mucho `LIMITE_FICHA` filas. Quien lo llame NO puede contar ni
+   * sumar lo que recibe y llamarlo total: para eso está
+   * `resumenHistorialPorPac`, que cuenta sobre la base. Ver su docblock.
+   */
   async historialPorPac(pac: string) {
     const codigo = pac.toUpperCase();
     return this.prisma.ventaImportada.findMany({
@@ -330,7 +385,7 @@ export class ServiciosService {
         vendedoraNombre: true,
         periodo: { select: { anio: true, mes: true } },
       },
-      take: 200,
+      take: LIMITE_FICHA,
     });
   }
 

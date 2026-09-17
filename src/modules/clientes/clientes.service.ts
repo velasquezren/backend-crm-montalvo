@@ -548,12 +548,19 @@ export class ClientesService {
     /* La query vive en ServiciosService y solo ahí: es su dominio, y tenerla
        duplicada acá significaba que un cambio de columnas había que acertarlo
        en dos sitios. */
-    const servicios = await this.serviciosService.historialPorPac(cliente.pac);
+    /* Las cifras se piden aparte de la lista, y no se derivan de ella: la lista
+       lleva tope y contarla decía «200 servicios» a quien tenía más, con un
+       monto igual de corto. Un paciente real llegó a 31 servicios en un mes, así
+       que 200 se cruza en unos siete meses de historial. */
+    const [servicios, resumen] = await Promise.all([
+      this.serviciosService.historialPorPac(cliente.pac),
+      this.serviciosService.resumenHistorialPorPac(cliente.pac),
+    ]);
 
     return {
       pac: cliente.pac,
-      totalServicios: servicios.length,
-      montoTotal: servicios.reduce((suma, s) => suma + Number(s.precio), 0),
+      totalServicios: resumen.servicios,
+      montoTotal: resumen.gastado,
       servicios,
     };
   }
