@@ -261,6 +261,10 @@ describe('R2.2 · idempotencia del envío con adjunto (PostgreSQL real)', () => 
     );
     await dejarCorrerElDespacho();
 
+    const emitidosTrasElPrimero = gateway.emitidos.length;
+
+    /* Si `recuperarEnvioDuplicado` no reconoce el choque, esta línea lanza el
+       P2002 y la agente ve un 500 sobre un mensaje que SÍ salió. */
     const segundo = await service.enviarMensaje(
       conversacionId, 'Buenos días', agenteId, undefined, undefined, clave,
     );
@@ -269,6 +273,19 @@ describe('R2.2 · idempotencia del envío con adjunto (PostgreSQL real)', () => 
     expect(segundo.id).toBe(primero.id);
     expect(await prisma.mensaje.count({ where: { clientMessageId: clave } })).toBe(1);
     expect(despachador.despachos).toHaveLength(1);
+    expect(gateway.emitidos).toHaveLength(emitidosTrasElPrimero);
+  });
+
+  it('R2.1 · el duplicado de texto NO propaga el P2002 como error', async () => {
+    const clave = `${SUFIJO}-sin500`;
+    await service.enviarMensaje(conversacionId, 'Hola', agenteId, undefined, undefined, clave);
+    await dejarCorrerElDespacho();
+
+    /* Explícito: lo que fallaba antes no era el conteo de filas —el índice
+       siempre cumplió— sino que el rebote subía como excepción. */
+    await expect(
+      service.enviarMensaje(conversacionId, 'Hola', agenteId, undefined, undefined, clave),
+    ).resolves.toMatchObject({ clientMessageId: clave });
   });
 
   it('D · dos intenciones distintas con la MISMA media son dos mensajes', async () => {
