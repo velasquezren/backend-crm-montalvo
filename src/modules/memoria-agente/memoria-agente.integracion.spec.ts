@@ -53,6 +53,27 @@ afterAll(async () => {
 
 beforeEach(async () => {
   await prisma.recursoMemoriaAgente.deleteMany();
+  /*
+   * `Actividad` y `Venta` antes que `Usuario`, y solo esas dos.
+   *
+   * Esta suite borraba todos los usuarios de entrada, y reventaba de forma
+   * intermitente con `Foreign key constraint violated on the constraint:
+   * Actividad_agenteId_fkey` — llevándose sus catorce pruebas de golpe. Las
+   * filas que estorbaban no son suyas: las deja la suite de Actividades, y
+   * que el choque ocurra o no depende del orden en que jest tome los
+   * archivos. Por eso fallaba a veces sí y a veces no.
+   *
+   * Las dos tablas salen de mirar las claves foráneas reales, no de borrar
+   * por si acaso: de las trece que apuntan a `Usuario`, once son CASCADE o
+   * SET NULL y se resuelven solas. Solo `Actividad.agenteId` y
+   * `Venta.agenteId` son RESTRICT, y por tanto solo ellas pueden bloquear.
+   * Nada referencia a su vez a esas dos, así que se borran directamente.
+   *
+   * El arreglo es del test: el `onDelete` de producción no se toca. Que
+   * borrar una agente con actividades esté prohibido es una regla correcta.
+   */
+  await prisma.actividad.deleteMany();
+  await prisma.venta.deleteMany();
   await prisma.usuario.deleteMany();
 
   r2 = new R2Espia();
