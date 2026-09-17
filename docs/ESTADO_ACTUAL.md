@@ -1,20 +1,74 @@
 # Estado actual
 
-## F08 y F10 — CERRADOS
+## Auditoría F01–F10 — CERRADA EN CÓDIGO
 
-Commiteados y **sin desplegar**. El frontend no se ha empujado: en ese repo el
-push a `main` publica en Vercel, y esa decisión queda pendiente.
+Revalidada finding por finding contra el código, no contra esta documentación.
+Los diez quedan cerrados, con pruebas ejecutables. Ninguno abierto, parcial ni
+sin clasificar.
+
+**Tres cosas distintas, y conviene no mezclarlas nunca:**
+
+| | Estado |
+| --- | --- |
+| **Auditoría** | **CERRADA** |
+| **Código** | **CORREGIDO** |
+| **Producción** | **PENDIENTE DE DESPLIEGUE** de casi todo lo cerrado |
+
+### Dónde está cada cosa
+
+| | Backend | Frontend |
+| --- | --- | --- |
+| Último commit corregido | `b6f61e1` | `f0acb57` |
+| Rama de respaldo remota | `auditoria-f01-f10` | `auditoria-f01-f10` |
+| `origin/main` | `75f8e30` | `6e16040` |
+| **Desplegado en producción** | **`7194843`** (14/9) | **`6e16040`** |
+
+**La producción del backend lleva nueve commits de retraso** e incluye **dos
+migraciones sin aplicar**: `20260914234808_media_entrante_durable` (F06-R1,
+`8faa263`) y `20260915002934_primer_contacto_durable` (F06-R2, `b6ec462`).
+F06 está cerrado en código desde el 14 de septiembre y **nunca se desplegó**.
+
+Al desplegar, **el backend va primero**: el frontend pendiente depende de
+contratos nuevos suyos (`limiteLista` del historial, `antesDeId` del cursor).
+Y recordar que el push a `main` del frontend publica en Vercel solo con empujar.
+
+### Entregas de esta ronda
 
 | Entrega | Commit | Repo |
 | --- | --- | --- |
-| F08 · carreras en Planilla | `6e16040` | frontend (empujado y publicado) |
-| F10 · calendario por rango visible | `cdc0f22` | frontend (local) |
-| F10.2 · resumen del paciente sobre todo el historial | `3fddd28` | backend (local) |
-| F10.2 · aviso de lista recortada | `7da0397` | frontend (local) |
-| F10.3 · cursor de mensajes con desempate | `b09132b` | backend (local) |
-| F10.3 · el cursor manda el id | `9c204bc` | frontend (local) |
+| F08 · carreras en Planilla | `6e16040` | frontend — **desplegado** |
+| F10 · calendario por rango visible | `cdc0f22` | frontend — local |
+| F10.2 · resumen del paciente sobre todo el historial | `3fddd28` | backend — local |
+| F10.2 · aviso de lista recortada | `7da0397` | frontend — local |
+| F10.3 · cursor de mensajes con desempate | `b09132b` | backend — local |
+| F10.3 · el cursor manda el id | `9c204bc` | frontend — local |
+| F09 · contrato de la baja de suscripción | `0f278cf` | backend — local |
+| F09 · envío global muerto fuera, usuario activo blindado | `b6f61e1` | backend — local |
+| F09 · desuscribir el dispositivo al cerrar sesión | `f0acb57` | frontend — local |
 
-Los tres hallazgos de F10 quedan **corregidos**, ninguno como riesgo aceptado.
+Antes: el P0 del límite de subida (`a383f3d`, backend, local).
+
+### Lo que la revalidación demostró FALSO
+
+El informe maestro del 5 de septiembre tiene tres afirmaciones que el código ya
+desmiente. **Manda esta sección, no aquel documento**, que es una foto fechada.
+
+- **§10 · «`RealtimeService` captura el token al crear el socket y no lo
+  actualiza en refresh».** Falso: `auth: callback => callback({ token })` lee el
+  token **en cada handshake**, y `connect_error` refresca y reconecta sin bucle.
+  Siete pruebas.
+- **§10 · «El servidor tampoco impone expiración a sockets ya conectados».**
+  Falso: `handleConnection` desconecta si el token ya expiró **y programa un
+  `setTimeout` para desconectar en el instante de expirar**.
+- **§18 · «El guard confía en el rol del token durante hasta 8 h».** Falso:
+  `validarSesion` consulta la sesión en CADA petición y rechaza si el usuario no
+  está activo, si `versionSesion` no coincide, o si el rol del token difiere del
+  de la base.
+
+Y una cuarta, del propio código: el comentario de `servicios.service.ts` fijaba
+el máximo real en **20 servicios por paciente**. Contando el diciembre real de la
+clínica, un paciente acumuló **31 en un solo mes** — por eso los topes de 200 y
+500 eran alcanzables y hubo que tocarlos.
 
 ### F10 · calendario
 
@@ -631,22 +685,25 @@ Node **22.23.2** (`.nvmrc`), npm **10** (verificado con 10.9.8), PostgreSQL **16
 El frontend declara `packageManager: npm@10.9.7`; ambos lockfiles se reconstruyen
 con npm 10.9.8 sin modificarse. No copiar node_modules ni builds entre máquinas.
 
-## Fases cerradas y pendientes
+## Los diez findings, uno por uno
 
 Identificadores **F01–F10 de §3** del [informe maestro](auditoria-arquitectonica-2026-09-05.md).
 Las entregas 0–9 de §19 tienen otra numeración; no confundirlas.
 
+**«CERRADO» significa corregido en código y con pruebas**, no desplegado. Qué
+hay en producción está en la tabla del principio de este archivo.
+
 | Hallazgo | Estado verificado / implementación y protección |
 | --- | --- |
-| F01 | **Cerrado**. `428cb3f`; `tsconfig.build.json`, `scripts/verificar-build.mjs` y `verificar-build.test.mjs` (build limpio/consecutivo/sin emisión). |
-| F02 | **Cerrado**. `775abbd`; `planilla-comisiones.service.ts`, `importacion-atomica.integracion.spec.ts`; [evidencia](auditoria-f02.md). |
-| F03 | **Cerrado**. `775abbd`; `transaccion-periodo.ts`, servicios de planilla/cálculo/configuración; `consistencia-periodo.integracion.spec.ts`, `cierre-periodo.spec.ts`; [evidencia](auditoria-f03.md). |
-| F04 | **Cerrado**. `775abbd`; DTO de perfil, servicios de actividades/clientes/ventas; `autorizacion-http.integracion.spec.ts`; [matriz](auditoria-f04.md). |
-| F05 | **Cerrado en código**. `775abbd` + frontend `9aa073a`; auth/guard/gateway/interceptor; `sesion-http.integracion.spec.ts`, `auth.service.spec.ts`, tests frontend de auth/interceptor/realtime; [contrato](auditoria-f05.md). |
+| F01 | **CERRADO**. `428cb3f`; `tsconfig.build.json`, `scripts/verificar-build.mjs` y `verificar-build.test.mjs` (build limpio/consecutivo/sin emisión). |
+| F02 | **CERRADO**. `775abbd`; `planilla-comisiones.service.ts`, `importacion-atomica.integracion.spec.ts`; [evidencia](auditoria-f02.md). |
+| F03 | **CERRADO**. `775abbd`; `transaccion-periodo.ts`, servicios de planilla/cálculo/configuración; `consistencia-periodo.integracion.spec.ts`, `cierre-periodo.spec.ts`; [evidencia](auditoria-f03.md). |
+| F04 | **CERRADO**. `775abbd`; DTO de perfil, servicios de actividades/clientes/ventas; `autorizacion-http.integracion.spec.ts`; [matriz](auditoria-f04.md). |
+| F05 | **CERRADO**, revalidado punto por punto. `775abbd` + frontend `9aa073a`. Tipo de credencial (`esCredencial`); el refresh **no sale en el JSON** (se desestructura en `auth.controller.ts`); `validarSesion` consulta la sesión en cada petición y rechaza por usuario inactivo, `versionSesion` distinta o rol del token que no coincide con la base; un fallo de PostgreSQL es 5xx, no 401. **WebSocket cerrado en sus dos mitades**: el cliente lee el token en cada handshake y reconecta tras refrescar; el servidor desconecta el socket al expirar la credencial. [Contrato](auditoria-f05.md). |
 | F06 | **CERRADO**. F06-R1: `8faa263`; F06-R2: `b6ec462`. Entrega 1 y despacho saliente cerrados. [Adjuntos durables](auditoria-f06-r1.md). Entrega 1: `58bae3a`, [evidencia](auditoria-f06.md). Entrega 2: `ResultadoEnvio` + `EstadoMensaje.INCIERTO` + `ReintentoSalienteService` + `biz_opaque_callback_data`; migración `20260909210000_envio_incierto_y_reintento`; [evidencia](auditoria-f06-entrega2.md). |
-| F07 | **Cerrado en código, commiteado y empujado (`b702fa0`); sin desplegar**. Retirados los comparadores parciales de `inbox` y `detalle`; 11 pruebas de regresión en `conversaciones-state.service.spec.ts`; [evidencia](auditoria-f07.md). |
+| F07 | **CERRADO**, revalidado. `b702fa0`. No queda ningún comparador `equal` en `inbox` ni en `detalle`: los dos usan la igualdad por referencia de `httpResource`, con el porqué escrito sobre el recurso. Regresiones para los escenarios que nombraba el informe —entrega con misma fecha y cantidad, media que renueva su URL firmada, ficha cambiada sin tocar la conversación, agente con igual timestamp— en `conversaciones-state.service.spec.ts`. **No reproducible hoy.** Sin desplegar. |
 | F08 | **CERRADO**. Inbox ya estaba; Planilla en `6e16040` (frontend, desplegado): generación por panel en `refrescarPanelesDelPeriodo`/`cargarConsolidado`, y cuatro estados reales donde el `catch → null` mezclaba «falló la red» con «no hay liquidación». |
-| F09 | **Cerrado**. Un solo Service Worker (el de Angular) + `SwPush`; el payload de push pasa por `common/push/cuerpo-push.ts`; regla nueva en el `check:skills` del frontend; [evidencia](auditoria-f09.md). **No verificado en navegador**, y se decidió dejarlo así: el fallo se demostró leyendo el `ngsw-worker.js` que se despacha, y el arreglo, comprobando que el payload cumple lo que ese código exige. Si algún día alguien reporta que no le llegan avisos con la app cerrada, empezar por aquí. |
+| F09 | **CERRADO** en sus dos mitades. (1) Un solo Service Worker, el de Angular, con `SwPush` encima; protegido por tres reglas de `verificarServiceWorkerUnico` en `check:skills` —no por un spec, porque el fallo necesita un navegador real con dos SW compitiendo—; [evidencia](auditoria-f09.md). (2) **Ciclo de vida de la suscripción**: `logout()` da de baja el dispositivo (`f0acb57`), `enviarATodosLosAgentes` eliminado y `enviarAUsuario` filtra `activo` (`b6f61e1`), contrato del endpoint fijado (`0f278cf`). **No verificado en navegador**, decisión consciente. Sin desplegar. |
 | F10 | **CERRADO**, los tres corregidos. Calendario por rango visible (`cdc0f22`). Historiales: resumen agregado sobre todo el historial y `limiteLista` (`3fddd28` + `7da0397`) — el «máximo real 20» del comentario era falso: 31 en un solo mes. Cursor `(createdAt, id)` (`b09132b` + `9c204bc`). Sin desplegar. |
 
 No inferir el despliegue desde Git — pero **el 9/9/2026 sí se consultó**: ver
@@ -687,40 +744,56 @@ No ejecutar su script histórico de despliegue ni confundirlo con la receta vige
 
 ## Cómo continuar
 
-F07 se atendió por petición explícita del usuario el 9 de septiembre, y a
-continuación **F06 entrega 2, en su mitad saliente**: el envío ya distingue "no
-salió" de "no se sabe si salió", reintenta solo lo primero y resuelve lo segundo
-con el `statuses` de Meta. Ninguno de los dos cambios toca las carreras de F08.
+**La auditoría F01–F10 está cerrada en código.** No queda ningún finding por
+atender: lo que viene después es trabajo nuevo, no continuación de esta.
 
-Después se cerró **F09** (dos Service Workers en el mismo scope `/`, que se
-sustituían y dejaban el push mudo o `SwUpdate` muerto según cuál quedara activo).
-Va antes que la recepción durable a propósito: rompía en silencio lo único que
-avisa a una agente cuando escribe una paciente.
+Lo único pendiente de ella es **desplegar**, y es una decisión aparte. Ver la
+tabla del principio: producción lleva nueve commits de retraso en el backend y
+dos migraciones sin aplicar, y el frontend nuevo depende de contratos del
+backend nuevo. Backend primero, siempre.
 
-**F06, F06-R1 y F06-R2 están CERRADOS.** La instrucción vigente es detenerse
-con Git sincronizado y limpio. No iniciar F08/F09/F10.
-Ver [F06-R1](auditoria-f06-r1.md) y [F06-R2](f06-r2-primer-contacto-durable.md).
+Lo que sigue sin verificarse es lo de fuera del proceso: **nada de F06 se probó
+contra Meta de verdad** —todo el camino externo va con `fetch` simulado— ni nada
+en un navegador. Es una diferencia real respecto a F02–F05, aceptada a
+conciencia.
 
-Producción se consultó y se desplegó (ver la sección de más arriba). Lo que sigue
-sin verificarse es lo de fuera del proceso: **nada de esto se probó contra Meta
-de verdad** —todo el camino externo va con `fetch` simulado— ni en un navegador.
-Es una diferencia real respecto a F02–F05, y está aceptada a conciencia, no por
-descuido.
+El histórico de cada entrega, con su evidencia y sus límites, queda más abajo en
+este mismo archivo, del más reciente al más antiguo. Las secciones fechadas son
+un registro de lo que se hizo aquel día: cuando alguna diga «no iniciar F08/F09/F10»
+o dé un finding por abierto, manda la cabecera de este archivo, no ellas.
 
-### Deuda conocida que no es de código
+## Límites conocidos, que NO son findings
 
-- **`verificacion-diciembre` sale PASS sin comparar nada** mientras
-  `CRM_EXCELS_2025_DIR` no esté definida. Lo avisa por consola —«los asserts de
-  esta suite NO se ejecutaron»— pero Jest la cuenta como aprobada. Es la única
-  prueba que contrasta el motor contra lo que administración pagó de verdad:
-  definir esa variable antes de tocar comisiones.
-- **Dos reglas `ReglaClasificacion` con el patrón `Colocación de T de Cobre o
-  DIU`**, misma prioridad y clasificaciones distintas (CONSULTA y ECOGRAFIA):
-  cuál gana queda al azar. Solo administración puede elegir una y borrar la otra.
-- **En `/root` del servidor hay un `backup-crm-20260909-210306.sql.gz` de 20
-  bytes** — un dump vacío por error de credenciales, del intento de las 21:03.
-  El bueno es el de 21:03:21. No se borró nada: conviene mirarlo y limpiarlo a
-  mano.
+Ninguno de estos abre un F11. Son límites que se conocen, se aceptan y conviene
+no olvidar; están aquí precisamente para que nadie los redescubra como hallazgos.
+
+- **`verificacion-diciembre` sale PASS sin comparar nada** mientras falte
+  `CRM_EXCELS_2025_DIR`. Es la única prueba que contrasta el motor contra lo que
+  administración pagó de verdad, así que acota la confianza en F02/F03 sin
+  reabrirlos. Definir esa variable antes de tocar comisiones.
+- **`buscarMensajes` del frontend sigue sin consumidor**: buscar dentro de un
+  chat solo mira los mensajes que el navegador tiene cargados, de modo que un
+  resultado vacío no prueba que no exista. El endpoint backend existe y está
+  probado. Es §17 del informe maestro —integración incompleta—, no F10.
+- **`Temporal` global de Schedule-X.** `@schedule-x/calendar` lo usa como global
+  libre: lo declara `peerDependency` y no lo importa nunca en su `dist/core.js`,
+  y nada en esta app instala ese global. Hoy funciona porque el navegador lo trae
+  nativo; en uno que no, la vista Calendario revienta con `ReferenceError`.
+  Compatibilidad, sin decidir.
+- **Dependencias**: `xlsx` 0.18.5 sin arreglo disponible y en el camino real de
+  importación; `multer` 2.0.2 clavado por `@nestjs/platform-express`;
+  `temporal-polyfill` sin declarar en el frontend. Trampa: `npm audit` propone
+  «arreglar» Prisma bajando a 6.19.3, que es un downgrade desde 7.10.0. Carril
+  propio, fuera de la auditoría.
+- **Nada se ha probado en navegador**, por la regla del proyecto. Afecta sobre
+  todo a F09 y F10.
+- **Datos de producción, no comprobables desde aquí.** Dos reglas
+  `ReglaClasificacion` con el patrón `Colocación de T de Cobre o DIU`, misma
+  prioridad y clasificaciones distintas (CONSULTA y ECOGRAFIA): cuál gana queda
+  al azar, y solo administración puede elegir una y borrar la otra. Y en `/root`
+  del servidor hay un `backup-crm-20260909-210306.sql.gz` de 20 bytes —un dump
+  vacío por error de credenciales—; el bueno es el de 21:03:21. Conviene mirarlo
+  y limpiarlo a mano.
 
 ## Verificaciones
 
@@ -786,9 +859,8 @@ Las suites se ejecutan en serie; no correr dos procesos contra el mismo crm_test
   `dotenv/config`; backend usa tipos/augmentación `express`. Llegan por el lockfile,
   pero no están declarados directamente. Corregir su declaración en una fase de
   dependencias autorizada; aquí no se cambiaron versiones ni manifests.
-- De los bugs frontend que este archivo daba por abiertos quedan menos de los que
-  decía, comprobado el 16/9: los dos Service Workers se cerraron con F09 y las
-  respuestas tardías de `conversaciones-state.service.ts` ya se descartan por
-  filtros. Siguen abiertos el estado entre sesiones de `auth.service.ts` —incluida
-  la suscripción push que el logout no da de baja— y la mitad de F08 que vive en
-  Planilla. La igualdad parcial de F07 está corregida.
+- **Los bugs frontend que este archivo llegó a listar están todos cerrados**,
+  comprobado el 16/9: los dos Service Workers con F09, las respuestas tardías del
+  inbox y de Planilla con F08, la suscripción push que el logout no daba de baja
+  también con F09, y la igualdad parcial de `detalle` con F07. Este apartado ya no
+  tiene nada abierto que aportar sobre ellos.
