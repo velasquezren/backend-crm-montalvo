@@ -1,5 +1,84 @@
 # Estado actual
 
+## F08 y F10 — CERRADOS
+
+Commiteados y **sin desplegar**. El frontend no se ha empujado: en ese repo el
+push a `main` publica en Vercel, y esa decisión queda pendiente.
+
+| Entrega | Commit | Repo |
+| --- | --- | --- |
+| F08 · carreras en Planilla | `6e16040` | frontend (empujado y publicado) |
+| F10 · calendario por rango visible | `cdc0f22` | frontend (local) |
+| F10.2 · resumen del paciente sobre todo el historial | `3fddd28` | backend (local) |
+| F10.2 · aviso de lista recortada | `7da0397` | frontend (local) |
+| F10.3 · cursor de mensajes con desempate | `b09132b` | backend (local) |
+| F10.3 · el cursor manda el id | `9c204bc` | frontend (local) |
+
+Los tres hallazgos de F10 quedan **corregidos**, ninguno como riesgo aceptado.
+
+### F10 · calendario
+
+`limite: 100` sin rango devolvía las cien actividades **más antiguas del
+historial entero** —el backend ordena `fechaProgramada: 'asc'`—, así que el mes
+visible podía salir vacío teniendo actividades. Reproducido: 151 en la base,
+calendario en septiembre de 2026, llegaban 100 filas todas de 2024.
+
+Ahora Schedule-X publica su rango por `onRangeUpdate` y la página lo usa como
+clave del recurso. Contrato en `rango-calendario.ts`: instantes UTC, los dos
+extremos inclusivos —igual que el `gte`/`lte` del backend—, en la zona del
+navegador y ensanchados a días completos. Sin endpoint nuevo.
+
+### F10.2 · historiales
+
+**El comentario del código decía «hoy el máximo real son 20» y medía otra cosa.**
+Contando el diciembre real de la clínica: un paciente acumuló **31 servicios en
+UN SOLO MES**. A ese ritmo el tope de 200 de la ficha se cruza en unos siete
+meses y el de 500 en unos diecisiete. No era un riesgo teórico.
+
+Los dos endpoints calculaban su resumen sobre el array recortado. El campo más
+engañoso era «primera visita»: la lista va en `fecha desc`, así que era la 500ª
+más reciente — no incompleta, equivocada, y el cajón la imprime como «Línea de
+tiempo — del X al Y».
+
+Los topes se quedan (son defensivos); el resumen sale ahora de una consulta
+agregada sobre todas las filas, y la respuesta añade `limiteLista` para que la
+pantalla diga «500 de 520» en vez de afirmar que son 500.
+
+### F10.3 · cursor de mensajes
+
+`createdAt` **no desempata**: es `TIMESTAMP(3) DEFAULT CURRENT_TIMESTAMP` y en
+PostgreSQL eso vale la hora de inicio de transacción, así que cuanto persiste la
+ingesta en una misma transacción comparte el instante exacto. Está garantizado
+cada vez que un webhook trae varios mensajes, no es una casualidad.
+
+Con el `<` estricto, una página que cortara dentro del grupo empatado saltaba al
+resto para siempre. Medido: recorriendo el hilo entero se veían **5 de 8**
+mensajes. El cursor pasa a ser el par `(createdAt, id)`; `antesDeId` es opcional
+para no romper a un cliente que solo mande la fecha.
+
+### Validación de las tres
+
+Backend: build con `check:skills`, **551 unitarias / 38 suites**, `test:build`
+9/9, **434 integraciones / 23 suites** contra PostgreSQL 16.15 descartable
+(eran 425/22), typecheck estricto con specs. Frontend: **167 / 18 suites**
+(eran 142/15), typecheck y build con `check:tipos` y `check:skills`.
+`git diff --check` limpio en los dos repos.
+
+Cada corrección se comprobó rompiéndola a propósito y viendo caer su prueba por
+el motivo correcto. Dos pruebas hubo que reescribirlas porque pasaban por el
+motivo equivocado: la del orden entre empatados (afirmaba que dos llamadas
+coinciden, cosa que Postgres cumplía por casualidad) y la del Caso A del
+calendario (fallaba por el andamiaje del test, no por el corte de 100).
+
+### Hallazgo aparte, sin tocar: `Temporal` global
+
+`@schedule-x/calendar` usa `Temporal` como **global libre** —lo declara
+`peerDependency` y no lo importa nunca en su `dist/core.js`— y **nada en esta
+app instala ese global**. Hoy funciona porque el navegador lo trae nativo; en
+uno que no lo traiga, la vista Calendario revienta con `ReferenceError`. Salió
+al montar las pruebas del calendario. Es una línea en el arranque, pero es
+compatibilidad y no F10: queda como entrega propia, sin decidir.
+
 ## 16 de septiembre de 2026 · límite de subida de la planilla — COMMITEADO, SIN DESPLEGAR
 
 **El único P0 que seguía vivo del informe maestro, arreglado** en `a383f3d`.
@@ -66,23 +145,9 @@ comprobaron **cerradas en el código**:
 Solo lo que se verificó abierto leyendo el código de hoy. Lo que no aparece
 aquí, o está cerrado o no se pudo comprobar desde esta máquina.
 
-- **F08 en Planilla.** `refrescarPanelesDelPeriodo(id)` y `cargarConsolidado(id)`
-  escriben `alertas`/`consolidado` sin comprobar que `periodoId()` siga siendo
-  `id` al llegar la respuesta; `alternarOcultas()` tiene la misma forma. Y el
-  `catch → null` pinta «Todavía no hay liquidación calculada»
-  (`planilla-comisiones.page.html:1029`) cuando lo que falló fue la red: dice que
-  no hay dinero calculado, que es distinto de no haberlo podido traer.
-- **F10, calendario.** `actividadesCalendario` pide `limite: 100` **sin
-  `desde`/`hasta`** y el backend ordena `fechaProgramada: 'asc'`: con suficiente
-  historial, el mes visible puede no entrar en esa primera página. El backend
-  **ya acepta** `desde`/`hasta` (`actividades.service.ts:144`): el arreglo es de
-  frontend, no hace falta endpoint nuevo.
-- **F10, historiales.** `historialPaciente` corta en 500 y `historialPorPac` en
-  200, con las sumas sobre el array recortado. Riesgo bajo hoy: el comentario
-  mide que el máximo real por paciente son 20 filas.
-- **F10, cursor de mensajes.** `obtenerMensajesAnteriores` filtra solo por
-  `createdAt`; sin desempate por id, una frontera de página con timestamps
-  iguales deja mensajes fuera.
+Los cuatro de F08 y F10 que encabezaban esta lista están corregidos: ver la
+sección de cierre al principio del archivo. Lo que sigue abierto es esto.
+
 - **Push después del logout.** `AuthService.logout()` no llama a
   `/push/desuscribir` —el endpoint existe y no tiene consumidor— ni da de baja la
   suscripción del `SwPush`. Mitigado a medias: `guardarSuscripcion` reasigna por
@@ -102,6 +167,12 @@ aquí, o está cerrado o no se pudo comprobar desde esta máquina.
   `schema.prisma:641-642`.
 - **`buscarMensajes` del servicio frontend sigue sin consumidor**; el endpoint
   backend existe y está probado. Conectar o decidir su alcance, no borrar a ciegas.
+  Es de la misma familia que F10 —buscar en el chat solo mira los mensajes que el
+  navegador tiene cargados, así que un resultado vacío no significa que no
+  exista— pero el informe maestro lo clasifica en §17 como integración
+  incompleta, no como F10. **Queda anotado como límite conocido**, sin corregir.
+- **`Temporal` global de Schedule-X** (ver la sección de cierre): hallazgo de
+  compatibilidad, fuera de F10 y sin decidir.
 
 No se pudo comprobar desde aquí, y sigue anotado abajo: las dos
 `ReglaClasificacion` con el mismo patrón y el dump de 20 bytes en `/root` del
@@ -574,9 +645,9 @@ Las entregas 0–9 de §19 tienen otra numeración; no confundirlas.
 | F05 | **Cerrado en código**. `775abbd` + frontend `9aa073a`; auth/guard/gateway/interceptor; `sesion-http.integracion.spec.ts`, `auth.service.spec.ts`, tests frontend de auth/interceptor/realtime; [contrato](auditoria-f05.md). |
 | F06 | **CERRADO**. F06-R1: `8faa263`; F06-R2: `b6ec462`. Entrega 1 y despacho saliente cerrados. [Adjuntos durables](auditoria-f06-r1.md). Entrega 1: `58bae3a`, [evidencia](auditoria-f06.md). Entrega 2: `ResultadoEnvio` + `EstadoMensaje.INCIERTO` + `ReintentoSalienteService` + `biz_opaque_callback_data`; migración `20260909210000_envio_incierto_y_reintento`; [evidencia](auditoria-f06-entrega2.md). |
 | F07 | **Cerrado en código, commiteado y empujado (`b702fa0`); sin desplegar**. Retirados los comparadores parciales de `inbox` y `detalle`; 11 pruebas de regresión en `conversaciones-state.service.spec.ts`; [evidencia](auditoria-f07.md). |
-| F08 | **Mitad hecha.** El inbox ya descarta por filtros (`cargarMas`, `refrescarFilaPorRealtime`). Queda Planilla: `refrescarPanelesDelPeriodo`/`cargarConsolidado`/`alternarOcultas` escriben sin comprobar `periodoId()`, y el `catch → null` presenta un fallo de red como «no hay liquidación». |
+| F08 | **CERRADO**. Inbox ya estaba; Planilla en `6e16040` (frontend, desplegado): generación por panel en `refrescarPanelesDelPeriodo`/`cargarConsolidado`, y cuatro estados reales donde el `catch → null` mezclaba «falló la red» con «no hay liquidación». |
 | F09 | **Cerrado**. Un solo Service Worker (el de Angular) + `SwPush`; el payload de push pasa por `common/push/cuerpo-push.ts`; regla nueva en el `check:skills` del frontend; [evidencia](auditoria-f09.md). **No verificado en navegador**, y se decidió dejarlo así: el fallo se demostró leyendo el `ngsw-worker.js` que se despacha, y el arreglo, comprobando que el payload cumple lo que ese código exige. Si algún día alguien reporta que no le llegan avisos con la app cerrada, empezar por aquí. |
-| F10 | Pendiente, comprobado el 16/9. Calendario: `limite: 100` sin `desde`/`hasta` y orden ascendente —el backend ya acepta el rango, el arreglo es de frontend—. Historiales 200/500 (riesgo bajo: máximo real medido, 20 filas). Cursor de mensajes sin desempate por id. |
+| F10 | **CERRADO**, los tres corregidos. Calendario por rango visible (`cdc0f22`). Historiales: resumen agregado sobre todo el historial y `limiteLista` (`3fddd28` + `7da0397`) — el «máximo real 20» del comentario era falso: 31 en un solo mes. Cursor `(createdAt, id)` (`b09132b` + `9c204bc`). Sin desplegar. |
 
 No inferir el despliegue desde Git — pero **el 9/9/2026 sí se consultó**: ver
 la sección de producción más arriba. F05 estaba desplegado y su migración
