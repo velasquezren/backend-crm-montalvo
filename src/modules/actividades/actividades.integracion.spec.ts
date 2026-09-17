@@ -487,3 +487,79 @@ describe('ActividadesService.create — repetir', () => {
     expect(await validate(valida)).toHaveLength(0);
   });
 });
+
+/**
+ * A1 · el KPI y el filtro tienen que hablar del MISMO día de la clínica.
+ *
+ * El instante elegido es la franja del fallo: 16/09/2026 21:30 en La Paz, que
+ * en UTC ya es el 17. Con los cortes calculados en la zona del proceso —y el
+ * VPS está en Estados Unidos— «hoy» empezaba el 17 a las 00:00 UTC, así que
+ * una actividad de esa misma tarde en la clínica se contaba como VENCIDA en la
+ * tarjeta que la agente estaba mirando.
+ *
+ * No depende de la zona de la máquina que corre la prueba: los instantes son
+ * absolutos y el código ya no consulta la zona del proceso.
+ */
+describe('A1 · «hoy» es el día de la clínica', () => {
+  const AHORA = new Date('2026-09-17T01:30:00.000Z'); // 16/09 21:30 en La Paz
+  const INICIO_HOY = '2026-09-16T04:00:00.000Z';
+  const FIN_HOY = '2026-09-17T04:00:00.000Z';
+
+  beforeEach(() => {
+    jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate'] }).setSystemTime(AHORA);
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it('cuenta como HOY lo de esta tarde en la clínica, aunque en UTC ya sea mañana', async () => {
+    const yo = await usuario('Yo', 'yo-a1@test.local');
+    const suyo = await cliente('Ana', '+59170000091', yo.id);
+    await prisma.actividad.create({
+      data: {
+        tipo: 'LLAMADA', titulo: 'Llamar esta tarde',
+        // 16/09 19:00 en La Paz: hoy para la clínica, «ayer» si se parte por UTC.
+        fechaProgramada: new Date('2026-09-16T23:00:00.000Z'),
+        clienteId: suyo.id, agenteId: yo.id,
+      },
+    });
+
+    const resumen = await service.resumen({}, yo.id);
+
+    expect(resumen.hoy).toBe(1);
+    expect(resumen.vencidas).toBe(0);
+  });
+
+  it('el filtro «Hoy» del frontend devuelve exactamente lo que cuenta el KPI', async () => {
+    const yo = await usuario('Yo', 'yo-a1b@test.local');
+    const suyo = await cliente('Ana', '+59170000092', yo.id);
+    const deEstaTarde = await prisma.actividad.create({
+      data: {
+        tipo: 'LLAMADA', titulo: 'Esta tarde',
+        fechaProgramada: new Date('2026-09-16T23:00:00.000Z'),
+        clienteId: suyo.id, agenteId: yo.id,
+      },
+    });
+    // De ayer: ni el KPI ni el filtro deben traerla.
+    await prisma.actividad.create({
+      data: {
+        tipo: 'LLAMADA', titulo: 'Ayer',
+        fechaProgramada: new Date('2026-09-15T20:00:00.000Z'),
+        clienteId: suyo.id, agenteId: yo.id,
+      },
+    });
+
+    const resumen = await service.resumen({}, yo.id);
+    /* Los mismos instantes que manda el frontend, escritos a mano: si una de
+       las dos mitades cambia su criterio, esta prueba lo dice. */
+    const filtrado = await service.findAll(
+      { estado: 'PENDIENTE', desde: new Date(INICIO_HOY), hasta: new Date(FIN_HOY) },
+      yo.id,
+    );
+
+    expect(resumen.hoy).toBe(1);
+    expect(filtrado.datos.map(a => a.id)).toEqual([deEstaTarde.id]);
+    expect(filtrado.datos).toHaveLength(resumen.hoy);
+  });
+});

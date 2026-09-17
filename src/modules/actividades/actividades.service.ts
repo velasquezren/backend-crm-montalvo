@@ -8,6 +8,7 @@ import {
 import { Prisma } from '../../prisma/prisma-client';
 
 import { alcanceAgente, cubreRol } from '../../common/auth/roles';
+import { inicioDelDiaClinica, sumarDiasClinica } from '../../common/fechas/zona-clinica';
 import { UsuarioJwt } from '../../common/decorators/current-user.decorator';
 import { terminoBusqueda } from '../../common/dto/busqueda';
 import { enSegundoPlano } from '../../common/fiabilidad/en-segundo-plano';
@@ -184,10 +185,16 @@ export class ActividadesService implements OnModuleInit, OnModuleDestroy {
    */
   async resumen(query: QueryActividadDto, soloAgenteId?: string) {
     const where = this.construirWhere(query, soloAgenteId);
+    /* Los tres cortes, en la zona de la clínica y no en la del proceso.
+       `new Date(anio, mes, dia)` partía el día donde el VPS creyera que era
+       medianoche —está en Estados Unidos—, así que entre las 20:00 y las 24:00
+       de La Paz este «hoy» ya era el día siguiente y lo de esa misma tarde se
+       contaba como VENCIDA. Y `+24 h` tampoco es «un día»: se suma sobre el
+       calendario. Los instantes guardados no cambian; solo dónde se corta. */
     const ahora = new Date();
-    const inicioHoy = new Date(ahora.getFullYear(), ahora.getMonth(), ahora.getDate());
-    const finHoy = new Date(inicioHoy.getTime() + 24 * 60 * 60 * 1000);
-    const en7Dias = new Date(inicioHoy.getTime() + 7 * 24 * 60 * 60 * 1000);
+    const inicioHoy = inicioDelDiaClinica(ahora);
+    const finHoy = sumarDiasClinica(inicioHoy, 1);
+    const en7Dias = sumarDiasClinica(inicioHoy, 7);
     const pendiente = { ...where, estado: 'PENDIENTE' as const };
 
     const [vencidas, hoy, proximaSemana, completadas] = await this.prisma.$transaction([

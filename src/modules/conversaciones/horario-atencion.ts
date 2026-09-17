@@ -7,6 +7,8 @@
  * uno.
  */
 
+import { ZONA_CLINICA } from '../../common/fechas/zona-clinica';
+
 /** Tramo de un día concreto, en minutos desde medianoche. */
 interface Tramo {
   dia: number; // 1 = lunes … 7 = domingo (ISO)
@@ -19,8 +21,16 @@ export interface HorarioAtencion {
   zona: string;
 }
 
-/** Zona por defecto: la clínica está en Bolivia, el servidor no. */
-export const ZONA_POR_DEFECTO = 'America/La_Paz';
+/**
+ * Zona por defecto: la clínica está en Bolivia, el servidor no.
+ *
+ * Se reexporta desde `common/fechas/zona-clinica` para que el backend tenga UNA
+ * sola definición de dónde está la clínica. Los consumidores de este archivo
+ * siguen importándola de aquí; quien necesite cortes de calendario (hoy, fin de
+ * día) usa el helper de `common/fechas`, no `momentoEnZona`, que responde otra
+ * pregunta: día de la semana y minuto del reloj.
+ */
+export { ZONA_CLINICA as ZONA_POR_DEFECTO } from '../../common/fechas/zona-clinica';
 
 const DIAS: Record<string, number> = { L: 1, M: 2, X: 3, J: 4, V: 5, S: 6, D: 7 };
 
@@ -37,7 +47,7 @@ const DIAS: Record<string, number> = { L: 1, M: 2, X: 3, J: 4, V: 5, S: 6, D: 7 
  * horario mal escrito debe dejar la automatización apagada, nunca hacer que la
  * clínica conteste "estamos cerrados" un miércoles a las diez.
  */
-export function parsearHorario(texto: string | undefined, zona = ZONA_POR_DEFECTO): HorarioAtencion | null {
+export function parsearHorario(texto: string | undefined, zona = ZONA_CLINICA): HorarioAtencion | null {
   if (!texto?.trim()) return null;
 
   const tramos: Tramo[] = [];
