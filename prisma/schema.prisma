@@ -326,6 +326,20 @@ model Mensaje {
   direccion      DireccionMensaje
   /// Para media, `contenido` guarda el pie de foto (caption) o el nombre del archivo; puede ir vacío.
   contenido      String
+  /// Identidad de la INTENCIÓN de envío, generada por el navegador (UUID) y
+  /// estable entre reintentos. Es lo que hace idempotente el POST: el backend
+  /// persiste el mensaje y dispara el envío a Meta ANTES de responder, así que
+  /// una respuesta HTTP perdida no significa que el mensaje no saliera. Sin
+  /// esta clave, reintentar mandaba un segundo WhatsApp real.
+  ///
+  /// Nullable y sin backfill: los históricos y cualquier cliente viejo que no
+  /// la mande siguen funcionando, simplemente sin protección. El índice único
+  /// ignora los NULL, que es justo lo que se quiere.
+  ///
+  /// No confundir con `whatsappMsgId`, que lo asigna Meta DESPUÉS del
+  /// despacho, ni con `intentosEnvio`/`proximoIntento`, que son los reintentos
+  /// TÉCNICOS del worker sobre esta misma fila.
+  clientMessageId String?         @unique @db.VarChar(64)
   whatsappMsgId  String?          @unique
   /// Tipo de contenido. TEXTO por defecto; el resto llega por el webhook de media.
   tipo           TipoMensaje      @default(TEXTO)

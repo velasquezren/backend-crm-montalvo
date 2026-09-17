@@ -117,7 +117,7 @@ export class ConversacionesController {
       mediaKey: dto.mediaKey,
       mediaMime: dto.mediaMime,
       mediaNombre: dto.mediaNombre,
-    });
+    }, dto.clientMessageId);
   }
 
   /** Marca como leído (tildes azules) el último mensaje entrante; `typing` muestra "escribiendo…". */
