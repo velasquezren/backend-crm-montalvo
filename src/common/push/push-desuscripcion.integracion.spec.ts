@@ -181,3 +181,25 @@ describe('F09 · Caso C · el reverso de la reproducción', () => {
     expect(enviados).toEqual([]);
   });
 });
+describe('F09 · Caso H · enviarAUsuario y las cuentas desactivadas', () => {
+  it('no manda nada al teléfono de una cuenta desactivada', async () => {
+    const baja = await crearUsuaria('agente-de-baja', false);
+    await push.guardarSuscripcion(baja.id, suscripcion(TABLET));
+
+    await push.enviarAUsuario(baja.id, AVISO);
+
+    /* Va en integración y no en unitaria a propósito: con un doble de Prisma
+       solo se podría afirmar la FORMA del `where`, no que filtre de verdad. */
+    expect(enviados).toEqual([]);
+    expect(await prisma.pushSubscription.count()).toBe(1);
+  });
+
+  it('a una cuenta activa sí le llega', async () => {
+    const activa = await crearUsuaria('agente-activa');
+    await push.guardarSuscripcion(activa.id, suscripcion(TABLET));
+
+    await push.enviarAUsuario(activa.id, AVISO);
+
+    expect(enviados).toEqual([TABLET]);
+  });
+});

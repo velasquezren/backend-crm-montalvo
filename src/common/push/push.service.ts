@@ -93,18 +93,26 @@ export class PushService implements OnModuleInit {
     return { ok: count > 0 };
   }
 
+  /**
+   * El `activo: true` es una garantía del método, no de sus llamadores.
+   *
+   * Hoy el único camino real —`LineasWhatsappService.destinatarios`— ya filtra
+   * por activo, línea y alcance, así que este filtro no cambia nada en
+   * producción. Está para que el método público sostenga por sí mismo lo único
+   * que no debe pasar nunca: que el teléfono de una cuenta desactivada siga
+   * recibiendo el nombre de una paciente y lo que escribió.
+   *
+   * No añade autorización: quién merece el aviso lo sigue decidiendo quien
+   * llama. Esto solo descarta a quien ya no puede entrar.
+   */
   async enviarAUsuario(usuarioId: string, payload: PushNotificationPayload): Promise<void> {
     if (!this.habilitado) return;
     await this.despachar(
-      await this.prisma.pushSubscription.findMany({ where: { usuarioId } }),
+      await this.prisma.pushSubscription.findMany({
+        where: { usuarioId, usuario: { activo: true } },
+      }),
       payload,
     );
-  }
-
-  /** Para las conversaciones del pool: le toca a quien la agarre primero. */
-  async enviarATodosLosAgentes(payload: PushNotificationPayload): Promise<void> {
-    if (!this.habilitado) return;
-    await this.despachar(await this.prisma.pushSubscription.findMany(), payload);
   }
 
   /**
