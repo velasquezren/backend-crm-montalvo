@@ -760,6 +760,118 @@ describe('Conversaciones contra Postgres real', () => {
       expect(previos.map(m => m.contenido)).toEqual(['msg 1', 'msg 2', 'msg 3']);
     });
 
+    /**
+     * F10.3 · varios mensajes con el MISMO `createdAt`.
+     *
+     * No es rebuscado: la columna es `TIMESTAMP(3) DEFAULT CURRENT_TIMESTAMP` y
+     * en PostgreSQL `CURRENT_TIMESTAMP` es la hora de INICIO DE TRANSACCIÓN, así
+     * que todo lo que se inserte en una misma transacción comparte el valor
+     * exacto. La ingesta crea sus mensajes dentro de una (`tx.mensaje.create`),
+     * de modo que un webhook con varios mensajes los deja empatados siempre,
+     * no por casualidad.
+     *
+     * Con el cursor `createdAt < antesDe` y sin desempate, una página que corte
+     * dentro del grupo empatado deja fuera al resto para siempre: el frontend
+     * pide lo anterior al más viejo que tiene, y ese `<` estricto se salta a sus
+     * compañeros de timestamp.
+     */
+    describe('F10.3 · mensajes con el mismo instante', () => {
+      const MISMO_INSTANTE = new Date('2026-08-10T10:00:00.000Z');
+
+      async function chatConEmpate() {
+        const a = await crearAgente('agente-empate');
+        const { conversacion } = await crearChat({ telefono: '+59175000009', agenteConversacion: a.id });
+        // Seis a la vez, como los dejaría una transacción de la ingesta.
+        for (let i = 1; i <= 6; i++) {
+          await prisma.mensaje.create({
+            data: {
+              conversacionId: conversacion.id, direccion: 'ENTRANTE',
+              contenido: `empatado ${i}`, createdAt: MISMO_INSTANTE,
+            },
+          });
+        }
+        // Y dos claramente anteriores, para ver hasta dónde salta la página.
+        for (let i = 1; i <= 2; i++) {
+          await prisma.mensaje.create({
+            data: {
+              conversacionId: conversacion.id, direccion: 'ENTRANTE',
+              contenido: `viejo ${i}`, createdAt: new Date(`2026-08-0${i}T10:00:00.000Z`),
+            },
+          });
+        }
+        return { agente: a, conversacion };
+      }
+
+      it('dos páginas seguidas no pierden ni repiten ningún mensaje', async () => {
+        const { agente, conversacion } = await chatConEmpate();
+
+        const pagina1 = await service.obtenerMensajesAnteriores(
+          conversacion.id, '2026-08-20T00:00:00.000Z', 3, agente.id,
+        );
+        expect(pagina1).toHaveLength(3);
+
+        /* Lo que hace el frontend: pedir lo anterior al más viejo que tiene
+           (`conversaciones-state.service.ts` pasa `chat.mensajes[0].createdAt`). */
+        const masViejoDeLaPagina1 = pagina1[0];
+        const pagina2 = await service.obtenerMensajesAnteriores(
+          conversacion.id, masViejoDeLaPagina1.createdAt.toISOString(), 3, agente.id,
+          masViejoDeLaPagina1.id,
+        );
+
+        const vistos = [...pagina1, ...pagina2].map(m => m.id);
+        // Ni uno repetido entre las dos páginas.
+        expect(new Set(vistos).size).toBe(vistos.length);
+
+        /* Los tres empatados que no cupieron en la primera página tienen que
+           salir en la segunda. Sin desempate, el `<` estricto los saltaba y la
+           segunda página caía directamente en los «viejo», perdiendo tres
+           mensajes de la paciente de forma definitiva. */
+        const empatadosVistos = [...pagina1, ...pagina2]
+          .filter(m => m.createdAt.getTime() === MISMO_INSTANTE.getTime());
+        expect(empatadosVistos).toHaveLength(6);
+      });
+
+      it('recorre el hilo entero sin huecos, página a página', async () => {
+        const { agente, conversacion } = await chatConEmpate();
+
+        const vistos: string[] = [];
+        let cursorFecha = '2026-08-20T00:00:00.000Z';
+        let cursorId: string | undefined;
+        for (let vuelta = 0; vuelta < 10; vuelta++) {
+          const pagina = await service.obtenerMensajesAnteriores(
+            conversacion.id, cursorFecha, 3, agente.id, cursorId,
+          );
+          if (pagina.length === 0) break;
+          vistos.push(...pagina.map(m => m.id));
+          cursorFecha = pagina[0].createdAt.toISOString();
+          cursorId = pagina[0].id;
+        }
+
+        const enBase = await prisma.mensaje.count({ where: { conversacionId: conversacion.id } });
+        expect(vistos).toHaveLength(enBase);
+        expect(new Set(vistos).size).toBe(enBase);
+      });
+
+      it('los empatados salen en el orden contratado (createdAt desc, id desc)', async () => {
+        const { agente, conversacion } = await chatConEmpate();
+
+        const pagina = await service.obtenerMensajesAnteriores(
+          conversacion.id, '2026-08-20T00:00:00.000Z', 4, agente.id,
+        );
+
+        /* Se afirma el orden CONTRATADO, no que dos llamadas coincidan: eso
+           último lo cumple Postgres por casualidad mientras el plan no cambie,
+           y una prueba que pasa por casualidad no protege nada.
+           El service devuelve ascendente (hace `reverse()`), así que entre
+           empatados los ids tienen que quedar de menor a mayor. */
+        const empatados = pagina.filter(
+          m => m.createdAt.getTime() === MISMO_INSTANTE.getTime(),
+        );
+        const ordenados = [...empatados].sort((x, y) => (x.id < y.id ? -1 : 1));
+        expect(empatados.map(m => m.id)).toEqual(ordenados.map(m => m.id));
+      });
+    });
+
     it('exige poder ver la conversación', async () => {
       const a = await crearAgente('agente-a');
       const b = await crearAgente('agente-b');

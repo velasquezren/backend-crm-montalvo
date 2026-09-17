@@ -496,7 +496,14 @@ export class ConversacionesService {
         /* Se traen las más recientes primero (para poder acotar con `take`)
            y se reordenan a ascendente en memoria — invertir 300 elementos
            es despreciable frente a traer un historial sin límite. */
-        mensajes: { orderBy: { createdAt: 'desc' }, take: LIMITE_MENSAJES_DETALLE },
+        /* Mismo orden total que `obtenerMensajesAnteriores`: el mensaje más
+           antiguo de esta página es el cursor de la siguiente, así que si aquí
+           los empatados salieran en otro orden, el cursor apuntaría a un sitio
+           distinto del que la paginación supone. */
+        mensajes: {
+          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+          take: LIMITE_MENSAJES_DETALLE,
+        },
       },
     });
     if (!conversacion) {
@@ -523,18 +530,45 @@ export class ConversacionesService {
 
   /**
    * Paginación por CURSOR para mensajes antiguos (scroll infinito hacia arriba).
-   * Filtra mensajes creados estrictamente ANTES del timestamp dado (`antesDe`).
+   *
+   * El cursor es el par `(createdAt, id)`, no solo la fecha. `createdAt` no
+   * desempata: es `TIMESTAMP(3) DEFAULT CURRENT_TIMESTAMP` y en PostgreSQL eso
+   * vale la hora de INICIO DE TRANSACCIÓN, así que cuanto persiste la ingesta
+   * dentro de una misma transacción comparte el instante EXACTO. Con el `<`
+   * estricto sobre la fecha sola, una página que cortara dentro de un grupo
+   * empatado se saltaba al resto de ese grupo para siempre: recorriendo el hilo
+   * entero se veían 5 de 8 mensajes, medido contra Postgres real.
+   *
+   * `antesDeId` es opcional para no romper a un cliente que solo mande la
+   * fecha; el orden secundario por `id` sí es siempre el mismo, y sin él
+   * PostgreSQL no promete ningún orden entre filas empatadas.
    */
-  async obtenerMensajesAnteriores(id: string, antesDe: string, limit = 50, soloAgenteId?: string) {
+  async obtenerMensajesAnteriores(
+    id: string,
+    antesDe: string,
+    limit = 50,
+    soloAgenteId?: string,
+    antesDeId?: string,
+  ) {
     await this.obtenerConversacionPropia(id, soloAgenteId);
     const limiteParsed = Math.min(Math.max(Number(limit) || 50, 1), 100);
+    const fecha = new Date(antesDe);
 
     const mensajes = await this.prisma.mensaje.findMany({
       where: {
         conversacionId: id,
-        createdAt: { lt: new Date(antesDe) },
+        /* «Estrictamente anterior» en el orden total (createdAt desc, id desc):
+           o la fecha es menor, o es la misma y el id va detrás. */
+        ...(antesDeId
+          ? {
+              OR: [
+                { createdAt: { lt: fecha } },
+                { createdAt: fecha, id: { lt: antesDeId } },
+              ],
+            }
+          : { createdAt: { lt: fecha } }),
       },
-      orderBy: { createdAt: 'desc' },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       take: limiteParsed,
     });
     mensajes.reverse();

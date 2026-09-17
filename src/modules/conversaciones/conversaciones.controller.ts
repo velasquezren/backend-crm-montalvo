@@ -82,6 +82,7 @@ export class ConversacionesController {
       query.antesDe,
       query.limit ?? 50,
       soloAgenteId,
+      query.antesDeId,
     );
   }
 
