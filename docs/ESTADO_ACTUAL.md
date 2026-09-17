@@ -1,5 +1,165 @@
 # Estado actual
 
+## 17 de septiembre de 2026 · R2.1 real, PWA rollout y R2.2 — BACKEND DESPLEGADO, FRONTEND DETENIDO
+
+Día largo. Lo que importa para retomar está en las dos primeras tablas; el resto
+explica el porqué para no repetir investigaciones ya hechas.
+
+### Dónde está cada cosa AHORA
+
+| | Backend | Frontend |
+| --- | --- | --- |
+| `main` = `origin/main` | **`5e8bbf0`** | **`aff2f73`** |
+| Desplegado en producción | **`5e8bbf0`** (16:52 EDT) | **`aff2f73`** (Vercel) |
+| Rama pendiente de integrar | — | **`feat/r2-2-media-segura`** = `5708fc0` |
+
+Backend y frontend están **alineados con su producción**. Lo único fuera es la
+rama de R2.2 del frontend, y está detenida a propósito (ver más abajo).
+
+### Lo que sí quedó desplegado hoy
+
+| Entrega | Commit | Estado |
+| --- | --- | --- |
+| R1 · apertura inmediata de conversación | `7773696` | frontend, desplegado |
+| R2 · envío optimista seguro (ENVIANDO/ERROR/AMBIGUO) | `c132345` | frontend, desplegado |
+| R2.1 · `clientMessageId` + UNIQUE en PostgreSQL | `a17a700` | backend, desplegado |
+| Fix del bucle 401 → logout → recarga | `f3d03de` | frontend, desplegado |
+| PWA rollout visible + sello de build | `5687572`, `aff2f73` | frontend, desplegado |
+| R2.1 **de verdad** + media histórica protegida | `5e8bbf0` | backend, desplegado |
+
+### R2.1 estaba roto en producción, y nadie lo sabía
+
+`recuperarEnvioDuplicado` identificaba el índice que rebotaba leyendo
+`error.meta.target`. **Con el driver adapter de Prisma 7 ese campo no existe**:
+el nombre real viaja en `meta.driverAdapterError.cause.constraint.index`. Así
+que el método no reconocía el choque de `clientMessageId`, devolvía `null`, y el
+P2002 subía tal cual — la agente recibía un **500 sobre un mensaje que SÍ se
+había enviado**, y el reintento que R2.1 existía para hacer seguro era justo el
+que no funcionaba.
+
+No se vio antes porque **nada lo ejercitaba**: la suite de R2.1
+(`idempotencia-envio.integracion.spec.ts`) comprueba el índice único contra
+Prisma directamente y **nunca pasa por el service** — cero referencias a
+`enviarMensaje`. Y producción no lo delataba: el único envío con clave que había
+entrado no se reintentó ni una vez.
+
+Corregido en `71777ef` con `choqueDe()`, que mira las dos formas. **El patrón
+correcto ya existía en el repo** (`transaccion-periodo.js` usa
+`driverAdapterError`); Conversaciones se lo había perdido. La cobertura nueva va
+contra el SERVICE y contra Postgres real:
+`src/modules/conversaciones/idempotencia-media.integracion.spec.ts`.
+
+**Lección, para no repetirla:** probar el índice único NO es probar la
+idempotencia. La garantía es de PostgreSQL, pero traducir su rebote es código
+nuestro y necesita su propia prueba, a través del service.
+
+### Media histórica protegida
+
+`memoria-agente.remove()` borraba de R2 sin mirar si un `Mensaje` referenciaba
+esa `mediaKey`. Como ese endpoint sube tanto la biblioteca como los adjuntos del
+chat, limpiar Mi Memoria rompía imágenes en el historial de pacientes, de forma
+permanente. Ahora responde **409** y rechaza la operación entera (`fbc5de6`).
+Sin schema, sin índice, sin GC.
+
+### R2.2 frontend — TERMINADO EN RAMA, DETENIDO POR UNA SUITE INESTABLE
+
+La rama `feat/r2-2-media-segura` (`ab81d8f` retry de adjunto sin reupload;
+`5708fc0` estado visible de subida) **está completa y pasa todas las compuertas**
+— 340/340, check:tipos, check:skills, build, bundle dentro de presupuesto.
+
+**Por qué NO se integró:** al validar antes del merge se midió que los dos
+ficheros de prueba nuevos desestabilizan una suite ajena,
+`src/app/core/realtime/realtime.service.spec.ts`, que falla sus 7 tests **en
+bloque** aproximadamente **1 de cada 10 corridas**.
+
+| Medición | Resultado |
+| --- | --- |
+| `main` (`aff2f73`), 8 campañas | 323/323 siempre |
+| Rama completa | 1 fallo / 6 · 1 fallo / 15 |
+| Rama **sin** los 2 specs nuevos, **mismo código productivo**, 8 campañas | **8/8 verde** |
+| `realtime.service.spec.ts` en aislamiento, 6 campañas | 9/9 siempre |
+| `realtime` + los 2 specs nuevos juntos, 8 campañas | 26/26 siempre |
+| Suite completa con **solo** `reintento-media.spec.ts`, 10 campañas | 1 fallo / 10 |
+
+**El código productivo está limpio**: lo prueba la tercera fila. Es
+contaminación entre ficheros de test, y el culpable reproducible es
+`reintento-media.spec.ts`.
+
+Síntoma exacto: `fabrica.io.mock.calls[0]` es `undefined` — el socket falso
+nunca llega a crearse, o sea que `RealtimeService.abrirSocket()` no corre.
+
+**Dos hipótesis ya investigadas y DESCARTADAS con medición. No repetirlas:**
+
+1. `Element.prototype.scrollIntoView = vi.fn()` sin restaurar. Se adoptó el
+   patrón defensivo de `detalle-fallido.spec.ts` (`if (!…) … = () => {}`) y
+   **siguió fallando 1/15**. El parche se revirtió para dejar la rama en los SHA
+   aprobados; aun así, ese patrón defensivo es el correcto si se vuelve a tocar.
+2. Fuga del `RealtimeService` entre suites. **Ni el thread ni el composer lo
+   inyectan**: solo lo hacen `conversaciones.page.ts` y
+   `notificaciones-bell.component.ts`, y los specs nuevos no montan ninguno.
+
+**Pista sin explorar:** `realtime.service.spec.ts` usa `vi.hoisted()` +
+`vi.mock('socket.io-client')`. Si otro fichero del mismo worker carga el módulo
+real antes, el mock no aplicaría y `RealtimeService` quedaría con el `io` de
+verdad — encaja con el síntoma. Verificarlo antes de tocar nada.
+
+**Riesgo de dejarlo esperando: ninguno.** El frontend en producción no tiene el
+botón de reintento de media, así que el defecto de R2.1 que hoy se corrigió no
+es alcanzable desde la interfaz. Y el orden obligatorio ya se cumplió: el
+backend fue primero, así que cuando el frontend entre, el reintento ya está
+soportado del otro lado.
+
+### PWA: cómo saber qué build ejecuta un navegador
+
+Un despliegue correcto **no** significa que la clínica esté ejecutando esa
+versión. Hoy costó dos diagnósticos: R2.1 estaba en Vercel y el navegador seguía
+mandando sin `clientMessageId`.
+
+- `window.crmBuild` → `{ sha, compiladoEn }`, y la consola lo imprime al
+  arrancar. El SHA lo incrusta `tools/generar-sello-build.mjs` desde
+  `VERCEL_GIT_COMMIT_SHA` / `GITHUB_SHA` / `git`, **nunca a mano**.
+- El archivo generado (`src/app/core/build/app-build.ts`) está en `.gitignore`.
+  **Por eso los comandos oficiales son los de npm**: `ng build` o `ng test` a
+  secas fallan en un checkout limpio con un import inexistente. Es correcto, no
+  un bug.
+- Hay indicador permanente de «Actualizar» en la cabecera mientras haya versión
+  pendiente, y se busca actualización al volver el foco (throttle de 5 min).
+  **No hay auto-reload**, a propósito: hoy no se puede distinguir un momento
+  seguro (borrador, adjunto preparado, upload en curso, modal, globo ENVIANDO).
+
+### Deuda de test conocida, NO tocar en esta ronda
+
+- `frontend/src/app/core/auth/bucle-401.spec.ts` deja **2 «Unhandled Errors»**
+  (router sin rutas, `NavigationError` 4002). Verificado idéntico en `main`: no
+  es regresión. Sale también si se corre ese archivo solo.
+- `npm run test:integracion` del backend **exige base limpia entre tandas si una
+  suite aborta a media**: una corrida fallida deja filas y la siguiente falla en
+  cascada. Ante 161 fallos raros, `npm run test:integracion:preparar` primero.
+- **No vaciar tablas «por si acaso» en los specs de integración.** La línea
+  `00000000-0000-4000-8000-000000000001` la **siembra una migración** y de ella
+  dependen cuatro suites; un `lineaWhatsapp.deleteMany()` la borraba y todas las
+  corridas siguientes fallaban con `Conversacion_lineaId_fkey`. Limpiar solo lo
+  que la prueba crea, por id.
+
+### MIME de la media saliente: latente, documentado, SIN tocar
+
+`despachador-saliente.service.ts` decide `image` vs `document` por la
+**extensión de la `mediaKey`** (`/\.pdf$/`), no por `mediaMime`. Como
+`insertarRecursoEnChat()` no filtra por tipo y la whitelist acepta `.docx` y
+audio, un documento de Word saldría a Meta como `type: 'image'` y rebotaría.
+
+**Evidencia en producción: cero.** 249 medias salientes, todas `image/*`, 0
+claves `.pdf`, 0 discrepancias; en Mi Memoria solo hay jpeg y png. La ruta es
+alcanzable pero **nunca se ha ejercitado**, así que se dejó fuera por decisión
+explícita: no hay cambio colateral sin evidencia. El arreglo, cuando se quiera,
+es una línea: decidir por `mediaMime`, que ya está persistido.
+
+### Lo siguiente
+
+1. Resolver la contaminación entre specs e integrar `feat/r2-2-media-segura`.
+   **No hace falta tocar código productivo.**
+2. R3 no se ha empezado.
+
 ## Auditoría F01–F10 — CERRADA EN CÓDIGO
 
 Revalidada finding por finding contra el código, no contra esta documentación.
