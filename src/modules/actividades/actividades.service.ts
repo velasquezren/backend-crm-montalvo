@@ -5,6 +5,7 @@ import {
   OnModuleDestroy,
   OnModuleInit,
 } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import { Prisma } from '../../prisma/prisma-client';
 
 import { alcanceAgente, cubreRol } from '../../common/auth/roles';
@@ -270,17 +271,29 @@ export class ActividadesService implements OnModuleInit, OnModuleDestroy {
 
     const [primeraFecha, ...siguientesFechas] = fechasDeRepeticion(dto.fechaProgramada, dto.repetir);
 
+    /* La identidad de la serie se genera UNA vez y la reciben todas las
+       ocurrencias de esta alta. Sin repetición queda `null`: una actividad
+       suelta no es una serie de uno, y tratarla como tal haría que «esta y las
+       siguientes» apareciera donde no hay nada que propagar. */
+    const identidadDeSerie = dto.repetir
+      ? { serieId: randomUUID(), frecuenciaSerie: dto.repetir.frecuencia }
+      : {};
+
     // Todo en una sola transacción: o quedan las `veces` filas, o ninguna —
     // nunca una "repetición" a medias por un fallo a mitad de camino.
     return this.prisma.$transaction(async tx => {
       const primera = await tx.actividad.create({
-        data: { ...datosComunes, fechaProgramada: primeraFecha },
+        data: { ...datosComunes, ...identidadDeSerie, fechaProgramada: primeraFecha },
         include: INCLUYE_ACTIVIDAD,
       });
 
       if (siguientesFechas.length > 0) {
         await tx.actividad.createMany({
-          data: siguientesFechas.map(fechaProgramada => ({ ...datosComunes, fechaProgramada })),
+          data: siguientesFechas.map(fechaProgramada => ({
+            ...datosComunes,
+            ...identidadDeSerie,
+            fechaProgramada,
+          })),
         });
       }
 

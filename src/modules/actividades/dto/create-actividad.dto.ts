@@ -1,9 +1,8 @@
-import { TipoActividad } from '../../../prisma/prisma-client';
+import { FrecuenciaRepeticion, TipoActividad } from '../../../prisma/prisma-client';
 import { Type } from 'class-transformer';
 import {
   IsDate,
   IsEnum,
-  IsIn,
   IsInt,
   IsOptional,
   IsString,
@@ -14,20 +13,23 @@ import {
   ValidateNested,
 } from 'class-validator';
 
-const FRECUENCIAS_REPETICION = ['SEMANAL', 'QUINCENAL', 'MENSUAL'] as const;
-export type FrecuenciaRepeticion = (typeof FRECUENCIAS_REPETICION)[number];
-
 /**
- * Repetir al crear: **no** es una serie enlazada — genera `veces` filas
- * independientes, cada una editable/completable por su cuenta, sin
- * `serieId` ni vínculo entre ellas. Mismo criterio de simplicidad que
- * Agenda Médica ("mover una cita de una serie recurrente mueve solo esa"):
- * acá directamente no hay "esta y las siguientes" que resolver, porque no
- * hay serie. Si el día de mañana hace falta editar el patrón completo, eso
- * es una serie enlazada de verdad — no se puede fingir con esto.
+ * Repetir al crear: genera `veces` ocurrencias que comparten `serieId`.
+ *
+ * **Qué cambió y por qué.** Antes eran filas sueltas, sin vínculo, y este
+ * mismo comentario defendía esa simplicidad. La decisión se revisó al
+ * comprobar el coste real: desde una ocurrencia no había forma de saber
+ * cuáles eran sus hermanas —ni siquiera adivinando por cliente y título, que
+ * confunde homónimas—, así que mover un seguimiento semanal de hora eran doce
+ * ediciones a mano.
+ *
+ * Lo que se añade es identidad, no un motor de recurrencias: no se guarda el
+ * patrón ni se regeneran ocurrencias. Cada una sigue siendo una Actividad
+ * real, editable y completable por su cuenta; lo único que ahora se puede es
+ * aplicar algo a «esta y las siguientes».
  */
 export class RepetirActividadDto {
-  @IsIn(FRECUENCIAS_REPETICION)
+  @IsEnum(FrecuenciaRepeticion)
   frecuencia!: FrecuenciaRepeticion;
 
   /** Total de actividades a crear, incluida la primera. 1 no tendría sentido ("repetir" una vez). */

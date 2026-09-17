@@ -1149,6 +1149,17 @@ enum EstadoActividad {
   CANCELADA
 }
 
+/// Cadencia con la que nació una serie de actividades.
+///
+/// Vive aquí y no en un `const` del DTO para que haya UNA semántica: el
+/// frontend la recibe generada por `sync:tipos`, igual que los otros enums.
+/// Antes estaba escrita a mano en los dos runtimes.
+enum FrecuenciaRepeticion {
+  SEMANAL
+  QUINCENAL
+  MENSUAL
+}
+
 /// Seguimiento comercial: recordatorios y tareas que un agente se agenda sobre
 /// un Cliente/Lead — "llamar el jueves", "recordar la cotización". NO es una
 /// cita médica de horario clínico: eso lo resuelve la app Agenda Médica
@@ -1186,6 +1197,19 @@ model Actividad {
   /// `ActividadesService`, cada 5 min). Evita notificar dos veces la misma
   /// actividad si el barrido la vuelve a ver antes de que pase a COMPLETADA.
   notificadaEn    DateTime?
+  /// Une las ocurrencias creadas juntas por «repetir». `null` = actividad suelta.
+  ///
+  /// Sin FK y sin entidad Serie a propósito: lo único que hace falta es saber
+  /// quiénes son las hermanas y poder aplicar algo a «esta y las siguientes».
+  /// Guardar el patrón solo haría falta para regenerar ocurrencias, que es la
+  /// puerta a un motor de recurrencias y no está en el alcance.
+  ///
+  /// Las actividades anteriores a esta columna quedan en `null`: no hay forma
+  /// fiable de reconstruir qué se creó junto, y adivinarlo por fecha y paciente
+  /// uniría cosas que nadie agrupó.
+  serieId         String?
+  /// Con qué cadencia nació la serie. Solo para poder decirlo en pantalla.
+  frecuenciaSerie FrecuenciaRepeticion?
   createdAt       DateTime        @default(now())
   updatedAt       DateTime        @updatedAt
 
@@ -1197,6 +1221,10 @@ model Actividad {
   // notificar, cuya hora ya está cerca — sin este índice compuesto es un
   // Seq Scan cada 5 minutos.
   @@index([estado, notificadaEn, fechaProgramada])
+  /// Compuesto y no un índice suelto sobre `serieId`: la única consulta que lo
+  /// necesita es «las hermanas de esta serie desde tal fecha», que filtra y
+  /// ordena justo por ese par. Un índice solo de `serieId` sería su prefijo.
+  @@index([serieId, fechaProgramada])
 }
 
 /// Reserva durable del alta inicial. Estados y coherencia definidos por CHECK SQL.
