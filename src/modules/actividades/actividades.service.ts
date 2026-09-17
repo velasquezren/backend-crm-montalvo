@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Injectable,
   Logger,
   NotFoundException,
@@ -9,7 +10,7 @@ import { randomUUID } from 'node:crypto';
 import { Prisma } from '../../prisma/prisma-client';
 
 import { alcanceAgente, cubreRol } from '../../common/auth/roles';
-import { inicioDelDiaClinica, sumarDiasClinica } from '../../common/fechas/zona-clinica';
+import { conHoraClinica, inicioDelDiaClinica, sumarDiasClinica } from '../../common/fechas/zona-clinica';
 import { UsuarioJwt } from '../../common/decorators/current-user.decorator';
 import { terminoBusqueda } from '../../common/dto/busqueda';
 import { enSegundoPlano } from '../../common/fiabilidad/en-segundo-plano';
@@ -373,6 +374,125 @@ export class ActividadesService implements OnModuleInit, OnModuleDestroy {
       },
       include: INCLUYE_ACTIVIDAD,
     });
+  }
+
+  /* ── «Esta y las siguientes» ──────────────────────────────────────────
+   *
+   * FUTURAS = misma `serieId`, PENDIENTES, dentro del alcance de quien pide, y
+   * con `fechaProgramada >= la de la ocurrencia elegida`.
+   *
+   * La comparación usa la fecha ACTUAL de cada una, no un orden histórico de la
+   * serie — que no existe y no se guarda. Una ocurrencia que alguien movió
+   * hacia atrás deja de ser futura respecto a la elegida, y no entra. Es la
+   * regla más simple que se puede explicar en una frase, y la única que no
+   * obliga a guardar el patrón.
+   */
+
+  /**
+   * Las candidatas de «esta y las siguientes», ya filtradas por alcance.
+   *
+   * Devolverlas NO es un permiso: cada escritura vuelve a exigir sus
+   * condiciones. Entre esta lectura y el UPDATE, otra agente puede completar
+   * una — y entonces debe quedarse como está.
+   */
+  private async origenDeSerie(id: string, soloAgenteId?: string) {
+    const origen = await this.prisma.actividad.findUnique({
+      where: { id },
+      select: { id: true, agenteId: true, serieId: true, estado: true, fechaProgramada: true },
+    });
+    if (!origen || !this.enAlcance(origen, soloAgenteId)) {
+      throw new NotFoundException(`Actividad ${id} no encontrada`);
+    }
+    if (!origen.serieId) {
+      /* Una actividad suelta no es una serie de una: ofrecer «y las siguientes»
+         sobre ella no significaría nada. Para esas están los endpoints de
+         siempre. */
+      throw new BadRequestException(
+        'Esta actividad no pertenece a una repetición; usa la edición individual.',
+      );
+    }
+    if (origen.estado !== 'PENDIENTE') {
+      throw new BadRequestException(
+        'Solo se puede operar sobre la serie desde una actividad pendiente.',
+      );
+    }
+    return { ...origen, serieId: origen.serieId };
+  }
+
+  private dondeFuturas(
+    serieId: string,
+    desde: Date,
+    soloAgenteId?: string,
+  ): Prisma.ActividadWhereInput {
+    return {
+      serieId,
+      estado: 'PENDIENTE',
+      fechaProgramada: { gte: desde },
+      // F04: compartir `serieId` no da permiso sobre lo que es de otra agente.
+      ...(soloAgenteId ? { agenteId: soloAgenteId } : {}),
+    };
+  }
+
+  /**
+   * Pone esta ocurrencia y las siguientes a otra hora, cada una en SU día.
+   *
+   * No es un `updateMany`: cada fila acaba con un instante distinto, porque
+   * conserva su propio día de calendario. Son doce como mucho, así que doce
+   * escrituras condicionadas son más baratas de leer y de mantener que un SQL
+   * que calcule el instante fila a fila.
+   */
+  async cambiarHoraDeFuturas(
+    id: string,
+    hhmm: string,
+    soloAgenteId?: string,
+  ): Promise<{ afectadas: number }> {
+    const origen = await this.origenDeSerie(id, soloAgenteId);
+    const [hora, minuto] = hhmm.split(':').map(Number) as [number, number];
+
+    return this.prisma.$transaction(async tx => {
+      const candidatas = await tx.actividad.findMany({
+        where: this.dondeFuturas(origen.serieId, origen.fechaProgramada, soloAgenteId),
+        select: { id: true, fechaProgramada: true },
+      });
+
+      let afectadas = 0;
+      for (const candidata of candidatas) {
+        const nueva = conHoraClinica(candidata.fechaProgramada, hora, minuto);
+        // Ya estaba a esa hora: no se toca, y sobre todo no se le borra el aviso.
+        if (nueva.getTime() === candidata.fechaProgramada.getTime()) continue;
+
+        const { count } = await tx.actividad.updateMany({
+          /* `estado` se repite AQUÍ, no solo en la lectura: si alguien la
+             completó entre medias, esta escritura no la encuentra y la deja
+             como está. Es la garantía, y no se puede dar filtrando antes. */
+          where: { id: candidata.id, estado: 'PENDIENTE' },
+          // Cambia de hora: tiene que poder volver a avisar en la nueva.
+          data: { fechaProgramada: nueva, notificadaEn: null },
+        });
+        afectadas += count;
+      }
+
+      return { afectadas };
+    });
+  }
+
+  /**
+   * Cancela esta ocurrencia y las siguientes.
+   *
+   * Aquí sí es un `updateMany`: todas acaban igual. Cancelar no toca
+   * `notificadaEn` —no hay hora nueva que avisar— ni roza a las COMPLETADAS,
+   * que son historial y no se reescriben.
+   */
+  async cancelarFuturas(id: string, soloAgenteId?: string): Promise<{ afectadas: number }> {
+    const origen = await this.origenDeSerie(id, soloAgenteId);
+
+    const { count } = await this.prisma.actividad.updateMany({
+      where: this.dondeFuturas(origen.serieId, origen.fechaProgramada, soloAgenteId),
+      // Misma semántica que `actualizarEstado`: cancelar limpia `completadaEn`.
+      data: { estado: 'CANCELADA', completadaEn: null },
+    });
+
+    return { afectadas: count };
   }
 
   async remove(id: string, soloAgenteId?: string): Promise<{ ok: true }> {

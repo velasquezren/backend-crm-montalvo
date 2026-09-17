@@ -3,6 +3,7 @@ import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestj
 import { alcanceAgente } from '../../common/auth/roles';
 import { CurrentUser, UsuarioJwt } from '../../common/decorators/current-user.decorator';
 import { ActividadesService } from './actividades.service';
+import { CambiarHoraFuturasDto } from './dto/cambiar-hora-futuras.dto';
 import { CreateActividadDto } from './dto/create-actividad.dto';
 import { QueryActividadDto } from './dto/query-actividad.dto';
 import { UpdateActividadDto } from './dto/update-actividad.dto';
@@ -49,6 +50,31 @@ export class ActividadesController {
     @CurrentUser() usuario: UsuarioJwt,
   ) {
     return this.actividadesService.actualizarEstado(id, dto, alcanceAgente(usuario));
+  }
+
+  /* ── «Esta y las siguientes» ──────────────────────────────────────────
+   *
+   * Dos rutas pequeñas en vez de un `alcance` en el PATCH general, y es
+   * deliberado: aquel DTO admite ocho campos —`clienteId` y `agenteId` entre
+   * ellos—, así que propagar por descuido habría significado cambiarle el
+   * paciente o el dueño a doce actividades. Con estos cuerpos eso no se puede
+   * ni escribir.
+   *
+   * «Futuras» incluye siempre a la ocurrencia elegida; ver `origenDeSerie`.
+   */
+
+  @Patch(':id/esta-y-siguientes/hora')
+  cambiarHoraDeFuturas(
+    @Param('id') id: string,
+    @Body() dto: CambiarHoraFuturasDto,
+    @CurrentUser() usuario: UsuarioJwt,
+  ) {
+    return this.actividadesService.cambiarHoraDeFuturas(id, dto.hora, alcanceAgente(usuario));
+  }
+
+  @Patch(':id/esta-y-siguientes/cancelar')
+  cancelarFuturas(@Param('id') id: string, @CurrentUser() usuario: UsuarioJwt) {
+    return this.actividadesService.cancelarFuturas(id, alcanceAgente(usuario));
   }
 
   @Delete(':id')

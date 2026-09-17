@@ -84,8 +84,15 @@ function desfase(instante: Date): number {
  * Bolivia no cambia la hora, así que hoy la segunda pasada nunca corrige nada;
  * está para que la utilidad no mienta si alguna vez se usa con otra zona.
  */
-function medianocheDe(anio: number, mes: number, dia: number, referencia: Date): Date {
-  const comoSiFueraUtc = Date.UTC(anio, mes - 1, dia);
+function instanteDe(
+  anio: number,
+  mes: number,
+  dia: number,
+  referencia: Date,
+  hora = 0,
+  minuto = 0,
+): Date {
+  const comoSiFueraUtc = Date.UTC(anio, mes - 1, dia, hora, minuto);
   const aproximado = comoSiFueraUtc - desfase(referencia);
   return new Date(comoSiFueraUtc - desfase(new Date(aproximado)));
 }
@@ -93,7 +100,23 @@ function medianocheDe(anio: number, mes: number, dia: number, referencia: Date):
 /** El instante en que empezó el día de la clínica que contiene a `instante`. */
 export function inicioDelDiaClinica(instante: Date): Date {
   const { anio, mes, dia } = partes(instante);
-  return medianocheDe(anio, mes, dia, instante);
+  return instanteDe(anio, mes, dia, instante);
+}
+
+/**
+ * El mismo día de la clínica, a otra hora.
+ *
+ * Es «poner las 10:30», no «sumar 90 minutos»: las dos cosas coinciden en un
+ * caso y se separan en cuanto las ocurrencias de una serie no están todas a la
+ * misma hora. Conserva el día calendario que la actividad tiene EN LA CLÍNICA,
+ * que es lo que la agente ve, y solo reemplaza hora y minutos.
+ *
+ * Devuelve un instante, como siempre: lo que se guarda en PostgreSQL no cambia
+ * de naturaleza, solo de valor.
+ */
+export function conHoraClinica(instante: Date, hora: number, minuto: number): Date {
+  const { anio, mes, dia } = partes(instante);
+  return instanteDe(anio, mes, dia, instante, hora, minuto);
 }
 
 /**
@@ -105,5 +128,5 @@ export function inicioDelDiaClinica(instante: Date): Date {
  */
 export function sumarDiasClinica(inicioDeDia: Date, dias: number): Date {
   const { anio, mes, dia } = partes(inicioDeDia);
-  return medianocheDe(anio, mes, dia + dias, inicioDeDia);
+  return instanteDe(anio, mes, dia + dias, inicioDeDia);
 }
