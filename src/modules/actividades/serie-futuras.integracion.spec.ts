@@ -288,11 +288,23 @@ describe('A5.2 · compatibilidad', () => {
     await service.update(ids[0], { fechaProgramada: new Date('2026-10-12T20:00:00.000Z') } as never, agenteA);
     await service.actualizarEstado(ids[1], { estado: 'CANCELADA' } as never, agenteA);
 
-    const filas = await prisma.actividad.findMany({ orderBy: { createdAt: 'asc' } });
-    expect(filas[0].fechaProgramada.toISOString()).toBe('2026-10-12T20:00:00.000Z');
-    expect(filas[1].estado).toBe('CANCELADA');
-    expect(filas[2].estado).toBe('PENDIENTE');
-    expect(filas[2].fechaProgramada.toISOString()).toBe(L26);
+    /* Por id, no por posición. `sembrarSerie` crea las tres en un bucle
+       secuencial, así que sus `createdAt` empatan al milisegundo en cuanto la
+       base responde rápido, y `orderBy: { createdAt: 'asc' }` deja de ser
+       determinista: la suite fallaba de forma intermitente afirmando que la
+       segunda fila no estaba CANCELADA cuando sí lo estaba —solo que "la
+       segunda" era otra—.
+       Es el mismo empate que el proyecto ya arregló en el cursor del
+       historial de conversaciones desempatando por id. Aquí ni siquiera hace
+       falta un orden: `sembrarSerie` devuelve los ids en el orden sembrado,
+       y lo que se prueba es qué le pasó a CADA actividad, no cómo se listan. */
+    const [movida, cancelada, intacta] = await Promise.all(
+      ids.map(id => prisma.actividad.findUniqueOrThrow({ where: { id } })),
+    );
+    expect(movida.fechaProgramada.toISOString()).toBe('2026-10-12T20:00:00.000Z');
+    expect(cancelada.estado).toBe('CANCELADA');
+    expect(intacta.estado).toBe('PENDIENTE');
+    expect(intacta.fechaProgramada.toISOString()).toBe(L26);
   });
 });
 

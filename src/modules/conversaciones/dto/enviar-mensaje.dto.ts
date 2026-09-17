@@ -1,4 +1,4 @@
-import { IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
+import { IsOptional, IsString, IsUUID, MaxLength, MinLength } from 'class-validator';
 
 export class EnviarMensajeDto {
   /**
@@ -25,6 +25,19 @@ export class EnviarMensajeDto {
    * carga, que es justo lo que ya hacían las imágenes ENTRANTES y por eso esas
    * sí se veían siempre.
    */
+  /**
+   * Identidad de la INTENCIÓN de envío, generada por el navegador y estable
+   * entre reintentos. Con ella, dos POST iguales producen un solo mensaje.
+   *
+   * Opcional a propósito durante el despliegue: el backend sale primero y
+   * tiene que seguir aceptando a los clientes viejos que todavía no la mandan.
+   * Sin ella el envío funciona igual, simplemente sin protección contra el
+   * reintento ambiguo.
+   */
+  @IsOptional()
+  @IsUUID()
+  clientMessageId?: string;
+
   @IsOptional()
   @IsString()
   @MaxLength(300)

@@ -695,12 +695,84 @@ export class ConversacionesService {
    * where), que además resuelve el empate si dos agentes contestan a la vez el
    * mismo chat del pool: exactamente uno se lo lleva.
    */
+  /**
+   * Los dos writes del envío, en una sola transacción.
+   *
+   * Extraído para que el `try` de `enviarMensaje` envuelva exactamente esto y
+   * nada más: cuanto más código quede dentro, más fácil es que un error
+   * ajeno acabe interpretado como un duplicado.
+   */
+  private crearMensajeSaliente(
+    conversacionId: string,
+    contenido: string,
+    agenteId: string,
+    adjunto?: { mediaKey?: string; mediaMime?: string; mediaNombre?: string },
+    clientMessageId?: string,
+  ) {
+      return this.prisma.$transaction([
+        this.prisma.mensaje.create({
+          data: {
+            conversacionId,
+            direccion: 'SALIENTE',
+            contenido,
+            estadoEnvio: 'ENVIADO',
+            clientMessageId: clientMessageId ?? null,
+            /* Se guarda la CLAVE, no la URL: el detalle firma una nueva en cada
+               carga y la burbuja no caduca. Ver el comentario de `mediaKey` en
+               EnviarMensajeDto. */
+            ...(adjunto?.mediaKey
+              ? {
+                  mediaKey: adjunto.mediaKey,
+                  mediaMime: adjunto.mediaMime ?? null,
+                  mediaNombre: adjunto.mediaNombre ?? null,
+                  tipo: tipoSegunMime(adjunto.mediaMime),
+                }
+              : {}),
+          },
+        }),
+        /* Solo reclama el chat si está en el pool — ver la nota del método. */
+        this.prisma.conversacion.updateMany({
+          where: { id: conversacionId, agenteId: null },
+          data: { agenteId },
+        }),
+        this.prisma.conversacion.update({
+          where: { id: conversacionId },
+          /* Contestó una persona: sale de la pestaña "Sin responder". Va en la
+             MISMA transacción que el mensaje a propósito — si se separara, un
+             fallo entre las dos dejaría la pestaña mintiendo. */
+          data: { updatedAt: new Date(), esperandoRespuesta: false },
+        }),
+      ]);
+  }
+
+  /**
+   * Traduce el rebote del índice único en la fila que ya existía.
+   *
+   * Devuelve `null` si el error no es el choque de `clientMessageId`: cualquier
+   * otro fallo tiene que seguir subiendo tal cual. Confundirlos convertiría un
+   * error real en un "ya estaba enviado", que es la peor mentira posible aquí.
+   */
+  private async recuperarEnvioDuplicado(error: unknown, clientMessageId?: string) {
+    if (!clientMessageId) return null;
+    if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2002') return null;
+
+    const objetivo = error.meta?.['target'];
+    const campos = Array.isArray(objetivo) ? objetivo.map(String) : [String(objetivo ?? '')];
+    if (!campos.some(campo => campo.includes('clientMessageId'))) return null;
+
+    /* La otra petición ya la creó: para cuando el índice rebotó, la fila
+       existe. Si aun así no aparece, el error no era lo que parecía y se
+       devuelve null para que suba. */
+    return this.prisma.mensaje.findUnique({ where: { clientMessageId } });
+  }
+
   async enviarMensaje(
     conversacionId: string,
     contenido: string,
     agenteId: string,
     soloAgenteId?: string,
     adjunto?: { mediaKey?: string; mediaMime?: string; mediaNombre?: string },
+    clientMessageId?: string,
   ) {
     const conversacion = await this.obtenerConversacionPropia(conversacionId, soloAgenteId);
     await this.verificarVentana24h(conversacionId);
@@ -715,40 +787,46 @@ export class ConversacionesService {
        en updatedAt/agenteId. `estadoEnvio: ENVIADO` es optimista (el tick
        sencillo aparece antes de saber si Meta lo aceptó), igual que hace
        WhatsApp/Messenger — se corrige a FALLIDO si el envío real rebota. */
-    const [mensaje] = await this.prisma.$transaction([
-      this.prisma.mensaje.create({
-        data: {
-          conversacionId,
-          direccion: 'SALIENTE',
-          contenido,
-          estadoEnvio: 'ENVIADO',
-          /* Se guarda la CLAVE, no la URL: el detalle firma una nueva en cada
-             carga y la burbuja no caduca. Ver el comentario de `mediaKey` en
-             EnviarMensajeDto. */
-          ...(adjunto?.mediaKey
-            ? {
-                mediaKey: adjunto.mediaKey,
-                mediaMime: adjunto.mediaMime ?? null,
-                mediaNombre: adjunto.mediaNombre ?? null,
-                tipo: tipoSegunMime(adjunto.mediaMime),
-              }
-            : {}),
-        },
-      }),
-      /* Solo reclama el chat si está en el pool — ver la nota del método. */
-      this.prisma.conversacion.updateMany({
-        where: { id: conversacionId, agenteId: null },
-        data: { agenteId },
-      }),
-      this.prisma.conversacion.update({
-        where: { id: conversacionId },
-        /* Contestó una persona: sale de la pestaña "Sin responder". Va en la
-           MISMA transacción que el mensaje a propósito — si se separara, un
-           fallo entre las dos dejaría la pestaña mintiendo. */
-        data: { updatedAt: new Date(), esperandoRespuesta: false },
-      }),
-    ]);
+    /*
+     * Idempotencia del envío.
+     *
+     * El orden de este método hace que una respuesta HTTP perdida sea
+     * indistinguible, desde el navegador, de un envío que nunca ocurrió: para
+     * cuando el POST responde, el mensaje ya está en la base y el despacho a
+     * Meta ya salió. Reintentar sin una clave estable creaba una segunda fila
+     * y un segundo WhatsApp real.
+     *
+     * `clientMessageId` identifica la INTENCIÓN de envío, no el intento. La
+     * garantía no es este código: es el índice único de PostgreSQL. Aquí solo
+     * se traduce su rebote.
+     *
+     * No se comprueba antes con un `findUnique`, y no es pereza: entre el
+     * SELECT y el INSERT cabe otra petición, así que el pre-chequeo no evita
+     * la carrera —solo la disfraza de 500— y cobra un viaje de más en el
+     * camino normal, que es el 99,9% de las veces. Mismo criterio que
+     * `ClientesService.traducirChoqueUnico`, y el skill del módulo lo
+     * documenta: bajo concurrencia, `upsert` tampoco sirve.
+     */
+    let mensaje;
+    try {
+      [mensaje] = await this.crearMensajeSaliente(conversacionId, contenido, agenteId, adjunto, clientMessageId);
+    } catch (error) {
+      const yaCreado = await this.recuperarEnvioDuplicado(error, clientMessageId);
+      if (!yaCreado) throw error;
 
+      /*
+       * Este `return` es el punto entero del cambio: sale ANTES de
+       * `emitirActividad` y ANTES del despacho a Meta. La petición que
+       * perdió la carrera —o el reintento de una respuesta perdida— devuelve
+       * la MISMA fila y no vuelve a mandar nada a la paciente.
+       *
+       * Una fila, un despacho. La idempotencia de base de datos sin la del
+       * efecto externo no serviría de nada.
+       */
+      return { ...yaCreado, clienteTelefono: conversacion.cliente.telefono };
+    }
+
+    /* A partir de aquí solo pasa quien creó la fila de verdad. */
     /* La misma reclamación, para la paciente y sus leads abiertos.
        Va por `clientesService` y no con un `updateMany` aquí porque `Cliente` y
        `Lead` son de otro dominio: escribirlas desde este módulo deja la regla
