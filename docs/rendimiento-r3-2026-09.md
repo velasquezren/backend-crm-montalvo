@@ -586,3 +586,90 @@ armarlo. Y los puestos 3 y 4 se caen: ya estaban resueltos.
    el 401.
 2. Con esa medición, decidir entre el preflight y los round trips del inbox, y
    hacer **uno solo**, con antes/después.
+
+---
+
+## 18/09/2026 (tarde-2) · perfilado del inbox · UN DEFECTO REAL Y UN HUECO SIN EXPLICAR
+
+Se retira la afirmación «Prisma tarda 85 ms» de la sección anterior. **Era una
+resta, no una medición**, y al medirla resultó falsa.
+
+Método: se sembró `crm_test` a escala de producción (15.838 clientes, 558
+conversaciones, 4.464 mensajes) y se perfiló `findAll` con
+`process.hrtime.bigint()` y el log de queries de Prisma. Instrumentación
+temporal, no commiteada.
+
+### Lo que se midió, y lo que cada medición descartó
+
+| Medición | Resultado | Qué descarta |
+| --- | ---: | --- |
+| `findAll` completo, local | **6,2 ms** p50 · 7,9 p95 | que el servicio sea lento |
+| Consultas por petición | **13** | — |
+| Suma del SQL que reporta Prisma | 6,6 ms | — |
+| Overhead de Prisma (total − SQL) | **−0,4 ms** | **que Prisma tenga overhead**: no lo tiene |
+| Petición HTTP completa, local | **5 ms** p50 | guards, interceptores y serialización |
+| CPU 1 núcleo, Mac vs VPS | 198 vs **199 ms** | que el VPS sea más lento de CPU |
+| `SELECT 1` ida y vuelta | 0,063 vs **0,397 ms** | 13 viajes = +4,3 ms, no 70 |
+| `/health` (1 consulta) en Nest | 0 ms local vs **2 ms** VPS | coste base por petición: +2 ms |
+| Compresión de la respuesta | +0,3 ms | `compression()` |
+| Bytes servidos | 41,5 kB → 5,7 kB br (local) vs **6,9 kB** (prod) | volumen de datos |
+| Distribución real en producción | min 42 · **p50 79** · p90 111 · max 186 | que sea un outlier: es consistente |
+
+**La petición dominante en producción es la misma que se midió**: 317 llamadas
+sin parámetros frente a un puñado con `busqueda`, y los usuarios activos son 3
+SUPER_ADMIN y 2 AGENTE, o sea que el camino normal va sin filtro de visibilidad.
+
+### HALLAZGO · el `take: 1` de los mensajes NO llega a SQL
+
+Capturando el SQL exacto que emite Prisma:
+
+```sql
+SELECT … FROM "Mensaje"
+WHERE "conversacionId" IN ($1 … $50)
+ORDER BY "createdAt" DESC
+OFFSET $51            -- ← no hay LIMIT
+```
+
+`SELECT_INBOX.mensajes` pide `orderBy: { createdAt: 'desc' }, take: 1`, pero
+**el `take` no se traduce**: Prisma trae TODOS los mensajes de las 50
+conversaciones, los ordena y se queda con el primero de cada una **en
+JavaScript**.
+
+Medido en producción: las 50 conversaciones más recientes acumulan **328
+mensajes** (media 6,6 · máx 45) y el plan es un **Seq Scan de los 4.139
+mensajes** de la tabla, 2,66 ms.
+
+Hoy cuesta poco. **Crece con la tabla entera, no con la página**: es un Seq Scan
+que hoy son 4.139 filas y en un año serán decenas de miles, para pintar 50.
+Es deuda real aunque no sea el cuello de hoy.
+
+### El hueco que NO se pudo explicar
+
+Sumando todo lo medido arriba, un `GET /conversaciones` en producción debería
+costar del orden de **10-15 ms**. El logger de Nest reporta **79 ms de mediana**,
+de forma consistente.
+
+**No se logró demostrar dónde viven esos ~60 ms restantes.** Se refutaron, una
+por una, todas las hipótesis comprobables desde fuera: SQL, overhead de Prisma,
+capa HTTP, CPU, número de viajes, compresión, tamaño de respuesta, sesgo de
+datos y rol del usuario.
+
+Se deja escrito como hueco abierto, no como conclusión. **Lo único que queda por
+probar es instrumentar el propio proceso de producción** —marcas de fase dentro
+de `findAll`, temporales y sin datos de pacientes—, porque ya no hay nada más
+que inferir desde fuera. Requiere desplegar código instrumentado y por eso no se
+hizo en esta ronda.
+
+Mientras ese hueco no se cierre, **no se puede proponer una optimización del
+inbox**: no se sabe qué se estaría optimizando.
+
+### Estado de los candidatos
+
+| Candidato | Estado |
+| --- | --- |
+| Preflight al abrir conversación | **pendiente** — necesita la cuenta de prueba (R3.4) |
+| Inbox: round trips de Prisma | **bloqueado** — el hueco de ~60 ms no está explicado |
+| Inbox: `take: 1` sin `LIMIT` | **defecto confirmado**, bajo impacto hoy, crece con la tabla |
+| Plantillas de Meta | refutado: ya cacheado |
+| Marcar leído | refutado: ya desacoplado |
+| Login | descartado por frecuencia |
