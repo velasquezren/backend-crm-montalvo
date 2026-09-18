@@ -1,5 +1,47 @@
 # Estado actual
 
+## 18 de septiembre de 2026 · cierre de R2.2 publicado + CAMP-0 diagnóstico
+
+Esta sección reemplaza el estado de la entrega que figura inmediatamente debajo.
+Referencias remotas consultadas con `git fetch` en ambos repositorios.
+
+| Repositorio | Estado comprobado |
+| --- | --- |
+| Backend | `main` = `origin/main` = `1692069` |
+| Frontend | `main` = `origin/main` = `9e53164` |
+| R2.2 | Publicada en `origin/main`; Vercel queda encargado del despliegue automático |
+| CAMP-0 | Diagnóstico terminado en [`docs/CAMP-0-campanas-meta-roi.md`](CAMP-0-campanas-meta-roi.md) |
+| Producción | No verificada desde esta revisión; no deducir el despliegue desde Git |
+
+El bloqueo de pruebas **ya está resuelto** en `abbfe59`. El runner de Angular
+compartía el registro de módulos entre specs (`isolate: false`), permitiendo que
+RealtimeService conservara el socket real cuando otro spec lo importaba antes
+del mock. `vitest-base.config.ts` habilita `isolate: true`. El commit documenta
+12 campañas consecutivas con 340/340 pruebas aprobadas. No queda pendiente
+reinvestigar los specs de adjuntos ni volver a integrar la rama.
+
+La entrega incluye el reintento del adjunto conservando su `mediaKey` y su
+`clientMessageId` (`ab81d8f`), el aviso de subida en curso (`5708fc0`) y el
+aislamiento del arnés (`abbfe59`). El backend incorpora además `1692069`:
+rechaza con 409 una clave de idempotencia perteneciente a otra conversación,
+sin devolver su mensaje ni despachar otro envío.
+
+### Validación de este cierre
+
+- `npm run build`: exit 0; `check:tipos` y `check:skills` correctos.
+  Bundle inicial: 408,08 kB / transferencia estimada 107,68 kB.
+- `npm test -- --watch=false`: 32 suites y 340 aserciones de prueba aprobadas,
+  pero **exit 1** por los dos rechazos no manejados NG04002 de
+  `bucle-401.spec.ts` ya documentados debajo. No equivale a una suite limpia.
+  No reapareció el fallo de Realtime en esta corrida.
+- Permanece el aviso NG8113 por `DrawerComponent` sin usar en Actividades.
+- Evidencia local: `/tmp/crm-r22-cierre-tests.log` y
+  `/tmp/crm-r22-cierre-build.log`; son archivos temporales, no versionados.
+- Esta revisión solo actualiza esta nota. No publica commits ni despliega.
+
+**Siguiente paso operativo:** revisar el informe CAMP-0 antes de decidir si se
+construye el módulo. R3 no se ha iniciado.
+
 ## 17 de septiembre de 2026 · R2.1 real, PWA rollout y R2.2 — BACKEND DESPLEGADO, FRONTEND DETENIDO
 
 Día largo. Lo que importa para retomar está en las dos primeras tablas; el resto
