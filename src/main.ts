@@ -9,6 +9,7 @@ import helmet from 'helmet';
 import { AppModule } from './app.module';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 import { asignarRequestId } from './common/logging/request-id.middleware';
+import { marcaR3 } from './common/logging/perfil-r3';
 
 async function bootstrap(): Promise<void> {
   /**
@@ -50,6 +51,13 @@ async function bootstrap(): Promise<void> {
      una petición rechazada por CORS o por el rate-limit tenga su id en la
      respuesta. */
   app.use(asignarRequestId);
+
+  /* R3 TEMPORAL — primera marca del perfilado del inbox. Inerte sin
+     R3_PROFILE_INBOX=1, y solo mira GET /conversaciones. Se quita al medir. */
+  app.use((req: Request, _res: Response, siguiente: NextFunction) => {
+    marcaR3(req, 'recibido');
+    siguiente();
+  });
 
   /**
    * CORS restringido al origen del frontend.

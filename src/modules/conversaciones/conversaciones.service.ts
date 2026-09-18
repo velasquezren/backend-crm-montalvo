@@ -4,6 +4,9 @@ import { LineasWhatsappService } from '../lineas-whatsapp/lineas-whatsapp.servic
 import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Prisma, Rol, TipoMensaje } from '../../prisma/prisma-client';
 
+import type { Request } from 'express';
+/* R3 TEMPORAL — perfilado del inbox; ver common/logging/perfil-r3.ts. */
+import { marcaR3 } from '../../common/logging/perfil-r3';
 import { CacheMemoria } from '../../common/cache/cache-memoria';
 import { escaparComodinesLike, terminoBusqueda } from '../../common/dto/busqueda';
 import { calcularPaginacion, paginar, RespuestaPaginada } from '../../common/dto/pagination.dto';
@@ -383,7 +386,9 @@ export class ConversacionesService {
     soloAgenteId: string | undefined,
     usuarioId: string,
     query: QueryConversacionesDto = {},
+    peticion?: Request, /* R3 TEMPORAL */
   ): Promise<RespuestaPaginada<ConversacionDeInbox> & { contadores: ContadoresInbox }> {
+    marcaR3(peticion, 'service_in'); /* R3 TEMPORAL */
     /* El permiso va primero y siempre; lo demás son preferencias de vista que
        se le suman con AND. Fundirlos es cómo un interruptor de la interfaz
        termina redefiniendo quién ve los datos de qué paciente. */
@@ -398,6 +403,7 @@ export class ConversacionesService {
 
     const dto = { pagina: query.pagina, limite: query.limite ?? POR_PAGINA_INBOX };
     const { skip, take } = calcularPaginacion(dto);
+    marcaR3(peticion, 'filtros'); /* R3 TEMPORAL */
 
     /* Página y total en un solo viaje, como manda `crm-backend-module`. */
     const [conversaciones, total] = await this.prisma.$transaction([
@@ -410,11 +416,16 @@ export class ConversacionesService {
       }),
       this.prisma.conversacion.count({ where }),
     ]);
+    marcaR3(peticion, 'query_pagina'); /* R3 TEMPORAL */
 
-    return {
-      ...paginar(conversaciones.map(aFilaDeInbox), total, dto),
-      contadores: await this.contadoresInbox(soloAgenteId, usuarioId, query.soloMios, query.lineaId),
-    };
+    /* R3 TEMPORAL: se conserva el ORDEN y la SERIALIZACIÓN original — el
+       `await` de los contadores ya existía después del $transaction. */
+    const filas = paginar(conversaciones.map(aFilaDeInbox), total, dto);
+    marcaR3(peticion, 'transformacion'); /* R3 TEMPORAL */
+    const contadores = await this.contadoresInbox(soloAgenteId, usuarioId, query.soloMios, query.lineaId);
+    marcaR3(peticion, 'contadores'); /* R3 TEMPORAL */
+
+    return { ...filas, contadores };
   }
 
   /**

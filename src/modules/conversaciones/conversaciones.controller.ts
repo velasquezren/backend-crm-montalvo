@@ -1,4 +1,7 @@
-import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query, Req } from '@nestjs/common';
+import type { Request } from 'express';
+/* R3 TEMPORAL — perfilado del inbox; ver common/logging/perfil-r3.ts. */
+import { marcaR3 } from '../../common/logging/perfil-r3';
 import { alcanceAgente } from '../../common/auth/roles';
 import { CurrentUser, UsuarioJwt } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -24,8 +27,17 @@ export class ConversacionesController {
    * paciente.
    */
   @Get()
-  findAll(@CurrentUser() usuario: UsuarioJwt, @Query() query: QueryConversacionesDto) {
-    return this.conversacionesService.findAll(alcanceAgente(usuario), usuario.sub, query);
+  async findAll(
+    @CurrentUser() usuario: UsuarioJwt,
+    @Query() query: QueryConversacionesDto,
+    @Req() peticion: Request, /* R3 TEMPORAL */
+  ) {
+    marcaR3(peticion, 'controller_in'); /* R3 TEMPORAL */
+    const resultado = await this.conversacionesService.findAll(
+      alcanceAgente(usuario), usuario.sub, query, peticion,
+    );
+    marcaR3(peticion, 'controller_out'); /* R3 TEMPORAL */
+    return resultado;
   }
 
   /**
