@@ -1,4 +1,4 @@
-# R3 — Rendimiento y latencia · DETENIDO EN DIAGNÓSTICO
+# R3 — Rendimiento y latencia · PASO 2 HECHO, INFRAESTRUCTURA MEDIDA
 
 **Estado: parado a propósito el 18 de septiembre de 2026, antes de implementar nada.**
 No se tocó código de producción, no hay cambios de rendimiento commiteados y no se
@@ -209,3 +209,93 @@ PostgreSQL sin evidencia, ni volver a diferir el calendario de Actividades con
 
 *Informe de una fase detenida. No describe ningún cambio aplicado: describe qué se
 midió, qué se confirmó y qué queda por comprobar.*
+
+---
+
+## Continuación del 18/09/2026 · medido DESDE el servidor
+
+El bloqueo de SSH que paró la fase anterior ya no existe: `1692069` está
+desplegado y esta máquina sí tiene acceso. Lo que sigue se midió desde dentro
+del VPS, que es justo lo que faltaba.
+
+### El servidor está ocioso, y ahora consta
+
+```
+4 vCPU · 7.940 MB RAM · 798 MB usados · 7.143 MB disponibles
+load average  0,00 / 0,02 / 0,00
+Node          1,0 % CPU · 272 MB RSS
+PostgreSQL    3 conexiones · cache hit ratio 99,94 % · shared_buffers 128 MB
+```
+
+Queda cerrada la duda de fondo: **no hay nada que optimizar en el servidor.**
+Cualquier propuesta de clustering, Redis o tuning de PostgreSQL tendría que
+explicar antes qué recurso cree que está saturado, porque ninguno lo está.
+
+### Compresión del API: RESUELTA, no es un problema
+
+La fase anterior no pudo verificarla desde fuera. Desde dentro se ve que Apache
+**no** lista `application/json` en su `AddOutputFilterByType DEFLATE`, lo que
+parece un hallazgo — y no lo es: el backend comprime por su cuenta con
+`compression()` (`src/main.ts:40`), así que la respuesta llega comprimida al
+proxy y Apache solo la pasa. La cabecera `vary: Accept-Encoding` de `/health` lo
+confirma. Añadir json al filtro de Apache no ahorraría nada y arriesgaría doble
+compresión.
+
+### HALLAZGO · `KeepAliveTimeout 5` obliga a rehacer el handshake en cada refresco
+
+Es el hallazgo con más recorrido de toda la fase, y solo se ve midiendo con una
+conexión persistente de verdad (no con `curl` suelto, que abre una por proceso).
+
+Una conexión ociosa al API muere entre los 4 y los 6 segundos:
+
+```
+gap  2 s -> 2ª petición  672 ms   conexión viva
+gap  4 s -> 2ª petición  202 ms   conexión viva
+gap  6 s -> RemoteDisconnected    el servidor la cerró
+gap 10 s -> RemoteDisconnected
+gap 20 s -> RemoteDisconnected
+gap 65 s -> RemoteDisconnected
+```
+
+Coincide exactamente con `KeepAliveTimeout 5` de `/etc/apache2/apache2.conf`.
+
+Lo que eso significa en la clínica: la campana refresca `/actividades/resumen`
+**cada 60 s**, así que la conexión está siempre muerta cuando toca el siguiente
+refresco. **Cada refresco paga el handshake entero**: 610 ms en vez de 204 ms.
+Y lo mismo cualquier interacción que venga después de más de 5 s de pausa, que
+en un CRM son casi todas — leer un mensaje y escribir la respuesta pasa de cinco
+segundos sin esfuerzo.
+
+Comparado con el `preconnect`, que ayuda una vez por arranque en frío, esto
+afecta a **todas** las peticiones que siguen a una pausa, todo el día y por cada
+agente.
+
+**Por qué subirlo es barato aquí**, comprobado y no supuesto:
+
+- El MPM es **event**, que para esto es la diferencia entre caro y gratis: las
+  conexiones ociosas las sostiene un hilo de eventos dedicado y **no ocupan un
+  worker**. Con el MPM prefork la conversación sería otra.
+- Carga real ahora mismo: **1 conexión TLS establecida**, 4 procesos `apache2`,
+  7,1 GB de RAM libres. No hay presión de ningún tipo.
+
+**Propuesta, sin aplicar:** subir `KeepAliveTimeout` a 65 s (justo por encima
+del refresco de 60 s). Se mide con el mismo script de arriba: los gaps de 10, 20
+y 65 s tienen que devolver «conexión viva» y ~204 ms en vez de fallar.
+
+No se toca aquí porque es configuración de infraestructura en producción y la
+decisión es del dueño del producto, no de la medición.
+
+### Pista asociada, sin verificar: `SSLSessionTickets off`
+
+`/etc/apache2/mods-enabled/ssl.conf` tiene los tickets de sesión TLS
+desactivados y solo caché de servidor (`shmcb`, 300 s). Con tickets, un cliente
+que vuelve reanuda la sesión y se ahorra un RTT del handshake. **No se ha
+medido**, y desactivarlos suele ser una decisión deliberada de seguridad
+(forward secrecy), así que aquí solo queda anotado: hace falta medir el
+handshake con y sin reanudación antes de proponer nada.
+
+### Estado del paso 2 del plan
+
+**Hecho.** `preconnect` al origen del API implementado y el muerto de
+`fonts.googleapis.com` retirado, con las dos mediciones en el cuerpo del commit
+(`9ce5b24`, frontend). Sin desplegar.
