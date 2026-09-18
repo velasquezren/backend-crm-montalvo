@@ -1176,3 +1176,211 @@ autoriza a prometer atribución.
 **Lo que NO puede afirmarse hoy:** ni un ROAS completo de todas las campañas, ni
 los ingresos totales generados por Meta. Lo que sí puede analizarse ya es volumen
 atribuido, leads, las ventas con vínculo explícito y su importe registrado.
+
+---
+
+# MEDICIÓN REAL — 18/09/2026
+
+CAMP-6 dejó todos los agregados en **N/D** porque aquella sesión no tenía lectura
+de la base. Esta sí. Todo lo que sigue son consultas `SELECT` contra producción,
+sin nombres, teléfonos ni información clínica.
+
+## COBERTURA REAL
+
+| Entidad | Total | Con `source_id` | % |
+| --- | ---: | ---: | ---: |
+| Conversaciones | 559 | 55 | **9,8 %** |
+| Clientes | 15.839 | 293 | **1,9 %** |
+| Leads | 15.854 | 288 | **1,8 %** |
+| Ventas | 14 | 1 | **7,1 %** |
+
+Los porcentajes de Cliente y Lead engañan: **15.297 de los 15.854 leads son
+`IMPORTACION`**, la carga histórica de FileMaker, que nunca tuvo campaña. Sobre
+lo que de verdad nació en WhatsApp, la captura funciona.
+
+Las conversaciones con `ctwa_clid` no se pueden contar: el clic vive en el
+snapshot del cliente, no en la conversación. Clientes con `clickId`: **116**, y
+los 116 tienen también `anuncioId` — nunca llega uno sin el otro.
+
+**Las tres coberturas, que no hay que mezclar:**
+
+```
+conversación   55 / 559     =  9,8 %
+ventas          1 /  14     =  7,1 %
+ingresos    Bs 400 / 24.262 =  1,6 %   ← la que decide
+```
+
+Ventanas reales de cada dato:
+
+| | desde | hasta | n |
+| --- | --- | --- | ---: |
+| `PrimerContactoWhatsapp` con anuncio | 2026-09-17 | 2026-09-18 | 55 |
+| `Lead.anuncioId` | 2026-08-15 | 2026-09-18 | 288 |
+| `Cliente` con `clickId` | 2026-07-20 | 2026-09-18 | 116 |
+| `Venta` (todas) | 2026-08-25 | 2026-09-17 | 14 |
+
+La cadena durable al mensaje tiene **dos días de historia**. El
+`Cliente.createdAt` del 20/07 no prueba que el clic se capturara ese día: es
+cuándo se creó el paciente, y `datosExtra` se actualiza después.
+
+## ATRIBUCIÓN POR SOURCE_ID
+
+**Cuatro** `source_id` distintos, y el embudo ya dice algo aunque no haya gasto:
+
+| source_id | clientes | leads | ventas | ingresos |
+| --- | ---: | ---: | ---: | ---: |
+| `1202519172…` | 151 | 151 | 1 | Bs 400 |
+| `1202525046…` | 98 | 98 | 0 | 0 |
+| `1202524375…` | 22 | 22 | 0 | 0 |
+| `1202524669…` | 17 | 17 | 0 | 0 |
+
+Esto **ya es información útil**: un anuncio trae 151 conversaciones y una venta;
+otro trae 98 y ninguna. Lo que no permite es decir cuál es rentable, porque
+falta el gasto y porque una sola venta no distingue señal de azar.
+
+## INGRESOS ATRIBUIBLES
+
+**Bs 400 de Bs 24.262 = 1,6 %.**
+
+Y el dato que manda: **`Venta.leadId` está vacío en las 14 ventas.** La única
+atribución posible hoy es indirecta —el cliente tiene huella de campaña en
+`datosExtra`—, que no prueba que esa venta viniera de ese anuncio.
+
+De las 14 ventas: 1 con huella de Meta, 1 con lead de campaña, 5 con PAC.
+
+## VENTA IMPORTADA — impacto real
+
+| | |
+| --- | ---: |
+| Filas | 2.368 |
+| Con PAC | 2.355 |
+| PAC distintos | 548 |
+| Cruzan con `Cliente.pac` | 370 |
+| …y además son de Meta | **0** |
+
+El ingreso real de la clínica está aquí, no en `Venta`. Pero **ninguna** de las
+370 filas cruzables pertenece a un paciente captado por campaña, y tiene
+sentido: los pacientes de Meta son de las últimas semanas y casi ninguno tiene
+PAC todavía. `VentaImportada` **no aporta nada a la atribución hoy**, y no es un
+problema de código sino de calendario.
+
+## FIRST / LAST TOUCH
+
+| Medición | Resultado |
+| --- | ---: |
+| Clientes con más de un `anuncioId` distinto | **0** |
+| Leads por cliente de campaña | **1 para los 288** |
+| Pares Lead↔Cliente comparables | 288 |
+| …coinciden | 286 |
+| …**difieren** | **2** |
+
+El snapshot **sí se sobrescribe**: `ingesta-whatsapp.service.ts` reemplaza
+`campanaOrigen` entero en cada referral (el spread conserva las demás claves de
+`datosExtra`, no esa). Si un paciente entra por A y semanas después por B, el
+cliente queda con B.
+
+Pero **`Lead.anuncioId` no se sobrescribe**: es una fila por lead. Hoy
+first-touch sobrevive ahí, y las **2 divergencias** observadas son justo eso —el
+cliente ya movido a otro anuncio mientras el lead conserva el primero—.
+
+**Conclusión práctica: no hace falta añadir `firstSourceId`/`lastSourceId`
+todavía.** La pareja Lead (primero) + Cliente (último) ya cubre los dos, y hay
+que leerla sabiendo cuál es cuál. Con 0 clientes multi-anuncio, el problema es
+teórico por ahora.
+
+## CALIDAD DEL LEAD
+
+No hay señal intermedia utilizable:
+
+| | |
+| --- | ---: |
+| Leads de campaña | 288 |
+| Con alguna actividad registrada | **0** |
+| En estado distinto de `NUEVO` | **1** (CONVERTIDO) |
+
+287 de 288 siguen en `NUEVO` y ninguno tiene agenda. **Confirmado lo que decía
+CAMP-13**: el embudo útil hoy es `conversación atribuida → cliente → venta`, sin
+peldaño intermedio. Y `conversación → lead` no cuenta como conversión: el lead
+nace solo.
+
+## LÍNEAS COMERCIALES
+
+| activa | comercial | líneas | conversaciones |
+| --- | --- | ---: | ---: |
+| sí | sí | 1 | 559 |
+| no | no | 3 | 0 |
+
+**No hay problema operativo.** La única línea activa está marcada `comercial` y
+concentra las 559 conversaciones; las tres con `comercial=false` están inactivas
+y sin tráfico. El riesgo que anticipaba el informe es real en el diseño, pero
+hoy no se está materializando. **No se cambia nada.**
+
+## DATOS DE META QUE FALTAN
+
+Sin cambios respecto a CAMP-10: sigue sin haber gasto. Lo mínimo para tenerlo:
+
+1. **Ad Account ID** (`act_…`) y el Business/portfolio que lo contiene.
+2. **Token con Marketing API** y alcance sobre esa cuenta concreta — el token
+   comprobado tiene `ads_read` pero enumera **cero** cuentas: no faltan scopes,
+   falta que el token vea el activo.
+3. **Acceso de lectura** a `ad account → campaign → ad set → ad` y a
+   `/{ad-account-id}/insights` para `spend`, `impressions`, `clicks`, `reach`,
+   `actions`.
+4. Nada más. No hace falta CAPI para medir: CAPI sirve para *optimizar*, no para
+   informar.
+
+Sin los puntos 1-3 no hay `campaign name`, ni `adset`, ni `ad`, ni gasto: el
+módulo se queda en `source_id` a secas.
+
+## CAMBIOS MÍNIMOS
+
+Cinco, por orden de impacto. **Ninguno se implementa en esta ronda.**
+
+1. **Enlazar la venta al lead.** `Venta.leadId` está vacío en las 14 ventas
+   existentes, y es el único vínculo fuerte. Sin esto no hay atribución de
+   ingresos, por buena que sea la captura. El campo ya existe: es de interfaz,
+   no de schema.
+2. **Conectar Marketing API en solo lectura** (los tres puntos de arriba).
+   Convierte `source_id` en nombre de campaña y añade el gasto.
+3. **Leer first-touch desde `Lead.anuncioId`, no desde el cliente**, allí donde
+   se construya la atribución. Cuesta cero y evita el sesgo de las 2
+   divergencias ya observadas.
+4. **Exponer la atribución en la ficha de venta** para que la agente pueda
+   corregirla cuando el enlace automático falle.
+5. **Índice sobre `Cliente.datosExtra->campanaOrigen->>anuncioId`** solo si el
+   módulo llega a consultarlo de verdad. Con 293 filas hoy no hace falta.
+
+## DECISIÓN
+
+### OPCIÓN B — PRIMERO ARREGLAR LA CAPTURA
+
+No es A, y el motivo cabe en una línea: **las ventas no están enlazadas**.
+`Venta.leadId` vacío en las 14, ingresos atribuibles Bs 400 de Bs 24.262. Un
+ROAS sobre el 1,6 % de los ingresos no sería conservador, sería falso.
+
+Tampoco es C. La captura **funciona**: 288 leads con anuncio, 4 campañas
+distinguibles, first-touch preservado en `Lead`, líneas bien configuradas y un
+embudo que ya insinúa diferencias entre anuncios. Lo que falta no es
+infraestructura, es el último eslabón y tiempo.
+
+**Qué haría falta para que pase a A**, y conviene decirlo con números para no
+volver a discutirlo de memoria:
+
+- `Venta.leadId` poblado en la mayoría de las ventas nuevas.
+- **Cobertura de ingresos ≥ 60 %** antes de mostrar CAC o ROAS. Por debajo de
+  eso, publicar la métrica es peor que no tenerla: invita a decidir presupuesto
+  sobre una fracción.
+- **Al menos 30 ventas atribuidas** repartidas en los anuncios activos. Con 1
+  no se distingue un buen anuncio de la suerte.
+
+Mientras tanto, lo que **sí** se puede construir sin esperar a Meta es una vista
+de **rendimiento comercial por origen** —conversaciones, clientes, ventas,
+ingresos, conversión y ticket por `source_id`—, dejando claro en la propia
+pantalla que no es ROAS y que la cobertura es del 1,6 %. Con 4 orígenes y 288
+leads, hoy eso es una tabla de cuatro filas: **cabe en el dashboard existente y
+no justifica un módulo.**
+
+**Recomendación: no construir el módulo todavía.** Hacer el cambio 1 (enlazar
+venta↔lead), gestionar el acceso de Marketing API en paralelo, y volver a medir
+esta misma tabla dentro de 4-6 semanas. Si la cobertura de ingresos sube, el
+módulo se justifica solo; si no sube, la respuesta ya estará dada.
