@@ -1,5 +1,68 @@
 # Estado actual
 
+## 18 de septiembre de 2026 (mañana) · huecos cerrados — TODO DESPLEGADO
+
+Cierra los dos pendientes que dejó la sesión anterior. **Ya no queda nada a
+medias entre repositorio y producción.**
+
+| | Backend | Frontend |
+| --- | --- | --- |
+| `main` = `origin/main` | **`af13075`** | **`7aac8af`** |
+| Desplegado en producción | **`af13075`** (18/09 09:27 EDT) | **`7aac8af`** (Vercel, 13:28 UTC) |
+
+### 1. `1692069` desplegado
+
+Era el hueco real: el aislamiento de `clientMessageId` entre conversaciones
+estaba en `origin/main` desde la noche anterior y **no en el servidor**. La
+sesión previa no pudo desplegarlo porque esa máquina no tiene clave autorizada
+en el VPS; desde esta sí.
+
+Reinicio controlado de ~4 s (arranque 09:27:51, Nest listo 09:27:55).
+
+```
+HEAD af13075 · servicio active · NRestarts 0 · 24 módulos · health 200 en 0,30 s
+smoke: login vacío 400 · periodos 401 · conversaciones 401 · memoria-agente 401
+       WebSocket HTTP/1.1 101 · CORS preflight 204 con allow-origin correcto
+logs:  0 ERROR · 0 P2002 · 0 «reutilizado entre conversaciones» · 0 × 500
+       único 503: la ventana del reinicio, reconectó solo
+```
+
+Validado antes de subir: 494/494 integraciones (29 suites), 559/559 unitarias
+(39 suites), build con `check:skills` y `check:build`.
+
+### 2. `npm test` del frontend ya sale con 0
+
+Estaba documentado como deuda y hacía que la suite nunca terminara limpia:
+decía «340 passed» y devolvía **exit 1** por dos rechazos no manejados NG04002.
+El interceptor navega a `/auth/login` al desloguear y `bucle-401.spec.ts` se
+montaba con `provideRouter([])`, así que esa navegación rechazaba fuera del
+ciclo del test. Los casos pasaban —el rechazo llega después— pero Vitest lo
+contaba como error del run.
+
+Arreglado en **`7aac8af`** declarando la ruta, sin componente: lo que la prueba
+comprueba es que se navega, no qué se pinta. **8 campañas consecutivas: exit 0,
+32 suites, 340/340, cero errores no manejados.**
+
+Con esto desaparece de la lista de deuda de test la entrada de los dos
+NG04002; las otras dos (base de integración a recrear tras una tanda abortada,
+y no vaciar tablas compartidas en los specs) siguen vigentes.
+
+### Verificado de forma independiente
+
+- Vercel sirve `sha:"7aac8af"` y el chunk de Conversaciones contiene
+  «Subiendo archivo…»: **R2.2 está vivo en producción**, no solo publicado.
+- El artefacto del servidor contiene el 409 y el aviso del journal del fix de
+  aislamiento, comprobado en `dist/` antes de reiniciar.
+
+### Qué sigue abierto
+
+Nada operativo. Dos decisiones de producto, ninguna empezada:
+
+1. **CAMP-0** — diagnóstico terminado en `docs/CAMP-0-campanas-meta-roi.md`.
+   Falta decidir si se construye el módulo.
+2. **R3** — detenido en diagnóstico a propósito
+   (`docs/rendimiento-r3-2026-09.md`). Sin implementar nada.
+
 ## 18 de septiembre de 2026 · cierre de R2.2 publicado + CAMP-0 diagnóstico
 
 Esta sección reemplaza el estado de la entrega que figura inmediatamente debajo.
