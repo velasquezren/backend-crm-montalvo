@@ -395,7 +395,27 @@ hacen falta: el índice único ya sabe la respuesta.
 Entró exactamente así el 2026-09-05 con `Cliente.pac`, en el mismo archivo que
 200 líneas más abajo documenta por qué ese patrón no sirve. Que la lección esté
 escrita al lado no basta: **si el campo tiene índice único, la validación es el
-catch del P2002**, y el `meta.target` del error dice qué columna chocó.
+catch del P2002**.
+
+**Pero ojo con cómo se averigua QUÉ columna chocó.** Lo natural es mirar
+`error.meta.target`, y con el driver adapter que usa este proyecto **ese campo
+no existe**: el nombre del índice viaja en
+`error.meta.driverAdapterError.cause.constraint.index`. Mirar solo `target`
+devuelve `undefined`, el código no reconoce el choque y el P2002 sube como 500.
+
+No es teórico: así estuvo rota la idempotencia de R2.1 desde que se desplegó
+hasta el 2026-09-18. `recuperarEnvioDuplicado` no reconocía el rebote de
+`clientMessageId`, así que el reintento —lo único que R2.1 existía para hacer
+seguro— devolvía un 500 sobre un mensaje que **sí** se había enviado. No lo vio
+nadie porque la prueba de R2.1 ejercitaba el índice contra Prisma directamente y
+nunca pasaba por ese método.
+
+Hay que mirar **las dos formas**. `conversaciones.service.ts` tiene el helper
+`choqueDe()` resolviéndolo; `transaccion-periodo.ts` ya lo hacía desde antes.
+
+Y la lección de fondo, que vale para cualquier módulo: **probar que el índice
+único rebota NO es probar lo que tu código hace con el rebote.** Eso se prueba
+llamando al service.
 
 ```ts
 try {

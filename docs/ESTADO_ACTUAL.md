@@ -1,5 +1,45 @@
 # Estado actual
 
+## 18 de septiembre de 2026 (cierre) · CONSOLIDACIÓN TÉCNICA CERRADA
+
+**Empieza por aquí:** [`docs/CIERRE-TECNICO-2026-09.md`](CIERRE-TECNICO-2026-09.md).
+Resume arquitectura, producción, R2.2, rendimiento, tests, deuda real (5 puntos)
+y escalabilidad. Todo lo que hay debajo de esta sección es historia.
+
+| | Backend | Frontend |
+| --- | --- | --- |
+| `main` = `origin/main` | `ee57d3a` + esta consolidación | `9ce5b24` + esta consolidación |
+| Desplegado en producción | `ee57d3a` | `9ce5b24` (Vercel) |
+| Servidor | **Debian 12 · 4 vCPU · 7,8 GB · `107.175.132.15`** | Vercel |
+
+Migraciones: todas aplicadas; la última es
+`20260917200000_mensaje_client_message_id` (el índice único de R2.1). **No hay
+migraciones pendientes de desplegar.**
+
+**R2.2 cerrado y en producción**: `clientMessageId` con índice único,
+idempotencia real, aislamiento entre conversaciones, reintento seguro con y sin
+adjunto, media histórica protegida con 409.
+
+**R3 cerrado** con dos mejoras vivas —`preconnect` al API (−306 ms en arranque
+frío) y `KeepAliveTimeout 75` en el vhost (610 → ~200 ms tras una pausa)— y el
+resto descartado con medición: ni CPU, ni memoria, ni PostgreSQL, ni event loop,
+ni pool son cuello.
+
+**Agenda A1-A5** sigue como estaba; no se tocó en esta ronda. **CAMP-0** queda
+como investigación en `docs/CAMP-0-campanas-meta-roi.md`, sin implementar.
+
+Documentación corregida en esta consolidación, porque contradecía producción:
+el skill de infraestructura describía el VPS viejo de 1 núcleo en
+`107.172.193.34`; `crm-backend-module` afirmaba que `meta.target` dice qué
+columna chocó —falso con el driver adapter, y es lo que tuvo rota la
+idempotencia—; `crm-conversaciones` documentaba el rollback de envío anterior a
+R2; y `META_INTEGRATION_GUIDE.md` listaba cinco variables de entorno que no
+existen en el código.
+
+**Rama huérfana, sin tocar:** `origin/wip/2026-08-24-unidad-negocio-ventana24h`
+(2 commits del 24/08, tipo stash, sobre Planilla y el compositor). No está
+integrada y **no se borró**. Decidir si se recupera o se descarta.
+
 ## 18 de septiembre de 2026 (mañana) · huecos cerrados — TODO DESPLEGADO
 
 Cierra los dos pendientes que dejó la sesión anterior. **Ya no queda nada a
