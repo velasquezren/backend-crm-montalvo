@@ -225,6 +225,33 @@ describe('VentasService contra Postgres real', () => {
       );
     });
 
+    it('la venta queda trazable hasta el anuncio SIN mirar datosExtra', async () => {
+      /* Es la métrica de CAMP-1: poder ir `Venta → Lead → anuncioId` con un
+         JOIN, en vez de reconstruir la atribución desde el snapshot JSON del
+         cliente, que guarda el ÚLTIMO referral y se sobrescribe. Medido el
+         2026-09-18: las 14 ventas de producción tenían `leadId` en NULL, así
+         que esta consulta no devolvía nada. */
+      const leadDeCampana = await prisma.lead.create({
+        data: { clienteId, origen: 'INSTAGRAM_MENSAJE', estado: 'NUEVO', anuncioId: '120212345678' },
+      });
+
+      const venta = await service.create({ ...ventaBase(), leadId: leadDeCampana.id }, agenteId);
+
+      const trazada = await prisma.venta.findUniqueOrThrow({
+        where: { id: venta.id },
+        select: { monto: true, lead: { select: { anuncioId: true } } },
+      });
+      expect(trazada.lead?.anuncioId).toBe('120212345678');
+      expect(Number(trazada.monto)).toBeGreaterThan(0);
+    });
+
+    it('sin lead, la venta se guarda igual y queda en NULL', async () => {
+      /* NULL honesto es mejor que una atribución inventada: un cliente sin
+         lead no tiene origen publicitario que declarar. */
+      const venta = await service.create(ventaBase(), agenteId);
+      expect(venta.leadId).toBeNull();
+    });
+
     it('rechaza un leadId que pertenece a otro cliente', async () => {
       const otroCliente = await prisma.cliente.create({
         data: { nombre: 'Otra paciente', telefono: '+59170099999' },
