@@ -11,7 +11,29 @@ Referencias remotas consultadas con `git fetch` en ambos repositorios.
 | Frontend | `main` = `origin/main` = `9e53164` |
 | R2.2 | Publicada en `origin/main`; Vercel queda encargado del despliegue automático |
 | CAMP-0 | Diagnóstico terminado en [`docs/CAMP-0-campanas-meta-roi.md`](CAMP-0-campanas-meta-roi.md) |
-| Producción | No verificada desde esta revisión; no deducir el despliegue desde Git |
+| R3 | **Detenido en diagnóstico**, sin implementar nada: [`docs/rendimiento-r3-2026-09.md`](rendimiento-r3-2026-09.md) |
+
+**Producción, comprobada por HTTP el 18/09/2026 04:36 UTC** (no por SSH: el VPS
+nuevo solo acepta clave pública y esta máquina no está autorizada).
+
+| | Comprobación | Resultado |
+| --- | --- | --- |
+| Frontend | sello de build servido por Vercel | **`9e53164`**, compilado 2026-09-18T01:52:33Z — R2.2 **está en producción** |
+| Backend | `/health` | 200, `baseDatos: ok`, uptime 7 h 44 min |
+| Backend | login vacío → 400 · periodos sin token → 401 | ValidationPipe y guard vivos |
+
+**El backend NO se ha redesplegado:** ese uptime sitúa el arranque en el mismo
+despliegue de `5e8bbf0` del 17/09 a las 16:52 EDT. Por tanto **`1692069` sigue sin
+desplegar** — el aislamiento de `clientMessageId` entre conversaciones está en
+`origin/main` y no en el servidor.
+
+El orden obligatorio (backend → frontend) se rompió en esta entrega: el frontend
+salió primero. **No causa daño aquí** y conviene dejar escrito por qué, para que
+nadie lo tome como precedente: lo que R2.2 del frontend necesita del backend es
+`clientMessageId` y la traducción del choque del índice único, y las dos cosas ya
+estaban desplegadas en `5e8bbf0`. Lo único que falta en producción, `1692069`, es
+endurecimiento para un caso que el frontend no produce (reutilizar la misma clave
+en otra conversación). Sigue pendiente desplegarlo.
 
 El bloqueo de pruebas **ya está resuelto** en `abbfe59`. El runner de Angular
 compartía el registro de módulos entre specs (`isolate: false`), permitiendo que
