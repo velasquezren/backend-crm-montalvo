@@ -5,18 +5,23 @@ schema, campañas, presupuesto ni suscripciones, y no envía eventos a Meta.
 
 Fecha de revisión: 17–18 de septiembre de 2026.
 
+**Continuación CAMP-1–15:** 17/09/2026 por la noche, America/La_Paz
+(18/09 UTC), sobre backend `39fd18b`. Se conserva y precisa la primera entrega.
+La continuación y la **CONCLUSIÓN EJECUTIVA** al final contienen la evidencia
+vigente. No se consultó el VPS; R3 permanece pausado. No se hizo push.
+
 ## Resultado ejecutivo
 
-La atribución de Click-to-WhatsApp ya está implementada en el backend. El
+La captura parcial del origen Click-to-WhatsApp está implementada en el backend. El
 webhook modela `referral`, extrae `source_id` y `ctwa_clid`, y la ingesta guarda
 el anuncio en tres lugares relacionados: `Lead.anuncioId`,
 `PrimerContactoWhatsapp.anuncioId` y `Cliente.datosExtra.campanaOrigen`.
 
-La unión anuncio → conversación → cliente es demostrable cuando el mensaje
-entrante trae `referral.source_id`. La unión cliente → venta es demostrable
-solo si la venta tiene `Venta.leadId`; el vínculo es opcional y las ventas
-históricas o presenciales pueden no tenerlo. Por eso todavía no se puede afirmar
-un ROAS por campaña para todas las ventas.
+La cadena mensaje → conversación → primer contacto → lead puede demostrarse
+cuando existe la reserva durable enlazada. Cliente → venta siempre tiene FK
+por `Venta.clienteId`; `Venta.leadId` agrega el vínculo opcional a una oportunidad
+concreta. Un ID de origen no demuestra por sí solo que sea un anuncio ni que
+haya causado una venta. No hay todavía ROAS medido.
 
 El MCP de Meta permitió inspeccionar la app y sus webhooks, pero en esta sesión
 no proporcionó una operación de Marketing API/Graph para listar ad accounts,
@@ -30,7 +35,10 @@ suscripción real incluye `whatsapp_business_account.messages` y una suscripció
 La documentación oficial consultada por el MCP confirma que Insights expone la
 capa publicitaria y que Conversions API para Business Messaging usa
 `ctwa_clid`, `waba_id` y `dataset_id`. Eso demuestra que el ciclo es posible,
-pero no que las credenciales actuales tengan acceso a esos activos.
+pero no que las credenciales actuales tengan acceso a esos activos. La
+continuación comprobó por Graph un token válido con `ads_read` y
+`whatsapp_business_manage_events`, pero cero cuentas/portfolios enumerados.
+No faltan necesariamente scopes: falta demostrar acceso a la cuenta concreta.
 
 ## Campañas reales encontradas
 
@@ -109,9 +117,9 @@ separado de Lead Ads, que resuelve `leadgen_id` contra Graph y recibe `ad_id`.
 - `Mensaje`: conserva el mensaje entrante, su conversación, timestamp e ID de
   WhatsApp, pero no una columna referral propia.
 
-`ctwa_clid` sí se guarda en `datosExtra.campanaOrigen.clickId`. Es el dato clave
-para una futura Conversions API; solo llega en el webhook y no puede reconstruirse
-de forma fiable después.
+`ctwa_clid` puede guardarse en `datosExtra.campanaOrigen.clickId`, en líneas
+comerciales y bajo la condición descrita en CAMP-4. Es una foto sobrescribible,
+no una relación durable con el lead o la venta.
 
 ### No hay evidencia de persistencia histórica separada
 
@@ -143,10 +151,10 @@ modelo multi-touch.
 
 Hay cuatro casos:
 
-**A — referral persistido.** Para mensajes recibidos desde la versión que ya
-guarda `anuncioId` y `clickId`, se puede reconstruir el vínculo a cliente,
-conversación y primer contacto. Es el caso actual para los registros que tienen
-esos campos.
+**A — referral persistido parcialmente.** `anuncioId` en primer contacto enlazado
+permite recorrer su mensaje/conversación/lead. El JSON del cliente, por sí solo,
+no demuestra qué mensaje ni qué lead correspondían al clic. No se midió cuántos
+registros de producción cumplen cada condición.
 
 **B — referral solo en logs/webhooks históricos.** No se encontró un archivo
 durable de payloads ni una tabla de raw webhooks. Solo sería recuperable desde
@@ -189,8 +197,8 @@ campaña sin una regla adicional y explícita.
 ## Qué significa “venta” e ingreso real
 
 La entidad operativa `Venta` representa una venta manual con monto en Bs,
-producto, cliente, agente y estado `GANADA` o `PERDIDA`; el estado puede cambiar
-y `comentario`/campos de comprobante aportan contexto. El importe atribuible
+producto, cliente, agente y estado `GANADA`, `EN_PROCESO` o `PERDIDA`; el estado puede cambiar
+y `notas`, `motivoPerdida` y campos de comprobante aportan contexto. El importe atribuible
 debe sumar solo ventas `GANADA`, con una política explícita para anulaciones y
 reversiones. No hay una columna de devolución separada en `Venta`.
 
@@ -218,8 +226,9 @@ lead→venta. También se puede medir primera respuesta y tiempo lead→venta co
 `Mensaje.createdAt`, `PrimerContactoWhatsapp.createdAt`, `Lead.createdAt` y
 `Venta.createdAt`.
 
-CAC, costo por lead, costo por conversación, ticket promedio y ROAS requieren
-combinar gasto Meta con la misma cohorte y una definición de venta/ingreso.
+Los costos de adquisición/contacto y ROAS requieren gasto Meta. El ticket
+promedio de ventas GANADA puede calcularse sin gasto. Las duraciones actuales
+miden registro en CRM; no necesariamente clic, cierre comercial ni cobro.
 
 ## Métricas que requieren cambios o decisiones
 
@@ -267,7 +276,8 @@ La app actual no expone privilegios de revisión y el MCP no confirmó dataset,
 ad account, permisos Marketing API ni `dataset_id`. Por tanto la posibilidad es
 **técnicamente viable, operativamente no verificada**. No se envió ningún evento.
 
-Eventos mínimos futuros:
+Hipótesis inicial de eventos, **no un contrato validado ni autorización de envío
+sanitario**; CAMP-14–15 distingue CTWA de formularios y revisa esta propuesta:
 
 - `Lead`: `ctwa_clid`, WABA, timestamp y un identificador interno no reversible;
 - `QualifiedLead`: los mismos identificadores y timestamp;
@@ -316,8 +326,9 @@ automáticamente.
 - Una venta puede ocurrir meses después o por una influencia presencial.
 - `VentaImportada` no contiene vínculo de marketing.
 - La ausencia de `leadId` no demuestra que no hubo influencia de campaña.
-- `source_id` identifica el anuncio, no por sí solo la campaña; hace falta
-  resolver la jerarquía en Meta y conservar snapshots.
+- `source_id` debe interpretarse con su tipo. El CRM pierde `source_type`; hace
+  falta verificar la entidad y resolver la jerarquía en Meta antes de llamarlo
+  anuncio/campaña confirmado.
 - Cambios de nombre/estado en Meta requieren IDs y fechas, no nombres actuales.
 - Un ROAS con ingreso bruto y otro con ingreso neto pueden contar historias
   opuestas.
@@ -354,3 +365,650 @@ Conversions API. Esta fase no se inició.
   datos de pacientes.
 - No se cambió código ni schema, no se modificaron campañas y no se enviaron
   eventos.
+
+## Continuación CAMP-1–15: evidencia y límites de la medición
+
+Esta continuación distingue **capacidad del código**, **presencia real en datos**
+y **atribución comercial**. Una FK prueba una relación registrada; no prueba
+incrementalidad ni que la publicidad causara la compra.
+
+Evidencia nueva, sin repetir las consultas MCP de la primera entrega:
+
+- Backend revisado: `39fd18b`; cambios actuales limitados a este informe.
+- Base configurada: PostgreSQL local `localhost:5432/crm`. Se intentó conectar
+  con `default_transaction_read_only=on`: **ECONNREFUSED**.
+- No hay listeners locales de PostgreSQL en 5432/5433 ni socket visible en
+  `/var/run/postgresql`. No se halló copia SQL/dump ni payload histórico JSON
+  con los patrones buscados en los repositorios. Esto no prueba que no exista
+  un respaldo fuera de este espacio de trabajo.
+- No se inició servidor, restauración ni seed. No se usaron fixtures como datos
+  de negocio. No se accedió por SSH al VPS.
+- Graph API sí respondió consultas GET con una credencial local de la app.
+  Se describen sus resultados en CAMP-10, sin publicar ningún token.
+- Consultas reproducibles preparadas en
+  [SQL temporal de investigación](/tmp/camp-atribucion-solo-lectura.sql):
+  transacción `REPEATABLE READ READ ONLY`, límites de tiempo, solo agregados y
+  `ROLLBACK`. **No ejecutadas contra datos: la base no está disponible.**
+  El archivo está fuera de Git y no se debe commitear.
+
+### CAMP-1 — Mapa exacto, cardinalidad y pérdidas posibles
+
+Referencias:
+[schema Prisma](../prisma/schema.prisma),
+[ingesta](../src/modules/conversaciones/ingesta-whatsapp.service.ts),
+[primer contacto](../src/modules/leads/primer-contacto.service.ts) y
+[ventas](../src/modules/ventas/ventas.service.ts).
+
+```text
+referral.source_id                     referral.ctwa_clid
+        │                                      │
+        ├── PrimerContactoWhatsapp.anuncioId    └── Cliente.datosExtra
+        │       │                                  .campanaOrigen.clickId
+        │       ├── mensajeId → Mensaje              (foto actual, reemplazable)
+        │       ├── conversacionId → Conversacion → Cliente
+        │       └── leadId → Lead.anuncioId
+        │                       │
+        └── JSON del Cliente    └── Venta.leadId → Venta.monto/estado
+                                                    │
+                                                Venta.clienteId → Cliente
+```
+
+| Salto real | Modelo/campo y FK | Cardinalidad y nulabilidad | Cómo se pierde o limita |
+| --- | --- | --- | --- |
+| Referral → origen | `source_id` → `ReferenciaCampana.anuncioId` → `PrimerContactoWhatsapp.anuncioId` / `Lead.anuncioId` | Strings opcionales; sin FK a Meta; un origen puede aparecer en muchos leads | Falta referral; ID sin tipo; línea no comercial; primer mensaje sin anuncio; no existe catálogo Meta |
+| Mensaje → conversación | `Mensaje.conversacionId → Conversacion.id` | N:1; obligatorio | Al borrar conversación se borran mensajes por CASCADE |
+| Conversación → cliente | `Conversacion.clienteId → Cliente.id` | N:1 obligatorio; UNIQUE `(clienteId,lineaId)` | Un hilo se reutiliza durante meses; no representa una sesión ni una visita |
+| Mensaje → primer contacto | `PrimerContactoWhatsapp.mensajeId → Mensaje.id` | UNIQUE nullable; un mensaje tiene 0..1 primer contacto; reserva inicialmente sin mensaje | Solo se fija el primer mensaje confirmado; borrar ese mensaje borra la reserva por CASCADE |
+| Conversación → primer contacto | `PrimerContactoWhatsapp.conversacionId → Conversacion.id` | PK y FK no nullable; conversación tiene 0..1 reserva | Solo al crear una conversación comercial en esta versión; migración sin backfill; borrar conversación borra reserva |
+| Primer contacto → lead | `PrimerContactoWhatsapp.leadId → Lead.id` | UNIQUE nullable: 0..1 hasta que el worker confirme el alta; cada lead tiene 0..1 reserva | Alta pendiente/reintentando; borrar lead borra reserva por CASCADE |
+| Lead → cliente | `Lead.clienteId → Cliente.id` | N:1 obligatorio; un cliente puede tener muchos leads | Borrado de cliente propaga CASCADE si otras FKs no lo impiden |
+| Venta → lead | `Venta.leadId → Lead.id` | N:0..1, nullable; un lead puede originar varias ventas | Opcional al registrar; borrar lead hace SET NULL; no impone selección correcta por negocio |
+| Venta → cliente | `Venta.clienteId → Cliente.id` | N:1 obligatorio; eliminación de cliente RESTRICT | Siempre identifica cliente, no anuncio; backend valida que el lead elegido pertenezca al mismo cliente |
+| Cliente → clic actual | `Cliente.datosExtra.campanaOrigen.clickId` | JSON nullable; un snapshot por cliente, sin FK a lead/mensaje/venta | Nuevo referral reemplaza la foto; no permite recuperar todos los clics |
+| Seguimiento → lead/cliente | `Actividad.leadId → Lead.id`, `Actividad.clienteId → Cliente.id` | Lead opcional N:0..1 (SET NULL); cliente obligatorio N:1 (CASCADE) | Actividad sin lead solo demuestra seguimiento de la persona |
+
+No existe una FK directa `Mensaje.leadId`, `Conversacion.leadId` ni
+`Venta.conversacionId`. Para una reserva completa sí existe el recorrido
+determinista **Venta → Lead → PrimerContactoWhatsapp → Conversacion/Mensaje**.
+Para leads históricos sin reserva, compartir cliente no selecciona una
+conversación inequívoca. Las FKs individuales no comprueban todos los cruces
+entre clientes: la revisión de agregados también debe detectar incoherencias.
+
+El cliente se crea/reutiliza **antes** de crear el lead. En este sistema
+`Cliente` incluye prospectos: tener esa fila no significa ser paciente pagador.
+El funnel solicitado no puede interpretarse como cuatro altas sucesivas.
+
+### CAMP-2 — Ventas atribuibles hoy: clasificación operativa
+
+Aplicar A/B/C por separado a cada estado de `Venta`; para ingresos, solo GANADA.
+Las categorías de la consulta son excluyentes (A tiene precedencia sobre B).
+
+| Categoría | Regla verificable | Qué se puede afirmar |
+| --- | --- | --- |
+| A — vínculo directo estructural | `Venta.leadId = Lead.id`, mismo `clienteId`, `Lead.anuncioId` no vacío | La agente registró esta venta para este lead y su ID de origen |
+| A CTWA trazable | Además existe `PrimerContactoWhatsapp.leadId`, mismo `anuncioId`, `mensajeId` y conversación coherentes | Se conserva también el enlace al mensaje del primer contacto |
+| A formulario | `Lead.metaLeadId` y `Lead.anuncioId`, con vínculo de venta | Identidad de formulario Meta + anuncio, sin suponer conversación WhatsApp |
+| B — parcial | No cumple A; cliente con snapshot de referral o algún lead de origen publicitario | Hay evidencia de contacto/origen, pero no de qué oportunidad produjo la venta |
+| C — sin evidencia suficiente | No cumple A ni B | No asignar a anuncio; no significa necesariamente “orgánico” |
+
+A es una atribución explícita registrada, **no un anuncio Meta verificado ni
+causalidad demostrada**: el tipo de origen no se conserva. La verificación del
+ad ID con Meta debe quedar como dimensión adicional, sin eliminar la evidencia
+estructural. Una venta vinculada a un lead sin anuncio no pasa a A porque otro
+lead del mismo cliente sí lo tenga.
+
+**Conteos A/B/C y porcentaje actual: no medidos**, por base no disponible.
+No extrapolar con las cifras históricas de las auditorías.
+
+Porcentaje defendible para una futura ejecución:
+
+```text
+cobertura estructural de ventas CRM =
+100 × ventas GANADA de categoría A / total Venta GANADA
+```
+
+Se informa también la cobertura por importe y el subconjunto con cadena CTWA
+completa. Denominador cero → N/D. No llamarlo porcentaje de todas las ventas de
+la clínica: `VentaImportada` es otra fuente y no hay deduplicación entre ambas.
+
+### CAMP-3 — Qué queda cuando llega por A, después B y compra
+
+[`PrimerContactoService.preparar`](../src/modules/leads/primer-contacto.service.ts)
+solo actualiza reservas con `mensajeId = null`. El worker copia `anuncioId` al
+lead. La prueba existente **“atribución del primer mensaje confirmado; anuncio
+compartido no único”** cubre A → B antes de recuperar el alta y espera A en el
+lead ([prueba](../src/modules/leads/primer-contacto.integracion.spec.ts)).
+
+| Secuencia | Primer contacto / Lead | JSON del cliente | Venta |
+| --- | --- | --- | --- |
+| Primer mensaje por A; luego B en el mismo hilo | Conserva A; no crea un lead nuevo por B | Pasa a B, con su clic o null | Si elige ese lead, queda ligada a A |
+| Primer mensaje orgánico; después anuncio B | Sigue WHATSAPP_DIRECTO, anuncio null | Puede pasar a B | No es venta publicitaria directa por ese lead |
+| Paciente existente, nuevo hilo comercial | Puede crearse un lead nuevo para ese hilo | Se reemplaza la foto global del cliente | Depende del lead elegido, no de la antigüedad del cliente |
+| Hilo histórico sin reserva | No se crea reserva retrospectiva ni se rearma | Puede guardar el nuevo referral | No se recupera la cadena mensaje→lead automáticamente |
+| Llega en línea no comercial | No crea lead comercial ni captura ese snapshot | No se actualiza por este camino | No atribuirla usando el snapshot de otra línea |
+
+El primer contacto actual es **primer mensaje que confirma la activación de la
+reserva**, no necesariamente el primer clic ni el primer timestamp de Meta.
+`WhatsappMessageDto` no modela el timestamp del mensaje entrante; `Mensaje.createdAt`
+es hora de inserción. Webhooks retrasados/concurrentes pueden alterar el orden.
+
+**Propuesta:** conservar todos los puntos de contacto identificados y derivar
+ambos extremos: primer contacto publicitario y último contacto publicitario
+antes de la venta, dentro de una ventana explícita. Mantener además el primer
+contacto total (puede ser orgánico), timestamp de Meta y timestamp de recepción.
+La venta debe congelar qué contacto(s) y versión de regla se usaron.
+
+First-touch y last-touch son **dos vistas alternativas**, no importes que se
+suman. Ventana configurable inicialmente propuesta de 30 días con comparación
+7/90, sujeta a medir el ciclo real; no cambiarla para mejorar artificialmente
+el ROAS. Nunca reemplazar retrospectivamente A por B en un lead histórico.
+
+### CAMP-4 — Ciclo exacto de ctwa_clid
+
+Entrada: `WhatsappReferralDto.ctwa_clid` →
+`extraerReferral().clickId` →
+`Cliente.datosExtra.campanaOrigen.clickId`.
+
+Condición de escritura: línea comercial y al menos
+`titular || anuncioId || cuerpo`. Un referral que traiga solo clic no cumple
+esa condición. Un referral posterior válido sin clic escribe **null**, perdiendo
+el clic anterior. Mensajes sin referral no lo borran por esta ruta.
+
+No está en `Mensaje`, `PrimerContactoWhatsapp`, `Lead` ni `Venta`. Tampoco se
+copia al crear venta. Se podría leer indirectamente desde el cliente, pero el
+clic podría pertenecer a B mientras la venta está asociada al lead de A.
+**Incluso si el anuncio coincide, dos clics del mismo anuncio son distintos.**
+
+La foto se actualiza antes de la transacción que inserta el mensaje y activa
+el primer contacto. Por tanto puede existir snapshot aun si falla ese mensaje;
+tampoco ofrece una garantía de “último clic cronológico” frente a concurrencia.
+
+Conclusión: **no se garantiza que el clic sobreviva durante todo el ciclo ni que
+el clic recuperado sea el de esa venta**. Hace falta guardarlo por contacto y
+fijar la referencia de atribución, no fabricar uno ni reutilizar el último.
+
+`source_id` identifica una fuente compartida por muchas personas;
+`ctwa_clid` identifica el clic. No son intercambiables. La documentación actual
+de Meta señala que los anuncios en Estados de WhatsApp pueden omitir el clic:
+ausencia de `ctwa_clid` no demuestra origen orgánico
+([referencia oficial de webhook](https://developers.facebook.com/documentation/business-messaging/whatsapp/webhooks/reference/messages/image)).
+
+### CAMP-5 — Qué significa source_id y qué está probado
+
+Para CTWA con `source_type = ad`, la referencia oficial lo documenta como
+**ad ID**, no campaign ID, ad set ID ni creative ID
+([Meta: mensaje con referral](https://developers.facebook.com/documentation/business-messaging/whatsapp/webhooks/reference/messages/image)).
+Para agrupar por campaña hay que resolver el ad en Marketing API.
+
+El DTO local admite `source_type` como string opcional (comenta `ad | post`),
+sin validarlo como enum. El controller lo recibe como `origenTipo`, pero la
+persistencia **no conserva ese tipo**: transforma cualquier `source_id` en
+`anuncioId`. Por tanto un origen de tipo `post` o desconocido no puede promoverse
+a “anuncio confirmado” solo por el nombre de la columna. No se ha demostrado que
+la clínica reciba actualmente posts: no hubo payload real disponible.
+
+Ejemplos **de pruebas**, no campañas reales:
+
+| Fixture | Evidencia |
+| --- | --- |
+| `source_type: ad`, `source_id: 120215839201920` | Controller lo transforma en `anuncioId`; no se comprobó que ese objeto exista en Meta |
+| `source_type: ad`, `source_id: 999`, clic de prueba | Controller reenvía `clickId`; fixture sintético |
+| `anuncio-compartido` → `anuncio-posterior` | Prueba de integración demuestra conservación del primer ID en lead |
+
+No consultar IDs sintéticos para inferir permisos o inventario. Verificar
+identidad de un source histórico exige datos reales y acceso al activo.
+Además, distinguir Facebook/Instagram mediante una URL que contenga
+`instagram` es una **heurística del código**; `fb.me` no prueba placement de
+Facebook. Para esa dimensión hace falta evidencia Meta.
+
+### CAMP-6 — Inventario histórico: resultados y medición pendiente
+
+| Agregado solicitado | Resultado actual | Definición para medirlo |
+| --- | --- | --- |
+| Total conversaciones / leads / clientes | N/D | COUNT por entidad en un mismo snapshot |
+| Conversaciones con source_id | N/D | PrimerContactoWhatsapp.anuncioId no vacío y FK a conversación |
+| Leads con source_id | N/D | Lead.anuncioId no vacío |
+| Clientes con source_id | N/D | JSON campanaOrigen.anuncioId no vacío |
+| Con ctwa_clid | N/D | Solo hay conteo fiable del snapshot actual de Cliente.clickId |
+| Con ambos | N/D | Ambos campos del snapshot del cliente; no todos los contactos históricos |
+| Sin ambos | N/D | Informar “ninguno” y “falta al menos uno” por separado |
+| Con cliente | N/D en cantidad | Obligatorio por FK en Lead, Conversacion y Venta |
+| Con alguna venta del cliente | N/D | EXISTS Venta.clienteId; no atribución directa |
+| Con Venta.leadId y source_id | N/D | Categoría A, desglosada por estado |
+| Ambos y venta del cliente | N/D | Coexistencia de foto y venta, no prueba mismo clic |
+
+**No existen cero registros: no existe una lectura de la base para contarlos.**
+Tampoco puede contarse “mensajes históricos con referral” por buscar una columna:
+el mensaje no conserva el objeto. Para leads/conversaciones, un clic en su
+cliente solo es **clic actualmente asociado al cliente**, nunca “clic demostrado
+de ese lead/conversación”. La consulta temporal explicita esa limitación.
+
+Hallazgo histórico útil, sin sustituir la medición actual:
+
+- La migración
+  [20260818020000](../prisma/migrations/20260818020000_lead_anuncio_id/migration.sql)
+  rescata IDs que antes ocupaban erróneamente `metaLeadId`, contrastándolos
+  con el JSON del cliente.
+- [20260818140000](../prisma/migrations/20260818140000_recuperar_leads_de_campana/migration.sql)
+  documenta una medición de agosto: 34 clientes con huella de un anuncio,
+  3 con lead y 31 a recuperar; 0 compras en ese momento. Es un **comentario
+  fechado de una migración**, no consulta ejecutada hoy ni cifra vigente.
+  El backfill crea leads con `Cliente.createdAt`; esa fecha no es prueba
+  exacta de llegada de formulario/clic.
+- [20260915002934](../prisma/migrations/20260915002934_primer_contacto_durable/migration.sql)
+  no rellena reservas históricas: se pierde la cadena al mensaje para esa cohorte.
+- La captura de clic figura en el commit `7194843` del 14/09/2026. La fecha del
+  commit no determina por sí sola el primer clic efectivamente persistido.
+
+Para obtener porcentajes de **nuestras ventas** hace falta una copia local
+autorizada y fechada o una conexión de lectura disponible. No bastan fixtures,
+comentarios ni levantar una base vacía.
+
+### CAMP-7 — Vista construible sin gasto
+
+Vista conceptual, sin datos ficticios:
+
+| source_id (entidad por verificar) | conversaciones trazadas | leads | clientes únicos | ventas GANADA enlazadas | monto ganado registrado Bs |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| A obtener mediante consulta | N/D | N/D | N/D | N/D | N/D |
+
+Reglas:
+
+1. Conversaciones: contar IDs de reservas con source, no todos los hilos del
+   cliente ni cada mensaje como conversación nueva. Es un mínimo observado.
+2. Leads: contar IDs con `anuncioId`; separar CTWA, formulario y legado.
+3. Clientes: DISTINCT `Lead.clienteId`; separar nuevos/preexistentes. Un cliente
+   puede aparecer bajo varios sources; no sumar esas filas como personas únicas.
+4. Ventas: agrupar por el lead citado; sumar una vez por `Venta.id`.
+   No contar leads CONVERTIDO como ventas ni unir mensajes y ventas antes de agregar.
+5. Monto: aplicar CAMP-8. B/C permanecen “no atribuibles”, fuera del numerador.
+6. Mostrar cobertura de reserva, clic, vínculo de venta y fuente verificada;
+   `0` significa consulta ejecutada sin casos, `N/D` significa no medido.
+7. No hay nombre de campaña fiable usando el titular; mostrar ID de origen.
+   Gasto/ROAS ausentes, no cero.
+
+La consulta temporal preagrega conversaciones, leads y ventas por separado.
+Es una propuesta de consulta sobre el schema existente, no una vista creada.
+
+### CAMP-8 — Importe, estado, fecha y definición conservadora
+
+| Concepto | Código real | Consecuencia |
+| --- | --- | --- |
+| Importe | `Venta.monto Decimal(12,2)`, DTO `@IsPositive()` | Bs/BOB por contrato; no moneda por fila |
+| Estado | GANADA / EN_PROCESO / PERDIDA | Excluir en proceso y perdida; GANADA es el default del alta |
+| Fecha | Solo `Venta.createdAt` | Fecha de registro; no fecha de cierre/cobro ni fecha histórica editable |
+| Cambio de estado | `cambiarEstado`, motivo al perder, AuditLog CAMBIO_ESTADO con de/a | Puede dejar de ser GANADA; recalcular totales actuales |
+| Comprobante/pago | Método, referencia y archivo opcionales | No garantizan importe efectivamente pagado ni conciliación |
+| Devoluciones | Sin entidad/importe/fecha específicos | No calcular ingreso neto de devoluciones |
+| Vínculo | `leadId` opcional; servicio valida el cliente | Válido estructuralmente, elección comercial manual |
+
+Definición implementable **sin llamarla caja cobrada**:
+
+```text
+monto de ventas ganadas atribuidas registradas (Bs) =
+SUM(Venta.monto)
+con estado actual GANADA
+y lead explícito de categoría A
+y cliente consistente
+y monto positivo
+y cronología coherente según las fechas disponibles
+```
+
+Una venta anterior al lead se separa como anomalía/legado, no se fuerza a una
+campaña posterior. La consulta temporal usa `createdAt` como control
+conservador; una venta EN_PROCESO creada antes y ganada después requiere revisar
+su transición, no descartarla definitivamente ni datar el cierre al alta.
+
+Se puede intentar reconstruir cierre desde `AuditLog` (`CREADA` con estado,
+`CAMBIO_ESTADO` a GANADA), pero no es un campo financiero, no se validó su
+cobertura y auditoría/venta no se escriben en una transacción conjunta en el
+service. No prometer cierre exacto para toda la historia.
+
+**“Ingresos cobrados atribuidos”: no demostrables con Venta sola.** Si se usa la
+palabra ingresos en el dashboard, acompañarla de “importe ganado registrado,
+sin conciliación de cobros/devoluciones”. Para ROAS de caja hacen falta cobros,
+devoluciones, fechas e integración financiera fiable. No contar un estado
+CONVERTIDO o una actividad completada como ingreso.
+
+### CAMP-9 — VentaImportada: qué sí es recuperable
+
+El cruce real de
+[`ServiciosService`](../src/modules/servicios/servicios.service.ts) es
+`Cliente.pac = VentaImportada.pac`, por igualdad exacta; `Cliente.pac` es UNIQUE
+nullable. Es una clave de FileMaker, no matching por nombre/teléfono.
+
+| Vínculo | Clasificación | Límite |
+| --- | --- | --- |
+| Importada → Cliente con mismo PAC no vacío | Recuperable de forma determinista | No hay FK; faltan códigos/fichas y la integridad depende de importación |
+| Importada → teléfono de esa ficha | Determinista como atributo del cliente | No hace falta mostrarlo ni usarlo para matching |
+| Importada → conjunto de leads/conversaciones de esa ficha | Determinista como conjunto | No elige qué lead/hilo originó el servicio |
+| Importada → anuncio causal concreto | No recuperable de forma fiable con el vínculo actual | Fecha posterior o único lead conocido siguen siendo inferencia |
+| Fila sin PAC coincidente | No recuperable desde estos campos | Mantener sin enlace, sin matching difuso |
+
+`VentaImportada.precio` y `anticipoPlan` no son lo mismo;
+`ingresoNeto = precio × 0,87` es base de comisión. `comisionable = false`
+no significa necesariamente venta anulada o no cobrada. `fecha` es nullable.
+No sumar `Venta` y `VentaImportada`: falta identidad de operación compartida
+para descartar doble registro. Tampoco confundir filas de servicios con tickets
+o clientes nuevos.
+
+El origen importado está subordinado a `PeriodoComision` con CASCADE; borrar
+o reemplazar una importación puede alterar el histórico. Una atribución futura
+requiere identidad estable de operación/PAC y una regla explícita, no solo unir
+tablas por paciente.
+
+### CAMP-10 — Acceso Meta: comprobación directa nueva
+
+Todas las llamadas fueron **GET**, Graph `v25.0`, con Authorization en cabecera,
+sin imprimir URLs con tokens, cuerpos privados ni credenciales. Se reutilizó la
+versión del backend; no se cambió ningún permiso.
+
+| Comprobación | Resultado observado |
+| --- | --- |
+| Credencial local META_ACCESS_TOKEN | HTTP 401, OAuthException 190 / subcódigo 467 en permissions y adaccounts; inválida en estas consultas |
+| Credencial local WHATSAPP_TOKEN | Válida; debug_token: SYSTEM_USER de app CRM Montalvo `1026204626700838`; tiene expiración |
+| Scope ads_read | granted |
+| Scope ads_management | granted; no utilizado para escrituras |
+| Scope business_management | granted |
+| Scopes whatsapp_business_management y whatsapp_business_manage_events | granted |
+| Scope leads_retrieval | granted |
+| GET /me/adaccounts | HTTP 200, data=[], sin página siguiente |
+| GET /me/assigned_ad_accounts | HTTP 200, data=[], sin página siguiente: ninguna cuenta asignada devuelta para este usuario del sistema |
+| GET /me/businesses | HTTP 200, data=[], sin página siguiente |
+| GET /me?fields=business | HTTP 400, código 100; no permitió descubrir el negocio por ese campo |
+| PAGE_ACCESS_TOKEN local | No configurado; el resolver de formularios utiliza esta variable, no META_ACCESS_TOKEN |
+| Ad account ID / dataset accesible confirmado | Ninguno |
+| Insights / gasto / campañas | No consultables aún sin un activo accesible identificado |
+
+**Corrección al diagnóstico inicial:** no hace falta un nuevo MCP para hacer
+GET de Marketing API; se comprobó que Graph es accesible desde esta máquina.
+Tampoco se puede afirmar que falta `ads_read`: ya está concedido en un token.
+La lista vacía de privilegios del MCP no equivale a la lista de scopes del token.
+
+**Bloqueo concreto:** no hay cuenta publicitaria visible con esa credencial ni
+ID de cuenta confirmado para probar acceso directo. Se comprobó también la
+[lista específica de cuentas asignadas al usuario del sistema](https://developers.facebook.com/documentation/ads-commerce/marketing-api/reference/system-user/assigned_ad_accounts):
+devuelve cero. Queda por identificar la cuenta que paga la clínica y verificar
+su asignación; no se conoce todavía por qué no está visible. Las campañas podrían
+estar en otra cuenta/portfolio. No significa
+“la clínica no tiene campañas” ni “gasto cero”.
+
+Próximo paso de acceso, sin cambiarlo durante esta investigación: identificar
+el `act_<id>` de la cuenta que paga los anuncios y verificar su asignación de
+lectura al usuario del sistema. Si un GET directo al ID conocido es rechazado,
+corregir la asignación o usar una credencial autorizada para esa cuenta. Para
+operación permanente, almacenar el secreto solo en servidor y atender su caducidad.
+
+Consultas de lectura previstas una vez identificado el activo:
+
+| GET | Datos |
+| --- | --- |
+| `/act_<id>?fields=id,name,currency,timezone_name,account_status` | Moneda, zona y cuenta |
+| `/act_<id>/campaigns` | id, name, status, effective_status, objective, start_time, stop_time |
+| `/act_<id>/adsets` | id, campaign_id, name, status, effective_status, start_time, end_time |
+| `/act_<id>/ads` | id, campaign_id, adset_id, name, status, effective_status, creative |
+| `/<ad_id>?fields=id,campaign_id,adset_id,creative` | Resolver source confirmado hacia campaña/creative |
+| `/act_<id>/insights` | level=ad, time_range explícito, spend, impressions, reach, clicks, actions y IDs |
+
+Paginar todas las respuestas. Guardar fecha de consulta, zona/moneda y ventana
+de atribución Meta. Para “campañas que estamos pagando” separar estado ACTIVE
+de gasto positivo en hoy/últimos 7/30 días: activa no garantiza entrega, y
+pausada puede tener gasto reciente. El reach no es aditivo entre anuncios/días;
+pedir el agregado Meta al nivel/rango apropiado. `clicks` incluye más que clics
+hacia WhatsApp; especificar la acción exacta y no equipararla a mensajes CRM.
+
+Base oficial:
+[autorización Marketing API](https://developers.facebook.com/documentation/ads-commerce/marketing-api/get-started/authorization),
+[Insights](https://developers.facebook.com/documentation/ads-commerce/marketing-api/insights).
+El scope `ads_read` más acceso al activo permite lectura; distinguir acceso a
+activos propios del de clientes externos y el nivel de acceso aprobado para
+una integración de producción.
+
+### CAMP-11 — Qué necesita cada indicador
+
+| Indicador | Calculable con el modelo CRM, si hay datos legibles | Falta Meta | Falta persistencia/definición |
+| --- | --- | --- | --- |
+| Leads/clientes por source | Sí, con las limitaciones de A/legado | Verificar entidad y campaña | Distinguir cliente nuevo de oportunidad nueva |
+| Conversaciones trazadas | Sí, subconjunto con primer contacto | No para contar ese subconjunto | Eventos posteriores y reservas históricas ausentes |
+| Ventas/monto atribuibles | Sí, categoría A GANADA | No para ID de origen sin verificar | Fecha de cierre/cobro para medida financiera exacta |
+| Ticket medio | Monto GANADA / nº ventas válidas | No | No confundir con cobro; N/D si denominador 0 |
+| Conversión lead→venta | Leads únicos con al menos una GANADA explícita / leads de la cohorte | No | Fecha/cohorte y ventana; no contar varias compras como varios leads |
+| CPL | No sin gasto | Spend por misma campaña/anuncio y cohorte | Definir leads nuevos frente a recontactos |
+| Costo por venta (“CAC” solicitado) | No sin gasto | Spend | Denominador ventas válidas de A |
+| CAC de clientes nuevos | No sin gasto | Spend | Primera adquisición pagada verificable; distinto de nº ventas |
+| ROAS | No sin gasto | Spend y moneda | Numerador registrado vs cobrado; cobertura y ventana |
+| ROI neto | No | Spend | Margen, costos y devoluciones; ROAS no es rentabilidad neta |
+| Lead calificado / CPL calificado | No definido | Spend para costo | Estado/criterio de calificación comercial y fecha |
+
+Conservar la fórmula solicitada `gasto/ventas`, pero rotularla **costo por venta**.
+Para CAC de adquisición, dividir por clientes nuevos que compran, no por compras
+repetidas. `ROAS = monto atribuido / gasto` exige misma moneda; no dividir Bs por
+USD. Registrar criterio y fecha de conversión monetaria; no usar retrospectivamente
+el tipo de cambio de hoy.
+
+Las ratios se comparan sobre cohortes con tiempo de maduración comparable
+(p. ej. leads adquiridos en agosto y compras observadas hasta un corte definido).
+Ventas de septiembre de leads de agosto no deben mezclarse sin etiqueta con
+gasto solo de septiembre. Denominador cero devuelve N/D; gasto positivo y cero
+ventas es “sin ventas atribuibles observadas”, no una certeza de fracaso.
+
+### CAMP-12 — Dashboard conceptual, sin construir UI
+
+**Primera versión interna, sin gasto:** conversaciones trazadas, leads
+atribuibles, compradores distintos, ventas GANADA y monto registrado atribuido.
+Encima: periodo/cohorte, corte de datos, fuente, cobertura y porcentaje sin vínculo.
+El snapshot de cliente se muestra como evidencia parcial, separado del vínculo A.
+
+**Tabla:** Campaña (desconocida hasta resolver Meta) / Anuncio o source / Gasto /
+Conversaciones / Leads / Clientes únicos / Ventas / Importe / Costo por venta /
+CAC de clientes nuevos / ROAS. Antes de Insights, gasto y ratios = N/D.
+Permitir ver fuentes con cero ventas, no solo las que convierten.
+
+**Funnel visual solicitado:** WhatsApp → Lead → Cliente → Venta, con aclaración
+“Cliente = identidad CRM, creada antes del lead”. Para análisis de conversión,
+usar conversaciones trazadas → oportunidades → compradores → ventas; clientes
+existentes y nuevos separados. Formularios Meta van por otro canal, sin inventar
+una etapa WhatsApp. Un mismo cliente con varios leads puede hacer que los conteos
+de objetos no formen una secuencia decreciente.
+
+**Comparación:** first-touch y last-touch como selector de modelos, nunca
+ingresos duplicados. Mostrar fuentes no verificadas, legado y no atribuible.
+Creativos solo después de resolver `ad.creative`; las URLs del referral pueden
+caducar y no identifican un creative de forma estable.
+
+### CAMP-13 — Calidad de leads
+
+Señales actuales:
+
+- `EstadoLead`: NUEVO, CONTACTADO, CONVERTIDO, PERDIDO.
+  **No existe CALIFICADO**, score ni fecha de calificación.
+- `Actividad`: cliente obligatorio, lead opcional, tipo, estado,
+  `fechaProgramada`, `completadaEn`. Permite medir seguimiento si está ligado
+  al lead; completarla no demuestra asistencia, calificación ni compra.
+- `Lead.motivoPerdida`: texto requerido al perder, borrado al cambiar de estado;
+  útil internamente, no taxonomía histórica ni dato para exportar.
+- `Venta.leadId` + GANADA: evidencia explícita de conversión.
+- `Lead.estado=CONVERTIDO` no equivale a venta atribuida. El estado puede cambiar
+  manualmente; `marcarConvertidos(clienteId, null)` convierte **todos los leads
+  abiertos del cliente** al ganar una venta sin lead. Revertir la venta tampoco
+  revierte automáticamente todos esos estados. El estado no sustituye el join.
+
+El caso “100 leads/2 ventas frente a 30 leads/10 ventas” podrá demostrarse por
+cohortes con la cadena A. Para comparar tasas de compradores usar leads con
+alguna venta o clientes únicos, no el número bruto de filas Venta. Añadir tiempo
+de maduración, cobertura de vínculo y desempeño de seguimiento por agente:
+diferencias de atención pueden explicar parte del resultado publicitario.
+
+Definición propuesta para calificación, pendiente de negocio: etapa comercial
+explícita con fecha, responsable y criterios no clínicos. No inferir calidad a
+partir de diagnósticos, tratamientos, textos de mensajes o categorías de paciente.
+
+Primera respuesta: primera salida humana (`automatico=false`) tras el mensaje
+de entrada, excluyendo fallidos/inciertos y aclarando que se mide inserción
+local, no recepción real. La fecha del worker/lead puede llegar después por
+reintentos; no usarla como si fuera hora del mensaje. Para lead→cierre real
+hace falta fecha de cierre o auditoría completa.
+
+### CAMP-14 — CAPI: viabilidad técnica y acceso comprobado
+
+Dos productos con identificadores diferentes:
+
+| Camino | Identificador de persona/evento de origen | Forma conceptual |
+| --- | --- | --- |
+| Click-to-WhatsApp / Business Messaging | `ctwa_clid` del contacto elegido + WABA | `action_source=business_messaging`, `messaging_channel=whatsapp`, evento y event_time reales; valor/moneda solo si admisibles |
+| Instant Forms / Conversion Leads CRM | `Lead.metaLeadId` (= leadgen_id de Meta) | `action_source=system_generated`, `user_data.lead_id`, `custom_data.event_source=crm`, `lead_event_source`, etapa y timestamp |
+
+Ni `Lead.id` (UUID del CRM) ni `source_id` sustituyen el leadgen_id o el clic.
+Para formularios, Meta documenta etapas del funnel, incluido el lead recibido;
+no asumir que enviar un `QualifiedLead` arbitrario por cualquier producto habilita
+optimización. Para CTWA, la guía documenta Purchase y optimización de compras;
+la aceptación/configuración de otras etapas requiere validar ese producto.
+No atribuir `business_messaging` a una compra ocurrida fuera del chat si no lo fue.
+
+**Permisos:** ya se observaron `whatsapp_business_management` y
+`whatsapp_business_manage_events` en el token; también `ads_read`. Falta
+comprobar WABA/dataset específico, vínculo y autorización efectiva sobre el
+dataset, configuración comercial y nivel de acceso aplicable. El token tiene
+fecha de vencimiento: no es una integración permanente lista.
+
+La guía de Business Messaging para partners exige esos permisos y acceso al
+producto; la guía de permisos distingue el caso de un desarrollador directo
+con activos propios del de partners. No inferir aprobación de App Review ni
+necesidad de cambiar permisos a partir del simple rol admin del MCP.
+
+**Datos técnicos mínimos candidatos**, no autorización: evento/fecha, dataset,
+clic+WABA o leadgen_id según producto, y controles internos de envío único.
+Para Purchase, valor y moneda solo tras validar su admisibilidad. Mantener un
+identificador interno de deduplicación sin datos clínicos; no asumir que la
+deduplicación de Pixel cubre Business Messaging. No enviar nombre, teléfono,
+email o su hash como respaldo automático si falta clic/leadgen_id.
+
+Referencias oficiales:
+[Business Messaging](https://developers.facebook.com/documentation/ads-commerce/conversions-api/business-messaging),
+[permisos WhatsApp](https://developers.facebook.com/documentation/business-messaging/whatsapp/permissions),
+[payload de Conversion Leads](https://developers.facebook.com/documentation/ads-commerce/conversions-api/conversion-leads-integration/payload-specification),
+[implementación CRM](https://developers.facebook.com/documentation/ads-commerce/conversions-api/conversion-leads-integration/crm-integration/3-implementing-the-crm-integration).
+
+### CAMP-15 — Privacidad y frontera de esta propuesta
+
+**El dashboard puede calcularse dentro del CRM sin enviar conversiones a Meta.**
+Lectura de gasto hacia CRM y exportación de actividad de pacientes hacia Meta
+son decisiones distintas.
+
+Un `Purchase` genérico unido a un clic en un anuncio médico puede revelar una
+relación sanitaria aunque no incluya diagnóstico. Un hash o un click ID no lo
+convierte en dato anónimo. Por ello la minimización propuesta no demuestra que
+un evento sea admisible para esta clínica.
+
+Excluir siempre diagnóstico, especialidad sensible, conversación, resultados,
+tratamiento, producto clínico, médico, notas, archivos, PAC y URLs/títulos que
+revelen esos datos. No derivar el evento de una clasificación clínica ni enviar
+un identificador reconstruido por matching personal.
+
+**No se declara CAPI aprobada para este caso.** Antes de habilitar cualquier
+evento hay que comprobar la política vigente aplicable a la fuente de datos,
+la categoría/restricciones de la cuenta y la licitud de la señal concreta.
+La página de [Business Tools Terms](https://www.facebook.com/legal/terms/businesstools)
+redirigió a login/bloqueo en esta consulta; no se afirma haber verificado su
+texto actual. Si no se puede demostrar que la señal es admisible, el diseño
+mantiene toda la atribución y el ROAS internamente. No se configuró dataset ni
+se envió evento, siquiera de prueba.
+
+### Evidencia reproducible y control de calidad de esta continuación
+
+| Afirmación | Referencia local |
+| --- | --- |
+| Captura y pérdida de tipo/fecha | `whatsapp-webhook.dto.ts:110`, `whatsapp-webhook.controller.ts:80` |
+| Snapshot reemplazable antes de transacción | `ingesta-whatsapp.service.ts:120`, `:149`, `:172` |
+| Reserva solo para hilo nuevo comercial | `ingesta-whatsapp.service.ts:248` |
+| First confirmed touch inmutable en lead | `primer-contacto.service.ts:59`, `:119`; prueba de integración `:243` |
+| Venta valida mismo cliente/lead | `ventas.service.ts:65`, `:79` |
+| Estado de venta y auditoría | `ventas.service.ts:270`; `schema.prisma:422` |
+| Convertir leads sin vínculo de venta | `leads.service.ts:177` |
+| Cruce PAC exacto | `servicios.service.ts:235` |
+| Formularios reciben ad_id real | `lead-ads-graph.service.ts:92`, `:124` |
+
+Las pruebas existentes se **leyeron**, no se volvió a ejecutar la integración:
+no hay base local accesible. Las consultas temporales son una especificación
+revisada contra el schema, no una medición validada en PostgreSQL. Cambios de
+esta continuación: solo este Markdown; sin commit/push adicional y sin R3.
+
+## Propuesta de implementación por fases (posterior a aprobación)
+
+| Fase | Entrega | Criterio para avanzar |
+| --- | --- | --- |
+| 0 — medición y acceso | Ejecutar agregados en copia/lectura autorizada; identificar cuenta publicitaria; verificar GET de catálogo/Insights | Conteos reales A/B/C y cobertura PAC; moneda/rango; gasto observado. Sin CAPI |
+| 1 — conservar evidencia | Contactos inmutables por mensaje con source_type/source_id/ctwa_clid, línea, hora de Meta y recepción; first/last touch por oportunidad | A→B, orgánico→B, duplicados, concurrencia, multi-línea y clic ausente no pierden relaciones |
+| 2 — cierre comercial | Selección explícita de oportunidad en venta; fecha de cierre; calificación comercial con fecha; separar cobros/devoluciones | Venta/cliente/lead coherentes; no contar estados de lead como ventas; definir monto vs caja |
+| 3 — gasto y jerarquía | Sincronización GET de cuentas/campañas/adsets/ads/creatives e Insights con moneda, zona, periodos y revisión de datos tardíos | Totales conciliados con Meta para mismo rango; resolver IDs sin inventar campañas; sin sumar reach |
+| 4 — análisis interno | Tabla sin/con gasto, cohortes, first/last touch alternativos, cobertura y funnel; métricas de calidad | Cada importe trazable a ventas válidas; B/C visibles; no duplicar VentaImportada; ratios con denominadores claros |
+| 5 — CAPI opcional | Evaluación separada de admisibilidad sanitaria, producto, dataset y eventos permitidos | Solo si la señal concreta cumple; si no, no construir el envío. No bloquea el dashboard interno |
+
+No hace falta empezar por CAPI, por una UI compleja ni por cambiar presupuestos.
+La fase 0 decide la cobertura real y el tamaño de las siguientes fases.
+
+# CONCLUSIÓN EJECUTIVA
+
+## 1. ¿Podemos saber hoy qué anuncio generó una conversación?
+
+**En un subconjunto, podemos conservar su ID de origen y el mensaje inicial.**
+Hace falta la reserva con source y mensaje. La entidad Meta no está verificada,
+se pierde source_type y no se conservan todos los recontactos. No afirmar
+cobertura total ni atribuir cada conversación desde el último JSON del cliente.
+
+## 2. ¿Podemos unirlo con un lead?
+
+**Sí para primer contacto durable completado**, con FK única al lead. No siempre
+para hilos históricos: la migración no creó reservas retrospectivas. Los leads
+de formulario tienen otro identificador, metaLeadId, y no implican WhatsApp.
+
+## 3. ¿Podemos unirlo con una venta?
+
+**Sí cuando Venta.leadId cita ese lead**, coincide el cliente y se conserva
+anuncioId. Compartir cliente o estar CONVERTIDO no basta. Para ingreso registrado,
+contar solo GANADA válida; para dinero cobrado faltan datos financieros.
+
+## 4. ¿Qué porcentaje de nuestras ventas puede atribuirse actualmente?
+
+**Desconocido, no 0 %.** PostgreSQL local rechazó conexión y no se dispuso de
+lectura productiva. Se dejó consulta A/B/C y fórmula con denominador Venta
+GANADA. Ningún porcentaje de fixtures o de agosto representa las ventas de hoy.
+
+## 5. ¿Qué se pierde por VentaImportada?
+
+Se pierde el vínculo explícito de la operación a una oportunidad/anuncio, y no
+puede consolidarse sin evitar duplicados con Venta. **La identidad del paciente
+sí es recuperable cuando coincide PAC exacto.** Eso no prueba causalidad
+publicitaria ni importe cobrado. La proporción/importes afectados siguen sin medir.
+
+## 6. ¿Qué falta para conocer gasto real?
+
+Cuenta publicitaria identificada y acceso efectivo a ella, luego GET de
+Insights. **Ya existe un token válido con ads_read**, pero las cuentas y
+portfolios enumerados fueron cero; tampoco devolvió cuentas el endpoint específico
+de asignaciones del usuario del sistema. No se ha probado que falten scopes; hay que
+verificar asignación/ID de activo. El MCP limitado no impide usar Graph.
+
+## 7. ¿Qué falta para calcular ROAS?
+
+Gasto real, jerarquía source→ad→campaña, cobertura de ventas atribuibles,
+moneda/cohorte/ventana común y definición del numerador. Se podría ofrecer
+ROAS sobre monto ganado registrado, claramente rotulado; ROAS sobre dinero
+cobrado requiere cobros/devoluciones. ROAS no demuestra beneficio neto.
+
+## 8. ¿Qué cambios mínimos tendría que hacer el CRM?
+
+Preservar cada contacto y su tipo/clic/fecha; fijar first/last touch; conservar
+vínculo de venta a oportunidad y fecha de cierre; definir calificación comercial;
+leer catálogo y gasto Meta; mostrar cobertura y no atribuible. No hace falta
+enviar información clínica a Meta para medir internamente.
+
+## 9. ¿Tiene sentido construir el módulo?
+
+**Tiene sentido validar primero una versión interna pequeña.** Hay relaciones
+útiles y una vía técnica real para leer Meta, pero faltan los datos para demostrar
+cobertura y retorno de inversión. No está justificada todavía una promesa de
+ROI completo ni una implementación CAPI. Recomendación: fase 0; si la cobertura
+es insuficiente, corregir persistencia/cierre antes de presentar rankings de
+campañas. Ninguna evidencia obtenida permite recomendar pausar o aumentar
+presupuesto de una campaña concreta.
