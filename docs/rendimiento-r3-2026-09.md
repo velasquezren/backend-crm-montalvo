@@ -299,3 +299,159 @@ handshake con y sin reanudación antes de proponer nada.
 **Hecho.** `preconnect` al origen del API implementado y el muerto de
 `fonts.googleapis.com` retirado, con las dos mediciones en el cuerpo del commit
 (`9ce5b24`, frontend). Sin desplegar.
+
+---
+
+## 18/09/2026 (mediodía) · los dos cambios aplicados y medidos
+
+### 1. `preconnect` al API — DESPLEGADO (`9ce5b24`, frontend)
+
+En producción: Vercel sirve `sha:"9ce5b24"`, el `<head>` declara
+`preconnect` a `fonts.gstatic.com` y al origen del API, **cero menciones** de
+`fonts.googleapis.com`, y los 15 `unicode-range` siguen inlineados con la woff2
+bajando bien de gstatic (200, 39.412 B).
+
+**No basta con comprobar que la etiqueta existe**, así que se midió el
+comportamiento simulando las dos planificaciones con conexiones reales: bundle
+bajado por una sola conexión HTTP/2 con peticiones concurrentes —como el
+navegador— y el cronómetro parando en la respuesta de `/auth/perfil`.
+
+| Planificación | p50 |
+| --- | ---: |
+| SERIE — bundle y *después* abrir la conexión (sin preconnect) | 912 ms |
+| PARALELO — conexión abierta a la vez que baja el bundle (con preconnect) | **606 ms** |
+| **Diferencia** | **306 ms (34 %)** |
+
+Es una simulación de la planificación, no una observación del navegador: la
+regla del proyecto prohíbe usarlo. Pero la red es real y el delta es el
+handshake escondiéndose, que es exactamente lo que cambia el preconnect.
+
+Un intento anterior daba 456 ms y **sobreestimaba**: bajaba el bundle en serie
+por HTTP/1.1, con lo que la ventana era tan larga que escondía el handshake
+entero. Vale la pena anotarlo: el número que se publica depende de si el
+simulador multiplexa como el navegador o no.
+
+### 2. `KeepAliveTimeout 5 → 75` — APLICADO
+
+| | |
+| --- | --- |
+| Archivo real modificado | `/etc/apache2/sites-available/crm_backend-le-ssl.conf` |
+| Config anterior | `KeepAliveTimeout 5`, **global**, en `apache2.conf:111` |
+| Config nueva | `KeepAliveTimeout 75`, **acotada al VirtualHost del CRM** |
+| El global | **NO se tocó**, sigue en 5 |
+| Copia de seguridad | `/root/apache-backup/*.20260918-100011` |
+| Aplicación | `apachectl configtest` → `Syntax OK`, luego `systemctl reload apache2` (sin restart) |
+
+Se acotó al vhost como se pidió. Conviene saber que en esta máquina **los únicos
+sitios habilitados son los del CRM**, así que no había nada más que proteger; la
+elección es por higiene, no por necesidad.
+
+**Medición sobre LA MISMA conexión persistente, y en los dos protocolos:**
+
+| gap | HTTP/1.1 | HTTP/2 |
+| ---: | --- | --- |
+| 2 s | viva · 204 ms | viva · 211 ms |
+| 10 s | viva · 202 ms | viva · 205 ms |
+| 30 s | viva · 207 ms | — |
+| **60 s** | **viva · 205 ms** | **viva · 197 ms** |
+| 70 s | viva · 200 ms | viva · 201 ms |
+| 80 s | **cerrada** | **reabierta · 622 ms** |
+
+El corte cae entre 70 y 80 s, como corresponde a 75. **El caso que importa —el
+refresco de 60 s de la campana— reutiliza la conexión en los dos protocolos.**
+
+Antes / después, en el gap de 60 s:
+
+```
+ANTES (KeepAliveTimeout 5)   conexión cerrada -> TCP+TLS nuevos -> TTFB ~610 ms
+DESPUÉS (75)                 conexión reutilizada            -> TTFB  ~197 ms
+```
+
+**Trampa de medición que casi produce un falso negativo.** La primera pasada de
+HTTP/2 daba «reabierta» a partir de 10 s y parecía que el cambio no servía para
+el protocolo que usa el navegador. No era el servidor: **`httpx` cierra sus
+conexiones ociosas a los 5 s** (`Limits.keepalive_expiry = 5.0`). Con
+`keepalive_expiry=600` el h2 se comporta igual que el h1. Quien repita esta
+medición tiene que fijar ese parámetro o medirá su propio cliente.
+
+**Protocolo negociado:** el API sirve **HTTP/2** por defecto (`%{http_version}`
+= 2, `Protocols h2 http/1.1`), que es lo que usa el frontend. Los resultados de
+h1 y h2 se reportan por separado a propósito.
+
+### Recursos: sin crecimiento material
+
+| | Antes del cambio | Inmediatamente después | Tras ~10 min de uso |
+| --- | ---: | ---: | ---: |
+| Conexiones TLS establecidas | 1 | 9 \* | **1** |
+| Procesos `apache2` | 4 | 5 | **3** |
+| RAM `apache2` | — | 88,6 MB | **52,0 MB** |
+| Hilos de apache | — | 161 | 105 |
+| RAM usada / disponible | 798 / 7.143 MB | 823 / 7.117 MB | **776 / 7.164 MB** |
+| load (1 min) | 0,00 | 0,00 | 0,07 |
+
+\* Las 9 incluían mis propias conexiones de prueba; al cerrarlas volvió a 1.
+
+Sin crecimiento: la memoria acabó **por debajo** del punto de partida. Era lo
+esperado con el MPM **event**, donde una conexión ociosa la sostiene un hilo de
+eventos y no ocupa un worker.
+
+**Salud tras el cambio:** 254 peticiones desde el reload con **0 × 500, 502, 503
+y 504**; `apache2` y `crm_backend` activos, `NRestarts 0`; 0 ERROR en el journal
+de ambos; `/health` 200, WebSocket 101, CORS 204.
+
+### Rollback, si hiciera falta
+
+```bash
+cp /root/apache-backup/crm_backend-le-ssl.conf.20260918-100011 \
+   /etc/apache2/sites-available/crm_backend-le-ssl.conf
+apachectl configtest && systemctl reload apache2
+```
+
+No se ha necesitado: ningún síntoma de los que lo justificarían.
+
+## Siguiente cuello de botella, medido
+
+R3 **no está cerrado**. Con el coste por viaje ya conocido (204 ms en caliente,
+610 ms en frío) se puede situar por fin el trabajo del servidor. Duraciones
+reales del journal, tráfico de agentes de hoy:
+
+| Endpoint | Media en servidor | n |
+| --- | ---: | ---: |
+| `GET /conversaciones/meta/plantillas` | **278 ms** | 4 |
+| `POST /auth/login` | 194 ms | 4 |
+| `GET /conversaciones` (inbox) | **89 ms** | 18 |
+| `GET /kpis/resumen` | 74 ms | 12 |
+| `GET /conversaciones/:id/resumen` | 53 ms | 8 |
+| `POST /conversaciones/:id/mensajes` | 46 ms | 2 |
+| `GET /conversaciones/:id` (detalle) | **34 ms** | 22 |
+| `POST /conversaciones/:id/leido` | 32 ms | 18 |
+
+Dos cosas que esto cambia respecto al diagnóstico anterior:
+
+1. **`/conversaciones/meta/plantillas` a 278 ms es lo más lento del servidor**, y
+   no es base de datos: es una llamada saliente a la API de Meta. Candidato claro
+   a caché, porque las plantillas aprobadas cambian de mes en mes, no de minuto
+   en minuto. **Sin verificar**: falta comprobar cuándo se pide y si bloquea algo.
+2. **El inbox ya no es ruido.** El diagnóstico viejo hablaba de consultas de
+   6-27 ms; `GET /conversaciones` va hoy por **89 ms**, o sea ~30 % de una
+   petición en caliente. Sigue mandando la red, pero ya no se puede despachar
+   como despreciable.
+
+Y una tercera, del lado de la red: **abrir una conversación por primera vez paga
+un preflight**. El log de una apertura real muestra `OPTIONS /:id` + `GET /:id` +
+`OPTIONS /:id/leido` + `POST /:id/leido`. La respuesta trae
+`access-control-max-age: 86400`, así que se cachea 24 h — pero **por URL**, y
+cada conversación es una URL distinta. La refutación anterior («no es un coste
+por URL y por sesión») es demasiado optimista: sí lo es la primera vez que se
+abre cada chat. Un viaje extra de ~204 ms, serializado antes del GET.
+
+**Lo que toca medir antes de proponer nada**, y en este orden:
+
+1. El flujo `arranque → /auth/perfil → inbox` completo, contando viajes
+   serializados. Hace falta una sesión iniciada: sin credenciales de aplicación
+   solo se ve el 401.
+2. Si `/conversaciones/meta/plantillas` está en el camino crítico o va de fondo.
+3. Si el preflight por conversación se puede evitar sin tocar seguridad.
+
+Sigue vetado, por falta de evidencia: Redis, cluster de Node, tuning de
+PostgreSQL, cambio de VPS y mega-endpoints.
