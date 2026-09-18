@@ -606,7 +606,7 @@ temporal, no commiteada.
 | `findAll` completo, local | **6,2 ms** p50 · 7,9 p95 | que el servicio sea lento |
 | Consultas por petición | **13** | — |
 | Suma del SQL que reporta Prisma | 6,6 ms | — |
-| Overhead de Prisma (total − SQL) | **−0,4 ms** | **que Prisma tenga overhead**: no lo tiene |
+| Suma SQL vs wall clock de `findAll` | 6,6 vs 6,2 ms | ver la nota de abajo |
 | Petición HTTP completa, local | **5 ms** p50 | guards, interceptores y serialización |
 | CPU 1 núcleo, Mac vs VPS | 198 vs **199 ms** | que el VPS sea más lento de CPU |
 | `SELECT 1` ida y vuelta | 0,063 vs **0,397 ms** | 13 viajes = +4,3 ms, no 70 |
@@ -614,6 +614,13 @@ temporal, no commiteada.
 | Compresión de la respuesta | +0,3 ms | `compression()` |
 | Bytes servidos | 41,5 kB → 5,7 kB br (local) vs **6,9 kB** (prod) | volumen de datos |
 | Distribución real en producción | min 42 · **p50 79** · p90 111 · max 186 | que sea un outlier: es consistente |
+
+> **Cuidado con esta resta.** Que la suma de los tiempos SQL (6,6 ms) sea
+> parecida o mayor que el *wall clock* de `findAll` (6,2 ms) **no demuestra que
+> Prisma no tenga overhead**: si hay consultas solapadas, la suma puede superar
+> al reloj de pared sin que eso diga nada del overhead. La conclusión que sí se
+> sostiene es más modesta: **las consultas SQL son rápidas y no explican por sí
+> solas los ~60 ms que faltan.**
 
 **La petición dominante en producción es la misma que se midió**: 317 llamadas
 sin parámetros frente a un puñado con `busqueda`, y los usuarios activos son 3
