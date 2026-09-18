@@ -1384,3 +1384,9 @@ no justifica un módulo.**
 venta↔lead), gestionar el acceso de Marketing API en paralelo, y volver a medir
 esta misma tabla dentro de 4-6 semanas. Si la cobertura de ingresos sube, el
 módulo se justifica solo; si no sube, la respuesta ya estará dada.
+
+---
+
+**Seguimiento (18/09/2026):** el cambio 1 —enlazar venta↔lead— está hecho. Ver
+[`CAMP-1-atribucion-venta-lead.md`](CAMP-1-atribucion-venta-lead.md), que incluye
+la clasificación de las 14 ventas históricas y la propuesta de backfill.

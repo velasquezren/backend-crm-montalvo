@@ -1,5 +1,28 @@
 # Estado actual
 
+## 18 de septiembre de 2026 · CAMP-1 — atribución de venta cerrada
+
+`Venta.leadId` se puebla desde la interfaz. Detalle y propuesta de backfill en
+[`docs/CAMP-1-atribucion-venta-lead.md`](CAMP-1-atribucion-venta-lead.md).
+
+Nada del esquema ni del backend cambió: ya estaba todo. El fallo era que el
+selector de origen arrancaba en «Ninguno», así que las 14 ventas de producción
+tenían `leadId` en NULL. Ahora se preselecciona el lead **solo cuando el cliente
+tiene exactamente uno** (15.822 de 15.838); con dos o más no se elige nada,
+porque una atribución inventada es peor que un NULL.
+
+Efecto secundario que importa: `LeadsService.marcarConvertidos` sin `leadId`
+cierra **todos** los leads abiertos del cliente. Con `leadId` siempre NULL esa
+era la única rama que corría. A partir de ahora corre la estrecha, que cierra
+solo el lead que originó la venta.
+
+**El backfill de las 14 ventas históricas está propuesto y NO ejecutado**: haría
+el grafo consistente pero no movería la cobertura de ingresos (Bs 400 de
+Bs 24.262), porque solo uno de esos leads tiene `anuncioId`.
+
+Límite conocido: no existe endpoint para corregir el lead de una venta ya
+registrada —solo `PATCH /ventas/:id/estado`—, y no se añadió.
+
 ## 18 de septiembre de 2026 (cierre) · CONSOLIDACIÓN TÉCNICA CERRADA
 
 **Empieza por aquí:** [`docs/CIERRE-TECNICO-2026-09.md`](CIERRE-TECNICO-2026-09.md).
@@ -25,8 +48,9 @@ frío) y `KeepAliveTimeout 75` en el vhost (610 → ~200 ms tras una pausa)— y
 resto descartado con medición: ni CPU, ni memoria, ni PostgreSQL, ni event loop,
 ni pool son cuello.
 
-**Agenda A1-A5** sigue como estaba; no se tocó en esta ronda. **CAMP-0** queda
-como investigación en `docs/CAMP-0-campanas-meta-roi.md`, sin implementar.
+**Agenda A1-A5** sigue como estaba; no se tocó en esta ronda. **CAMP-0** quedó
+como investigación en `docs/CAMP-0-campanas-meta-roi.md`; su único cambio
+recomendado —enlazar venta y lead— se hizo después, en CAMP-1 (arriba).
 
 Documentación corregida en esta consolidación, porque contradecía producción:
 el skill de infraestructura describía el VPS viejo de 1 núcleo en

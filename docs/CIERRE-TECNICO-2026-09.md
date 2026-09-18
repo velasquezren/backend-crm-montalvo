@@ -148,8 +148,11 @@ decenas de miles de filas.
 
 Producto, no infraestructura. Lo técnico está cerrado.
 
-1. Decidir sobre **CAMP-0** (campañas de Meta y ROI): el diagnóstico está hecho
-   en `docs/CAMP-0-campanas-meta-roi.md`, falta decidir si se construye.
+1. **CAMP-0 decidido: no se construye el módulo todavía.** Su único cambio
+   recomendado —enlazar venta y lead— ya está hecho en
+   `docs/CAMP-1-atribucion-venta-lead.md`. Volver a medir la cobertura de
+   ingresos en 4-6 semanas; el umbral para reabrirlo es 60 % y 30 ventas
+   atribuidas.
 2. Si alguna vez se quiere cerrar el punto 2 de la deuda, hace falta **una cuenta
    de prueba** para medir el waterfall autenticado real.
 3. Agenda A6/A7 y lo demás del backlog de producto.
