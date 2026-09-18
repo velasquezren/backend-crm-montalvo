@@ -1,7 +1,7 @@
 import { MemoriaAgenteService } from '../memoria-agente/memoria-agente.service';
 import { whereAccesoConversacion as whereVisibilidad, SELECT_LINEA } from './acceso-conversacion';
 import { LineasWhatsappService } from '../lineas-whatsapp/lineas-whatsapp.service';
-import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Prisma, Rol, TipoMensaje } from '../../prisma/prisma-client';
 
 import { CacheMemoria } from '../../common/cache/cache-memoria';
@@ -782,8 +782,25 @@ export class ConversacionesService {
    * Devuelve `null` si el error no es el choque de `clientMessageId`: cualquier
    * otro fallo tiene que seguir subiendo tal cual. Confundirlos convertiría un
    * error real en un "ya estaba enviado", que es la peor mentira posible aquí.
+   *
+   * **La fila recuperada tiene que ser de ESTA conversación.** El índice único
+   * es de toda la tabla, no por chat, así que el P2002 rebota igual venga de
+   * donde venga; sin esta comprobación, un POST al chat de una paciente con una
+   * clave ya usada en el de otra respondía con el mensaje de la primera —su
+   * texto, su id y su conversación— y el envío que se pedía no salía nunca, sin
+   * error y sin rastro. Dos daños en el mismo camino: contenido cruzando entre
+   * pacientes y un mensaje tragado que la agente ve como enviado.
+   *
+   * La respuesta correcta a ese cruce no es devolver la fila ajena ni crear
+   * otra con la misma clave —el índice lo impide—, sino declarar el conflicto
+   * sin contar nada del chat original: quien pregunta no tiene por qué
+   * enterarse de que existe, ni de a quién pertenece.
    */
-  private async recuperarEnvioDuplicado(error: unknown, clientMessageId?: string) {
+  private async recuperarEnvioDuplicado(
+    error: unknown,
+    conversacionId: string,
+    clientMessageId?: string,
+  ) {
     if (!clientMessageId) return null;
     if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2002') return null;
 
@@ -792,7 +809,19 @@ export class ConversacionesService {
     /* La otra petición ya la creó: para cuando el índice rebotó, la fila
        existe. Si aun así no aparece, el error no era lo que parecía y se
        devuelve null para que suba. */
-    return this.prisma.mensaje.findUnique({ where: { clientMessageId } });
+    const yaCreado = await this.prisma.mensaje.findUnique({ where: { clientMessageId } });
+    if (!yaCreado) return null;
+
+    if (yaCreado.conversacionId !== conversacionId) {
+      this.logger.warn(
+        `clientMessageId reutilizado entre conversaciones: la clave del envío a ${conversacionId} ya pertenece a otro mensaje`,
+      );
+      throw new ConflictException(
+        'Esta clave de envío ya pertenece a otro mensaje. Vuelve a enviarlo como un mensaje nuevo.',
+      );
+    }
+
+    return yaCreado;
   }
 
   async enviarMensaje(
@@ -840,7 +869,7 @@ export class ConversacionesService {
     try {
       [mensaje] = await this.crearMensajeSaliente(conversacionId, contenido, agenteId, adjunto, clientMessageId);
     } catch (error) {
-      const yaCreado = await this.recuperarEnvioDuplicado(error, clientMessageId);
+      const yaCreado = await this.recuperarEnvioDuplicado(error, conversacionId, clientMessageId);
       if (!yaCreado) throw error;
 
       /*
