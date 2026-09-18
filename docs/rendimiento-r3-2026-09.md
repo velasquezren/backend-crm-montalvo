@@ -455,3 +455,134 @@ abre cada chat. Un viaje extra de ~204 ms, serializado antes del GET.
 
 Sigue vetado, por falta de evidencia: Redis, cluster de Node, tuning de
 PostgreSQL, cambio de VPS y mega-endpoints.
+
+---
+
+## 18/09/2026 (tarde) · investigación sin sesión · TRES HIPÓTESIS REFUTADAS
+
+Esta ronda no implementa nada. Mide, y lo que encuentra es que **dos de los tres
+candidatos que parecían prometedores ya están resueltos en el código**, y que el
+tercero no está donde se pensaba.
+
+R3.3 (baseline autenticado) y R3.4 (waterfall de apertura) siguen **pendientes**:
+necesitan una cuenta de prueba que todavía no está disponible.
+
+### Corrección al diagnóstico de CORS
+
+Se corrige lo que decía la tabla de «Refutado» de la fase anterior, que era
+demasiado optimista:
+
+- **La caché del preflight es por URL concreta.** `/conversaciones/A` y
+  `/conversaciones/B` **no** comparten entrada. Como cada conversación es una URL
+  distinta, abrir un chat por primera vez paga su propio `OPTIONS`.
+- **`Access-Control-Max-Age: 86400` no significa 24 h reales.** Chromium moderno
+  aplica un tope interno de aproximadamente **7200 s** (2 h), así que la
+  cabecera pide un día y el navegador concede dos horas. No hay que cambiar la
+  cabecera; hay que dejar de contar con las 24 h.
+
+Queda confirmado en el log que una apertura real dispara cuatro peticiones:
+`OPTIONS /:id`, `GET /:id`, `OPTIONS /:id/leido`, `POST /:id/leido`.
+
+### R3.6 · marcar leído — YA DESACOPLADO, no tocar
+
+Las tres llamadas a `marcarLeido` salen con `void … .catch(() => {})`:
+
+```
+conversaciones.page.ts:122   aviso de socket
+conversaciones.page.ts:156   sincronización con la ruta (la apertura)
+composer:175                 indicador "escribiendo…"
+```
+
+**Nadie la espera.** El detalle llega por su propio `httpResource`, así que el
+hilo, el compositor y los mensajes no dependen de ella. El log lo confirma: en
+una apertura real el `POST /:id/leido` y el `GET /:id` salen **en el mismo
+segundo**, en paralelo.
+
+No hay nada que arreglar. Se documenta para que nadie lo "optimice" otra vez.
+
+### R3.7 · plantillas de Meta — YA CACHEADO, candidato refutado
+
+La caché que se iba a proponer **ya existe**:
+`cachePlantillas = new CacheMemoria<PlantillaResumen[]>({ ttlMs: 3_600_000 })`,
+una hora, con clave por línea y `obtenerAunqueVencido()` como respaldo si Meta
+falla. Es justo el diseño que se habría pedido: TTL corto, por línea, sin servir
+stale eternamente salvo ante error.
+
+Cuándo se pide, medido en el log: **al cargar el detalle de una conversación**
+—`plantillasWhatsApp` depende de `lineaSeleccionadaId`, que sale de
+`detalleActual()`— y **no** al abrir el selector. Frecuencia real hoy: **4
+llamadas HTTP frente a 22 aperturas**, y **3 de las 4 devolvieron 304**.
+
+Los 278 ms solo se pagan cuando la caché de una hora vence. Nada lo espera: el
+valor solo lo consume el modal de plantillas.
+
+**Prioridad: baja.** No está en el camino crítico del inbox y ya tiene caché.
+
+### R3.8 · el inbox de 89 ms — NO es PostgreSQL
+
+`EXPLAIN (ANALYZE, BUFFERS)` contra producción (558 conversaciones, 4.139
+mensajes, 15.838 clientes). Todo lectura:
+
+| Consulta | Ejecución | Plan |
+| --- | ---: | --- |
+| Página del inbox (50 filas, orden `updatedAt`) | **0,27 ms** | Index Scan Backward `Conversacion_updatedAt_idx` |
+| `count(*)` total | 0,15 ms | Seq Scan, 558 filas, 18 buffers |
+| `count(*)` sin asignar | 0,24 ms | Seq Scan con filtro |
+| Último mensaje por conversación (`take: 1`) | **1,16 ms** | Nested Loop + `Mensaje_conversacionId_createdAt_idx` |
+| No leídos por conversación (`_count`) | **0,65 ms** | Index **Only** Scan `Mensaje_noLeidos_idx` |
+
+**Todo el trabajo de base del inbox son menos de 5 ms**, con todos los buffers en
+caché y los índices exactos que hacen falta. Los 89 ms del endpoint son ~85 ms
+que **no** son SQL.
+
+Dónde están, entonces: en Prisma y en los viajes Node↔Postgres. El proyecto usa
+la estrategia de carga por defecto, o sea **una consulta por relación**, y
+`SELECT_INBOX` tiene cinco (`linea`, `cliente`, `cliente.agente`, `agente`,
+`mensajes`) más el `_count`. Sumando los cinco `count` de `contadoresInbox`, el
+endpoint hace del orden de **diez a doce idas y vueltas** al motor, en **dos
+transacciones que además van en serie** —`contadoresInbox` se espera *después*
+del `$transaction` de la página, y no depende de él—.
+
+**Conclusión, y es importante para no perder el tiempo:** añadir índices aquí no
+serviría de nada. Los que hay ya resuelven todo en microsegundos. Lo que se
+podría recortar son round trips de Prisma, y eso son dos cambios pequeños:
+fundir las dos transacciones en una, y sustituir los cuatro `count` por una sola
+consulta agregada con `FILTER`. Estimación conservadora: de 10-12 viajes a 6-7.
+
+**No se implementa todavía**: falta medir el endpoint completo con sesión para
+poder poner un antes y un después de verdad, que es lo que exige el método.
+
+### R3.9 · login de 194 ms — anotado, sin prioridad
+
+`auth.service.ts:3` importa **`bcryptjs`**, la implementación en JavaScript puro,
+no el binding nativo. Es varias veces más lenta que `bcrypt` nativo, y eso
+explica la cifra. No es un bug: es una elección de portabilidad, y comparar el
+hash es trabajo deliberado.
+
+Login ocurre un puñado de veces al día. **No compite** con algo que las agentes
+hacen cientos de veces. Queda anotado y nada más.
+
+### Ranking por impacto real
+
+`impacto = frecuencia × ahorro × importancia UX`
+
+| Candidato | Frecuencia | Coste | ¿Camino crítico? | Ahorro posible | Complejidad | Veredicto |
+| --- | --- | ---: | --- | ---: | --- | --- |
+| **Preflight al abrir conversación** | cada chat nuevo, cada ~2 h | ~204 ms | **sí**, serializado antes del GET | ~204 ms por apertura | media | **pendiente de medir (R3.4)** |
+| **Inbox: round trips de Prisma** | cada carga y cada filtro | 89 ms (85 ms no-SQL) | sí | ~40-50 ms | baja | **candidato real** |
+| Plantillas de Meta | 4/día, 3 de 4 en 304 | 278 ms en fallo de caché | **no** | ~0 | — | **refutado: ya cacheado** |
+| Marcar leído | cada apertura | 32 ms | **no**, paralelo | 0 | — | **refutado: ya desacoplado** |
+| Login (bcryptjs) | pocas/día | 194 ms | no | ~150 ms | media | descartado por frecuencia |
+
+La hipótesis de la ronda anterior se mantiene **en parte**: los round trips
+siguen primero, pero el segundo puesto no es «el inbox» en el sentido de la base
+de datos —que está impecable— sino el número de viajes que Prisma hace para
+armarlo. Y los puestos 3 y 4 se caen: ya estaban resueltos.
+
+### Lo que falta para seguir
+
+1. **Cuenta de prueba** para R3.3 (waterfall autenticado p50/p95) y R3.4
+   (apertura de conversación con preflights cronometrados). Sin ella solo se ve
+   el 401.
+2. Con esa medición, decidir entre el preflight y los round trips del inbox, y
+   hacer **uno solo**, con antes/después.
