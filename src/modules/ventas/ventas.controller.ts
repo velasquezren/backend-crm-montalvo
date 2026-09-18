@@ -15,6 +15,7 @@ import { CurrentUser, UsuarioJwt } from '../../common/decorators/current-user.de
 import { Roles } from '../../common/decorators/roles.decorator';
 import { ArchivoSubido } from './archivo-subido';
 import { CambiarEstadoDto } from './dto/cambiar-estado.dto';
+import { CorregirOrigenDto } from './dto/corregir-origen.dto';
 import { CreateVentaDto } from './dto/create-venta.dto';
 import { QueryVentaDto } from './dto/query-venta.dto';
 import { CatalogoClinicoService } from '../planilla-comisiones/catalogo-clinico.service';
@@ -70,5 +71,26 @@ export class VentasController {
     @CurrentUser() usuario: UsuarioJwt,
   ) {
     return this.ventasService.cambiarEstado(id, dto.estado, usuario.sub, dto.motivoPerdida);
+  }
+
+  /**
+   * Corregir de qué lead vino una venta ya registrada — CAMP-1.
+   *
+   * Endpoint específico y no un `PATCH /ventas/:id` general: lo único que hace
+   * falta corregir es la atribución. Un CRUD genérico sobre Venta abriría a
+   * edición el importe, el estado y el agente, que es justo lo que RF-12
+   * protege. `leadId: null` quita la atribución.
+   *
+   * Sin `@Roles`: el guard global exige AGENTE, el mismo listón que registrar
+   * la venta —quien pudo equivocarse puede corregirse—, y `alcanceAgente` la
+   * limita a sus propias ventas. RECEPCION no llega.
+   */
+  @Patch(':id/origen')
+  corregirOrigen(
+    @Param('id') id: string,
+    @Body() dto: CorregirOrigenDto,
+    @CurrentUser() usuario: UsuarioJwt,
+  ) {
+    return this.ventasService.corregirOrigen(id, dto, usuario.sub, alcanceAgente(usuario));
   }
 }

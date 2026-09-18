@@ -8,6 +8,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { ClientesService } from '../clientes/clientes.service';
 import { LeadsService } from '../leads/leads.service';
 import { ArchivoSubido } from './archivo-subido';
+import { CorregirOrigenDto } from './dto/corregir-origen.dto';
 import { CreateVentaDto } from './dto/create-venta.dto';
 import { QueryVentaDto } from './dto/query-venta.dto';
 import { terminoBusqueda } from '../../common/dto/busqueda';
@@ -300,5 +301,98 @@ export class VentasService {
 
     const comprobanteUrl = actualizada.comprobanteKey ? await this.firmarComprobante(actualizada.comprobanteKey) : null;
     return { ...actualizada, comprobanteUrl };
+  }
+
+  /**
+   * Corregir el lead de origen de una venta ya registrada — CAMP-1.
+   *
+   * Desde CAMP-1 `Venta.leadId` es dato de atribución: alimenta
+   * `Venta → Lead → anuncioId`, que es lo que dirá de qué anuncio vino el
+   * dinero. Un origen mal elegido entre varios leads no puede quedar sin más
+   * arreglo que un UPDATE a mano en la base.
+   *
+   * **Solo toca `Venta.leadId`. A propósito no vuelve a correr
+   * `marcarConvertidos`.** Esa función cierra leads, y rehacerla aquí
+   * reescribiría la historia del embudo: pondría en CONVERTIDO el lead nuevo
+   * —con su fecha de hoy, no la de la venta— y dejaría el anterior cerrado sin
+   * venta que lo respalde, porque no existe la operación inversa. El estado de
+   * un lead cuenta lo que pasó cuando pasó; la atribución cuenta de dónde vino
+   * el dinero. Corregir lo segundo no es motivo para falsear lo primero.
+   * Consecuencia conocida y aceptada: tras una corrección, el lead viejo puede
+   * quedar CONVERTIDO sin venta asociada. Está documentado en
+   * `docs/CAMP-1-atribucion-venta-lead.md`.
+   *
+   * Alcance: una agente corrige solo sus ventas; de ADMIN para arriba, todas.
+   * Una venta ajena responde 404 —no 403— igual que el resto del módulo: que un
+   * id exista no es información que deba filtrarse.
+   */
+  async corregirOrigen(
+    id: string,
+    dto: CorregirOrigenDto,
+    usuarioId: string,
+    soloAgenteId?: string,
+  ) {
+    const venta = await this.prisma.venta.findUnique({
+      where: { id },
+      select: { id: true, clienteId: true, agenteId: true, leadId: true },
+    });
+    if (!venta || (soloAgenteId && venta.agenteId !== soloAgenteId)) {
+      throw new NotFoundException(`Venta ${id} no encontrada`);
+    }
+
+    /* Mismo criterio que `create`, y mismo mensaje: no se dice si el lead no
+       existe o si es de otra paciente, porque distinguirlo permitiría sondear
+       qué ids hay en la base. */
+    if (dto.leadId) {
+      const lead = await this.prisma.lead.findUnique({
+        where: { id: dto.leadId },
+        select: { id: true, clienteId: true },
+      });
+      if (!lead || lead.clienteId !== venta.clienteId) {
+        throw new BadRequestException('El lead indicado no corresponde a este cliente.');
+      }
+    }
+
+    /* Sin cambio real no se escribe: una entrada de bitácora que dice "de X a X"
+       es ruido para quien la lea dentro de un año. */
+    if (venta.leadId === dto.leadId) {
+      return this.detalleConComprobante(id);
+    }
+
+    const actualizada = await this.prisma.venta.update({
+      where: { id },
+      data: { leadId: dto.leadId },
+      include: {
+        cliente: { select: { id: true, nombre: true, telefono: true, pac: true } },
+        agente: { select: { id: true, nombre: true } },
+        lead: { select: { id: true, origen: true, anuncioId: true } },
+      },
+    });
+
+    await this.audit.registrar('Venta', id, 'CAMBIO_ORIGEN', usuarioId, {
+      de: venta.leadId,
+      a: dto.leadId,
+    });
+
+    const comprobanteUrl = actualizada.comprobanteKey
+      ? await this.firmarComprobante(actualizada.comprobanteKey)
+      : null;
+    return { ...actualizada, comprobanteUrl };
+  }
+
+  /** La venta con la misma forma que devuelve una corrección, sin escribir nada. */
+  private async detalleConComprobante(id: string) {
+    const venta = await this.prisma.venta.findUniqueOrThrow({
+      where: { id },
+      include: {
+        cliente: { select: { id: true, nombre: true, telefono: true, pac: true } },
+        agente: { select: { id: true, nombre: true } },
+        lead: { select: { id: true, origen: true, anuncioId: true } },
+      },
+    });
+    const comprobanteUrl = venta.comprobanteKey
+      ? await this.firmarComprobante(venta.comprobanteKey)
+      : null;
+    return { ...venta, comprobanteUrl };
   }
 }

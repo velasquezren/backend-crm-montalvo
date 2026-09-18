@@ -1,4 +1,4 @@
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 
 import { AuditService } from '../../common/audit/audit.service';
 import { R2Service } from '../../common/storage/r2.service';
@@ -289,6 +289,216 @@ describe('VentasService contra Postgres real', () => {
 
       const recuperada = await service.cambiarEstado(venta.id, 'GANADA', agenteId);
       expect(recuperada.motivoPerdida).toBeNull();
+    });
+  });
+
+  /**
+   * Corregir la atribución de una venta ya registrada — CAMP-1.
+   *
+   * Existe porque desde CAMP-1 `Venta.leadId` decide de qué anuncio se dirá que
+   * vino el dinero, y equivocarse entre dos leads no puede costar un UPDATE a
+   * mano en producción. La superficie es mínima a propósito: cambia el origen y
+   * nada más.
+   */
+  describe('corregir el lead de origen de una venta existente', () => {
+    it('1 · asigna el lead a una venta que no tenía origen', async () => {
+      const venta = await service.create(ventaBase(), agenteId);
+      expect(venta.leadId).toBeNull();
+      const lead = await prisma.lead.create({
+        data: { clienteId, origen: 'FACEBOOK_LEAD_AD', estado: 'NUEVO' },
+      });
+
+      const corregida = await service.corregirOrigen(venta.id, { leadId: lead.id }, agenteId);
+
+      expect(corregida.leadId).toBe(lead.id);
+      expect(corregida.lead?.origen).toBe('FACEBOOK_LEAD_AD');
+    });
+
+    it('2 · reemplaza el lead por otro del mismo cliente', async () => {
+      const elegidoMal = await prisma.lead.create({
+        data: { clienteId, origen: 'INSTAGRAM_MENSAJE', estado: 'NUEVO' },
+      });
+      const elCorrecto = await prisma.lead.create({
+        data: { clienteId, origen: 'FACEBOOK_LEAD_AD', estado: 'NUEVO' },
+      });
+      const venta = await service.create({ ...ventaBase(), leadId: elegidoMal.id }, agenteId);
+
+      const corregida = await service.corregirOrigen(venta.id, { leadId: elCorrecto.id }, agenteId);
+
+      expect(corregida.leadId).toBe(elCorrecto.id);
+    });
+
+    it('3 · quita la atribución con null', async () => {
+      const lead = await prisma.lead.create({
+        data: { clienteId, origen: 'PRESENCIAL', estado: 'NUEVO' },
+      });
+      const venta = await service.create({ ...ventaBase(), leadId: lead.id }, agenteId);
+
+      const corregida = await service.corregirOrigen(venta.id, { leadId: null }, agenteId);
+
+      expect(corregida.leadId).toBeNull();
+      /* Quitar la atribución es una respuesta válida —"no se sabe de dónde
+         vino"—, no un borrado a medias: la venta sigue completa. */
+      expect(Number(corregida.monto)).toBe(1200);
+    });
+
+    it('4 · un lead de OTRA paciente responde 400 y no dice nada de ella', async () => {
+      const otraPaciente = await prisma.cliente.create({
+        data: { nombre: 'Otra paciente', telefono: '+59170099998' },
+      });
+      const leadAjeno = await prisma.lead.create({
+        data: { clienteId: otraPaciente.id, origen: 'WHATSAPP_DIRECTO', estado: 'NUEVO' },
+      });
+      const venta = await service.create(ventaBase(), agenteId);
+
+      await expect(
+        service.corregirOrigen(venta.id, { leadId: leadAjeno.id }, agenteId),
+      ).rejects.toThrow(BadRequestException);
+
+      /* Mismo mensaje que para un lead inexistente: distinguirlos permitiría
+         sondear qué ids hay en la base. */
+      await expect(
+        service.corregirOrigen(venta.id, { leadId: leadAjeno.id }, agenteId),
+      ).rejects.toThrow('El lead indicado no corresponde a este cliente.');
+      expect((await prisma.venta.findUniqueOrThrow({ where: { id: venta.id } })).leadId).toBeNull();
+    });
+
+    it('5 · una venta inexistente responde 404', async () => {
+      await expect(
+        service.corregirOrigen('00000000-0000-4000-8000-00000000dead', { leadId: null }, agenteId),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('5b · la venta de otra agente responde 404, no 403', async () => {
+      const lead = await prisma.lead.create({
+        data: { clienteId, origen: 'WHATSAPP_DIRECTO', estado: 'NUEVO' },
+      });
+      const venta = await service.create(ventaBase(), agenteId);
+
+      /* `soloAgenteId` es lo que devuelve `alcanceAgente` para una AGENTE. Que
+         un id exista tampoco es información que deba filtrarse, así que 404 y
+         no 403 — mismo criterio que ClientesService.findOne. */
+      await expect(
+        service.corregirOrigen(venta.id, { leadId: lead.id }, otraAgenteId, otraAgenteId),
+      ).rejects.toThrow(NotFoundException);
+      expect((await prisma.venta.findUniqueOrThrow({ where: { id: venta.id } })).leadId).toBeNull();
+    });
+
+    it('5c · un ADMIN (sin alcance) sí corrige la venta de otra agente', async () => {
+      const lead = await prisma.lead.create({
+        data: { clienteId, origen: 'WHATSAPP_DIRECTO', estado: 'NUEVO' },
+      });
+      const venta = await service.create(ventaBase(), agenteId);
+
+      const corregida = await service.corregirOrigen(venta.id, { leadId: lead.id }, otraAgenteId);
+
+      expect(corregida.leadId).toBe(lead.id);
+    });
+
+    it('6 · corregir NO crea otra venta', async () => {
+      const lead = await prisma.lead.create({
+        data: { clienteId, origen: 'WHATSAPP_DIRECTO', estado: 'NUEVO' },
+      });
+      const venta = await service.create(ventaBase(), agenteId);
+
+      await service.corregirOrigen(venta.id, { leadId: lead.id }, agenteId);
+      await service.corregirOrigen(venta.id, { leadId: null }, agenteId);
+
+      expect(await prisma.venta.count()).toBe(1);
+      expect((await prisma.venta.findFirstOrThrow()).id).toBe(venta.id);
+    });
+
+    it('7 · corregir NO altera importe, estado, agente ni comprobante', async () => {
+      const lead = await prisma.lead.create({
+        data: { clienteId, origen: 'WHATSAPP_DIRECTO', estado: 'NUEVO' },
+      });
+      const venta = await service.create(
+        { ...ventaBase(), estado: 'PERDIDA', motivoPerdida: 'precio', comprobanteKey: `comprobantes/${agenteId}/r.jpg` },
+        agenteId,
+      );
+
+      const corregida = await service.corregirOrigen(venta.id, { leadId: lead.id }, agenteId);
+
+      expect(Number(corregida.monto)).toBe(Number(venta.monto));
+      expect(corregida.estado).toBe('PERDIDA');
+      expect(corregida.motivoPerdida).toBe('precio');
+      expect(corregida.agenteId).toBe(agenteId);
+      expect(corregida.comprobanteKey).toBe(venta.comprobanteKey);
+    });
+
+    it('8 · tras corregir, la trazabilidad hasta el anuncio apunta al lead nuevo', async () => {
+      const anuncioViejo = await prisma.lead.create({
+        data: { clienteId, origen: 'INSTAGRAM_MENSAJE', estado: 'NUEVO', anuncioId: '111111111' },
+      });
+      const anuncioBueno = await prisma.lead.create({
+        data: { clienteId, origen: 'FACEBOOK_LEAD_AD', estado: 'NUEVO', anuncioId: '222222222' },
+      });
+      const venta = await service.create({ ...ventaBase(), leadId: anuncioViejo.id }, agenteId);
+
+      await service.corregirOrigen(venta.id, { leadId: anuncioBueno.id }, agenteId);
+
+      const trazada = await prisma.venta.findUniqueOrThrow({
+        where: { id: venta.id },
+        select: { lead: { select: { anuncioId: true } } },
+      });
+      expect(trazada.lead?.anuncioId).toBe('222222222');
+    });
+
+    it('9 · NO rehace la historia del embudo: los estados de los leads no se tocan', async () => {
+      const elegidoMal = await prisma.lead.create({
+        data: { clienteId, origen: 'INSTAGRAM_MENSAJE', estado: 'NUEVO' },
+      });
+      const elCorrecto = await prisma.lead.create({
+        data: { clienteId, origen: 'FACEBOOK_LEAD_AD', estado: 'NUEVO' },
+      });
+      /* Crear la venta GANADA cierra el lead citado vía `marcarConvertidos`. */
+      const venta = await service.create({ ...ventaBase(), leadId: elegidoMal.id }, agenteId);
+      expect((await prisma.lead.findUniqueOrThrow({ where: { id: elegidoMal.id } })).estado).toBe(
+        'CONVERTIDO',
+      );
+
+      await service.corregirOrigen(venta.id, { leadId: elCorrecto.id }, agenteId);
+
+      /* Lo importante es lo que NO pasa. Volver a correr `marcarConvertidos`
+         pondría CONVERTIDO el lead nuevo con la fecha de hoy y no existe la
+         operación inversa para reabrir el viejo, así que la corrección
+         inventaría un embudo que nunca ocurrió. El coste aceptado es este:
+         `elegidoMal` queda CONVERTIDO sin venta que lo respalde. */
+      expect((await prisma.lead.findUniqueOrThrow({ where: { id: elCorrecto.id } })).estado).toBe(
+        'NUEVO',
+      );
+      expect((await prisma.lead.findUniqueOrThrow({ where: { id: elegidoMal.id } })).estado).toBe(
+        'CONVERTIDO',
+      );
+    });
+
+    it('10 · la corrección queda en la bitácora existente', async () => {
+      const lead = await prisma.lead.create({
+        data: { clienteId, origen: 'WHATSAPP_DIRECTO', estado: 'NUEVO' },
+      });
+      const venta = await service.create(ventaBase(), agenteId);
+
+      await service.corregirOrigen(venta.id, { leadId: lead.id }, agenteId);
+
+      const entrada = await prisma.auditLog.findFirstOrThrow({
+        where: { entidad: 'Venta', entidadId: venta.id, accion: 'CAMBIO_ORIGEN' },
+      });
+      expect(entrada.usuarioId).toBe(agenteId);
+      expect(entrada.cambios).toEqual({ de: null, a: lead.id });
+    });
+
+    it('11 · corregir al mismo lead no escribe una entrada de bitácora vacía', async () => {
+      const lead = await prisma.lead.create({
+        data: { clienteId, origen: 'WHATSAPP_DIRECTO', estado: 'NUEVO' },
+      });
+      const venta = await service.create({ ...ventaBase(), leadId: lead.id }, agenteId);
+
+      const igual = await service.corregirOrigen(venta.id, { leadId: lead.id }, agenteId);
+
+      expect(igual.leadId).toBe(lead.id);
+      expect(
+        await prisma.auditLog.count({ where: { entidadId: venta.id, accion: 'CAMBIO_ORIGEN' } }),
+      ).toBe(0);
     });
   });
 });

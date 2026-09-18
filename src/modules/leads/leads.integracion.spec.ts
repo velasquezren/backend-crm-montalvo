@@ -160,3 +160,24 @@ describe('LeadsService.asignarAgente — delega en ClientesService y audita', ()
     ).rejects.toThrow('no encontrado');
   });
 });
+
+describe('GET /leads expone el anuncio de Meta', () => {
+  it('findAll devuelve anuncioId, no solo las relaciones', async () => {
+    /* La corrección de atribución de CAMP-1 lo usa para distinguir dos leads
+       del mismo canal y el mismo día, y el modelo del frontend lo declara.
+       Que llegue depende de que `findAll` siga usando `include` (que añade
+       relaciones y conserva todos los escalares) y no un `select`, que dejaría
+       el campo fuera en silencio y sin romper ningún tipo. */
+    const cliente = await prisma.cliente.create({
+      data: { nombre: 'Paciente de campaña', telefono: '+59179000777' },
+    });
+    await prisma.lead.create({
+      data: { clienteId: cliente.id, origen: 'INSTAGRAM_MENSAJE', anuncioId: '120299887766' },
+    });
+
+    const pagina = await service.findAll({ clienteId: cliente.id });
+
+    expect(pagina.datos).toHaveLength(1);
+    expect(pagina.datos[0].anuncioId).toBe('120299887766');
+  });
+});
