@@ -99,7 +99,7 @@ backend, todas idénticas.
 
 ## Deuda técnica real
 
-Cinco, todas comprobadas. No hay más.
+Cinco, todas reverificadas en la revisión final del 18/09. No hay más.
 
 1. **`take: 1` no limita por conversación.** Prisma emite el `IN` de 50
    conversaciones con `ORDER BY` pero **sin `LIMIT`**, trae los ~328 mensajes de
@@ -121,11 +121,20 @@ Cinco, todas comprobadas. No hay más.
    PWA si una respuesta trae esa cabecera; **el backend no la emite nunca**.
    Sirve para forzar actualización ante un breaking change, pero hoy nadie la
    dispara.
-5. **La PWA no se auto-recarga.** Hay indicador permanente y chequeo al volver
-   el foco, pero adoptar la versión nueva exige una navegación. Una agente que
-   no recarga sigue con código viejo — costó dos diagnósticos el 17/09. No se
-   automatizó porque no se puede distinguir un momento seguro (borrador, adjunto
-   preparado, upload en curso, globo `ENVIANDO`).
+5. **`Lead.estado` no se reconcilia al corregir `Venta.leadId`.** Desde CAMP-1
+   se puede corregir el origen de una venta; esa corrección **no** vuelve a
+   correr `marcarConvertidos`, así que el lead mal elegido queda `CONVERTIDO`
+   sin venta que lo respalde. Es deliberado —rehacerlo pondría el lead nuevo en
+   CONVERTIDO con la fecha de hoy y no existe operación inversa para reabrir el
+   viejo—, pero hay que saberlo al leer el embudo. **La fuente de verdad de la
+   atribución comercial es `Venta.leadId`, nunca `Lead.estado`.** Reconciliar
+   exigiría antes una operación de reapertura auditada.
+
+**Lo que dejó de contar como deuda:** *la PWA no se auto-recarga*. Hay indicador
+permanente y chequeo al volver el foco, y no automatizarlo es una **decisión con
+motivo escrito** —no se puede distinguir un momento seguro: borrador a medias,
+adjunto preparado, upload en curso, globo `ENVIANDO`—, no un pendiente. Sigue
+siendo el comportamiento correcto; adoptar la versión nueva exige una navegación.
 
 ## Escalabilidad
 

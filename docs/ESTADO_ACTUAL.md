@@ -1,5 +1,23 @@
 # Estado actual
 
+## 18 de septiembre de 2026 (cierre de etapa) · REVISIÓN FINAL ARCHIVO POR ARCHIVO
+
+745 archivos versionados recorridos con `git ls-files` en los dos repos.
+Resultado e inventario en
+[`docs/REVISION-FINAL-ARCHIVOS-2026-09.md`](REVISION-FINAL-ARCHIVOS-2026-09.md).
+
+**3 archivos corregidos, 0 eliminados**, y los tres son documentación: CAMP-0
+presentaba sus porcentajes sin decir que son el estado anterior a CAMP-1 (el
+1,6 % no es cobertura esperada), daba por no implementados dos cambios que ya lo
+están, y el skill `crm-leads` definía `CONVERTIDO` de forma que llevaba a usar
+`Lead.estado` como fuente de atribución. **La fuente de verdad de la atribución
+comercial es `Venta.leadId`, nunca `Lead.estado`.**
+
+Sin cambio de código productivo, así que **no hubo redespliegue**. Cero
+instrumentación R3, cero `console.log`, cero TODO/FIXME reales, cero bombas de
+fecha en los 104 ficheros de prueba, cero archivos muertos (cuatro candidatos
+investigados, los cuatro vivos). Deuda técnica: **cinco puntos**, reverificados.
+
 ## 18 de septiembre de 2026 · CAMP-1 — atribución de venta cerrada
 
 `Venta.leadId` se puebla desde la interfaz. Detalle y propuesta de backfill en

@@ -1185,6 +1185,15 @@ CAMP-6 dejó todos los agregados en **N/D** porque aquella sesión no tenía lec
 de la base. Esta sí. Todo lo que sigue son consultas `SELECT` contra producción,
 sin nombres, teléfonos ni información clínica.
 
+> **Todo este bloque es el estado HISTÓRICO, medido la mañana del 18/09 ANTES de
+> desplegar CAMP-1.** Retrata una base en la que `Venta.leadId` estaba vacío en
+> las 14 ventas, así que sus porcentajes son el punto de partida, **no la
+> cobertura esperada**. En particular, el **1,6 % de ingresos atribuibles no es
+> una previsión**: mide ventas registradas cuando todavía no había forma cómoda
+> de enlazarlas con su lead. La captura futura empieza en el deploy de CAMP-1
+> (backend `db0e758`, frontend `6f91dc2`) y se vuelve a medir en 4-6 semanas —
+> ver [`CAMP-1-atribucion-venta-lead.md`](CAMP-1-atribucion-venta-lead.md).
+
 ## COBERTURA REAL
 
 | Entidad | Total | Con `source_id` | % |
@@ -1334,7 +1343,13 @@ módulo se queda en `source_id` a secas.
 
 ## CAMBIOS MÍNIMOS
 
-Cinco, por orden de impacto. **Ninguno se implementa en esta ronda.**
+Cinco, por orden de impacto.
+
+> **Al cerrar CAMP-0 no se implementó ninguno.** Después sí: los puntos **1 y 4
+> están hechos y desplegados** en CAMP-1 (18/09/2026) — `Venta.leadId` se puebla
+> desde la interfaz y la ficha de venta permite corregir la atribución. Los
+> puntos 2, 3 y 5 siguen sin implementar, y el 5 sigue condicionado a que
+> aparezca una consulta productiva que lo necesite.
 
 1. **Enlazar la venta al lead.** `Venta.leadId` está vacío en las 14 ventas
    existentes, y es el único vínculo fuerte. Sin esto no hay atribución de
