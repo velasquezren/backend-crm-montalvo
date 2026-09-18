@@ -20,8 +20,11 @@ solo el lead que originó la venta.
 el grafo consistente pero no movería la cobertura de ingresos (Bs 400 de
 Bs 24.262), porque solo uno de esos leads tiene `anuncioId`.
 
-Límite conocido: no existe endpoint para corregir el lead de una venta ya
-registrada —solo `PATCH /ventas/:id/estado`—, y no se añadió.
+Se añadió `PATCH /ventas/:id/origen` para corregir la atribución de una venta ya
+registrada (`leadId: null` la quita). Solo toca `Venta.leadId`: **no** reejecuta
+`marcarConvertidos`, para no reescribir el embudo con fechas de hoy. Coste
+aceptado: tras una corrección el lead mal elegido queda CONVERTIDO sin venta.
+Auditado como `CAMBIO_ORIGEN` en la bitácora existente.
 
 ## 18 de septiembre de 2026 (cierre) · CONSOLIDACIÓN TÉCNICA CERRADA
 

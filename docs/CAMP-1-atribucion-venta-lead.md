@@ -97,10 +97,59 @@ pero no urge. Si se ejecuta, conviene guardar antes la lista de los 14 ids.
 Hay un efecto colateral menor: los 14 leads implicados ya están en `CONVERTIDO`,
 así que el `UPDATE` no los toca y no cambia ningún KPI de embudo.
 
-## Límite conocido
+## Corregir el origen de una venta ya registrada
 
-**No se puede corregir el lead de una venta ya registrada.** El módulo no tiene
-endpoint de edición —solo `PATCH /ventas/:id/estado`—, así que un origen mal
-elegido hoy solo se arregla en la base. Con la preselección puesta esto importa
-menos que antes, pero sigue siendo cierto y no se ha añadido el endpoint: sería
-superficie nueva que CAMP-1 no pedía.
+```
+PATCH /ventas/:id/origen     { "leadId": "<uuid>" | null }
+```
+
+Endpoint específico y no un `PATCH /ventas/:id` general **a propósito**: lo único
+que hace falta corregir es la atribución. Un CRUD genérico sobre `Venta` abriría
+a edición el importe, el estado y el agente, que es justo lo que protege RF-12.
+El `whitelist` del `ValidationPipe` descarta cualquier otro campo del cuerpo.
+
+`leadId: null` quita la atribución, y es un valor con significado —«esta venta no
+vino de ninguna campaña»—, no una ausencia. Por eso el DTO usa `@ValidateIf` y no
+`@IsOptional()`: un `PATCH {}` responde **400** en vez de borrar la atribución en
+silencio.
+
+**Validación.** Si `leadId` no es `null`, el lead debe existir y pertenecer al
+mismo cliente de la venta; si no, **400** con el mismo mensaje en ambos casos —
+distinguirlos permitiría sondear qué ids hay en la base, y no se filtra nada de
+la otra paciente.
+
+**Permisos.** Sin `@Roles`, así que rige el listón por defecto del guard
+(`AGENTE`) — el mismo que registrar la venta: quien pudo equivocarse puede
+corregirse. `alcanceAgente()` lo limita a las ventas propias; de ADMIN para
+arriba, todas. `RECEPCION` no llega. Una venta ajena responde **404**, no 403,
+igual que el resto del módulo.
+
+### Lo que NO hace: rehacer la historia del embudo
+
+La corrección toca `Venta.leadId` **y nada más**. No vuelve a llamar a
+`LeadsService.marcarConvertidos`, aunque crear la venta sí lo haga.
+
+El motivo: esa función cierra leads. Reejecutarla aquí pondría el lead nuevo en
+`CONVERTIDO` con la fecha de hoy —no la de la venta— y dejaría el anterior
+cerrado sin venta que lo respalde, porque **no existe la operación inversa** para
+reabrirlo. El estado de un lead cuenta lo que pasó cuando pasó; la atribución
+cuenta de dónde vino el dinero. Corregir lo segundo no es motivo para falsear lo
+primero.
+
+**Coste aceptado, y hay que saberlo al leer el embudo:** tras una corrección, el
+lead mal elegido queda en `CONVERTIDO` sin venta asociada. Reconciliar estados de
+lead queda **fuera de alcance de CAMP-1**, por decisión explícita. Si alguna vez
+se aborda, hace falta antes una operación de reapertura auditada.
+
+### Auditoría
+
+Usa el mecanismo que ya existía: `AuditService.registrar('Venta', id,
+'CAMBIO_ORIGEN', usuarioId, { de, a })`, la misma bitácora donde ya viven
+`CREADA` y `CAMBIO_ESTADO`. No se construyó nada nuevo. Una corrección que no
+cambia nada (mismo lead) **no** escribe entrada: «de X a X» es ruido para quien
+lea la bitácora dentro de un año.
+
+Límite heredado, no de CAMP-1: `AuditService.registrar` es *best-effort* —se
+traga su propio error para no tumbar la operación de negocio—, así que una
+bitácora caída no impide la corrección. Es el contrato de todo el módulo; los
+hechos financieros usan `registrarFinanciero()`, que sí es transaccional.
