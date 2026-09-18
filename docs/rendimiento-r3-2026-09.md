@@ -680,3 +680,98 @@ inbox**: no se sabe qué se estaría optimizando.
 | Plantillas de Meta | refutado: ya cacheado |
 | Marcar leído | refutado: ya desacoplado |
 | Login | descartado por frecuencia |
+
+---
+
+## 18/09/2026 (noche) · HUECO CERRADO · el cuello es la memoria del VPS
+
+Se instrumentó `GET /conversaciones` en producción, detrás de
+`R3_PROFILE_INBOX=1`, se midió, y **la instrumentación ya está retirada**. El
+código no conserva nada.
+
+### Reparto por fase, medido en producción
+
+Solo **n=2**: el tráfico real al inbox se secó durante la ventana (las agentes
+no lo estaban recargando) y sin cuenta de prueba no se podía generar tráfico
+autenticado. Con dos muestras no hay p50/p95 honestos, **pero las dos coinciden
+en lo que importa** y el reparto es inequívoco.
+
+| Fase | muestra 1 | muestra 2 |
+| --- | ---: | ---: |
+| `guards_ok` (CORS + guards + JWT) | 22,77 | 19,45 |
+| `controller_in` (pipes, validación del DTO) | 7,98 | 1,87 |
+| `service_in` | 0,28 | 0,02 |
+| `filtros` | 0,60 | 0,13 |
+| **`query_pagina`** (`$transaction` página + count) | **136,29** | **72,31** |
+| `transformacion` (`map` + `paginar`) | 0,47 | 0,18 |
+| **`contadores`** (`$transaction` con 4 counts) | **73,04** | **28,43** |
+| `controller_out` | 0,14 | 0,02 |
+| `handler_resuelto` | 0,13 | 0,09 |
+| `respuesta_escrita` (serialización + envío) | 6,33 | 3,08 |
+| **total** | **248,03** | **125,58** |
+
+Respondiendo a las cuatro opciones que había sobre la mesa:
+
+- **No** está antes del controlador (guards ~20 ms, y además el logger ni los
+  cuenta).
+- **No** está después del servicio: transformación 0,3 ms, serialización 3-6 ms.
+- **No** es un artefacto del logger, aunque conviene saber que **el logger no
+  mide la petición entera**: usa `Date.now()` (resolución de 1 ms) y su `tap`
+  dispara cuando el handler resuelve, así que sus 79 ms **excluyen los guards y
+  la escritura de la respuesta**.
+- **Sí** está dentro del servicio, y concretamente en los **dos bloques
+  `$transaction` de Prisma**: entre los dos se llevan el 84 % del total.
+
+### Y el SQL dentro de esos bloques son <5 ms
+
+Ya estaba medido con `EXPLAIN (ANALYZE, BUFFERS)` contra producción. Así que el
+tiempo NO es la base de datos: es lo que Prisma hace alrededor.
+
+Tampoco es ninguna de estas, todas descartadas con medición:
+
+| Hipótesis | Medición | Veredicto |
+| --- | --- | --- |
+| Conexiones nuevas en cada transacción | `pg_stat_activity` estable en 2, todas idle, durante 2 min | descartada |
+| Coste de abrir conexión | 14,5 ms p50 (máx 48) — y no se abren | descartada |
+| `BEGIN` + 6 consultas + `COMMIT` en sí | **2,9 ms** con pool caliente, con `pg` puro | descartada |
+| Lag del event loop | 1,15 ms p50 en un proceso ocioso del VPS | descartada |
+
+### LA CAUSA · el VPS es ~11× más lento en memoria, no en CPU
+
+El benchmark de CPU que se hizo antes daba **paridad** (198 ms en el Mac contra
+199 en el VPS) y llevó a descartar la máquina. **Medía lo que no importaba**: un
+bucle de enteros mide la ALU, y el trabajo de un ORM es asignar objetos, crear
+strings y darle trabajo al recolector de basura.
+
+Midiendo *eso*:
+
+```
+crear 60.000 objetos con strings y anidamiento, recorrerlos y serializar
+  Mac (Apple M2, LPDDR5)                         13 ms
+  VPS (Xeon E5-2697 v2 de 2013, DDR3)           142 ms     ~11×
+```
+
+Y encaja con todo lo demás: `findAll` medido en local con datos a escala de
+producción son **6,2 ms**; ×11 dan **~68 ms**, que es exactamente el orden de lo
+que reportan `query_pagina` + `contadores` y de la mediana de 79 ms del logger.
+
+**El cuello de `/conversaciones` es la materialización de filas de Prisma sobre
+una máquina cuya memoria es una década más vieja que su CPU aparente.**
+
+### Qué cambia esto en las prioridades
+
+1. **Índices: confirmado inútil.** Ya se sabía; ahora se sabe por qué.
+2. **Reducir viajes: menos atractivo de lo que parecía.** El coste no está en ir
+   y volver (2,9 ms por transacción con pool caliente) sino en convertir filas
+   en objetos.
+3. **Materializar MENOS filas: pasa a ser la palanca real.** Y ahí el defecto
+   del `take: 1` deja de ser deuda futura: hoy se traen **328 filas de mensajes
+   para pintar 50**, y en esta máquina cada objeto de más cuesta 11 veces lo que
+   costaría en una moderna. Sigue sin tocarse en esta ronda, como se acordó,
+   pero sube de prioridad con fundamento.
+
+### Lo que sigue sin medirse
+
+R3.3 y R3.4 siguen esperando la cuenta de prueba. Y el reparto por fase debería
+repetirse con n≥20 cuando haya tráfico o cuenta: dos muestras señalan bien la
+dirección, pero no son una distribución.
