@@ -1012,3 +1012,167 @@ ROI completo ni una implementación CAPI. Recomendación: fase 0; si la cobertur
 es insuficiente, corregir persistencia/cierre antes de presentar rankings de
 campañas. Ninguna evidencia obtenida permite recomendar pausar o aumentar
 presupuesto de una campaña concreta.
+
+---
+
+# Correcciones verificadas en código — 18 de septiembre de 2026
+
+**Origen de estas correcciones.** Salen de una segunda investigación en paralelo
+sobre las mismas siete áreas, pero **solo se incorpora lo que verifiqué yo mismo
+abriendo el código citado**. La verificación adversarial de esa investigación
+quedó **incompleta** (2 de ~42 veredictos, ambos confirmatorios) porque se cortó
+la sesión: nada de lo que sigue depende de ella. No se reinvestigó desde cero y no
+se repite lo que el informe ya tenía bien.
+
+| Tema | Informe inicial | Evidencia nueva | Conclusión corregida |
+| --- | --- | --- | --- |
+| `ctwa_clid` fuera del servidor | Se describe como dato que «se guarda y no se muestra» | `conversaciones.service.ts:518` y `clientes.service.ts:98,:246` seleccionan `datosExtra: true` | **Sí sale al navegador.** La UI no lo pinta, pero viaja en el payload |
+| Cruce PAC ↔ VentaImportada | «Recuperable de forma determinista» cuando el PAC coincide | `clientes.service.ts:305`: el alta por WhatsApp es `create({ data: { nombre, telefono } })` | **No disponible en general para pacientes captadas por Meta:** nacen sin PAC |
+| Línea comercial | Se cita la condición «línea comercial» | `schema.prisma:264`: `comercial Boolean @default(false)` | Una línea nueva **pierde la atribución en silencio** hasta que alguien la marque |
+| `OrigenLead` | Se enumeran tres valores | `schema.prisma:44-54`: nueve valores | Inventario incompleto; hay cuatro orígenes de comentario/mensaje que nada escribe |
+| Funnel conversación → lead | Se presenta como etapa del embudo | El primer mensaje entrante de una línea comercial crea lead siempre | **~100 % por construcción:** no es un KPI de calidad |
+| Índice sobre el JSON | No se menciona | No existe índice GIN ni equivalente sobre `Cliente.datosExtra` | Las consultas de fase 0 son seq scan sobre 15.000+ filas |
+| Fecha de inicio de la atribución | Se fecha la captura del clic en `7194843` (14/09) | La captura del referral nace el 14/08/2026 (`d46d6d7`) | Son **tres pisos**, no dos (ver timeline abajo) |
+
+## 1. El `clickId` sí sale al frontend
+
+Hay que separar dos cosas que el skill `crm-conversaciones` mezcla al decir que
+«se guarda y no se muestra»:
+
+- **Transporte: sí llega al navegador.** `campanaOrigen.clickId` viaja dentro de
+  `datosExtra`, y `datosExtra` se selecciona explícitamente en el detalle de la
+  conversación (`conversaciones.service.ts:518`) y en la ficha y el listado de
+  pacientes (`clientes.service.ts:98`, `:246`).
+- **Renderizado: la interfaz no lo pinta**, deliberadamente y con una prueba que
+  lo fija.
+
+Consecuencia para la sección de privacidad: **no es una fuga clínica grave** —no
+es un diagnóstico ni una conversación—, pero cualquier persona con acceso al
+endpoint o con las DevTools abiertas puede observarlo. **No debe afirmarse que el
+identificador de clic permanece exclusivamente del lado del servidor.**
+
+## 2. PAC: corrección que reduce la atribución histórica de ingresos
+
+Los pacientes creados desde WhatsApp se insertan con **nombre y teléfono, nada
+más** (`clientes.service.ts:305`). El `pac` pertenece a las fichas importadas o
+enriquecidas desde el maestro de FileMaker.
+
+Por tanto la vía `Cliente.pac ↔ VentaImportada.pac` es determinista **cuando ambos
+valores existen**, pero **no es una vía útil por defecto para las pacientes
+captadas originalmente por campañas de Meta**, porque esas altas nacen sin PAC.
+Solo se recupera cuando a esa ficha se le asigna después un PAC válido y ese PAC
+coincide con una fila importada.
+
+Súmese que el maestro de pacientes está importado **solo en torno al 29 %**. El
+efecto combinado es material: **reduce de forma importante la capacidad de
+atribuir ingresos históricos desde `VentaImportada`**, que es justamente donde
+vive el volumen real de dinero.
+
+## 3. `LineaWhatsapp.comercial` es `@default(false)`
+
+El procesamiento del referral está condicionado a que la línea sea comercial. Con
+el valor por defecto en `false`, **una línea nueva o mal configurada puede recibir
+tráfico publicitario y perder la atribución silenciosamente**: no se escribe
+`campanaOrigen`, no se crea la reserva de primer contacto y no queda log.
+
+Hay que distinguir **capacidad del schema** (el modelo lo soporta) de **cobertura
+real operacional** (depende de un flag que nace apagado).
+
+Mejora futura, **no para ahora**: una validación de configuración al dar de alta
+una línea, y observabilidad que avise de referrals descartados por este motivo.
+
+## 4. `OrigenLead`: nueve valores, no tres
+
+`schema.prisma:44-54`: `FACEBOOK_LEAD_AD`, `FACEBOOK_COMENTARIO`,
+`FACEBOOK_MENSAJE`, `INSTAGRAM_LEAD_AD`, `INSTAGRAM_COMENTARIO`,
+`INSTAGRAM_MENSAJE`, `WHATSAPP_DIRECTO`, `PRESENCIAL`, `IMPORTACION`.
+
+Los cuatro de comentario/mensaje **no los escribe nada hoy**. Un anuncio que
+termina en un DM o en WhatsApp sin referral se clasifica como `WHATSAPP_DIRECTO`;
+con referral, como `FACEBOOK_LEAD_AD` o `INSTAGRAM_LEAD_AD` según el heurístico de
+la URL, que son **los mismos valores que usa un formulario**.
+
+**No mezclar los dos conceptos:** `origen` es clasificación interna del lead;
+`referral.source_id` es la atribución publicitaria. Un lead con
+`origen = FACEBOOK_LEAD_AD` no demuestra que viniera de un formulario.
+
+## 5. El funnel conversación → lead no mide calidad
+
+Hoy el primer mensaje entrante de una línea comercial crea un lead **siempre**,
+haya anuncio o no. La conversión «conversación → lead» es por tanto **cercana al
+100 % por construcción** y no debe presentarse como KPI de calidad ni de
+conversión.
+
+Para marketing sirven las etapas que de verdad discriminan:
+
+```text
+conversaciones atribuidas → contacto efectivo → oportunidad/cita → venta
+```
+
+usando las que existan realmente en el modelo. **No inventar `CALIFICADO`**: ese
+estado no existe en `EstadoLead`.
+
+## 6. Índice sobre `Cliente.datosExtra`: no existe, y no se crea ahora
+
+No hay índice GIN ni ningún otro índice específico sobre `datosExtra`, así que las
+consultas exploratorias sobre `campanaOrigen` recorren secuencialmente más de
+15.000 filas.
+
+**Para CAMP-0 no se crea ningún índice.** Evitar campañas de consultas repetidas
+contra producción, medir con `EXPLAIN` cuando proceda, usar agregados acotados y
+no convertir una investigación en una optimización de schema. Si el módulo llega a
+construirse, el índice se evalúa entonces, contra las consultas reales.
+
+## 7. Timeline real de la atribución (fechas absolutas)
+
+| Periodo | Qué se persistía | Qué se puede atribuir |
+| --- | --- | --- |
+| **Antes del 14/08/2026** | Nada: `extraerReferral` no existía y el referral se descartaba entero | Prácticamente nada recuperable desde el CRM |
+| **14/08/2026 → 13/09/2026** | Cinco campos en `campanaOrigen` (titular, anuncioId, cuerpo, origenUrl, imagenUrl) | Nivel **anuncio** (`source_id`). Se recibían y se tiraban `ctwa_clid`, `welcome_message.text`, `media_type` y `video_url` |
+| **Desde el 14/09/2026** | Se añade `ctwa_clid` (como `clickId`), más saludo, tipo de media y vídeo | Anuncio **+ identificador de clic** |
+| **Desde el 15/09/2026** | `PrimerContactoWhatsapp` ata anuncio → mensaje → lead | Cadena durable, **sin backfill** de lo anterior |
+
+El `ctwa_clid` **no se puede reconstruir hacia atrás**: solo viaja en ese webhook.
+
+# COBERTURA REAL DE ATRIBUCIÓN
+
+Esta sección existe para no confundir dos cosas distintas.
+
+**Capacidad estructural** — lo que el modelo *podría* enlazar: la cadena
+`referral.source_id → PrimerContactoWhatsapp → Lead.anuncioId → Venta.leadId →
+Venta.monto` está completa, con clave foránea en cada salto.
+
+**Cobertura real** — lo que los datos históricos *efectivamente contienen*. Seis
+factores la recortan, y ninguno está medido todavía porque no hubo acceso a la
+base:
+
+1. las altas por WhatsApp nacen **sin PAC**, de modo que la cohorte captada por
+   Meta no cruza con `VentaImportada`;
+2. `LineaWhatsapp.comercial` nace en `false`: el tráfico de una línea no marcada
+   se pierde para la atribución;
+3. **no hay referral persistido antes del 14/08/2026**;
+4. **no hay `ctwa_clid` antes del 14/09/2026**;
+5. `VentaImportada` no tiene vínculo con lead ni con anuncio, y está en dólares
+   mientras `Venta.monto` está en bolivianos;
+6. el maestro de FileMaker está importado **al ~29 %**.
+
+**La regla:** ninguna cifra de cobertura puede presentarse hasta ejecutar los
+agregados A/B/C contra datos reales. Hasta entonces, «capacidad estructural» no
+autoriza a prometer atribución.
+
+# Conclusión ejecutiva actualizada
+
+| Pregunta | Respuesta conservadora |
+| --- | --- |
+| ¿Podemos saber qué anuncio originó una conversación? | **Sí**, para la cohorte con referral persistido y línea marcada como comercial |
+| ¿Podemos enlazarlo con un lead? | **Sí**, en el flujo de WhatsApp es prácticamente automático |
+| ¿Eso constituye una conversión útil? | **No.** El lead se crea solo: conversación → lead no es un KPI de calidad |
+| ¿Podemos enlazarlo con una venta? | **Sí**, cuando existe `Venta.leadId` y el lead conserva `anuncioId` |
+| ¿Podemos enlazarlo con `VentaImportada`? | **No de forma general** para pacientes captadas por Meta: nacen sin PAC |
+| ¿Podemos calcular ingresos atribuibles parciales? | **Sí**, sobre `Venta` GANADA con lead explícito, en bolivianos |
+| ¿Podemos calcular ROAS completo? | **No todavía**: falta el gasto de Marketing API y la cobertura de ventas no es completa |
+| ¿Vale la pena construir el módulo? | **Se decide con la cobertura real medida**, no con la capacidad estructural. Fase 0 primero |
+
+**Lo que NO puede afirmarse hoy:** ni un ROAS completo de todas las campañas, ni
+los ingresos totales generados por Meta. Lo que sí puede analizarse ya es volumen
+atribuido, leads, las ventas con vínculo explícito y su importe registrado.
