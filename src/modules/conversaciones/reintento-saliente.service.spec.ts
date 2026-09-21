@@ -83,7 +83,7 @@ describe('ReintentoSalienteService', () => {
     await servicio.barrerEnviosPendientes();
 
     const consulta = prisma.mensaje.findMany.mock.calls[0][0];
-    expect(consulta.where).toEqual({ estadoEnvio: 'FALLIDO', proximoIntento: { lte: AHORA } });
+    expect(consulta.where).toMatchObject({ estadoEnvio: 'FALLIDO', permiteReintento: true, intentosEnvio: { lt: 3 }, proximoIntento: { lte: AHORA } });
     expect(consulta.take).toBe(50);
   });
 
@@ -98,15 +98,15 @@ describe('ReintentoSalienteService', () => {
 
     await servicio.barrerEnviosPendientes();
 
-    const reclamo = prisma.mensaje.updateMany.mock.calls[0][0];
-    expect(reclamo.where).toEqual({
+    const reclamo = prisma.mensaje.updateMany.mock.calls.find(c => c[0].where.id === 'msg-1')![0];
+    expect(reclamo.where).toMatchObject({
       id: 'msg-1',
       estadoEnvio: 'FALLIDO',
       proximoIntento: { lte: AHORA },
     });
     expect(reclamo.data).toEqual({
       intentosEnvio: 1,
-      proximoIntento: new Date(AHORA.getTime() + 60_000),
+      proximoIntento: new Date(AHORA.getTime() + 5 * 60_000),
     });
     expect(despachador.texto).toHaveBeenCalledTimes(1);
   });

@@ -1,5 +1,6 @@
 import { LineasWhatsappService } from '../lineas-whatsapp/lineas-whatsapp.service';
 import { Injectable, Logger } from '@nestjs/common';
+import { permiteReintentarError } from '../../common/whatsapp/error-envio';
 
 import { R2Service } from '../../common/storage/r2.service';
 import {
@@ -226,7 +227,13 @@ export class DespachadorSalienteService {
        * ENVIADO haría RETROCEDER el tick en pantalla, que es justo lo que
        * `procesarEstadoMensaje` lleva evitando desde siempre.
        */
-      where: { id: mensajeId, estadoEnvio: { notIn: ['ENTREGADO', 'LEIDO'] } },
+      where: {
+        id: mensajeId, estadoEnvio: { notIn: ['ENTREGADO', 'LEIDO'] },
+        // El webhook de rechazo puede adelantarse a la respuesta HTTP de aceptación.
+        ...(resultado.estado === 'ENVIADO' ? {
+          NOT: { estadoEnvio: 'FALLIDO', whatsappMsgId: resultado.metaMsgId },
+        } : {}),
+      },
       data: datosSegunResultado(resultado, agendable && !reintento),
     });
 
@@ -304,14 +311,19 @@ export function datosSegunResultado(
 ): Prisma.MensajeUpdateManyMutationInput {
   switch (resultado.estado) {
     case 'ENVIADO':
-      return { whatsappMsgId: resultado.metaMsgId, estadoEnvio: 'ENVIADO', proximoIntento: null };
+      return { whatsappMsgId: resultado.metaMsgId, estadoEnvio: 'ENVIADO', codigoErrorEnvio: null, proximoIntento: null };
     case 'NO_SALIO':
       /* `agendar` es false en dos casos, por motivos distintos: en un reintento
          porque el barrido ya agendó el siguiente turno, y en una plantilla
          porque no se puede reconstruir (la fila guarda el texto ya compuesto,
          no el nombre ni los parámetros). Reenviarla como texto plano fuera de
          la ventana de 24 h la rebotaría igual. */
-      return { estadoEnvio: 'FALLIDO', ...(agendar ? { proximoIntento: proximoReintento(1) } : {}) };
+      return {
+        estadoEnvio: 'FALLIDO', codigoErrorEnvio: resultado.codigoError ?? null,
+        ...(!permiteReintentarError(resultado.codigoError)
+          ? { proximoIntento: null }
+          : agendar ? { proximoIntento: proximoReintento(1) } : {}),
+      };
     case 'INCIERTO':
       return { estadoEnvio: 'INCIERTO', proximoIntento: null };
   }

@@ -262,6 +262,7 @@ export class WhatsappWebhookController {
             estado.status,
             estado.biz_opaque_callback_data,
             lineaId,
+            estado.errors?.[0]?.code,
           );
         } catch (error) {
           fallos++;

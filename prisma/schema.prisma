@@ -355,6 +355,10 @@ model Mensaje {
   /// Ticks estilo WhatsApp: ENVIADO al crear, luego lo actualiza la respuesta de Meta
   /// (FALLIDO) o el webhook de `statuses` (ENTREGADO/LEIDO).
   estadoEnvio    EstadoMensaje?
+  /// Código seguro de Meta para explicar el fallo sin exponer su respuesta cruda.
+  codigoErrorEnvio Int?
+  /// Las plantillas no se reconstruyen como texto libre en los reintentos.
+  permiteReintento Boolean @default(true)
   entregadoEn    DateTime?
   leidoEn        DateTime?
   /// Cuántas veces se intentó despachar. Solo crece cuando CONSTA que no salió;

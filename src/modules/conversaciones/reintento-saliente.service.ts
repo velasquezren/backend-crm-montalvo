@@ -2,6 +2,7 @@ import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/commo
 
 import { enSegundoPlano } from '../../common/fiabilidad/en-segundo-plano';
 import { PrismaService } from '../../prisma/prisma.service';
+import { ERRORES_WHATSAPP_PERMANENTES } from '../../common/whatsapp/error-envio';
 
 import { DespachadorSalienteService, proximoReintento } from './despachador-saliente.service';
 
@@ -93,8 +94,20 @@ export class ReintentoSalienteService implements OnModuleInit, OnModuleDestroy {
   async barrerEnviosPendientes(): Promise<number> {
     const ahora = new Date();
 
+    // Limpia también filas antiguas que un webhook haya vuelto a agendar.
+    await this.prisma.mensaje.updateMany({
+      where: {
+        estadoEnvio: 'FALLIDO', proximoIntento: { not: null },
+        OR: [
+          { intentosEnvio: { gte: 3 } }, { permiteReintento: false },
+          { codigoErrorEnvio: { in: ERRORES_WHATSAPP_PERMANENTES } },
+        ],
+      },
+      data: { proximoIntento: null },
+    });
+
     const pendientes = await this.prisma.mensaje.findMany({
-      where: { estadoEnvio: 'FALLIDO', proximoIntento: { lte: ahora } },
+      where: { estadoEnvio: 'FALLIDO', permiteReintento: true, intentosEnvio: { lt: 3 }, proximoIntento: { lte: ahora } },
       select: {
         id: true,
         conversacionId: true,
@@ -187,8 +200,12 @@ export class ReintentoSalienteService implements OnModuleInit, OnModuleDestroy {
    */
   async reclamar(mensajeId: string, intentos: number, ahora: Date): Promise<boolean> {
     const { count } = await this.prisma.mensaje.updateMany({
-      where: { id: mensajeId, estadoEnvio: 'FALLIDO', proximoIntento: { lte: ahora } },
-      data: { intentosEnvio: intentos, proximoIntento: proximoReintento(intentos, ahora) },
+      where: {
+        id: mensajeId, estadoEnvio: 'FALLIDO', permiteReintento: true,
+        intentosEnvio: { equals: intentos - 1, lt: 3 }, proximoIntento: { lte: ahora },
+        OR: [{ codigoErrorEnvio: null }, { codigoErrorEnvio: { notIn: ERRORES_WHATSAPP_PERMANENTES } }],
+      },
+      data: { intentosEnvio: intentos, proximoIntento: proximoReintento(intentos + 1, ahora) },
     });
     return count > 0;
   }

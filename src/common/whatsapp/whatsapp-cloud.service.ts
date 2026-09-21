@@ -1,5 +1,6 @@
 import { ErrorMedia, errorHttpMedia, sanitizarErrorMedia } from '../fiabilidad/error-media';
 import { Injectable, Logger } from '@nestjs/common';
+import { codigoErrorWhatsapp } from './error-envio';
 
 /**
  * Único punto del CRM que habla con la Cloud API de Meta.
@@ -52,7 +53,7 @@ const ESPERA_MEDIA_MS = 30_000;
  */
 export type ResultadoEnvio =
   | { estado: 'ENVIADO'; metaMsgId: string }
-  | { estado: 'NO_SALIO'; motivo: string }
+  | { estado: 'NO_SALIO'; motivo: string; codigoError?: number }
   | { estado: 'INCIERTO'; motivo: string };
 
 /** Lo que Meta acepta como cuerpo de `/messages`, sin el `to` ni las constantes. */
@@ -123,14 +124,16 @@ export class WhatsappCloudService {
       });
 
       if (!respuesta.ok) {
-        const detalle = `Meta devolvió ${respuesta.status} a un ${contenido.type}: ${await respuesta.text()}`;
+        const cuerpo = await respuesta.text();
+        const codigoError = codigoErrorWhatsapp(cuerpo);
+        const detalle = `Meta devolvió ${respuesta.status} a un ${contenido.type}: ${cuerpo}`;
         this.logger.error(detalle);
         /* Un 4xx es un rechazo del cuerpo: no hay nada del otro lado. Un 5xx es
            un problema de Meta que puede haberse comido el mensaje DESPUÉS de
            aceptarlo, así que no se puede afirmar que no salió. */
         return respuesta.status >= 500
           ? { estado: 'INCIERTO', motivo: detalle }
-          : { estado: 'NO_SALIO', motivo: detalle };
+          : { estado: 'NO_SALIO', motivo: detalle, ...(codigoError !== undefined ? { codigoError } : {}) };
       }
 
       const datos = (await respuesta.json()) as { messages?: Array<{ id?: string }> };

@@ -142,7 +142,7 @@ describe('WhatsappWebhookController', () => {
         }),
       )).rejects.toThrow(ServiceUnavailableException);
 
-      expect(servicio.procesarEstadoMensaje).toHaveBeenCalledWith('wamid.out.1', 'delivered', undefined, "linea-1");
+      expect(servicio.procesarEstadoMensaje).toHaveBeenCalledWith('wamid.out.1', 'delivered', undefined, "linea-1", undefined);
     });
 
     it('sigue con el resto de statuses si uno lanza', async () => {
@@ -551,7 +551,7 @@ describe('WhatsappWebhookController', () => {
       await controller.procesarWebhook(
         payload({ statuses: [{ id: 'wamid.out.1', status: 'read' }] }),
       );
-      expect(servicio.procesarEstadoMensaje).toHaveBeenCalledWith('wamid.out.1', 'read', undefined, "linea-1");
+      expect(servicio.procesarEstadoMensaje).toHaveBeenCalledWith('wamid.out.1', 'read', undefined, "linea-1", undefined);
     });
 
     it('ignora statuses incompletos', async () => {
@@ -579,7 +579,7 @@ describe('WhatsappWebhookController', () => {
       );
 
       expect(log).toHaveBeenCalledWith(expect.stringContaining('131047: Re-engagement message'));
-      expect(servicio.procesarEstadoMensaje).toHaveBeenCalledWith('wamid.out.1', 'failed', undefined, "linea-1");
+      expect(servicio.procesarEstadoMensaje).toHaveBeenCalledWith('wamid.out.1', 'failed', undefined, "linea-1", 131047);
     });
   });
 

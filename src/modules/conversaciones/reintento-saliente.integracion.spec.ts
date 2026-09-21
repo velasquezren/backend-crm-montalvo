@@ -199,7 +199,8 @@ describe('ReintentoSalienteService contra PostgreSQL', () => {
     await servicio.barrerEnviosPendientes();
 
     const despues = await prisma.mensaje.findUniqueOrThrow({ where: { id: fallido.id } });
-    expect(despues.intentosEnvio).toBe(4);
+    expect(despues.intentosEnvio).toBe(3);
+    expect(despachador.despachados).toEqual([]);
     expect(despues.proximoIntento).toBeNull();
 
     /* Y en la vuelta siguiente ya no la ve. */
@@ -214,5 +215,13 @@ describe('ReintentoSalienteService contra PostgreSQL', () => {
     );
 
     expect(indices.map(i => i.indexname)).toContain('Mensaje_proximoIntento_idx');
+  });
+
+  it.each([130497, 131042, 131047, 190])('cancela un rechazo permanente %s aunque estuviera agendado', async codigoErrorEnvio => {
+    const { fallido } = await conversacionConEnvioFallido();
+    await prisma.mensaje.update({ where: { id: fallido.id }, data: { codigoErrorEnvio } });
+    await servicio.barrerEnviosPendientes();
+    expect(despachador.despachados).toEqual([]);
+    expect((await prisma.mensaje.findUniqueOrThrow({ where: { id: fallido.id } })).proximoIntento).toBeNull();
   });
 });

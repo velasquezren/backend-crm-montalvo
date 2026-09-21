@@ -1,7 +1,7 @@
 import { MemoriaAgenteService } from '../memoria-agente/memoria-agente.service';
 import { whereAccesoConversacion as whereVisibilidad, SELECT_LINEA } from './acceso-conversacion';
 import { LineasWhatsappService } from '../lineas-whatsapp/lineas-whatsapp.service';
-import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { Prisma, Rol, TipoMensaje } from '../../prisma/prisma-client';
 
 import { CacheMemoria } from '../../common/cache/cache-memoria';
@@ -10,6 +10,7 @@ import { calcularPaginacion, paginar, RespuestaPaginada } from '../../common/dto
 import { enSegundoPlano } from '../../common/fiabilidad/en-segundo-plano';
 import { R2Service } from '../../common/storage/r2.service';
 import { WhatsappCloudService } from '../../common/whatsapp/whatsapp-cloud.service';
+import { permiteReintentarError } from '../../common/whatsapp/error-envio';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ClientesService } from '../clientes/clientes.service';
 import { ConversacionesGateway } from './conversaciones.gateway';
@@ -207,6 +208,7 @@ const SELECT_INBOX = {
       contenido: true,
       direccion: true,
       estadoEnvio: true,
+      codigoErrorEnvio: true,
       tipo: true,
       automatico: true,
       createdAt: true,
@@ -960,6 +962,7 @@ export class ConversacionesService {
     status: string,
     referencia?: string,
     lineaId?: string,
+    codigoError?: number,
   ): Promise<void> {
     if (lineaId) {
       const reconocido = await this.prisma.mensaje.findFirst({ where: {
@@ -980,30 +983,37 @@ export class ConversacionesService {
 
     const ahora = new Date();
     if (status === 'read' && mensaje.estadoEnvio !== 'LEIDO') {
-      await this.prisma.mensaje.update({
+      await this.prisma.mensaje.updateMany({
         where: { id: mensaje.id },
-        data: { estadoEnvio: 'LEIDO', leidoEn: mensaje.leidoEn ?? ahora, entregadoEn: mensaje.entregadoEn ?? ahora },
+        data: { estadoEnvio: 'LEIDO', codigoErrorEnvio: null, proximoIntento: null, leidoEn: mensaje.leidoEn ?? ahora, entregadoEn: mensaje.entregadoEn ?? ahora },
       });
     } else if (status === 'delivered' && mensaje.estadoEnvio !== 'LEIDO' && mensaje.estadoEnvio !== 'ENTREGADO') {
-      await this.prisma.mensaje.update({
-        where: { id: mensaje.id },
-        data: { estadoEnvio: 'ENTREGADO', entregadoEn: ahora },
+      await this.prisma.mensaje.updateMany({
+        where: { id: mensaje.id, estadoEnvio: { not: 'LEIDO' } },
+        data: { estadoEnvio: 'ENTREGADO', codigoErrorEnvio: null, proximoIntento: null, entregadoEn: ahora },
       });
     } else if (status === 'failed') {
-      await this.prisma.mensaje.update({
-        where: { id: mensaje.id },
-        /* Meta dice que no salió, así que ya no es una duda: pasa a FALLIDO y
-           entra en el barrido de reintentos como cualquier otro fallo cierto. */
-        data: { estadoEnvio: 'FALLIDO', proximoIntento: proximoReintento(1) },
+      const codigo = codigoError ?? mensaje.codigoErrorEnvio;
+      await this.prisma.mensaje.updateMany({
+        where: { id: mensaje.id, whatsappMsgId, estadoEnvio: { notIn: ['ENTREGADO', 'LEIDO'] } },
+        // El webhook no reinicia el contador ni posterga un fallo ya recibido.
+        data: {
+          estadoEnvio: 'FALLIDO', codigoErrorEnvio: codigo,
+          proximoIntento: mensaje.permiteReintento && permiteReintentarError(codigo)
+            ? mensaje.estadoEnvio === 'FALLIDO'
+              ? mensaje.proximoIntento
+              : proximoReintento(mensaje.intentosEnvio + 1)
+            : null,
+        },
       });
     } else if (status === 'sent' && mensaje.estadoEnvio === 'INCIERTO') {
       /* La otra mitad de F06 entrega 2. Un 'sent' normalmente no aporta nada
          —la fila ya nace ENVIADO— pero sobre una fila INCIERTA es justo la
          respuesta que faltaba: sí salió. Sin esta rama, un envío cuya respuesta
          HTTP se perdió se quedaba en duda aunque Meta lo confirmara. */
-      await this.prisma.mensaje.update({
-        where: { id: mensaje.id },
-        data: { estadoEnvio: 'ENVIADO', proximoIntento: null },
+      await this.prisma.mensaje.updateMany({
+        where: { id: mensaje.id, estadoEnvio: 'INCIERTO' },
+        data: { estadoEnvio: 'ENVIADO', codigoErrorEnvio: null, proximoIntento: null },
       });
     } else {
       return; // 'sent' sobre un envío que ya constaba, o repetido: nada nuevo
@@ -1062,7 +1072,7 @@ export class ConversacionesService {
          caché antes que una lista vacía: un selector vacío parece "no tienes
          plantillas", que es otra cosa. Por eso se pide "aunque haya vencido":
          justo cuando Meta no responde es cuando la entrada suele estar caducada. */
-      if (!crudas) return this.cachePlantillas.obtenerAunqueVencido(clave) ?? [];
+      if (!crudas) throw new ServiceUnavailableException('No se pudieron consultar las plantillas de WhatsApp.');
 
       const data = { data: crudas as PlantillaMeta[] };
       const resultado = (data.data ?? [])
@@ -1084,7 +1094,9 @@ export class ConversacionesService {
       return resultado;
     } catch (error) {
       this.logger.error('Excepción al listar plantillas de Meta', error);
-      return this.cachePlantillas.obtenerAunqueVencido(clave) ?? [];
+      const respaldo = this.cachePlantillas.obtenerAunqueVencido(clave);
+      if (respaldo && !forceRefresh) return respaldo;
+      throw new ServiceUnavailableException('No se pudieron consultar las plantillas de WhatsApp. Vuelve a intentarlo.');
     }
   }
 
@@ -1104,7 +1116,7 @@ export class ConversacionesService {
 
     const [mensaje] = await this.prisma.$transaction([
       this.prisma.mensaje.create({
-        data: { conversacionId, direccion: 'SALIENTE', contenido: dto.contenido, estadoEnvio: 'ENVIADO' },
+        data: { conversacionId, direccion: 'SALIENTE', contenido: dto.contenido, estadoEnvio: 'ENVIADO', permiteReintento: false },
       }),
       /* Mismo criterio que `enviarMensaje`: reclamar solo si está en el pool. */
       this.prisma.conversacion.updateMany({

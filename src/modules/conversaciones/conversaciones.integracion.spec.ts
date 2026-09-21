@@ -709,6 +709,77 @@ describe('Conversaciones contra Postgres real', () => {
     it('un status de un mensaje desconocido no revienta', async () => {
       await expect(service.procesarEstadoMensaje('wamid.inexistente', 'read')).resolves.toBeUndefined();
     });
+
+    it('un rechazo por país conserva el motivo y no agenda reintentos', async () => {
+      const m = await mensajeSaliente('ENVIADO');
+      await service.procesarEstadoMensaje('wamid.out.1', 'failed', undefined, undefined, 130497);
+      const actual = await prisma.mensaje.findUniqueOrThrow({ where: { id: m.id } });
+      expect(actual).toMatchObject({ estadoEnvio: 'FALLIDO', codigoErrorEnvio: 130497, proximoIntento: null });
+      const detalle = await service.findOne(m.conversacionId);
+      expect(detalle.mensajes.find(x => x.id === m.id)?.codigoErrorEnvio).toBe(130497);
+    });
+
+    it('el webhook respeta el tope aunque Meta acepte el POST y rechace después', async () => {
+      const m = await mensajeSaliente('ENVIADO');
+      await prisma.mensaje.update({ where: { id: m.id }, data: { intentosEnvio: 3 } });
+      await service.procesarEstadoMensaje('wamid.out.1', 'failed', undefined, undefined, 131000);
+      expect((await prisma.mensaje.findUniqueOrThrow({ where: { id: m.id } })).proximoIntento).toBeNull();
+    });
+
+    it('un fallo repetido no pospone el reintento y el backoff respeta lo ya intentado', async () => {
+      const m = await mensajeSaliente('ENVIADO');
+      await prisma.mensaje.update({ where: { id: m.id }, data: { intentosEnvio: 1 } });
+      const antes = Date.now();
+      await service.procesarEstadoMensaje('wamid.out.1', 'failed', undefined, undefined, 131000);
+      const primero = await prisma.mensaje.findUniqueOrThrow({ where: { id: m.id } });
+      expect(primero.proximoIntento!.getTime()).toBeGreaterThanOrEqual(antes + 5 * 60_000);
+      await service.procesarEstadoMensaje('wamid.out.1', 'failed', undefined, undefined, 131000);
+      expect((await prisma.mensaje.findUniqueOrThrow({ where: { id: m.id } })).proximoIntento).toEqual(primero.proximoIntento);
+    });
+
+    it('un fallo tardío no degrada una entrega ni un leído, incluso concurrente', async () => {
+      const m = await mensajeSaliente('ENVIADO');
+      await Promise.all([
+        service.procesarEstadoMensaje('wamid.out.1', 'read'),
+        service.procesarEstadoMensaje('wamid.out.1', 'failed', undefined, undefined, 130497),
+      ]);
+      expect(await prisma.mensaje.findUniqueOrThrow({ where: { id: m.id } })).toMatchObject({
+        estadoEnvio: 'LEIDO', codigoErrorEnvio: null, proximoIntento: null,
+      });
+    });
+
+    it('una plantilla rechazada por webhook no se reenvía como texto libre', async () => {
+      const m = await mensajeSaliente('ENVIADO');
+      await prisma.mensaje.update({ where: { id: m.id }, data: { permiteReintento: false } });
+      await service.procesarEstadoMensaje('wamid.out.1', 'failed', undefined, undefined, 131000);
+      expect((await prisma.mensaje.findUniqueOrThrow({ where: { id: m.id } })).proximoIntento).toBeNull();
+    });
+
+    it('un webhook de rechazo adelantado no queda sobrescrito por el HTTP 200 de Meta', async () => {
+      const m = await mensajeSaliente('ENVIADO');
+      await prisma.mensaje.update({ where: { id: m.id }, data: { whatsappMsgId: null } });
+      const enviar = jest.spyOn(service['whatsapp'], 'enviar').mockImplementation(async () => {
+        await service.procesarEstadoMensaje('wamid.temprano', 'failed', m.id, undefined, 130497);
+        return { estado: 'ENVIADO', metaMsgId: 'wamid.temprano' };
+      });
+      try {
+        await service['despachador'].texto({ mensajeId: m.id, conversacionId: m.conversacionId, telefono: '+59170000000' }, 'Hola');
+        expect(await prisma.mensaje.findUniqueOrThrow({ where: { id: m.id } })).toMatchObject({
+          estadoEnvio: 'FALLIDO', codigoErrorEnvio: 130497, proximoIntento: null,
+        });
+      } finally { enviar.mockRestore(); }
+    });
+
+    it('diferencia un catálogo vacío de una consulta fallida de plantillas', async () => {
+      const consulta = jest.spyOn(service['whatsapp'], 'listarPlantillas');
+      const linea = '00000000-0000-4000-8000-000000000001';
+      try {
+        consulta.mockResolvedValue([]);
+        await expect(service.listarPlantillas(true, linea)).resolves.toEqual([]);
+        consulta.mockResolvedValue(null);
+        await expect(service.listarPlantillas(true, linea)).rejects.toMatchObject({ status: 503 });
+      } finally { consulta.mockRestore(); }
+    });
   });
 
   describe('marcar leído', () => {
