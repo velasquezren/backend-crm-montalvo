@@ -1,6 +1,7 @@
 import { Rol } from '../../prisma/prisma-client';
 
 import {
+  puedeEntregarResultados,
   RANGO_ROL,
   ROLES_OPERATIVOS,
   alcanceAgente,
@@ -45,5 +46,23 @@ describe('jerarquía de roles', () => {
     }
     // Ningún rol operativo puede tener alcance global: sería una contradicción.
     for (const rol of ROLES_OPERATIVOS) expect(tieneAlcanceGlobal(rol)).toBe(false);
+  });
+});
+
+/* La tabla entera, a propósito: añadir un rol obliga a decidir aquí si
+   entrega resultados médicos, en vez de heredarlo por rango sin pensarlo. */
+describe('quién entrega resultados médicos', () => {
+  it.each([
+    [Rol.RECEPCION, false],
+    [Rol.ASISTENTE, true],
+    [Rol.AGENTE, false],
+    [Rol.ADMIN, true],
+    [Rol.SUPER_ADMIN, true],
+  ])('%s → %s', (rol, entrega) => {
+    expect(puedeEntregarResultados(rol)).toBe(entrega);
+  });
+
+  it('cubre todos los roles del esquema', () => {
+    expect(Object.keys(RANGO_ROL).sort()).toEqual([Rol.ADMIN, Rol.AGENTE, Rol.ASISTENTE, Rol.RECEPCION, Rol.SUPER_ADMIN].sort());
   });
 });

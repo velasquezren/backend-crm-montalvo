@@ -99,7 +99,7 @@ beforeEach(async () => {
   await prisma.cliente.deleteMany({
     where: { OR: [{ pac: { in: ['PAC33009', 'PAC99999'] } }, { telefono: { in: ['+59170000001', '+59170000091', '+59170000092', '+59170000093', '+59170000094'] } }] },
   });
-  await prisma.usuario.deleteMany({ where: { email: { in: ['asistente@test.local', 'agente@test.local'] } } });
+  await prisma.usuario.deleteMany({ where: { email: { in: ['asistente@test.local', 'agente@test.local', 'recepcion@test.local'] } } });
 
   await prisma.lineaWhatsapp.create({
     data: { id: LINEA, nombre: 'Resultados', tokenEnv: 'TOKEN_X', activa: true, comercial: false },
@@ -140,6 +140,33 @@ describe('entrega de resultados contra Postgres real', () => {
     await expect(service.pendientes({}, agente)).rejects.toThrow(/no encontrada/i);
     await expect(service.enviar(INFORME, agente)).rejects.toThrow(/no encontrada/i);
     expect(plantillasEnviadas).toHaveLength(0);
+  });
+
+  /* El caso real de producción: la línea de resultados es la de Recepción, y
+     un agente de ventas y la recepcionista también la atienden. Tener la
+     línea no basta; el rol tiene que ser el que entrega. */
+  it('tener acceso a la línea no basta: ni un agente ni recepción entregan aunque la atiendan', async () => {
+    await prisma.usuario.create({
+      data: { id: 'a0000000-0000-4000-8000-000000000003', nombre: 'Recepción', email: 'recepcion@test.local', passwordHash: 'x', rol: 'RECEPCION' },
+    });
+    await prisma.accesoLineaWhatsapp.createMany({
+      data: [
+        { usuarioId: 'a0000000-0000-4000-8000-000000000002', lineaId: LINEA },
+        { usuarioId: 'a0000000-0000-4000-8000-000000000003', lineaId: LINEA },
+      ],
+    });
+    const recepcion = { sub: 'a0000000-0000-4000-8000-000000000003', rol: 'RECEPCION' } as never;
+    for (const quien of [agente, recepcion]) {
+      await expect(service.pendientes({}, quien)).rejects.toThrow(/no encontrada/i);
+      await expect(service.enviar(INFORME, quien)).rejects.toThrow(/no encontrada/i);
+    }
+    expect(plantillasEnviadas).toHaveLength(0);
+    expect(await prisma.avisoResultado.count()).toBe(0);
+  });
+
+  it('administración entrega sin necesitar la línea', async () => {
+    const admin = { sub: 'a0000000-0000-4000-8000-000000000001', rol: 'ADMIN' } as never;
+    await expect(service.pendientes({}, admin)).resolves.toMatchObject({ total: 1 });
   });
 
   it('la cola cruza el PAC con la ficha del CRM y marca lo ya avisado', async () => {

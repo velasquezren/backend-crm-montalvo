@@ -718,4 +718,11 @@ Verifica **datos, no criterio** — las decisiones y cicatrices de arriba se act
 
 ## Líneas de WhatsApp, recepción y asistente (2026-09-13 · rol ASISTENTE 2026-09-22)
 
+**Entregar resultados es una capacidad, no un rango ni solo una membresía:**
+`ResultadosService` exige `puedeEntregarResultados(rol)` (ASISTENTE, o ADMIN para arriba) **y**
+acceso a la línea de resultados. Con solo la membresía, cualquiera que atienda la línea de
+Recepción entregaba informes médicos — medido en producción el 2026-09-22 con un AGENTE de
+ventas. Si otra función necesita "este rol sí, aquel no" a través de la jerarquía, añade una
+lista junto a `ROLES_OPERATIVOS` en `common/auth/roles.ts`; no la escribas en el service.
+
 `RECEPCION` tiene acceso a conversaciones, perfil, push y recursos propios. Las rutas sin `@Roles` requieren `AGENTE`; los endpoints públicos conservan `@Public`. `ADMIN` y `SUPER_ADMIN` tienen alcance global. Las demás cuentas necesitan membresía explícita `AccesoLineaWhatsapp` además del alcance de asignación. Recepción no admite membresía comercial. La identidad de un chat es `(clienteId, lineaId)`. No usar solo clienteId ni credenciales globales para enviar. El webhook resuelve `metadata.phone_number_id` y confirma HTTP después de persistir, devolviendo 503 si falla un elemento para permitir reintento — **salvo que el número receptor no esté registrado, que se descarta con 200** (ver «Un 503 solo vale para fallos transitorios»). Reasignar un chat no cambia el cliente ni los leads.

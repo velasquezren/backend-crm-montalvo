@@ -1,5 +1,31 @@
 # Estado actual
 
+## 22 de septiembre de 2026 · Revisión de roles: quién entrega resultados
+
+**Hallazgo con datos de producción:** el permiso de `/resultados` era solo la
+membresía en la línea de resultados, que es la de Recepción. Esa línea la
+atienden también la recepcionista y un AGENTE de ventas, así que los dos podían
+entregar informes médicos por API (el menú se lo ocultaba, la URL no). La prueba
+existente solo cubría a un agente *sin* la línea. Decisión del usuario: **solo
+el asistente** (y administración). Ahora hacen falta las dos cosas:
+`puedeEntregarResultados(rol)` y la línea. El frontend tiene el mismo criterio
+en el menú, en un guard nuevo de la ruta y en la función espejo, atados por una
+prueba para los cinco roles.
+
+**En el frontend, ASISTENTE se había quedado fuera en tres sitios** por
+comparar `rol === 'RECEPCION'` a mano: no se podía elegir el rol al crear una
+cuenta (la función era inusable), el formulario le ofrecía la línea comercial y
+el selector de Actividades le llamaba endpoints de ventas. Hay ahora
+`ROLES_OPERATIVOS`/`esRolOperativo` en `core/auth/roles.ts` y `check:skills`
+**rechaza comparar un rol con un literal**.
+
+Verificado por HTTP contra el backend compilado, con una cuenta de cada caso:
+recepción, asistente, asistente sin línea y agente con Recepción reciben 404 en
+`/resultados`, y solo el asistente con la línea y administración pasan;
+operativos 403 en KPIs, leads, clientes y ventas; cada cuenta ve solo sus
+líneas; dar la línea comercial a un asistente es 400.
+
+
 ## 22 de septiembre de 2026 · Entrega de resultados terminada
 
 La cola de `/resultados` salía vacía: los dos pacientes del portal estaban

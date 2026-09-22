@@ -7,7 +7,7 @@ import {
 } from '@nestjs/common';
 
 import { UsuarioJwt } from '../../common/decorators/current-user.decorator';
-import { alcanceAgente } from '../../common/auth/roles';
+import { alcanceAgente, puedeEntregarResultados } from '../../common/auth/roles';
 import { calcularPaginacion, paginar, RespuestaPaginada } from '../../common/dto/pagination.dto';
 import { Prisma } from '../../prisma/prisma-client';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -187,16 +187,22 @@ export class ResultadosService {
   }
 
   /**
-   * El permiso para entregar resultados NO es el rango del rol —`ASISTENTE`
-   * comparte rango 0 con recepción, así que `@Roles` no puede distinguirlos—
-   * sino la membresía en la línea de resultados, que es el mecanismo que este
-   * CRM ya usa para las líneas. Quien no la tenga recibe 404, que tampoco
-   * confirma que la línea exista.
+   * Dos condiciones, y las dos hacen falta:
+   *
+   * 1. **El rol entrega resultados** (`puedeEntregarResultados`: asistente o
+   *    administración). El rango no sirve —`ASISTENTE` está por debajo de un
+   *    agente—, así que no lo puede decir `@Roles`.
+   * 2. **Acceso a la línea de resultados**, que es por donde sale el mensaje.
+   *
+   * Solo con la segunda, cualquiera que atienda la línea de Recepción entregaba
+   * informes médicos: en producción, un agente de ventas y la recepcionista.
+   * Quien no pase recibe el mismo 404 que sin la línea, que no confirma nada.
    *
    * `alcanceAgente` devuelve `undefined` de ADMIN para arriba: alcance global.
    */
   private async permitirLinea(usuario: UsuarioJwt): Promise<string> {
     const linea = this.variable('RESULTADOS_LINEA_ID');
+    if (!puedeEntregarResultados(usuario.rol)) throw new NotFoundException('Línea no encontrada');
     await this.lineas.porId(linea, alcanceAgente(usuario));
     return linea;
   }
