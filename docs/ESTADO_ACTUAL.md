@@ -33,10 +33,12 @@ de uno INCIERTO, que pudo llegar) y la fila muestra el estado real del mensaje.
 La prueba que ya existía simulaba el fallo con un `throw` síncrono, que en
 producción no ocurre.
 
-**Estado del despliegue (22/09 14:20):** el código está en `/opt/crm-backend`,
-las dos migraciones aplicadas y `dist/main.js` reconstruido, pero **el servicio
-todavía no se reinició**: sigue corriendo el binario de `e2c707a`. Respaldo
-previo en `/root/backup-crm-20260922-141918.sql.gz` (3,97 MB, verificado).
+**Desplegado el 22/09 a las 14:46** con `0a74d3e` (incluye la corrección de
+abajo), frontend `a114934` en Vercel. Verificado: binario compilado antes del
+arranque, `/health` ok, 400/401 donde tocan, `/resultados/pendientes` montada y
+el CRM autenticado contra el portal de Resultados por loopback (200). Respaldos
+previos: `/root/backup-crm-20260922-141918.sql.gz` y
+`/root/backups-crm/crm-20260922-144524.sql.gz`.
 
 **Falta para que la función sirva de algo:** la app de Meta sigue en modo
 desarrollo sin política de privacidad; la plantilla
