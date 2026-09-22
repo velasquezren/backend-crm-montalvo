@@ -1,5 +1,40 @@
 # Estado actual
 
+## 22 de septiembre de 2026 · Entrega de Resultados y rol ASISTENTE
+
+Un asistente entrega desde el CRM el informe que el médico publicó en el portal
+de Resultados: `/resultados` lista la cola y manda al paciente el enlace por
+WhatsApp. El mensaje queda en su conversación, así que si responde lo ve quien
+atiende. **El CRM es el único emisor**: Resultados no manda WhatsApp aunque
+tenga el pipeline — una sola app de Meta, un solo webhook, un solo historial.
+
+El vínculo entre sistemas es el **PAC de FileMaker** en forma canónica. Verificado
+contra la planilla real: `PAC` + 5 dígitos, sin separadores, solo varía el caso.
+
+**El permiso NO es el rango.** `ASISTENTE` comparte rango 0 con `RECEPCION` y
+está por debajo de `AGENTE`, así que `@Roles` no puede expresarlo. Se usa la
+membresía en `AccesoLineaWhatsapp` sobre la línea de resultados. Al añadir el rol
+aparecieron **seis** comparaciones sueltas `rol === 'RECEPCION'`; ahora hay una
+sola lista, `ROLES_OPERATIVOS`.
+
+`AvisoResultado.informeId` es único y la fila se **reserva antes** de enviar: el
+índice es lo que impide el doble WhatsApp bajo doble clic.
+
+Commits `ca14a3c`, `9d08e16`, `401dd19` (backend) y `1c86de3` (frontend).
+
+**Estado del despliegue (22/09 14:20):** el código está en `/opt/crm-backend`,
+las dos migraciones aplicadas y `dist/main.js` reconstruido, pero **el servicio
+todavía no se reinició**: sigue corriendo el binario de `e2c707a`. Respaldo
+previo en `/root/backup-crm-20260922-141918.sql.gz` (3,97 MB, verificado).
+
+**Falta para que la función sirva de algo:** la app de Meta sigue en modo
+desarrollo sin política de privacidad; la plantilla
+`montalvo_resultado_disponible` no está creada; no hay ninguna cuenta con rol
+`ASISTENTE`; y **ningún paciente del portal tiene PAC** (los 2 que hay se
+registraron por CI), así que la cola aparecerá vacía hasta que los médicos
+registren con PAC.
+
+
 ## 18 de septiembre de 2026 (cierre de etapa) · REVISIÓN FINAL ARCHIVO POR ARCHIVO
 
 745 archivos versionados recorridos con `git ls-files` en los dos repos.

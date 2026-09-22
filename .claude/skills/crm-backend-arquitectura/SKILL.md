@@ -45,7 +45,19 @@ en Vercel                      TLS Let's Encrypt, HTTP/2 al navegador
 > scripts o razonamientos que hablen de `httpd`, de `dnf`, de un solo núcleo o
 > de 400 MB de techo, están describiendo la máquina vieja.
 
-El servidor de hoy **sí es dedicado a este CRM**. Debian, y nada ajeno corriendo:
+**Desde el 2026-09-21 ya NO está dedicado a este CRM.** El portal de Resultados
+Montalvo se desplegó en la misma máquina: tres servicios propios
+(`resultados-api` en :3010, `resultados-portal` en :3011, `resultados-worker`),
+su propia base en el mismo Postgres, un vhost de Apache aparte y **ClamAV**, que
+es el vecino que de verdad pesa —analiza cada PDF que sube un médico, con
+límites acordes a archivos de hasta 10 MB—. Sigue sobrando margen (medido el
+2026-09-22: ~2,0 GB usados de 7,9 GB, disco al 29 %), pero antes de decir "esta
+máquina es solo nuestra" o de dimensionar algo contra la RAM total, contá al
+vecino. Los dos productos son independientes: no comparten base, usuarios ni
+sesiones, y se hablan por loopback con una credencial de solo lectura (ver
+`modules/resultados/`).
+
+Debian, con lo que corre hoy:
 
 ```
 $ nproc && free -h && df -h /
@@ -57,7 +69,11 @@ Mem:          7.8Gi   793Mi  7.0Gi    ← 7,8 GB, para esta app sola
 $ systemctl list-units --type=service --state=running
 crm_backend.service          ← este backend
 apache2.service              ← Debian usa "apache2", no "httpd"
-postgresql@16-main.service   ← Postgres 16.14, solo lo usa este CRM
+postgresql@16-main.service   ← Postgres 16.14, con la base del CRM y la de Resultados
+resultados-api.service       ← portal de resultados (vecino, :3010)
+resultados-portal.service    ← su Next (vecino, :3011)
+resultados-worker.service    ← su cola de avisos y purga horaria
+clamav-daemon.service        ← antivirus de los PDF del vecino
 fail2ban.service
 apache-htcacheclean.service
 qemu-guest-agent.service
