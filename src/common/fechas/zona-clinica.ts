@@ -130,3 +130,16 @@ export function sumarDiasClinica(inicioDeDia: Date, dias: number): Date {
   const { anio, mes, dia } = partes(inicioDeDia);
   return instanteDe(anio, mes, dia + dias, inicioDeDia);
 }
+
+/**
+ * El instante en que empieza el mes de la clínica que contiene a `instante`,
+ * desplazado `meses` meses (negativo = hacia atrás).
+ *
+ * Mismo motivo que `inicioDelDiaClinica`: «este mes» es un corte de calendario.
+ * Con la zona del proceso, las últimas horas del día 31 en La Paz ya contaban
+ * como el mes siguiente en el servidor. `Date.UTC` resuelve solo el salto de año.
+ */
+export function inicioDelMesClinica(instante: Date, meses = 0): Date {
+  const { anio, mes } = partes(instante);
+  return instanteDe(anio, mes + meses, 1, instante);
+}

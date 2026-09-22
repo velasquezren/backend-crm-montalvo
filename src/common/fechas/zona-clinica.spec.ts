@@ -1,4 +1,4 @@
-import { inicioDelDiaClinica, sumarDiasClinica, ZONA_CLINICA } from './zona-clinica';
+import { inicioDelDiaClinica, inicioDelMesClinica, sumarDiasClinica, ZONA_CLINICA } from './zona-clinica';
 
 /**
  * A1 · el día de calendario de la clínica.
@@ -66,5 +66,20 @@ describe('A1 · inicioDelDiaClinica', () => {
   it('sumar siete días cruza el mes sin aritmética de 24 h a mano', () => {
     const inicio = inicioDelDiaClinica(NOCHE_DEL_16);
     expect(sumarDiasClinica(inicio, 7).toISOString()).toBe('2026-09-23T04:00:00.000Z');
+  });
+});
+
+describe('inicioDelMesClinica', () => {
+  /* 31 de agosto a las 22:00 en La Paz = 1 de septiembre 02:00 UTC. */
+  const NOCHE_DEL_31 = new Date('2026-09-01T02:00:00.000Z');
+
+  it('la última noche del mes sigue siendo ese mes en la clínica', () => {
+    expect(inicioDelMesClinica(NOCHE_DEL_31).toISOString()).toBe('2026-08-01T04:00:00.000Z');
+  });
+
+  it('desplaza meses cruzando el año', () => {
+    const enero = new Date('2026-01-15T15:00:00.000Z');
+    expect(inicioDelMesClinica(enero, -1).toISOString()).toBe('2025-12-01T04:00:00.000Z');
+    expect(inicioDelMesClinica(enero, 1).toISOString()).toBe('2026-02-01T04:00:00.000Z');
   });
 });

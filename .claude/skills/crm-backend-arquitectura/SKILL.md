@@ -680,7 +680,8 @@ cierre de esta sección).
 - **Swagger/OpenAPI sigue sin existir** — no es "velocidad", pero si algún día
   se conecta un tercero o cambia el equipo, ayuda. `kpis`, `usuarios` y `auth`
   **ya tienen suite unitaria** (2026-08-25), cerrando el hueco que este mismo
-  punto señalaba: `kpis.service.spec.ts` fija el escopado por agente
+  punto señalaba: `kpis.integracion.spec.ts` (contra Postgres real desde
+  2026-09-22, cuando el embudo pasó a SQL) fija el escopado por agente
   (`kpis.service.ts` es justo donde ya hubo una fuga real de datos entre
   agentes, ver `crm-backend-module`) y que la caché no sirva el resumen de un
   agente a otro; `usuarios.service.spec.ts` fija la protección del último
