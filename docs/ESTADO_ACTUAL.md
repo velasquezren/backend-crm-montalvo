@@ -24,6 +24,16 @@ fallos de interfaz, corregidos: el diálogo de confirmación no tenía fondo
 tampoco) y el botón respondía al clic estando deshabilitado (`(click)` en vez
 del `(clicked)` del átomo). La fecha del estudio se mostraba un día antes.
 
+**Desplegado el 22/09 a las 16:40**: Resultados `78f7707` (migración
+`20260922200000_sin_avisos_propios` aplicada, respaldo previo en
+`/root/backup-resultados-20260922-163251.sql.gz`), CRM `95beb6d`, frontend
+`47bd548`. La API de Resultados estuvo caída ~3 minutos durante el despliegue:
+se compiló con `NODE_ENV=production` cargado y `npm ci` omitió los tipos.
+Verificado después: los cuatro servicios activos, `/health/ready` ok, webhook
+retirado (404), la cola entrega `paciente {ci,nombre,pac}` y el CRM la
+reconoce. La única fila publicada es de un paciente que no está en el CRM, y
+sale como «Sin vincular».
+
 
 ## 22 de septiembre de 2026 · Dashboard medido sobre los mensajes
 
