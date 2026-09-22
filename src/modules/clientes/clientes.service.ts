@@ -273,6 +273,21 @@ export class ClientesService {
   }
 
   /**
+   * Busca por el PAC de FileMaker, que es la clave con la que el portal de
+   * resultados reconoce al mismo paciente. Normaliza igual que `create()`
+   * —mayúsculas— y además quita separadores, porque el PAC se teclea a mano en
+   * el otro sistema y `PAC-33009` es el mismo paciente que `PAC33009`.
+   *
+   * Sin escopado por agente a propósito: identifica a una persona por una clave
+   * exacta, no lista cartera. Quien llame decide qué puede hacer con ella.
+   */
+  async findByPac(pac: string) {
+    const clave = pac.toUpperCase().replace(/[^A-Z0-9]/g, '');
+    if (!clave) return null;
+    return this.prisma.cliente.findUnique({ where: { pac: clave } });
+  }
+
+  /**
    * Get-or-create por teléfono, a prueba de concurrencia — para el webhook
    * de WhatsApp.
    *

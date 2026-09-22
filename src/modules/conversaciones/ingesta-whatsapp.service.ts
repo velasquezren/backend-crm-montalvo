@@ -1,4 +1,4 @@
-import { LINEA_COMERCIAL_INICIAL } from './acceso-conversacion';
+import { LINEA_COMERCIAL_INICIAL, obtenerOCrearConversacion } from './acceso-conversacion';
 import { Injectable, Logger } from '@nestjs/common';
 import { Mensaje, OrigenLead, Prisma } from '../../prisma/prisma-client';
 
@@ -106,7 +106,7 @@ export class IngestaWhatsappService {
       telefono,
     );
 
-    const conversacion = await this.obtenerOCrearConversacion(cliente.id, lineaId, linea.comercial);
+    const conversacion = await obtenerOCrearConversacion(this.prisma, cliente.id, lineaId, linea.comercial);
 
     /* Contexto de campaña / anuncio de Meta (Click-to-WhatsApp Ads) */
     const esInstagram = Boolean(
@@ -241,32 +241,6 @@ export class IngestaWhatsappService {
     return mensaje;
   }
 
-  /**
-   * Una conversación por paciente + línea. La reserva comercial nace en el
-   * mismo INSERT; una conversación anterior nunca se rearma por un reintento.
-   */
-  private async obtenerOCrearConversacion(
-    clienteId: string,
-    lineaId: string,
-    comercial: boolean,
-  ): Promise<{ id: string; agenteId: string | null }> {
-    const existente = await this.prisma.conversacion.findUnique({ where: { clienteId_lineaId: { clienteId, lineaId } } });
-    if (existente) return existente;
-    try {
-      return await this.prisma.conversacion.create({
-        data: {
-          clienteId, lineaId,
-          ...(comercial ? { primerContacto: { create: {} } } : {}),
-        },
-      });
-    } catch (error) {
-      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
-        const yaCreada = await this.prisma.conversacion.findUnique({ where: { clienteId_lineaId: { clienteId, lineaId } } });
-        if (yaCreada) return yaCreada;
-      }
-      throw error;
-    }
-  }
 
   /**
    * Contesta al paciente que escribe cuando no hay nadie atendiendo.
