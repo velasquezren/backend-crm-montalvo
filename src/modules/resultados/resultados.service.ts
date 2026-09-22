@@ -26,8 +26,14 @@ export interface FilaEntrega {
   fechaEstudio: string;
   publicadoEn: string | null;
   accesoVigente: boolean;
-  /** El paciente en el CRM, si el PAC cruza. `null` = hay que vincularlo a mano. */
+  /** La ficha del CRM a la que se enviaría. `null` = no se reconoció. */
   paciente: { id: string; nombre: string; telefono: string } | null;
+  /** Por qué clave se reconoció: con CI la asistente compara el nombre. */
+  vinculo: 'PAC' | 'CI' | null;
+  /** Por qué NO se reconoció, dicho para poder arreglarlo. */
+  sinFicha: 'SIN_COINCIDENCIA' | 'CI_REPETIDO' | null;
+  /** Cómo figura el paciente en el portal de resultados. */
+  pacientePortal: { nombre: string; pac: string | null; ci: string | null };
   /** Ya avisado: cuándo y en qué estado quedó el mensaje. */
   aviso: { enviadoEn: Date; estadoMensaje: string | null } | null;
 }
@@ -58,19 +64,18 @@ export class ResultadosService {
     const cola = await this.portal.informes({ pagina: query.pagina ?? 1, limite: take });
     if (!cola.datos.length) return paginar([], cola.total, query);
 
-    /* Dos consultas en lote, no dos por fila. */
-    const [clientes, avisos] = await Promise.all([
-      this.clientes.findByPacs(cola.datos.map(informe => informe.referenciaCrm)),
+    /* Consultas en lote, no por fila. */
+    const [reconocidos, avisos] = await Promise.all([
+      this.clientes.reconocerPacientes(cola.datos.map(informe => informe.paciente)),
       this.prisma.avisoResultado.findMany({
         where: { informeId: { in: cola.datos.map(informe => informe.informeId) } },
         select: { informeId: true, enviadoEn: true, mensaje: { select: { estadoEnvio: true } } },
       }),
     ]);
-    const porPac = new Map(clientes.map(cliente => [cliente.pac, cliente]));
     const porInforme = new Map(avisos.map(aviso => [aviso.informeId, aviso]));
 
-    const filas = cola.datos.map((informe): FilaEntrega => {
-      const cliente = porPac.get(informe.referenciaCrm);
+    const filas = cola.datos.map((informe, i): FilaEntrega => {
+      const { cliente, via, motivo } = reconocidos[i];
       const aviso = porInforme.get(informe.informeId);
       return {
         informeId: informe.informeId,
@@ -78,7 +83,10 @@ export class ResultadosService {
         fechaEstudio: informe.fechaEstudio,
         publicadoEn: informe.publicadoEn,
         accesoVigente: informe.accesoVigente,
-        paciente: cliente ? { id: cliente.id, nombre: cliente.nombre, telefono: cliente.telefono } : null,
+        paciente: cliente,
+        vinculo: via,
+        sinFicha: motivo,
+        pacientePortal: informe.paciente,
         aviso: aviso ? { enviadoEn: aviso.enviadoEn, estadoMensaje: aviso.mensaje?.estadoEnvio ?? null } : null,
       };
     });
@@ -100,10 +108,14 @@ export class ResultadosService {
        error que recibe. */
     const linea = await this.permitirLinea(usuario);
     const informe = await this.revalidar(informeId);
-    const cliente = await this.clientes.findByPac(informe.referenciaCrm);
+    /* Se reconoce de nuevo aquí, no se confía en la fila que vio la
+       asistente: entre la cola y el clic alguien pudo corregir un CI. */
+    const [{ cliente, motivo }] = await this.clientes.reconocerPacientes([informe.paciente]);
     if (!cliente) {
       throw new NotFoundException(
-        `El paciente del informe no está en el CRM (PAC ${informe.referenciaCrm}). Revisa su ficha antes de avisarle.`,
+        motivo === 'CI_REPETIDO'
+          ? 'El CI de este paciente está en más de una ficha del CRM. Corrige las fichas antes de avisarle.'
+          : 'El paciente del informe no tiene ficha en el CRM con ese PAC o CI. Revísalo antes de avisarle.',
       );
     }
 
@@ -144,7 +156,7 @@ export class ResultadosService {
     const cola = await this.portal.informes({ informeId, limite: 1 });
     const informe = cola.datos[0];
     if (!informe) {
-      throw new NotFoundException('Ese informe ya no está publicado o el paciente no está vinculado al CRM.');
+      throw new NotFoundException('Ese informe ya no está publicado en el portal.');
     }
     if (!informe.accesoVigente) {
       throw new ConflictException(

@@ -1,5 +1,30 @@
 # Estado actual
 
+## 22 de septiembre de 2026 · Entrega de resultados terminada
+
+La cola de `/resultados` salía vacía: los dos pacientes del portal estaban
+registrados solo con CI, y el vínculo era solo por PAC. Ahora
+`ClientesService.reconocerPacientes` reconoce en lote por PAC y, si no hay o no
+cruza, por **CI único** en forma canónica (el CRM tiene 481 CI con separadores y
+45 en minúsculas). Un CI que está en dos fichas (hay 18) no se vincula a
+ninguna: la fila dice «CI repetido». Con CI la pantalla muestra el nombre del
+portal junto al de la ficha y el diálogo pide confirmar que es la misma persona.
+
+En Resultados se retiró el camino de avisos que nunca se encendió (0 avisos en
+producción): transporte Meta, webhook, consentimiento al publicar, las tablas
+`Aviso`, `CuotaAvisos` y `EventoIntegracion` (el endpoint de eventos no lo
+consumía nadie), y las columnas `Paciente.referenciaCrm` y `Paciente.telefono`.
+Su cola `/v1/integraciones/crm/informes` ahora entrega `paciente: {nombre, pac,
+ci}` y el CRM resuelve el vínculo.
+
+La plantilla `montalvo_resultado_disponible` se **creó en Meta** en la línea de
+Recepción (id `2137598870221549`, en revisión). La pantalla del CRM tenía tres
+fallos de interfaz, corregidos: el diálogo de confirmación no tenía fondo
+(`bg-surface` no existe), los textos secundarios salían en negro (`text-muted`
+tampoco) y el botón respondía al clic estando deshabilitado (`(click)` en vez
+del `(clicked)` del átomo). La fecha del estudio se mostraba un día antes.
+
+
 ## 22 de septiembre de 2026 · Dashboard medido sobre los mensajes
 
 El dashboard decía "632 por contactar" y "0 citas agendadas". Las dos cifras
@@ -19,11 +44,12 @@ WhatsApp directo.
 Un asistente entrega desde el CRM el informe que el médico publicó en el portal
 de Resultados: `/resultados` lista la cola y manda al paciente el enlace por
 WhatsApp. El mensaje queda en su conversación, así que si responde lo ve quien
-atiende. **El CRM es el único emisor**: Resultados no manda WhatsApp aunque
-tenga el pipeline — una sola app de Meta, un solo webhook, un solo historial.
+atiende. **El CRM es el único emisor**: una sola app de Meta, un solo webhook,
+un solo historial. El camino de avisos propio de Resultados se retiró (ver la
+entrada «Entrega de resultados terminada»).
 
-El vínculo entre sistemas es el **PAC de FileMaker** en forma canónica. Verificado
-contra la planilla real: `PAC` + 5 dígitos, sin separadores, solo varía el caso.
+El vínculo entre sistemas es el **PAC de FileMaker** en forma canónica y, desde
+la misma tarde, el **CI único** cuando no hay PAC (ver abajo).
 
 **El permiso NO es el rango.** `ASISTENTE` comparte rango 0 con `RECEPCION` y
 está por debajo de `AGENTE`, así que `@Roles` no puede expresarlo. Se usa la

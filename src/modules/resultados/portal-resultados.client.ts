@@ -3,8 +3,12 @@ import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common'
 /** Una fila de la cola del portal de resultados. Contrato de su API, no nuestro. */
 export interface InformePublicado {
   informeId: string;
-  /** PAC canónico del paciente: la clave con la que el CRM lo reconoce. */
-  referenciaCrm: string;
+  /**
+   * Cómo está registrado el paciente en el portal. El CRM lo reconoce con
+   * estos identificadores (`ClientesService.reconocerPacientes`) y el nombre
+   * se le muestra a la asistente para comparar antes de enviar.
+   */
+  paciente: { nombre: string; pac: string | null; ci: string | null };
   estudio: string;
   fechaEstudio: string;
   publicadoEn: string | null;
@@ -45,7 +49,7 @@ export class PortalResultadosClient {
     return { base: base.replace(/\/$/, ''), token };
   }
 
-  /** Informes publicados de pacientes vinculados. Con `informeId`, solo ese. */
+  /** Informes publicados. Con `informeId`, solo ese. */
   async informes(params: { pagina?: number; limite?: number; informeId?: string }): Promise<ColaInformes> {
     const { base, token } = this.configuracion();
     const query = new URLSearchParams();

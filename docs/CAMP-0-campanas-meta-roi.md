@@ -1027,7 +1027,7 @@ se repite lo que el informe ya tenía bien.
 | Tema | Informe inicial | Evidencia nueva | Conclusión corregida |
 | --- | --- | --- | --- |
 | `ctwa_clid` fuera del servidor | Se describe como dato que «se guarda y no se muestra» | `conversaciones.service.ts:518` y `clientes.service.ts:98,:246` seleccionan `datosExtra: true` | **Sí sale al navegador.** La UI no lo pinta, pero viaja en el payload |
-| Cruce PAC ↔ VentaImportada | «Recuperable de forma determinista» cuando el PAC coincide | `clientes.service.ts:305`: el alta por WhatsApp es `create({ data: { nombre, telefono } })` | **No disponible en general para pacientes captadas por Meta:** nacen sin PAC |
+| Cruce PAC ↔ VentaImportada | «Recuperable de forma determinista» cuando el PAC coincide | `ClientesService.obtenerOCrearPorTelefono`: el alta por WhatsApp es `create({ data: { nombre, telefono } })` | **No disponible en general para pacientes captadas por Meta:** nacen sin PAC |
 | Línea comercial | Se cita la condición «línea comercial» | `schema.prisma:264`: `comercial Boolean @default(false)` | Una línea nueva **pierde la atribución en silencio** hasta que alguien la marque |
 | `OrigenLead` | Se enumeran tres valores | `schema.prisma:44-54`: nueve valores | Inventario incompleto; hay cuatro orígenes de comentario/mensaje que nada escribe |
 | Funnel conversación → lead | Se presenta como etapa del embudo | El primer mensaje entrante de una línea comercial crea lead siempre | **~100 % por construcción:** no es un KPI de calidad |

@@ -273,30 +273,50 @@ export class ClientesService {
   }
 
   /**
-   * Busca por el PAC de FileMaker, que es la clave con la que el portal de
-   * resultados reconoce al mismo paciente. Normaliza igual que `create()`
-   * —mayúsculas— y además quita separadores, porque el PAC se teclea a mano en
-   * el otro sistema y `PAC-33009` es el mismo paciente que `PAC33009`.
+   * Reconoce a pacientes de OTRO sistema —el portal de resultados— entre las
+   * fichas del CRM, en lote (una página de la cola, no una consulta por fila).
    *
-   * Sin escopado por agente a propósito: identifica a una persona por una clave
-   * exacta, no lista cartera. Quien llame decide qué puede hacer con ella.
+   * 1. **PAC**, que es único aquí por índice y se guarda ya canónico.
+   * 2. Si no hay PAC o no cruza, **CI**, solo cuando en forma canónica
+   *    coincide con exactamente UNA ficha. Medido en producción el
+   *    2026-09-22: 14.077 fichas con CI y 18 CI repetidos. Un CI repetido no
+   *    se resuelve eligiendo uno: se devuelve `CI_REPETIDO` y la asistente lo
+   *    ve, porque avisar a la persona equivocada revela que otra tiene un
+   *    resultado.
    *
-   * `findByPacs` es la versión en lote: resolver una página de la cola de
-   * resultados de una en una serían 25 consultas por pantalla.
+   * Canónico = mayúsculas y sin separadores: el CRM tiene 481 CI con guiones
+   * o espacios y 45 en minúsculas, y en el otro sistema se teclean a mano.
+   * La comparación del CI recorre la tabla (no hay índice sobre la
+   * expresión); son ~16.000 filas y una consulta por página.
+   *
+   * Sin escopado por agente a propósito: identifica a una persona por una
+   * clave exacta, no lista cartera. Quien llame decide qué hace con ella.
    */
-  async findByPacs(pacs: string[]) {
-    const claves = [...new Set(pacs.map(pac => pac.toUpperCase().replace(/[^A-Z0-9]/g, '')).filter(Boolean))];
-    if (!claves.length) return [];
-    return this.prisma.cliente.findMany({
-      where: { pac: { in: claves } },
-      select: { id: true, nombre: true, telefono: true, pac: true },
-    });
-  }
+  async reconocerPacientes(identificadores: ReadonlyArray<{ pac: string | null; ci: string | null }>): Promise<ReconocimientoPaciente[]> {
+    const pacs = [...new Set(identificadores.map(i => canonico(i.pac)).filter((c): c is string => !!c))];
+    const cis = [...new Set(identificadores.map(i => canonico(i.ci)).filter((c): c is string => !!c))];
+    const [porPac, porCi] = await Promise.all([
+      pacs.length
+        ? this.prisma.cliente.findMany({ where: { pac: { in: pacs } }, select: { id: true, nombre: true, telefono: true, pac: true } })
+        : Promise.resolve([]),
+      cis.length
+        ? this.prisma.$queryRaw<Array<{ clave: string; id: string; nombre: string; telefono: string }>>`
+            SELECT upper(regexp_replace(ci, '[^A-Za-z0-9]', '', 'g')) AS clave, id, nombre, telefono
+              FROM "Cliente"
+             WHERE upper(regexp_replace(ci, '[^A-Za-z0-9]', '', 'g')) = ANY(${cis}::text[])`
+        : Promise.resolve([]),
+    ]);
+    const clientePorPac = new Map(porPac.map(c => [c.pac as string, c]));
+    const fichasPorCi = new Map<string, Array<{ id: string; nombre: string; telefono: string }>>();
+    for (const { clave, ...ficha } of porCi) fichasPorCi.set(clave, [...(fichasPorCi.get(clave) ?? []), ficha]);
 
-  async findByPac(pac: string) {
-    const clave = pac.toUpperCase().replace(/[^A-Z0-9]/g, '');
-    if (!clave) return null;
-    return this.prisma.cliente.findUnique({ where: { pac: clave } });
+    return identificadores.map(({ pac, ci }): ReconocimientoPaciente => {
+      const conPac = clientePorPac.get(canonico(pac) ?? '');
+      if (conPac) return { cliente: { id: conPac.id, nombre: conPac.nombre, telefono: conPac.telefono }, via: 'PAC', motivo: null };
+      const conCi = fichasPorCi.get(canonico(ci) ?? '') ?? [];
+      if (conCi.length === 1) return { cliente: conCi[0], via: 'CI', motivo: null };
+      return { cliente: null, via: null, motivo: conCi.length > 1 ? 'CI_REPETIDO' : 'SIN_COINCIDENCIA' };
+    });
   }
 
   /**
@@ -591,4 +611,16 @@ export class ClientesService {
       servicios,
     };
   }
+}
+
+/** Cómo se reconoció a un paciente de otro sistema, o por qué no. */
+export interface ReconocimientoPaciente {
+  cliente: { id: string; nombre: string; telefono: string } | null;
+  via: 'PAC' | 'CI' | null;
+  motivo: 'SIN_COINCIDENCIA' | 'CI_REPETIDO' | null;
+}
+
+/** Mayúsculas y sin separadores: `pac-33009`, `PAC 33009` y `PAC33009` son la misma clave. */
+function canonico(valor: string | null): string | null {
+  return valor?.toUpperCase().replace(/[^A-Z0-9]/g, '') || null;
 }

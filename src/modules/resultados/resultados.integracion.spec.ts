@@ -94,7 +94,11 @@ beforeEach(async () => {
   await prisma.accesoLineaWhatsapp.deleteMany({ where: { lineaId: LINEA } });
   await prisma.lineaWhatsapp.deleteMany({ where: { id: LINEA } });
   await prisma.auditLog.deleteMany({ where: { entidad: 'AvisoResultado' } });
-  await prisma.cliente.deleteMany({ where: { pac: { in: ['PAC33009', 'PAC99999'] } } });
+  /* Por PAC y por teléfono: otra suite puede haber dejado una ficha con el
+     mismo número de prueba y el índice único de `telefono` rebotaría. */
+  await prisma.cliente.deleteMany({
+    where: { OR: [{ pac: { in: ['PAC33009', 'PAC99999'] } }, { telefono: { in: ['+59170000001', '+59170000091', '+59170000092', '+59170000093', '+59170000094'] } }] },
+  });
   await prisma.usuario.deleteMany({ where: { email: { in: ['asistente@test.local', 'agente@test.local'] } } });
 
   await prisma.lineaWhatsapp.create({
@@ -116,7 +120,7 @@ beforeEach(async () => {
 
   informesDelPortal = [
     {
-      informeId: INFORME, referenciaCrm: 'PAC33009', estudio: 'Ecografía abdominal',
+      informeId: INFORME, paciente: { nombre: 'Paciente Vinculado', pac: 'PAC33009', ci: null }, estudio: 'Ecografía abdominal',
       fechaEstudio: '2026-09-20', publicadoEn: '2026-09-21T10:00:00.000Z',
       accesoId: ACCESO, accesoVigente: true,
     },
@@ -206,9 +210,44 @@ describe('entrega de resultados contra Postgres real', () => {
   });
 
   it('un paciente sin ficha en el CRM se señala, no se inventa', async () => {
-    informesDelPortal[0].referenciaCrm = 'PAC99999';
+    informesDelPortal[0].paciente = { nombre: 'Nadie', pac: 'PAC99999', ci: null };
     const cola = await service.pendientes({}, asistente);
-    expect(cola.datos[0].paciente).toBeNull();
-    await expect(service.enviar(INFORME, asistente)).rejects.toThrow(/PAC99999/);
+    expect(cola.datos[0]).toMatchObject({ paciente: null, vinculo: null, sinFicha: 'SIN_COINCIDENCIA' });
+    await expect(service.enviar(INFORME, asistente)).rejects.toThrow(/no tiene ficha/);
+    expect(plantillasEnviadas).toHaveLength(0);
+  });
+
+  /* Los pacientes del portal registrados solo con CI: el CI del CRM está
+     escrito a mano, con guiones y en minúsculas, y se compara canónico. */
+  it('sin PAC, reconoce por CI único aunque esté escrito distinto, y lo dice', async () => {
+    await prisma.cliente.create({ data: { nombre: 'Paciente por CI', telefono: '+59170000091', ci: '4.567.890-lp' } });
+    informesDelPortal[0].paciente = { nombre: 'Paciente Por Ci', pac: null, ci: '4567890 LP' };
+    const cola = await service.pendientes({}, asistente);
+    expect(cola.datos[0]).toMatchObject({ vinculo: 'CI', sinFicha: null, paciente: { nombre: 'Paciente por CI', telefono: '+59170000091' } });
+    expect(cola.datos[0].pacientePortal.nombre).toBe('Paciente Por Ci');
+    await expect(service.enviar(INFORME, asistente)).resolves.toMatchObject({ enviado: true });
+  });
+
+  /* Elegir una de dos fichas con el mismo CI es avisar quizá a otra persona
+     de que alguien tiene un resultado. No se elige: se señala. */
+  it('un CI repetido en el CRM no se vincula a ninguna de las dos fichas', async () => {
+    await prisma.cliente.createMany({
+      data: [
+        { nombre: 'Homónima A', telefono: '+59170000092', ci: '7777777' },
+        { nombre: 'Homónima B', telefono: '+59170000093', ci: '7777-777' },
+      ],
+    });
+    informesDelPortal[0].paciente = { nombre: 'Homónima', pac: null, ci: '7777777' };
+    const cola = await service.pendientes({}, asistente);
+    expect(cola.datos[0]).toMatchObject({ paciente: null, sinFicha: 'CI_REPETIDO' });
+    await expect(service.enviar(INFORME, asistente)).rejects.toThrow(/más de una ficha/);
+    expect(plantillasEnviadas).toHaveLength(0);
+  });
+
+  it('el PAC manda sobre el CI cuando los dos cruzan con fichas distintas', async () => {
+    await prisma.cliente.create({ data: { nombre: 'Otra persona', telefono: '+59170000094', ci: '1234567' } });
+    informesDelPortal[0].paciente = { nombre: 'Paciente Vinculado', pac: 'pac-33009', ci: '1234567' };
+    const cola = await service.pendientes({}, asistente);
+    expect(cola.datos[0]).toMatchObject({ vinculo: 'PAC', paciente: { nombre: 'Paciente Vinculado' } });
   });
 });
