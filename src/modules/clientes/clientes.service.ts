@@ -280,7 +280,19 @@ export class ClientesService {
    *
    * Sin escopado por agente a propósito: identifica a una persona por una clave
    * exacta, no lista cartera. Quien llame decide qué puede hacer con ella.
+   *
+   * `findByPacs` es la versión en lote: resolver una página de la cola de
+   * resultados de una en una serían 25 consultas por pantalla.
    */
+  async findByPacs(pacs: string[]) {
+    const claves = [...new Set(pacs.map(pac => pac.toUpperCase().replace(/[^A-Z0-9]/g, '')).filter(Boolean))];
+    if (!claves.length) return [];
+    return this.prisma.cliente.findMany({
+      where: { pac: { in: claves } },
+      select: { id: true, nombre: true, telefono: true, pac: true },
+    });
+  }
+
   async findByPac(pac: string) {
     const clave = pac.toUpperCase().replace(/[^A-Z0-9]/g, '');
     if (!clave) return null;

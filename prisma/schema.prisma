@@ -107,6 +107,7 @@ model Usuario {
   actividades           Actividad[]
   createdAt             DateTime               @default(now())
   updatedAt             DateTime               @updatedAt
+  avisosResultado       AvisoResultado[]
 }
 
 model SesionUsuario {
@@ -199,6 +200,7 @@ model Cliente {
   @@index([nombre(ops: raw("gin_trgm_ops"))], type: Gin, map: "Cliente_nombre_trgm_idx")
   @@index([email(ops: raw("gin_trgm_ops"))], type: Gin, map: "Cliente_email_trgm_idx")
   @@index([telefono(ops: raw("gin_trgm_ops"))], type: Gin, map: "Cliente_telefono_trgm_idx")
+  avisosResultado AvisoResultado[]
 }
 
 model Interes {
@@ -388,6 +390,7 @@ model Mensaje {
   /// vencido. Es un índice sobre una columna casi siempre nula, así que apenas
   /// pesa y evita recorrer la tabla de mensajes entera cada minuto.
   @@index([proximoIntento])
+  avisoResultado AvisoResultado?
 }
 
 /// Una recuperación por mensaje. CHECK en SQL: estados internos, fuera de la API.
@@ -1267,4 +1270,39 @@ model PrimerContactoWhatsapp {
   updatedAt DateTime @updatedAt
 
   @@index([proximoIntento, conversacionId])
+}
+
+/// Qué informe del portal de resultados ya se avisó al paciente por WhatsApp.
+///
+/// El emisor es el CRM, así que la cuenta la lleva el CRM: el portal de
+/// resultados no sabe lo que el CRM envía, y preguntárselo sería inventar una
+/// fuente de verdad compartida entre dos bases.
+///
+/// `informeId` es único: un informe se avisa una vez. El índice hace de guardia
+/// contra el doble envío bajo doble clic o reintento, no una comprobación
+/// previa que una carrera se salta.
+model AvisoResultado {
+  id String @id @default(uuid())
+  /// Id del informe en el portal de resultados. Opaco para el CRM: no se
+  /// resuelve contra ninguna tabla local.
+  informeId String @unique @db.VarChar(64)
+  cliente   Cliente @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  clienteId String
+  /// El mensaje del CRM que lo transporta. Por ahí se ve el estado de entrega
+  /// real (enviado/entregado/leído): no se duplica ese estado aquí.
+  ///
+  /// NULO mientras la fila es solo una RESERVA. La fila se crea antes de enviar
+  /// —el índice único de `informeId` es lo que impide el doble envío bajo doble
+  /// clic, cosa que una comprobación previa no logra— y se completa con el
+  /// mensaje cuando el envío se persiste. Si el envío falla, la reserva se
+  /// borra y el informe vuelve a la cola. En Postgres los NULL no chocan entre
+  /// sí, así que varias reservas en vuelo conviven sin problema.
+  mensaje   Mensaje? @relation(fields: [mensajeId], references: [id], onDelete: Cascade)
+  mensajeId String?  @unique
+  /// Quién lo mandó. La razón de que ASISTENTE sea una cuenta propia.
+  enviadoPor   Usuario @relation(fields: [enviadoPorId], references: [id])
+  enviadoPorId String
+  enviadoEn    DateTime @default(now())
+
+  @@index([clienteId, enviadoEn])
 }
