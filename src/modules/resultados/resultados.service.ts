@@ -155,6 +155,15 @@ export class ResultadosService {
   }
 
   private async reservar(informeId: string, clienteId: string, enviadoPorId: string) {
+    /* El `catch` de `enviar` solo ve los fallos síncronos: `enviarPlantilla`
+       despacha a Meta en segundo plano, así que un rechazo real —plantilla sin
+       aprobar, número sin WhatsApp— llega DESPUÉS y deja el mensaje en FALLIDO
+       con la reserva puesta. Sin esto el informe quedaría "avisado" para
+       siempre sin que el paciente recibiera nada. FALLIDO es definitivo en una
+       plantilla (`permiteReintento: false`): consta que no salió, se libera.
+       INCIERTO no: pudo llegar, y reenviar sería el doble WhatsApp que la
+       reserva existe para impedir. Bajo doble clic, el índice sigue decidiendo. */
+    await this.prisma.avisoResultado.deleteMany({ where: { informeId, mensaje: { estadoEnvio: 'FALLIDO' } } });
     try {
       return await this.prisma.avisoResultado.create({ data: { informeId, clienteId, enviadoPorId } });
     } catch (error) {

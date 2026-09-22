@@ -1,6 +1,6 @@
 ---
 name: crm-backend-arquitectura
-description: Mapa completo del backend — infraestructura real de producción (VPS dedicado Debian 12, systemd, Apache, Postgres 16), cómo desplegar paso a paso, la escala real de datos, qué decisiones de arquitectura ya están tomadas y por qué, y dónde mirar para rendimiento/escalabilidad. Úsalo para cualquier tarea que no sea "tocar un endpoint" — desplegar, diagnosticar lentitud o un incidente, decidir si algo escala, entender por qué el servidor está configurado así, u orientarte la primera vez que trabajas en este repo. Para el patrón de código de un módulo (paginación, roles, DTOs, webhooks) usa `crm-backend-module`; este skill es el contexto de alrededor.
+description: Mapa completo del backend — infraestructura real de producción (VPS Debian 12 compartido con Resultados, systemd, Apache, Postgres 16), cómo desplegar paso a paso, la escala real de datos, qué decisiones de arquitectura ya están tomadas y por qué, y dónde mirar para rendimiento/escalabilidad. Úsalo para cualquier tarea que no sea "tocar un endpoint" — desplegar, diagnosticar lentitud o un incidente, decidir si algo escala, entender por qué el servidor está configurado así, u orientarte la primera vez que trabajas en este repo. Para el patrón de código de un módulo (paginación, roles, DTOs, webhooks) usa `crm-backend-module`; este skill es el contexto de alrededor.
 ---
 
 # Mapa del backend — CRM Clínica Montalvo
@@ -217,8 +217,8 @@ para saber que no es un problema de escala.
 
 Base completa: **60 MB**. Esto importa para calibrar cualquier conversación sobre
 "performance": **no es un problema de volumen de datos** — 60 MB entra entero en
-RAM varias veces. El cuello de botella de este sistema es la máquina de un solo
-núcleo y 1.7 GB compartidos (§2), no el tamaño de las tablas. Optimizar asumiendo
+RAM varias veces. El cuello de botella es la máquina compartida (§2: cuatro
+núcleos y 7,9 GB que se reparten con Resultados y ClamAV), no el tamaño de las tablas. Optimizar asumiendo
 un problema de "big data" que no existe sería resolver lo que no duele.
 
 `Venta` pasó de 0 (2026-08-21) a 3 (2026-08-26) a 6 (2026-09-02): se usa, pero
@@ -394,8 +394,8 @@ pruebas y aun así tumban el servicio**. Se documentan acá y no en
    correr las pruebas (probado: siguen en verde).
 
 **Qué gana el servidor con esto:** el cliente ya no carga un binario Rust de
-**17,2 MB** en el proceso, y esta máquina tiene 1,7 GB para todas sus
-aplicaciones. El pool de conexiones dejó de ser el `núcleos × 2 + 1` = **3** que
+**17,2 MB** en el proceso — decisivo en la máquina de 1,7 GB donde se hizo
+esta migración, y todavía memoria que no se le quita al vecino (§2). El pool de conexiones dejó de ser el `núcleos × 2 + 1` = **3** que
 decidía el motor y ahora es un `pg.Pool` de **10**, dimensionado a mano contra
 el `max_connections = 100` real del servidor: se acabó que el barrido de
 recordatorios compitiera con las peticiones de las agentes por tres conexiones.
@@ -407,8 +407,9 @@ planilla de comisiones y los exports, que sí mueven miles de filas.
 
 ## 5. Decisiones de arquitectura ya tomadas — no las reabras sin el porqué
 
-Cada una de estas resuelve algo específico del contexto de §2 (una sola CPU,
-1.7 GB compartidos, sin staging) o de la escala real de §3. Si una te parece
+Cada una de estas resuelve algo específico del contexto de §2 (máquina
+compartida con Resultados, sin staging; varias nacieron en el VPS viejo de un
+núcleo y siguen valiendo) o de la escala real de §3. Si una te parece
 "de más", probablemente estás a punto de reintroducir el problema que resolvió.
 
 - **`common/auth/roles.ts`** — única fuente de la jerarquía de roles

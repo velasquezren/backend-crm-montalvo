@@ -182,6 +182,23 @@ describe('entrega de resultados contra Postgres real', () => {
     await expect(service.enviar(INFORME, asistente)).resolves.toMatchObject({ enviado: true });
   });
 
+  /* El caso real: Meta rechaza DESPUÉS de que `enviar` respondió, por el
+     despacho en segundo plano. El `catch` de `enviar` nunca lo ve. */
+  it('si Meta rechaza en diferido, el informe se puede volver a enviar; si es incierto, no', async () => {
+    const { mensajeId } = await service.enviar(INFORME, asistente);
+
+    await prisma.mensaje.update({ where: { id: mensajeId }, data: { estadoEnvio: 'INCIERTO' } });
+    await expect(service.enviar(INFORME, asistente)).rejects.toThrow(/ya se le envió/);
+
+    await prisma.mensaje.update({ where: { id: mensajeId }, data: { estadoEnvio: 'FALLIDO' } });
+    const cola = await service.pendientes({}, asistente);
+    expect(cola.datos[0].aviso?.estadoMensaje).toBe('FALLIDO');
+
+    await expect(service.enviar(INFORME, asistente)).resolves.toMatchObject({ enviado: true });
+    expect(plantillasEnviadas).toHaveLength(2);
+    expect(await prisma.avisoResultado.count()).toBe(1);
+  });
+
   it('no manda a una puerta cerrada: acceso vencido o revocado se rechaza', async () => {
     informesDelPortal[0].accesoVigente = false;
     await expect(service.enviar(INFORME, asistente)).rejects.toThrow(/vencido o revocado/i);

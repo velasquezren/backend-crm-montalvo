@@ -22,6 +22,17 @@ sola lista, `ROLES_OPERATIVOS`.
 
 Commits `ca14a3c`, `9d08e16`, `401dd19` (backend) y `1c86de3` (frontend).
 
+**Corregido en la revisión del mismo día: un rechazo de Meta dejaba el informe
+bloqueado y pintado como entregado.** `enviarPlantilla` despacha a Meta en
+segundo plano, así que el `catch` que libera la reserva solo veía fallos
+síncronos. Un rechazo real (plantilla sin aprobar —el caso seguro del primer
+día—, número sin WhatsApp) llegaba después, dejaba el mensaje en FALLIDO con la
+reserva puesta, y la pantalla decía "Avisado ✓" en verde para siempre sin botón
+para reintentar. Ahora `reservar` libera la reserva de un mensaje FALLIDO (nunca
+de uno INCIERTO, que pudo llegar) y la fila muestra el estado real del mensaje.
+La prueba que ya existía simulaba el fallo con un `throw` síncrono, que en
+producción no ocurre.
+
 **Estado del despliegue (22/09 14:20):** el código está en `/opt/crm-backend`,
 las dos migraciones aplicadas y `dist/main.js` reconstruido, pero **el servicio
 todavía no se reinició**: sigue corriendo el binario de `e2c707a`. Respaldo

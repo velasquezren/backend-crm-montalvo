@@ -276,6 +276,16 @@ return mensaje;
 void this.despachador.texto(destino, contenido);
 ```
 
+**Corolario: si disparas en segundo plano, tu `catch` ya no ve el fallo del
+tercero.** Cualquier estado que "deshaga" algo ante un error (una reserva, un
+cupo) tiene que reaccionar también al fallo diferido, que llega como
+`estadoEnvio = FALLIDO` por el despacho o por el webhook de `statuses`. Pasó en
+`ResultadosService.enviar` (2026-09-22): la reserva de `AvisoResultado` solo se
+liberaba ante un `throw` síncrono, así que un rechazo real de Meta dejaba el
+informe "avisado" para siempre. Y la prueba no lo vio porque simulaba el fallo
+con un `throw` en el stub — **un stub de la frontera tiene que fallar como falla
+la frontera de verdad.**
+
 El helper recibe una **función**, no una promesa ya construida: así también
 atrapa lo que lance antes de que la promesa exista. Y va en el punto donde se
 dispara, **nunca dentro del método que hace el trabajo**: ese mismo método puede
@@ -542,7 +552,8 @@ tentación clásica de cambiar el `for await` por un `Promise.all(lote.map(…))
 "para que vaya más rápido". En este servidor eso es una regresión, no una
 optimización:
 
-- el VPS documentado tiene **un núcleo y 1,7 GB**; desde Prisma 7 el adaptador
+- la máquina se comparte con Resultados y ClamAV (ver `crm-backend-arquitectura`
+  §2), y este patrón nació en un VPS de un núcleo; desde Prisma 7 el adaptador
   `pg` configura diez conexiones y 5 s de espera en `PrismaService`;
 - el barrido comparte ese pool con las peticiones de las agentes. Cincuenta
   `update()` a la vez compitiendo por ese pool no
