@@ -1,5 +1,19 @@
 # Estado actual
 
+## 22 de septiembre de 2026 · Dashboard medido sobre los mensajes
+
+El dashboard decía "632 por contactar" y "0 citas agendadas". Las dos cifras
+salían de `Lead.estado`, que en producción nadie mantiene: 632 leads en NUEVO,
+ninguno nunca en CONTACTADO, y sin embargo 234 de los 286 de septiembre ya
+tenían respuesta de una persona. `/kpis/resumen` mide ahora sobre `Mensaje`
+(SALIENTE, no automático, posterior al lead) y el periodo se elige por nombre
+en la zona de La Paz. Backend `4d1f7ce`, frontend `4761ebe`, desplegados y
+verificados con el servicio compilado contra los datos reales: septiembre 286
+captados, 82 % respondidos, mediana de primera respuesta 2 h 4 min, 225 chats
+esperando respuesta. Por canal, WhatsApp directo responde en 48 min y los
+Lead Ads de Facebook en 2 h 29 min; de las 11 ventas del mes, 10 vienen de
+WhatsApp directo.
+
 ## 22 de septiembre de 2026 · Entrega de Resultados y rol ASISTENTE
 
 Un asistente entrega desde el CRM el informe que el médico publicó en el portal
