@@ -27,6 +27,8 @@ interface FilaSerie {
   fecha: string;
   captados: number;
   respondidos: number;
+  medianaMinutos: number | null;
+  ventas: number;
 }
 
 /**
@@ -272,21 +274,47 @@ export class KpisService {
   }
 
   /**
-   * Leads por día (o por semana en tres meses) en el calendario de La Paz,
-   * con los huecos rellenados en cero: una serie con días ausentes dibuja una
-   * barra pegada a la otra y parece que no hubo pausa.
+   * Por día (o por semana en tres meses), en el calendario de La Paz: leads,
+   * respondidos, mediana de espera y monto vendido. Es lo que dibujan las
+   * líneas de las tarjetas — que antes eran trazos fijos escritos a mano.
+   *
+   * Los huecos se rellenan: una serie con días ausentes dibuja una barra
+   * pegada a la otra y parece que no hubo pausa. La mediana de un día sin
+   * respuestas queda `null`, no cero: cero minutos sería la mejor marca.
    */
   private async serie(rango: Rango, tramo: 'day' | 'week', soloAgenteId?: string): Promise<FilaSerie[]> {
-    const filas = await this.prisma.$queryRaw<FilaSerie[]>`
-      WITH base AS (${baseLeads(rango, soloAgenteId)})
-      SELECT to_char(date_trunc(${tramo}, local), 'YYYY-MM-DD') AS fecha,
-             count(*)::int AS captados,
-             count(espera)::int AS respondidos
-      FROM base
-      GROUP BY 1
-      ORDER BY 1`;
-    const porFecha = new Map(filas.map(f => [f.fecha, f]));
-    return fechasDelRango(rango, tramo).map(fecha => porFecha.get(fecha) ?? { fecha, captados: 0, respondidos: 0 });
+    const alcanceVentas = soloAgenteId ? Prisma.sql`AND v."agenteId" = ${soloAgenteId}` : Prisma.empty;
+    const [leads, ventas] = await Promise.all([
+      this.prisma.$queryRaw<Array<Omit<FilaSerie, 'ventas'>>>`
+        WITH base AS (${baseLeads(rango, soloAgenteId)})
+        SELECT to_char(date_trunc(${tramo}, local), 'YYYY-MM-DD') AS fecha,
+               count(*)::int AS captados,
+               count(espera)::int AS respondidos,
+               (percentile_cont(0.5) WITHIN GROUP (ORDER BY extract(epoch FROM espera)) / 60)::float8 AS "medianaMinutos"
+        FROM base
+        GROUP BY 1`,
+      this.prisma.$queryRaw<Array<{ fecha: string; ventas: number }>>`
+        SELECT to_char(date_trunc(${tramo}, (v."createdAt" AT TIME ZONE 'UTC') AT TIME ZONE ${ZONA_CLINICA}), 'YYYY-MM-DD') AS fecha,
+               sum(v.monto)::float8 AS ventas
+          FROM "Venta" v
+         WHERE v.estado = 'GANADA'
+           AND v."createdAt" >= (${rango.desde.toISOString()}::timestamptz AT TIME ZONE 'UTC')
+           AND v."createdAt" <  (${rango.hasta.toISOString()}::timestamptz AT TIME ZONE 'UTC')
+           ${alcanceVentas}
+         GROUP BY 1`,
+    ]);
+    const leadsPorFecha = new Map(leads.map(f => [f.fecha, f]));
+    const ventasPorFecha = new Map(ventas.map(f => [f.fecha, f.ventas]));
+    return fechasDelRango(rango, tramo).map(fecha => {
+      const l = leadsPorFecha.get(fecha);
+      return {
+        fecha,
+        captados: l?.captados ?? 0,
+        respondidos: l?.respondidos ?? 0,
+        medianaMinutos: redondear(l?.medianaMinutos ?? null),
+        ventas: ventasPorFecha.get(fecha) ?? 0,
+      };
+    });
   }
 }
 

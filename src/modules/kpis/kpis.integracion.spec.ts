@@ -137,8 +137,10 @@ describe('KPIs · el embudo se mide sobre los mensajes', () => {
   it('la serie parte los días en La Paz y rellena los días sin leads', async () => {
     const r = await new KpisService(prisma).resumen('MES', undefined, AHORA);
     expect(r.serie).toHaveLength(31);
-    expect(r.serie[0]).toEqual({ fecha: '2030-03-01', captados: 1, respondidos: 1 });
-    expect(r.serie[1]).toEqual({ fecha: '2030-03-02', captados: 0, respondidos: 0 });
+    expect(r.serie[0]).toEqual({ fecha: '2030-03-01', captados: 1, respondidos: 1, medianaMinutos: 180, ventas: 0 });
+    /* Un día sin respuestas no tiene mediana: cero minutos sería la mejor marca. */
+    expect(r.serie[1]).toEqual({ fecha: '2030-03-02', captados: 0, respondidos: 0, medianaMinutos: null, ventas: 0 });
+    expect(r.serie[4].ventas).toBe(300);
     expect(r.serie.reduce((s, d) => s + d.captados, 0)).toBe(5);
   });
 
