@@ -32,11 +32,35 @@ export interface Destino {
   reintento?: boolean;
 }
 
+/**
+ * Componentes del `template` de Meta. Cada uno solo se incluye si la plantilla
+ * APROBADA lo tiene: mandar uno de más —o de menos— hace que Meta rechace el
+ * envío entero por número de parámetros, y un `components` vacío también se
+ * rechaza. Es función pura para poder fijar esa forma en una prueba.
+ */
+export function componentesPlantilla(dto: PlantillaADespachar): Array<Record<string, unknown>> {
+  return [
+    ...(dto.parametros && dto.parametros.length > 0
+      ? [{ type: 'body', parameters: dto.parametros.map(text => ({ type: 'text', text })) }]
+      : []),
+    ...(dto.boton
+      ? [{ type: 'button', sub_type: 'url', index: '0', parameters: [{ type: 'text', text: dto.boton }] }]
+      : []),
+  ];
+}
+
 /** Lo que hace falta para armar un `template` de Meta. */
 export interface PlantillaADespachar {
   plantilla: string;
   idioma: string;
   parametros?: string[];
+  /**
+   * Valor de la variable del botón URL, cuando la plantilla aprobada lleva uno
+   * dinámico. Meta lo CONCATENA a la URL base de la plantilla, así que solo se
+   * admiten caracteres no reservados: un `/` o un `?` aquí cambiaría la ruta a
+   * la que llega el paciente. Lo valida el DTO.
+   */
+  boton?: string;
 }
 
 /**
@@ -135,12 +159,7 @@ export class DespachadorSalienteService {
 
   /** Plantilla aprobada — el único camino fuera de la ventana de 24 h. */
   async plantilla(destino: Destino, dto: PlantillaADespachar): Promise<void> {
-    /* El cuerpo solo se incluye si la plantilla tiene variables; una plantilla
-       sin variables con un `components` vacío es rechazada por Meta. */
-    const componentes =
-      dto.parametros && dto.parametros.length > 0
-        ? [{ type: 'body', parameters: dto.parametros.map(text => ({ type: 'text', text })) }]
-        : undefined;
+    const componentes = componentesPlantilla(dto);
 
     const resultado = await this.whatsapp.enviar(
       destino.telefono,
@@ -149,7 +168,7 @@ export class DespachadorSalienteService {
         template: {
           name: dto.plantilla,
           language: { code: dto.idioma },
-          ...(componentes ? { components: componentes } : {}),
+          ...(componentes.length > 0 ? { components: componentes } : {}),
         },
       },
       destino.mensajeId,

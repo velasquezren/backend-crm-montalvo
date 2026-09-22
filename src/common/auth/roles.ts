@@ -3,22 +3,37 @@ import { Rol } from '../../prisma/prisma-client';
 import { UsuarioJwt } from '../decorators/current-user.decorator';
 
 /**
- * Fuente única de la jerarquía de roles del CRM.
- *
- * Todo lo que dependa del rol —quién entra a un endpoint (`RolesGuard`) y
- * cuántos datos ve una vez dentro (`alcanceAgente`)— sale de aquí. Antes esto
- * vivía repartido: el guard tenía su tabla de rangos y el escopado su propia
- * lista de roles, y al añadir SUPER_ADMIN una quedó desactualizada respecto de
- * la otra. Con un solo lugar, añadir un rol es tocar `RANGO_ROL` y nada más.
+ * Jerarquía de entrada a los módulos y alcance de los datos comerciales.
+ * Los permisos operativos por línea se resuelven en acceso-conversacion:
+ * recepción atiende todos los chats de sus líneas sin adquirir rango de agente.
  */
 
 /** Cada rol cubre a los de rango menor. */
 export const RANGO_ROL: Readonly<Record<Rol, number>> = {
   [Rol.RECEPCION]: 0,
+  [Rol.ASISTENTE]: 0,
   [Rol.AGENTE]: 1,
   [Rol.ADMIN]: 2,
   [Rol.SUPER_ADMIN]: 3,
 };
+
+/**
+ * Roles OPERATIVOS: atienden los chats de sus líneas y no tienen alcance
+ * comercial. No agendan sobre leads, no acceden a líneas comerciales y
+ * localizan pacientes por conversación accesible, no por cartera.
+ *
+ * Existe como lista única a propósito. Antes cada módulo escribía
+ * `rol === 'RECEPCION'` por su cuenta —seis copias entre actividades, usuarios,
+ * líneas y el filtro Prisma de acceso-conversacion—, que es exactamente la
+ * forma en que al añadir SUPER_ADMIN una tabla quedó desincronizada. Añadir un
+ * rol operativo debe ser tocar esta línea y nada más.
+ */
+export const ROLES_OPERATIVOS: readonly Rol[] = [Rol.RECEPCION, Rol.ASISTENTE];
+
+/** ¿Este rol atiende líneas sin alcance comercial? */
+export function esRolOperativo(rol: Rol): boolean {
+  return ROLES_OPERATIVOS.includes(rol);
+}
 
 /** ¿`rol` alcanza el nivel de `rolMinimo`? */
 export function cubreRol(rol: Rol, rolMinimo: Rol): boolean {

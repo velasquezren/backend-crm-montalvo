@@ -1,3 +1,5 @@
+import { ActividadesController } from '../actividades/actividades.controller';
+import { ActividadesService } from '../actividades/actividades.service';
 import { PrimerContactoService } from '../leads/primer-contacto.service';
 import { createHmac } from "node:crypto";
 import { INestApplication, Module, ValidationPipe } from "@nestjs/common";
@@ -65,6 +67,7 @@ const r2 = {
     AuthController,
     UsuariosController,
     ClientesController,
+    ActividadesController,
     ConversacionesController,
     LineasWhatsappController,
     WhatsappWebhookController,
@@ -73,6 +76,7 @@ const r2 = {
     AuthService,
     UsuariosService,
     ClientesService,
+    ActividadesService,
     ServiciosService,
     AuditService,
     MemoriaAgenteService,
@@ -142,6 +146,7 @@ async function alta(nombre: string, rol: Rol, lineas: string[]) {
   return { id: u.id, token: login.access_token };
 }
 async function limpiar() {
+  await prisma.actividad.deleteMany({ where: { agente: { email: { endsWith: '@lineas.test' } } } });
   await prisma.cliente.deleteMany({
     where: { telefono: { startsWith: "+59179991" } },
   });
@@ -630,7 +635,8 @@ it("solo superadmin configura; no permite activar sin credenciales ni duplicar n
   ).toBe(400);
 });
 
-it("el socket de recepción no recibe eventos de ventas, sí de su línea", async () => {
+it("el socket de recepción recibe chats asignados y sus recordatorios, sin avisos ajenos", async () => {
+  await prisma.conversacion.update({ where: { id: clinico }, data: { agenteId: usuarios.admin.id } });
   const ws = new WebSocket(
     base.replace("http:", "ws:") + "/socket.io/?EIO=4&transport=websocket",
   );
@@ -651,6 +657,10 @@ it("el socket de recepción no recibe eventos de ventas, sí de su línea", asyn
     gateway.emitirActividad(clinico);
     await esperar(() => paquetes.some((p) => p.includes(clinico)));
     expect(paquetes.some((p) => p.includes(comercial))).toBe(false);
+    gateway.emitirRecordatorioActividad('recordatorio-ajeno', usuarios.ventas.id);
+    gateway.emitirRecordatorioActividad('recordatorio-propio', usuarios.recepcion.id);
+    await esperar(() => paquetes.some(p => p.includes('recordatorio-propio')));
+    expect(paquetes.some(p => p.includes('recordatorio-ajeno'))).toBe(false);
     await app
       .get(UsuariosService)
       .update(usuarios.recepcion.id, { lineaIds: [] });
@@ -660,4 +670,62 @@ it("el socket de recepción no recibe eventos de ventas, sí de su línea", asyn
   } finally {
     ws.close();
   }
+});
+
+
+it.each(['ventas', 'otra', 'admin', 'super'])(
+  'recepción lee y responde el chat asignado a %s sin cambiar su responsable',
+  async responsable => {
+    await prisma.conversacion.update({ where: { id: clinico }, data: { agenteId: usuarios[responsable].id } });
+    const lista = await http('recepcion', '/conversaciones');
+    expect(lista.status).toBe(200);
+    expect(lista.body.datos).toEqual(expect.arrayContaining([expect.objectContaining({ id: clinico })]));
+    expect((await http('recepcion', `/conversaciones/${clinico}/resumen`)).body.conversacion).toEqual(expect.objectContaining({ id: clinico }));
+    for (const sufijo of ['', '/mensajes-anteriores?antesDe=2099-01-01T00:00:00.000Z', '/buscar-mensajes?query=laboratorio']) {
+      expect((await http('recepcion', `/conversaciones/${clinico}${sufijo}`)).status).toBe(200);
+    }
+    expect((await http('recepcion', `/conversaciones/${clinico}/leido`, 'POST', {})).status).toBe(201);
+    expect((await http('recepcion', `/conversaciones/${clinico}/mensajes`, 'POST', { contenido: 'Te atiende recepción' })).status).toBe(201);
+    expect((await http('recepcion', `/conversaciones/${clinico}/plantilla`, 'POST', {
+      plantilla: 'recordatorio_cita', idioma: 'es', contenido: 'Recordatorio de cita',
+    })).status).toBe(201);
+    await esperar(() => salidas.length >= 3);
+    expect((await prisma.conversacion.findUniqueOrThrow({ where: { id: clinico } })).agenteId).toBe(usuarios[responsable].id);
+    expect((await prisma.cliente.findUniqueOrThrow({ where: { id: paciente } })).agenteId).toBe(usuarios.ventas.id);
+    expect((await http('recepcion', '/conversaciones')).body.datos).toEqual(expect.arrayContaining([expect.objectContaining({ id: clinico })]));
+    const destinatarios = await app.get(LineasWhatsappService).destinatarios(clinico);
+    expect(destinatarios).toContain(usuarios.recepcion.id);
+    expect(destinatarios).not.toContain(usuarios.otra.id);
+  },
+);
+
+it('un agente con la misma línea conserva la restricción por responsable', async () => {
+  await prisma.accesoLineaWhatsapp.create({ data: { usuarioId: usuarios.ventas.id, lineaId: CLIMON } });
+  await prisma.conversacion.update({ where: { id: clinico }, data: { agenteId: usuarios.admin.id } });
+  expect((await http('ventas', `/conversaciones/${clinico}`)).status).toBe(404);
+  expect((await http('ventas', `/conversaciones/${clinico}/mensajes`, 'POST', { contenido: 'No permitido' })).status).toBe(404);
+  expect((await http('ventas', '/conversaciones')).body.datos).not.toEqual(expect.arrayContaining([expect.objectContaining({ id: clinico })]));
+  expect(await app.get(LineasWhatsappService).destinatarios(clinico)).not.toContain(usuarios.ventas.id);
+});
+
+it('recepción agenda pacientes de sus líneas, con actividades personales y sin acceso comercial', async () => {
+  await prisma.conversacion.update({ where: { id: clinico }, data: { agenteId: usuarios.admin.id } });
+  const contactos = await http('recepcion', '/actividades/pacientes?q=compartido');
+  expect(contactos.status).toBe(200);
+  expect(contactos.body.datos).toEqual([{ id: paciente, nombre: 'Paciente compartido', telefono: '+59179991001', pac: null }]);
+  expect((await http('otra', '/actividades/pacientes?q=compartido')).body.datos).toEqual([]);
+  const datos = { clienteId: paciente, tipo: 'REUNION', titulo: 'Confirmar asistencia', fechaProgramada: new Date(Date.now() + 3600000).toISOString(), agenteId: usuarios.ventas.id };
+  const creada = await http('recepcion', '/actividades', 'POST', datos);
+  expect(creada.status).toBe(201);
+  expect(creada.body.agenteId).toBe(usuarios.recepcion.id);
+  const id = creada.body.id;
+  expect((await http('recepcion', '/actividades')).body.datos).toEqual(expect.arrayContaining([expect.objectContaining({ id })]));
+  expect((await http('recepcion', '/actividades/resumen')).status).toBe(200);
+  expect((await http('recepcion', `/actividades/${id}`, 'PATCH', { clienteId: paciente, titulo: 'Confirmación pendiente' })).status).toBe(200);
+  expect((await http('otra', `/actividades/${id}`)).status).toBe(404);
+  expect((await http('otra', `/actividades/${id}/estado`, 'PATCH', { estado: 'COMPLETADA' })).status).toBe(404);
+  expect((await http('otra', '/actividades', 'POST', datos)).status).toBe(404);
+  expect((await http('recepcion', '/actividades', 'POST', { ...datos, leadId: 'lead-ajeno' })).status).toBe(400);
+  expect((await http('recepcion', `/actividades/${id}/estado`, 'PATCH', { estado: 'COMPLETADA' })).status).toBe(200);
+  for (const ruta of ['/clientes', '/usuarios']) expect((await http('recepcion', ruta)).status).toBe(403);
 });

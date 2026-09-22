@@ -1108,7 +1108,7 @@ export class ConversacionesService {
    */
   async enviarPlantilla(
     conversacionId: string,
-    dto: { plantilla: string; idioma: string; parametros?: string[]; contenido: string },
+    dto: { plantilla: string; idioma: string; parametros?: string[]; boton?: string; contenido: string },
     agenteId: string,
     soloAgenteId?: string,
   ) {

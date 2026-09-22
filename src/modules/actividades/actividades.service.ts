@@ -9,7 +9,7 @@ import {
 import { randomUUID } from 'node:crypto';
 import { Prisma } from '../../prisma/prisma-client';
 
-import { alcanceAgente, cubreRol } from '../../common/auth/roles';
+import { alcanceAgente, cubreRol, esRolOperativo } from '../../common/auth/roles';
 import { conHoraClinica, inicioDelDiaClinica, sumarDiasClinica } from '../../common/fechas/zona-clinica';
 import { UsuarioJwt } from '../../common/decorators/current-user.decorator';
 import { terminoBusqueda } from '../../common/dto/busqueda';
@@ -18,6 +18,7 @@ import { calcularPaginacion, paginar } from '../../common/dto/pagination.dto';
 import { PushService } from '../../common/push/push.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ClientesService } from '../clientes/clientes.service';
+import { whereAccesoConversacion } from '../conversaciones/acceso-conversacion';
 import { ConversacionesGateway } from '../conversaciones/conversaciones.gateway';
 import { CreateActividadDto, RepetirActividadDto } from './dto/create-actividad.dto';
 import { QueryActividadDto } from './dto/query-actividad.dto';
@@ -226,6 +227,36 @@ export class ActividadesService implements OnModuleInit, OnModuleDestroy {
     return actividad;
   }
 
+  async buscarPacientes(query: QueryActividadDto, usuario: UsuarioJwt) {
+    const termino = terminoBusqueda(query.q);
+    const { skip, take } = calcularPaginacion(query);
+    const where: Prisma.ClienteWhereInput = {
+      conversaciones: { some: whereAccesoConversacion(alcanceAgente(usuario)) },
+      ...(termino ? { OR: ['nombre', 'telefono', 'pac', 'ci'].map(campo => ({
+        [campo]: { contains: termino, mode: 'insensitive' },
+      })) } : {}),
+    };
+    const [datos, total] = await this.prisma.$transaction([
+      this.prisma.cliente.findMany({ where, select: INCLUYE_ACTIVIDAD.cliente.select, orderBy: { nombre: 'asc' }, skip, take }),
+      this.prisma.cliente.count({ where }),
+    ]);
+    return paginar(datos, total, query);
+  }
+
+  private async validarPaciente(clienteId: string, soloAgenteId?: string, usuario?: UsuarioJwt) {
+    // Un rol operativo no tiene cartera: localiza al paciente por conversación
+    // accesible, no por asignación comercial.
+    if (!usuario || !esRolOperativo(usuario.rol)) {
+      await this.clientesService.findOne(clienteId, soloAgenteId);
+      return;
+    }
+    const accesible = await this.prisma.cliente.findFirst({
+      where: { id: clienteId, conversaciones: { some: whereAccesoConversacion(usuario.sub) } },
+      select: { id: true },
+    });
+    if (!accesible) throw new NotFoundException(`Cliente ${clienteId} no encontrado`);
+  }
+
   /**
    * `usuario` completo (no solo el id) porque decide dos cosas: quién queda
    * como dueño (`agenteId`, salvo que un ADMIN+ agende a nombre de otro
@@ -237,7 +268,10 @@ export class ActividadesService implements OnModuleInit, OnModuleDestroy {
     // Reusa la validación de existencia + escopado por rol de Clientes: si el
     // cliente no existe o está fuera del alcance de quien la crea, esto ya
     // lanza NotFoundException — no hace falta repetir el chequeo aquí.
-    await this.clientesService.findOne(dto.clienteId, soloAgenteId);
+    await this.validarPaciente(dto.clienteId, soloAgenteId, usuario);
+    if (esRolOperativo(usuario.rol) && dto.leadId) {
+      throw new BadRequestException('Este rol agenda sobre el paciente, sin vincular leads comerciales.');
+    }
 
     if (dto.leadId) {
       const lead = await this.prisma.lead.findUnique({
@@ -302,7 +336,7 @@ export class ActividadesService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
-  async update(id: string, dto: UpdateActividadDto, soloAgenteId?: string) {
+  async update(id: string, dto: UpdateActividadDto, soloAgenteId?: string, usuario?: UsuarioJwt) {
     const existente = await this.prisma.actividad.findUnique({
       where: { id },
       select: { id: true, agenteId: true, clienteId: true, leadId: true },
@@ -313,7 +347,10 @@ export class ActividadesService implements OnModuleInit, OnModuleDestroy {
 
     if (dto.clienteId !== undefined || dto.leadId !== undefined) {
       const clienteId = dto.clienteId ?? existente.clienteId;
-      await this.clientesService.findOne(clienteId, soloAgenteId);
+      await this.validarPaciente(clienteId, soloAgenteId, usuario);
+      if (usuario && esRolOperativo(usuario.rol) && dto.leadId) {
+        throw new BadRequestException('Este rol agenda sobre el paciente, sin vincular leads comerciales.');
+      }
       const leadId = dto.leadId === undefined ? existente.leadId : dto.leadId;
       if (leadId) {
         const lead = await this.prisma.lead.findUnique({

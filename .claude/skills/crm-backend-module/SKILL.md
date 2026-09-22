@@ -93,8 +93,33 @@ sido más barato paginar desde el principio.**
 
 ## Visibilidad por rol
 
-El backend es la autoridad, no el frontend. Hay tres roles **jerárquicos**:
-`AGENTE` (1) < `ADMIN` (2) < `SUPER_ADMIN` (3), definidos en `common/auth/roles.ts`.
+El backend es la autoridad, no el frontend. La jerarquía vive en
+`common/auth/roles.ts`: `RECEPCION` y `ASISTENTE` (0) < `AGENTE` (1) <
+`ADMIN` (2) < `SUPER_ADMIN` (3). El rango 0 es el **suelo**, así que
+`@Roles('RECEPCION')` no restringe a recepción: significa «cualquier sesión».
+
+### Rango no es capacidad: `ROLES_OPERATIVOS`
+
+`RECEPCION` y `ASISTENTE` comparten rango porque ninguno tiene alcance
+comercial: atienden los chats de **sus líneas**, no agendan sobre leads, no
+acceden a líneas comerciales y localizan pacientes por conversación accesible
+en vez de por cartera. Eso **no** se escribe `rol === 'RECEPCION'`.
+
+```ts
+import { esRolOperativo, ROLES_OPERATIVOS } from '../../common/auth/roles';
+
+if (esRolOperativo(usuario.rol) && dto.leadId) throw new BadRequestException(…);
+// en un filtro Prisma:
+{ usuario: { rol: { in: [...ROLES_OPERATIVOS] } } }
+```
+
+Al añadir `ASISTENTE` (2026-09-22) había **seis** comparaciones sueltas con
+`'RECEPCION'` —tres en actividades, una en usuarios, una en líneas y una dentro
+de un `where` de Prisma en `acceso-conversacion.ts`—. Cada una era una tabla de
+roles paralela esperando a desincronizarse, igual que pasó al añadir
+SUPER_ADMIN. Ahora la lista está en un sitio: añadir un rol operativo es tocar
+`ROLES_OPERATIVOS` y nada más. Si escribes el nombre de un rol a mano fuera de
+`roles.ts` o de un `@Roles()`, estás reintroduciendo el bug.
 
 ```ts
 // controller
@@ -680,6 +705,6 @@ Si añades un rol al enum y este skill no lo menciona, el check falla a propósi
 exactamente la desincronización que dejó el escopado por rol enseñando el patrón viejo.
 Verifica **datos, no criterio** — las decisiones y cicatrices de arriba se actualizan a mano.
 
-## Líneas de WhatsApp y recepción (2026-09-13)
+## Líneas de WhatsApp, recepción y asistente (2026-09-13 · rol ASISTENTE 2026-09-22)
 
 `RECEPCION` tiene acceso a conversaciones, perfil, push y recursos propios. Las rutas sin `@Roles` requieren `AGENTE`; los endpoints públicos conservan `@Public`. `ADMIN` y `SUPER_ADMIN` tienen alcance global. Las demás cuentas necesitan membresía explícita `AccesoLineaWhatsapp` además del alcance de asignación. Recepción no admite membresía comercial. La identidad de un chat es `(clienteId, lineaId)`. No usar solo clienteId ni credenciales globales para enviar. El webhook resuelve `metadata.phone_number_id` y confirma HTTP después de persistir, devolviendo 503 si falla un elemento para permitir reintento — **salvo que el número receptor no esté registrado, que se descarta con 200** (ver «Un 503 solo vale para fallos transitorios»). Reasignar un chat no cambia el cliente ni los leads.

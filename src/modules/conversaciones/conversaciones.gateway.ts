@@ -63,7 +63,7 @@ export class ConversacionesGateway implements OnGatewayInit, OnGatewayConnection
     this.sesiones.delete(client.id);
   }
 
-  private async emitirAutenticados(evento: string, payload: object, conversacionId?: string): Promise<void> {
+  private async emitirAutenticados(evento: string, payload: object, conversacionId?: string, usuarioId?: string): Promise<void> {
     if (!this.server) return;
     const clientes = [...this.server.sockets.values()];
     const accesos = clientes.flatMap(c => {
@@ -75,15 +75,8 @@ export class ConversacionesGateway implements OnGatewayInit, OnGatewayConnection
     for (const client of clientes) {
       const acceso = this.sesiones.get(client.id)?.acceso;
       if (!acceso || !vigentes.has(acceso) || acceso.exp * 1000 <= Date.now()) client.disconnect(true);
-      else if (client.connected && (permitidos ? permitidos.has(acceso.sub) : cubreRol(acceso.rol, 'AGENTE'))) client.emit(evento, payload);
+      else if (client.connected && (usuarioId ? acceso.sub === usuarioId : permitidos ? permitidos.has(acceso.sub) : cubreRol(acceso.rol, 'AGENTE'))) client.emit(evento, payload);
     }
-  }
-
-  private difundir(evento: string, payload: object): void {
-    void this.emitirAutenticados(evento, payload).catch(() => {
-      // Si la base falla no se difunde; tampoco se declara inválida la sesión.
-      this.logger.warn('No se pudo validar las sesiones para difundir un evento');
-    });
   }
 
   /**
@@ -149,7 +142,8 @@ export class ConversacionesGateway implements OnGatewayInit, OnGatewayConnection
    * no dos conexiones por pestaña.
    */
   emitirRecordatorioActividad(actividadId: string, agenteId: string): void {
-    this.difundir('actividad:recordatorio', { actividadId, agenteId });
+    void this.emitirAutenticados('actividad:recordatorio', { actividadId, agenteId }, undefined, agenteId)
+      .catch(() => this.logger.warn('No se pudo difundir el recordatorio'));
   }
 }
 

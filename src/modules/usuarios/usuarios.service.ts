@@ -1,4 +1,4 @@
-import { tieneAlcanceGlobal } from '../../common/auth/roles';
+import { esRolOperativo, tieneAlcanceGlobal } from '../../common/auth/roles';
 import { Prisma, Rol } from '../../prisma/prisma-client';
 import {
   BadRequestException,
@@ -116,8 +116,8 @@ export class UsuariosService {
     if (!ids.length) return;
     const lineas = await db.lineaWhatsapp.findMany({ where: { id: { in: ids } }, select: { id: true, comercial: true } });
     if (lineas.length !== ids.length) throw new BadRequestException('Alguna línea no existe o está repetida.');
-    if (rol === 'RECEPCION' && lineas.some(l => l.comercial)) {
-      throw new BadRequestException('Recepción solo puede acceder a líneas de atención; la línea comercial corresponde a agentes de ventas.');
+    if (esRolOperativo(rol) && lineas.some(l => l.comercial)) {
+      throw new BadRequestException('Este rol solo puede acceder a líneas de atención; la línea comercial corresponde a agentes de ventas.');
     }
   }
 

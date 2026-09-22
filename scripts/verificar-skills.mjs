@@ -109,7 +109,7 @@ function verificarHelpers(skill, texto) {
       m => m[1],
     ),
   );
-  for (const helper of ['alcanceAgente', 'cubreRol', 'tieneAlcanceGlobal', 'RANGO_ROL']) {
+  for (const helper of ['alcanceAgente', 'cubreRol', 'tieneAlcanceGlobal', 'RANGO_ROL', 'esRolOperativo', 'ROLES_OPERATIVOS']) {
     if (texto.includes(helper) && !exportados.has(helper))
       señala(skill, `\`${helper}\` ya no se exporta desde common/auth/roles.ts`);
   }

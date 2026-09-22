@@ -1,5 +1,6 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
 
+import { Roles } from '../../common/decorators/roles.decorator';
 import { alcanceAgente } from '../../common/auth/roles';
 import { CurrentUser, UsuarioJwt } from '../../common/decorators/current-user.decorator';
 import { ActividadesService } from './actividades.service';
@@ -9,6 +10,7 @@ import { QueryActividadDto } from './dto/query-actividad.dto';
 import { UpdateActividadDto } from './dto/update-actividad.dto';
 import { UpdateEstadoActividadDto } from './dto/update-estado-actividad.dto';
 
+@Roles('RECEPCION')
 @Controller('actividades')
 export class ActividadesController {
   constructor(private readonly actividadesService: ActividadesService) {}
@@ -22,6 +24,12 @@ export class ActividadesController {
   @Get('resumen')
   resumen(@Query() query: QueryActividadDto, @CurrentUser() usuario: UsuarioJwt) {
     return this.actividadesService.resumen(query, alcanceAgente(usuario));
+  }
+
+  /** Contactos mínimos para agendar, limitados a los chats accesibles. */
+  @Get('pacientes')
+  pacientes(@Query() query: QueryActividadDto, @CurrentUser() usuario: UsuarioJwt) {
+    return this.actividadesService.buscarPacientes(query, usuario);
   }
 
   @Get(':id')
@@ -40,7 +48,7 @@ export class ActividadesController {
     @Body() dto: UpdateActividadDto,
     @CurrentUser() usuario: UsuarioJwt,
   ) {
-    return this.actividadesService.update(id, dto, alcanceAgente(usuario));
+    return this.actividadesService.update(id, dto, alcanceAgente(usuario), usuario);
   }
 
   @Patch(':id/estado')

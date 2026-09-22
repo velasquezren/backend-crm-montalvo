@@ -4,7 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from "@nestjs/common";
-import { tieneAlcanceGlobal } from "../../common/auth/roles";
+import { esRolOperativo, tieneAlcanceGlobal } from "../../common/auth/roles";
 import { ConfigService } from "@nestjs/config";
 import { PrismaService } from "../../prisma/prisma.service";
 import { Prisma, LineaWhatsapp } from "../../prisma/prisma-client";
@@ -235,6 +235,7 @@ export class LineasWhatsappService {
       .filter(
         (u) =>
           tieneAlcanceGlobal(u.rol) ||
+          esRolOperativo(u.rol) ||
           conversacion.agenteId === null ||
           conversacion.agenteId === u.id ||
           (conversacion.linea.comercial &&

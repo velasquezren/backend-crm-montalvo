@@ -27,6 +27,11 @@ datasource db {
 
 enum Rol {
   RECEPCION
+  /// Asiste al médico y entrega los resultados al paciente por WhatsApp.
+  /// Opera como RECEPCION —atiende los chats de sus líneas, sin alcance
+  /// comercial— pero es una cuenta distinta para que quede auditado quién
+  /// envió cada informe. Ver `ROLES_OPERATIVOS` en common/auth/roles.ts.
+  ASISTENTE
   /// Manda sobre todo: gestiona agentes (les asigna el código de empresa) e
   /// importa el Excel de la planilla. Cubre todo lo que puede hacer un ADMIN.
   SUPER_ADMIN
