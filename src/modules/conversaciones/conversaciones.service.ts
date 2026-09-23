@@ -50,6 +50,15 @@ const POR_PAGINA_INBOX = 50;
    simbólica: existe porque `CacheMemoria` está pensada para varias entradas. */
 const CLAVE_AGENTES = 'activos';
 
+/** Un adjunto saliente: la clave en R2 y lo que se sabe del archivo. */
+interface AdjuntoMensaje {
+  mediaKey?: string;
+  mediaMime?: string;
+  mediaNombre?: string;
+  mediaAncho?: number | null;
+  mediaAlto?: number | null;
+}
+
 /**
  * Módulo Conversaciones — RF-09/RF-10.
  * CRUD + lectura del inbox, mensajería saliente del agente (enviar, plantillas,
@@ -725,7 +734,7 @@ export class ConversacionesService {
     conversacionId: string,
     contenido: string,
     agenteId: string,
-    adjunto?: { mediaKey?: string; mediaMime?: string; mediaNombre?: string },
+    adjunto?: AdjuntoMensaje,
     clientMessageId?: string,
   ) {
       return this.prisma.$transaction([
@@ -744,6 +753,8 @@ export class ConversacionesService {
                   mediaKey: adjunto.mediaKey,
                   mediaMime: adjunto.mediaMime ?? null,
                   mediaNombre: adjunto.mediaNombre ?? null,
+                  mediaAncho: adjunto.mediaAncho ?? null,
+                  mediaAlto: adjunto.mediaAlto ?? null,
                   tipo: tipoSegunMime(adjunto.mediaMime),
                 }
               : {}),
@@ -817,15 +828,18 @@ export class ConversacionesService {
     contenido: string,
     agenteId: string,
     soloAgenteId?: string,
-    adjunto?: { mediaKey?: string; mediaMime?: string; mediaNombre?: string },
+    adjunto?: AdjuntoMensaje,
     clientMessageId?: string,
   ) {
     const conversacion = await this.obtenerConversacionPropia(conversacionId, soloAgenteId);
     await this.verificarVentana24h(conversacionId);
     if (adjunto?.mediaKey) {
-      const propia = await this.memoria.poseeArchivo(agenteId, adjunto.mediaKey);
-      const delChat = propia ? null : await this.prisma.mensaje.findFirst({ where: { mediaKey: adjunto.mediaKey, conversacionId }, select: { id: true } });
-      if (!propia && !delChat) throw new NotFoundException('Adjunto no encontrado en esta conversación ni en tu memoria');
+      const propia = await this.memoria.archivoPropio(agenteId, adjunto.mediaKey);
+      const delChat = propia ? null : await this.prisma.mensaje.findFirst({ where: { mediaKey: adjunto.mediaKey, conversacionId }, select: { mediaAncho: true, mediaAlto: true } });
+      const origen = propia ?? delChat;
+      if (!origen) throw new NotFoundException('Adjunto no encontrado en esta conversación ni en tu memoria');
+      /* Las medidas salen del archivo guardado, no del navegador. */
+      adjunto = { ...adjunto, mediaAncho: origen.mediaAncho, mediaAlto: origen.mediaAlto };
     }
 
     /* Un solo round-trip a la base para ambos writes, y atómico: si el update

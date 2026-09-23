@@ -1,3 +1,4 @@
+import { dimensionesImagen } from '../../common/storage/dimensiones-imagen';
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { TipoMensaje } from '../../prisma/prisma-client';
 import { ErrorMedia, sanitizarErrorMedia } from '../../common/fiabilidad/error-media';
@@ -165,7 +166,13 @@ export class MediaEntranteService implements OnModuleInit, OnModuleDestroy {
           await bloqueo.$queryRaw`SELECT 1`;
           // Ambas escrituras se confirman al terminar la transacción DEL LOCK.
           // Si el lock se pierde o vence, PostgreSQL no puede confirmar un dueño viejo.
-          await bloqueo.mensaje.update({ where: { id: mensajeId }, data: { mediaKey: key } });
+          /* Las medidas de la foto viajan con la clave: el chat reserva su
+             caja antes de descargarla y el hilo no salta al cargar. */
+          const dimensiones = dimensionesImagen(bytes, trabajo.mensaje.mediaMime);
+          await bloqueo.mensaje.update({
+            where: { id: mensajeId },
+            data: { mediaKey: key, mediaAncho: dimensiones?.ancho ?? null, mediaAlto: dimensiones?.alto ?? null },
+          });
           await bloqueo.trabajoMediaEntrante.update({
             where: { mensajeId }, data: { estado: 'COMPLETADO', proximoIntento: null, ultimoError: null },
           });

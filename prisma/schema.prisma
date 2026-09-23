@@ -356,6 +356,11 @@ model Mensaje {
   mediaMime      String?
   /// Nombre original del archivo (documentos). Null para imágenes/audio.
   mediaNombre    String?
+  /// Ancho y alto con que se VE la imagen (ya girada por EXIF). El chat reserva
+  /// esa caja antes de que llegue la foto, y el hilo no salta al cargar.
+  /// Null en lo anterior a 2026-09-23 y en lo que no es imagen.
+  mediaAncho     Int?
+  mediaAlto      Int?
   /// Trabajo interno; no se incluye en lecturas REST.
   trabajoMedia   TrabajoMediaEntrante?
   /// Solo aplica a SALIENTE — el paciente no tiene "estado de entrega" hacia nosotros.
@@ -534,6 +539,9 @@ model RecursoMemoriaAgente {
   mediaKey    String? @db.VarChar(255)
   mediaMime   String? @db.VarChar(100)
   mediaNombre String? @db.VarChar(255)
+  /// Ver `Mensaje.mediaAncho`: pasan al mensaje cuando el recurso se envía.
+  mediaAncho  Int?
+  mediaAlto   Int?
   pesoBytes   Int     @default(0)
 
   tags     String[] @default([])

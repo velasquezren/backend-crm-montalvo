@@ -18,6 +18,23 @@ import { AwsClient } from 'aws4fetch';
  * Si las variables R2_* no están configuradas, el servicio queda deshabilitado
  * y el manejo de media simplemente no ocurre (el resto del CRM sigue igual).
  */
+/**
+ * Cabecera que R2 guarda con cada archivo y devuelve al leerlo. Toda clave es
+ * única y su contenido no cambia (un adjunto por mensaje, un recurso por
+ * subida), así que el navegador puede quedárselo sin volver a preguntar.
+ * Probado contra R2: la URL firmada NO puede fijarla (`response-cache-control`
+ * responde 501); tiene que ir como metadato al subir.
+ */
+const CACHE_INMUTABLE = 'private, max-age=31536000, immutable';
+
+/** Cuánto dura una misma URL firmada. Ver `urlFirmada`. */
+const VENTANA_FIRMA_MS = 60 * 60 * 1000;
+
+/** `20260923T190000Z`: el formato de fecha de la firma AWS v4. */
+function fechaAmz(ms: number): string {
+  return new Date(ms).toISOString().replace(/[:-]|\.\d{3}/g, '');
+}
+
 @Injectable()
 export class R2Service {
   private readonly logger = new Logger(R2Service.name);
@@ -51,6 +68,7 @@ export class R2Service {
     const resp = await this.client.fetch(`${this.baseUrl}/${key}`, {
       method: 'PUT',
       body: new Blob([cuerpo], { type: mime }),
+      headers: { 'Cache-Control': CACHE_INMUTABLE },
     });
     if (!resp.ok) {
       throw new Error(`R2 PUT ${resp.status}: ${await resp.text()}`);
@@ -68,7 +86,7 @@ export class R2Service {
       signal.throwIfAborted();
       const peticion = await this.client.sign(`${this.baseUrl}/${key}`, {
         method: 'PUT', body: new Blob([cuerpo], { type: mime }), signal,
-        headers: { 'If-None-Match': '*' },
+        headers: { 'If-None-Match': '*', 'Cache-Control': CACHE_INMUTABLE },
       });
       signal.throwIfAborted();
       const respuesta = await fetch(peticion, { signal });
@@ -93,12 +111,28 @@ export class R2Service {
    * dentro del navegador de la agente autenticada, y quien la copie tendrá una
    * foto de paciente accesible durante ese rato. Por eso no se sube más.
    */
-  async urlFirmada(key: string, ttlSegundos = 3600): Promise<string | null> {
+  /**
+   * URL de lectura firmada, **la misma para una clave durante toda una hora**.
+   *
+   * Se firmaba con la hora exacta de cada petición, así que cada vez que se
+   * abría o se recargaba un chat —también con cada mensaje en tiempo real—
+   * todas sus imágenes tenían una URL distinta: para el navegador eran otros
+   * archivos, no usaba su caché y las volvía a descargar. En un chat con muchas
+   * fotos, eso era el parpadeo al entrar.
+   *
+   * Ahora la firma se fecha al inicio de la hora en curso y caduca una hora
+   * después de que esa hora termine: dentro de la ventana la URL es idéntica
+   * (caché del navegador), y quien la recibe sigue teniendo al menos
+   * `ttlSegundos` de validez, como antes.
+   */
+  async urlFirmada(key: string, ttlSegundos = 3600, ahora = Date.now()): Promise<string | null> {
     if (!this.client) return null;
     try {
-      const signed = await this.client.sign(`${this.baseUrl}/${key}?X-Amz-Expires=${ttlSegundos}`, {
+      const inicio = Math.floor(ahora / VENTANA_FIRMA_MS) * VENTANA_FIRMA_MS;
+      const caduca = VENTANA_FIRMA_MS / 1000 + ttlSegundos;
+      const signed = await this.client.sign(`${this.baseUrl}/${key}?X-Amz-Expires=${caduca}`, {
         method: 'GET',
-        aws: { signQuery: true },
+        aws: { signQuery: true, datetime: fechaAmz(inicio) },
       });
       return signed.url;
     } catch (error) {

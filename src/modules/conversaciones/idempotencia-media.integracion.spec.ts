@@ -175,6 +175,7 @@ beforeEach(async () => {
       data: {
         usuarioId: agenteId, titulo: mediaKey, tipo: 'IMAGEN', categoria: 'GENERAL',
         mediaKey, mediaMime: 'image/jpeg', mediaNombre: 'imagen.jpg', pesoBytes: 1024,
+        mediaAncho: 1080, mediaAlto: 1350,
       },
     });
   }
@@ -210,6 +211,12 @@ describe('R2.2 · idempotencia del envío con adjunto (PostgreSQL real)', () => 
     expect(despachador.despachos[0].mediaKey).toBe(CLAVE_A);
     /* El MIME viaja al despacho: es lo que decide si sale como imagen o documento. */
     expect(despachador.despachos[0].mediaMime).toBe('image/jpeg');
+  });
+
+  it('las medidas de la foto pasan del recurso de Mi Memoria al mensaje', async () => {
+    const enviado = await enviar(`${SUFIJO}-medidas`, CLAVE_A);
+    await dejarCorrerElDespacho();
+    expect(await prisma.mensaje.findUniqueOrThrow({ where: { id: enviado.id } })).toMatchObject({ mediaAncho: 1080, mediaAlto: 1350 });
   });
 
   it('B · un segundo envío con la misma clave y OTRA media conserva la original', async () => {

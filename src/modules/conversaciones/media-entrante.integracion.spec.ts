@@ -61,6 +61,19 @@ function ingesta(s = worker()) {
     {} as DespachadorSalienteService, s, new PrimerContactoService(prisma, clientes));
 }
 
+/** Lo que «descarga» de Meta cada prueba; por defecto no es una imagen legible. */
+let cuerpoDescarga: string | Uint8Array = 'imagen ficticia';
+let cabecerasCache: Array<string | null> = [];
+
+/** Cabecera PNG mínima: basta para leer ancho y alto. */
+function png(ancho: number, alto: number): Uint8Array {
+  const b = new Uint8Array(33);
+  b.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52], 0);
+  new DataView(b.buffer).setUint32(16, ancho);
+  new DataView(b.buffer).setUint32(20, alto);
+  return b;
+}
+
 const recibir = (s = ingesta(), id = 'wamid.f06', mediaId = 'media-f06') =>
   s.procesarEntrante('+59179000001', '', id, 'F06 paciente ficticia',
     { tipo: 'IMAGEN', mediaId, mime: 'image/jpeg' }, undefined, false, LINEA);
@@ -95,6 +108,7 @@ beforeEach(async () => {
   });
   reloj = new Date(Date.now() + 1000);
   respuestas = { origen: 200, descarga: 200, r2: 200, grande: false };
+  cuerpoDescarga = 'imagen ficticia'; cabecerasCache = [];
   subidas = []; objetos = new Set(); aceptarSinRespuesta = false; llamadasOrigen = 0; entrada = undefined; puerta = undefined; salir = undefined; modo = 'normal';
   gateway.emitirActividad.mockClear(); gateway.notificarEntrante.mockClear();
   jest.spyOn(global, 'fetch').mockImplementation(async (input, init) => {
@@ -109,7 +123,7 @@ beforeEach(async () => {
       return Response.json({ url: 'https://media.f06.invalid/temporal?firma=no-persistir' }, { status: respuestas.origen });
     }
     if (url.startsWith('https://media.f06.invalid/')) {
-      return new Response('imagen ficticia', {
+      return new Response(cuerpoDescarga, {
         status: respuestas.descarga,
         headers: respuestas.grande ? { 'content-length': String(MAX_BYTES_MEDIA + 1) } : {},
       });
@@ -117,6 +131,7 @@ beforeEach(async () => {
     if (input instanceof Request && input.method === 'PUT' && url.includes('f06-account.r2.cloudflarestorage.com')) {
       const clave = new URL(url).pathname;
       expect(input.headers.get('if-none-match')).toBe('*');
+      cabecerasCache.push(input.headers.get('cache-control'));
       subidas.push(clave);
       if (objetos.has(clave)) return new Response('', { status: 412 });
       if (respuestas.r2 === 200) objetos.add(clave);
@@ -147,6 +162,20 @@ describe('F06-R1: PostgreSQL real y transportes externos controlados', () => {
       .toBe(`wa/${mensaje.conversacionId}/${mensaje.id}`);
     expect(subidas).toEqual([`/f06-bucket/wa/${mensaje.conversacionId}/${mensaje.id}`]);
     expect(gateway.notificarEntrante).toHaveBeenCalledTimes(1);
+  });
+
+  it('la foto entrante guarda sus medidas y se sube como inmutable para la caché', async () => {
+    cuerpoDescarga = png(1200, 1600);
+    const mensaje = await recibir();
+    expect(await worker().barrerPendientes()).toBe(1);
+    expect(await prisma.mensaje.findUniqueOrThrow({ where: { id: mensaje.id } })).toMatchObject({ mediaAncho: 1200, mediaAlto: 1600 });
+    expect(cabecerasCache).toEqual(['private, max-age=31536000, immutable']);
+  });
+
+  it('sin cabecera legible no inventa medidas', async () => {
+    const mensaje = await recibir();
+    await worker().barrerPendientes();
+    expect(await prisma.mensaje.findUniqueOrThrow({ where: { id: mensaje.id } })).toMatchObject({ mediaAncho: null, mediaAlto: null });
   });
 
   it('B: dos conexiones reclaman el MISMO id mientras la primera está dentro de Meta', async () => {

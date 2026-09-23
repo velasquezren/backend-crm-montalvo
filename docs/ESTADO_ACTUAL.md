@@ -1,5 +1,20 @@
 # Estado actual
 
+## 23 de septiembre de 2026 · Chats con fotos sin parpadeo
+
+- **URLs de media estables por hora** (`R2Service.urlFirmada`): antes cada
+  apertura o recarga del chat re-descargaba todas sus fotos. Probado contra R2
+  real: misma URL dentro de la hora, 200 con firma vigente, 403 vencida.
+- **`Cache-Control: private, max-age=31536000, immutable`** en toda subida a R2
+  (adjuntos, entrantes, Mi Memoria, comprobantes). Lo anterior no lo tiene.
+- **Medidas de las fotos** (`Mensaje.mediaAncho/mediaAlto`,
+  `RecursoMemoriaAgente.mediaAncho/mediaAlto`, migración
+  `20260923220000_dimensiones_media`) leídas con `image-size`; el chat reserva
+  la caja exacta. Comprobado con 8 fotos reales de WhatsApp (verticales,
+  ~150 KB, sin orientación EXIF). Las fotos anteriores no tienen medidas y usan
+  una caja fija; se pueden completar con un barrido si hace falta.
+- Volver a un chat abierto hace poco es instantáneo (`hilosRecientes`).
+
 ## 23 de septiembre de 2026 · Revisión a fondo de Ventas
 
 Medido en producción antes de tocar nada: **18 ventas, 0 con lead de origen y

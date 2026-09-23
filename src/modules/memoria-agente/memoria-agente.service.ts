@@ -1,3 +1,4 @@
+import { dimensionesImagen } from '../../common/storage/dimensiones-imagen';
 import { ArchivoSubido } from './archivo-subido';
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma, TipoRecursoMemoria } from '../../prisma/prisma-client';
@@ -44,10 +45,15 @@ function tipoBase(mime: string): string {
 
 @Injectable()
 export class MemoriaAgenteService {
-  async poseeArchivo(usuarioId: string, mediaKey: string): Promise<boolean> {
-    return Boolean(await this.prisma.recursoMemoriaAgente.findFirst({
-      where: { usuarioId, mediaKey }, select: { id: true },
-    }));
+  /**
+   * El archivo de la memoria de ESTA agente con esa clave, o `null`. Devuelve
+   * sus dimensiones porque al enviarlo al chat pasan al mensaje (ver
+   * `Mensaje.mediaAncho`).
+   */
+  async archivoPropio(usuarioId: string, mediaKey: string): Promise<{ mediaAncho: number | null; mediaAlto: number | null } | null> {
+    return this.prisma.recursoMemoriaAgente.findFirst({
+      where: { usuarioId, mediaKey }, select: { mediaAncho: true, mediaAlto: true },
+    });
   }
 
   constructor(
@@ -187,6 +193,7 @@ export class MemoriaAgenteService {
       file.buffer.byteOffset + file.buffer.byteLength,
     ) as ArrayBuffer;
     await this.r2.subir(mediaKey, ab, file.mimetype);
+    const dimensiones = dimensionesImagen(ab, file.mimetype);
 
     const tipoInferido: TipoRecursoMemoria = file.mimetype.startsWith('image/') ? 'IMAGEN' : 'DOCUMENTO';
 
@@ -207,6 +214,8 @@ export class MemoriaAgenteService {
         mediaKey,
         mediaMime: file.mimetype,
         mediaNombre: file.originalname,
+        mediaAncho: dimensiones?.ancho ?? null,
+        mediaAlto: dimensiones?.alto ?? null,
         pesoBytes: file.size,
         tags: dto.tags ?? [],
       },
