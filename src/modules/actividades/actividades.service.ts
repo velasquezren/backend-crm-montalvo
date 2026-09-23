@@ -10,7 +10,7 @@ import { randomUUID } from 'node:crypto';
 import { Prisma } from '../../prisma/prisma-client';
 
 import { alcanceAgente, cubreRol, esRolOperativo } from '../../common/auth/roles';
-import { conHoraClinica, inicioDelDiaClinica, sumarDiasClinica } from '../../common/fechas/zona-clinica';
+import { conHoraClinica, desplazarEnCalendarioClinica, inicioDelDiaClinica, sumarDiasClinica } from '../../common/fechas/zona-clinica';
 import { UsuarioJwt } from '../../common/decorators/current-user.decorator';
 import { terminoBusqueda } from '../../common/dto/busqueda';
 import { enSegundoPlano } from '../../common/fiabilidad/en-segundo-plano';
@@ -41,50 +41,35 @@ const TOPE_BARRIDO = 50;
 /**
  * Cuántos se despachan a la vez.
  *
- * No es prudencia teórica: el VPS tiene **un núcleo y 1,7 GB**, y el pool de
- * Prisma se dimensiona solo a `núcleos × 2 + 1` — tres conexiones. Soltar los
- * cincuenta de golpe con un `Promise.all` pone hasta cincuenta `update()` a
- * competir por esas tres, con `pool_timeout` de 10 s, **en el mismo pool que
- * atiende a las agentes**: el barrido de un minuto tranquilo se convierte en
- * timeouts en la pantalla de alguien que solo estaba abriendo un chat. Y cada
- * push firma un JWT VAPID (ECDSA), que es CPU en un core que no sobra.
+ * El barrido comparte el pool de Postgres (10 conexiones desde Prisma 7) con
+ * las peticiones de las agentes. Soltar los cincuenta de golpe con un
+ * `Promise.all` pone cincuenta `update()` a competir por él: el barrido de un
+ * minuto tranquilo se convierte en esperas en la pantalla de alguien que solo
+ * abría un chat. Y cada push firma un JWT VAPID (ECDSA), que es CPU.
  *
- * De a cinco, el barrido completo son diez tandas de red que igual terminan en
- * un segundo, y ni la base ni el core se enteran.
+ * De a cinco, el barrido completo son diez tandas que igual terminan en un
+ * segundo. La regla nació en el VPS viejo de un núcleo y sigue valiendo.
  */
 const CONCURRENCIA_NOTIFICACION = 5;
 
 /**
  * La primera fecha, más `veces - 1` más espaciadas por `frecuencia` — pura,
- * sin tocar la base, para poder probarla sin Postgres. `setMonth`/`setDate`
- * mutan una copia (`new Date(anterior)`) cada vuelta, nunca la fecha
- * original.
+ * sin tocar la base, para poder probarla sin Postgres.
  *
- * MENSUAL tiene un borde conocido y aceptado: `setMonth` no es "sumar 30
- * días", es "mismo día del mes siguiente", y en meses cortos JS lo
- * desborda al mes de después (31 de enero → 3 de marzo, no 28/29 de
- * febrero). Es el mismo comportamiento que tiene cualquier calendario que
- * agende "el mismo día cada mes" sin una librería de fechas de por medio;
- * se documenta en vez de arrastrar una dependencia nueva solo para esto.
+ * Se desplaza en el CALENDARIO DE LA CLÍNICA (`desplazarEnCalendarioClinica`),
+ * no con `setDate`/`setMonth`, que trabajan en la zona del proceso: el VPS está
+ * en Estados Unidos y, al cambiar allí la hora el 1 de noviembre, una serie de
+ * los martes a las 10:00 pasaba a las 11:00 en La Paz (2026-09-23).
+ *
+ * MENSUAL desborda en meses cortos como cualquier calendario: el 31 de enero
+ * más un mes cae el 3 de marzo. Borde conocido y aceptado.
  */
-function fechasDeRepeticion(inicio: Date, repetir?: RepetirActividadDto): Date[] {
+export function fechasDeRepeticion(inicio: Date, repetir?: RepetirActividadDto): Date[] {
   if (!repetir) return [inicio];
-
+  const paso = { SEMANAL: { dias: 7 }, QUINCENAL: { dias: 14 }, MENSUAL: { meses: 1 } }[repetir.frecuencia];
   const fechas = [inicio];
   for (let i = 1; i < repetir.veces; i++) {
-    const siguiente = new Date(fechas[i - 1]!);
-    switch (repetir.frecuencia) {
-      case 'SEMANAL':
-        siguiente.setDate(siguiente.getDate() + 7);
-        break;
-      case 'QUINCENAL':
-        siguiente.setDate(siguiente.getDate() + 14);
-        break;
-      case 'MENSUAL':
-        siguiente.setMonth(siguiente.getMonth() + 1);
-        break;
-    }
-    fechas.push(siguiente);
+    fechas.push(desplazarEnCalendarioClinica(fechas[i - 1]!, paso));
   }
   return fechas;
 }

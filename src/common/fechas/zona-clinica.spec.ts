@@ -1,4 +1,4 @@
-import { inicioDelDiaClinica, inicioDelMesClinica, sumarDiasClinica, ZONA_CLINICA } from './zona-clinica';
+import { desplazarEnCalendarioClinica, inicioDelDiaClinica, inicioDelMesClinica, sumarDiasClinica, ZONA_CLINICA } from './zona-clinica';
 
 /**
  * A1 · el día de calendario de la clínica.
@@ -81,5 +81,28 @@ describe('inicioDelMesClinica', () => {
     const enero = new Date('2026-01-15T15:00:00.000Z');
     expect(inicioDelMesClinica(enero, -1).toISOString()).toBe('2025-12-01T04:00:00.000Z');
     expect(inicioDelMesClinica(enero, 1).toISOString()).toBe('2026-02-01T04:00:00.000Z');
+  });
+});
+
+describe('desplazarEnCalendarioClinica', () => {
+  /* Martes 27 de octubre de 2026, 10:00 en La Paz (14:00 UTC). El 1 de
+     noviembre Estados Unidos sale del horario de verano; Bolivia no cambia. */
+  const MARTES_10 = new Date('2026-10-27T14:00:00.000Z');
+
+  it('una semana después sigue siendo a las 10:00 en La Paz, aunque EE. UU. cambie de hora', () => {
+    expect(desplazarEnCalendarioClinica(MARTES_10, { dias: 7 }).toISOString()).toBe('2026-11-03T14:00:00.000Z');
+    expect(desplazarEnCalendarioClinica(MARTES_10, { dias: 14 }).toISOString()).toBe('2026-11-10T14:00:00.000Z');
+  });
+
+  it('un mes después, el mismo día y hora; y conserva segundos y milisegundos', () => {
+    expect(desplazarEnCalendarioClinica(new Date('2026-10-27T14:00:05.250Z'), { meses: 1 }).toISOString()).toBe('2026-11-27T14:00:05.250Z');
+  });
+
+  it('cruza el año', () => {
+    expect(desplazarEnCalendarioClinica(new Date('2026-12-15T14:00:00.000Z'), { meses: 1 }).toISOString()).toBe('2027-01-15T14:00:00.000Z');
+  });
+
+  it('las 22:00 de La Paz (ya el día siguiente en UTC) siguen siendo las 22:00', () => {
+    expect(desplazarEnCalendarioClinica(new Date('2026-10-28T02:00:00.000Z'), { dias: 7 }).toISOString()).toBe('2026-11-04T02:00:00.000Z');
   });
 });

@@ -106,6 +106,11 @@ Lo que se sabe y se decidió no cambiar todavía, con su motivo:
    backend nunca la emite. Palanca de emergencia sin usar.
 4. **`Lead.estado` no se reconcilia** al corregir `Venta.leadId`. La atribución
    se lee de `Venta.leadId`; el estado del lead casi nunca se mueve a mano.
+5. **La categoría del paciente no caduca sola.** Se recalcula al registrar o
+   cambiar el estado de una venta (o con el botón de la ficha), así que un
+   GOLD que no vuelve a comprar sigue en GOLD pasados los 90 días hasta el
+   siguiente evento. Señal para actuar: que la categoría se use para decidir
+   campañas o precios.
 
 Resuelto el 2026-09-23 y fuera de esta lista: el tipo de adjunto saliente se
 decidía por la extensión (ahora por `mediaMime`); el texto que acompañaba a una

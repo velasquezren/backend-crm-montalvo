@@ -143,3 +143,23 @@ export function inicioDelMesClinica(instante: Date, meses = 0): Date {
   const { anio, mes } = partes(instante);
   return instanteDe(anio, mes + meses, 1, instante);
 }
+
+/**
+ * El mismo instante de reloj de la clínica, `dias` o `meses` después en SU
+ * calendario.
+ *
+ * Existe por las actividades repetidas: se sumaban semanas con
+ * `setDate(+7)`, que trabaja en la zona del PROCESO —el VPS está en Estados
+ * Unidos—. El 1 de noviembre Estados Unidos cambia de hora y Bolivia no, así
+ * que «todos los martes a las 10:00» pasaba a las 11:00 en La Paz desde esa
+ * semana, y volvía a moverse en marzo.
+ *
+ * Los meses desbordan como en cualquier calendario: el 31 de enero más un mes
+ * cae el 3 de marzo (o el 2 en bisiesto). Es el mismo borde que ya estaba
+ * documentado en la repetición mensual.
+ */
+export function desplazarEnCalendarioClinica(instante: Date, cambio: { dias?: number; meses?: number }): Date {
+  const p = partes(instante);
+  const base = instanteDe(p.anio, p.mes + (cambio.meses ?? 0), p.dia + (cambio.dias ?? 0), instante, p.hora, p.minuto);
+  return new Date(base.getTime() + p.segundo * 1000 + instante.getUTCMilliseconds());
+}

@@ -1,5 +1,30 @@
 # Estado actual
 
+## 23 de septiembre de 2026 · Revisión de Actividades, Leads, Ventas y Clientes
+
+Cinco fallos reales, cada uno reproducido con una prueba antes de corregirlo:
+
+- **Actividades repetidas** se desplazaban una hora en cuanto la serie cruzaba
+  el cambio de horario del servidor (EE. UU.): `setDate`/`setMonth` operan en
+  la zona del VPS, no en la de La Paz. Ahora usan
+  `desplazarEnCalendarioClinica()`; probado en tres zonas horarias.
+- **Lead Ads de Meta**: dos entregas simultáneas del mismo formulario (Meta
+  reintenta) chocaban contra el índice único y se registraban como error; y
+  quien ya había escrito por WhatsApp se quedaba con el nombre provisional
+  «WhatsApp +591…» aunque el formulario trajera el real. Ahora crea-y-relee
+  (P2002) y pasa por `obtenerOCrearPorTelefono`.
+- **Ventas anuladas seguían contando**: pasar una venta de GANADA a PERDIDA no
+  recalculaba la categoría, y el paciente se quedaba en GOLD/SILVER.
+- **Formulario de venta**: un Enter repetido podía registrar la venta dos
+  veces, y guardar a mitad de la subida del comprobante la dejaba sin él.
+- **Edad del paciente**: cumplía años un día antes en pantalla (la fecha llega
+  como medianoche UTC) y había dos copias del cálculo; el panel del chat no
+  miraba la fecha importada de FileMaker. Ahora es `edadDePaciente()`.
+
+Verificado y descartado: las fechas de la planilla de FileMaker **no** tienen
+desfase — en producción las 2.368 filas guardan la medianoche de La Paz y caen
+en el mes de su periodo.
+
 ## 23 de septiembre de 2026 · Revisión del sistema y mapa vigente
 
 Nuevo [PANORAMA](PANORAMA.md): el mapa de qué hay hoy (productos, módulos,

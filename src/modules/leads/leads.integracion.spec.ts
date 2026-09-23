@@ -181,3 +181,33 @@ describe('GET /leads expone el anuncio de Meta', () => {
     expect(pagina.datos[0].anuncioId).toBe('120299887766');
   });
 });
+
+describe('LeadsService.procesarLeadMeta — reintentos de Meta', () => {
+  const datos = {
+    nombre: 'Lucía Pérez',
+    telefono: '+59170000077',
+    origen: 'FACEBOOK_LEAD_AD' as const,
+    metaLeadId: 'leadgen-carrera-1',
+  };
+
+  it('dos entregas simultáneas del mismo leadgen dejan UN lead y ningún error', async () => {
+    const resultados = await Promise.allSettled([
+      service.procesarLeadMeta(datos),
+      service.procesarLeadMeta(datos),
+      service.procesarLeadMeta(datos),
+    ]);
+
+    expect(resultados.map((r) => r.status)).toEqual(['fulfilled', 'fulfilled', 'fulfilled']);
+    expect(await prisma.lead.count({ where: { metaLeadId: datos.metaLeadId } })).toBe(1);
+    expect(await prisma.cliente.count({ where: { telefono: datos.telefono } })).toBe(1);
+  });
+
+  it('asciende el nombre provisional del chat al nombre real del formulario', async () => {
+    await prisma.cliente.create({ data: { nombre: 'WhatsApp +59170000077', telefono: datos.telefono } });
+
+    await service.procesarLeadMeta(datos);
+
+    const cliente = await prisma.cliente.findUniqueOrThrow({ where: { telefono: datos.telefono } });
+    expect(cliente.nombre).toBe('Lucía Pérez');
+  });
+});

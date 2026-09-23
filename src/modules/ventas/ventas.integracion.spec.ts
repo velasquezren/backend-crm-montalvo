@@ -292,6 +292,22 @@ describe('VentasService contra Postgres real', () => {
     });
   });
 
+  describe('categoría del paciente al corregir el estado', () => {
+    const categoria = async () =>
+      (await prisma.cliente.findUniqueOrThrow({ where: { id: clienteId } })).categoria;
+
+    it('una venta anulada deja de contar: el paciente vuelve a su categoría real', async () => {
+      const venta = await service.create(ventaBase(), agenteId);
+      expect(await categoria()).toBe('SILVER');
+
+      await service.cambiarEstado(venta.id, 'PERDIDA', agenteId, 'Pago rechazado');
+      expect(await categoria()).toBe('PROSPECTO');
+
+      await service.cambiarEstado(venta.id, 'GANADA', agenteId);
+      expect(await categoria()).toBe('SILVER');
+    });
+  });
+
   /**
    * Corregir la atribución de una venta ya registrada — CAMP-1.
    *

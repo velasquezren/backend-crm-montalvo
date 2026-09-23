@@ -36,6 +36,20 @@ function agenteEfectivo(lead: LeadConAgente) {
   return lead.agente ?? lead.cliente?.agente ?? lead.cliente?.conversaciones?.[0]?.agente ?? null;
 }
 
+/** Lo que devuelve cada comando sobre un lead: la tarjeta que pinta el tablero. */
+const INCLUDE_LEAD = {
+  cliente: {
+    select: {
+      id: true,
+      nombre: true,
+      telefono: true,
+      categoria: true,
+      agente: { select: { id: true, nombre: true } },
+    },
+  },
+  agente: { select: { id: true, nombre: true } },
+} satisfies Prisma.LeadInclude;
+
 /**
  * Módulo Leads — fuentes de entrada del negocio (Meta + presencial).
  * La entidad Cliente pertenece al módulo clientes: aquí solo se consume
@@ -213,18 +227,7 @@ export class LeadsService {
     const agenteFinal = agenteId || cliente.agenteId || undefined;
     const lead = await this.prisma.lead.create({
       data: { clienteId: cliente.id, origen: 'PRESENCIAL', agenteId: agenteFinal },
-      include: {
-        cliente: {
-          select: {
-            id: true,
-            nombre: true,
-            telefono: true,
-            categoria: true,
-            agente: { select: { id: true, nombre: true } },
-          },
-        },
-        agente: { select: { id: true, nombre: true } },
-      },
+      include: INCLUDE_LEAD,
     });
 
     return {
@@ -245,62 +248,38 @@ export class LeadsService {
     /** `ad_id` que devolvió Graph API, si lo hubo — ver `Lead.anuncioId`. */
     anuncioId?: string;
   }) {
-    const existente = await this.prisma.lead.findUnique({
-      where: { metaLeadId: datos.metaLeadId },
-      include: {
-        cliente: {
-          select: {
-            id: true,
-            nombre: true,
-            telefono: true,
-            categoria: true,
-            agente: { select: { id: true, nombre: true } },
-          },
-        },
-        agente: { select: { id: true, nombre: true } },
-      },
-    });
-    if (existente) {
-      return {
-        ...existente,
-        agente: agenteEfectivo(existente),
-      };
-    }
+    const porMetaLeadId = () =>
+      this.prisma.lead.findUnique({ where: { metaLeadId: datos.metaLeadId }, include: INCLUDE_LEAD });
 
-    let cliente = await this.clientesService.findByTelefono(datos.telefono);
-    if (!cliente) {
-      cliente = await this.clientesService.create({
-        nombre: datos.nombre,
-        telefono: datos.telefono,
+    const existente = await porMetaLeadId();
+    if (existente) return { ...existente, agente: agenteEfectivo(existente) };
+
+    /* Meta reintenta el webhook y a veces entrega el mismo leadgen dos veces
+       casi a la vez. Por eso ni el paciente ni el lead se buscan-y-crean: se
+       crean y, si el índice único rebota, se relee lo que creó la otra entrega.
+       `obtenerOCrearPorTelefono` además cambia el "WhatsApp +591…" de quien
+       escribió antes por chat por el nombre real del formulario. */
+    const cliente = await this.clientesService.obtenerOCrearPorTelefono(datos.nombre, datos.telefono);
+
+    try {
+      const nuevoLead = await this.prisma.lead.create({
+        data: {
+          clienteId: cliente.id,
+          origen: datos.origen,
+          metaLeadId: datos.metaLeadId,
+          anuncioId: datos.anuncioId,
+          agenteId: cliente.agenteId,
+        },
+        include: INCLUDE_LEAD,
       });
+      return { ...nuevoLead, agente: agenteEfectivo(nuevoLead) };
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+        const yaCreado = await porMetaLeadId();
+        if (yaCreado) return { ...yaCreado, agente: agenteEfectivo(yaCreado) };
+      }
+      throw error;
     }
-
-    const nuevoLead = await this.prisma.lead.create({
-      data: {
-        clienteId: cliente.id,
-        origen: datos.origen,
-        metaLeadId: datos.metaLeadId,
-        anuncioId: datos.anuncioId,
-        agenteId: cliente.agenteId,
-      },
-      include: {
-        cliente: {
-          select: {
-            id: true,
-            nombre: true,
-            telefono: true,
-            categoria: true,
-            agente: { select: { id: true, nombre: true } },
-          },
-        },
-        agente: { select: { id: true, nombre: true } },
-      },
-    });
-
-    return {
-      ...nuevoLead,
-      agente: agenteEfectivo(nuevoLead),
-    };
   }
 
   /**
@@ -334,18 +313,7 @@ export class LeadsService {
            "perdido por X". */
         motivoPerdida: estado === 'PERDIDO' ? motivoPerdida!.trim() : null,
       },
-      include: {
-        cliente: {
-          select: {
-            id: true,
-            nombre: true,
-            telefono: true,
-            categoria: true,
-            agente: { select: { id: true, nombre: true } },
-          },
-        },
-        agente: { select: { id: true, nombre: true } },
-      },
+      include: INCLUDE_LEAD,
     });
 
     return {
@@ -385,18 +353,7 @@ export class LeadsService {
 
     const lead = await this.prisma.lead.findUniqueOrThrow({
       where: { id },
-      include: {
-        cliente: {
-          select: {
-            id: true,
-            nombre: true,
-            telefono: true,
-            categoria: true,
-            agente: { select: { id: true, nombre: true } },
-          },
-        },
-        agente: { select: { id: true, nombre: true } },
-      },
+      include: INCLUDE_LEAD,
     });
 
     return {

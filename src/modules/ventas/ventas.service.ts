@@ -294,8 +294,14 @@ export class VentasService {
       motivoPerdida: estado === 'PERDIDA' ? actualizada.motivoPerdida : undefined,
     });
 
-    if (estado === 'GANADA' && venta.estado !== 'GANADA') {
+    /* La categoría se recalcula al entrar Y al salir de GANADA: una venta
+       anulada seguía contando y el paciente se quedaba en GOLD o SILVER por
+       una compra que no existió. Los leads no se reabren — su estado cuenta lo
+       que pasó cuando pasó (ver `corregirOrigen`). */
+    if ((estado === 'GANADA') !== (venta.estado === 'GANADA')) {
       await this.clientesService.actualizarCategoria(actualizada.clienteId);
+    }
+    if (estado === 'GANADA' && venta.estado !== 'GANADA') {
       await this.leadsService.marcarConvertidos(actualizada.clienteId, actualizada.leadId);
     }
 
