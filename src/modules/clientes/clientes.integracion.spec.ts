@@ -143,3 +143,22 @@ describe('ClientesService.findAll — orden por columna', () => {
     expect(datos[0].nombre).toBe('Ana');
   });
 });
+
+describe('ClientesService.reconocerPacientes — PAC con separadores', () => {
+  it('«PRUEBA-7761» del portal encuentra la ficha «PRUEBA-7761», escrito como sea', async () => {
+    const ficha = await prisma.cliente.create({ data: { nombre: 'Sara Bueno', telefono: '+59177617699', pac: 'PRUEBA-7761' } });
+    const [a, b, c] = await service.reconocerPacientes([
+      { pac: 'PRUEBA-7761', ci: null },
+      { pac: 'prueba 7761', ci: null },
+      { pac: 'PRUEBA7761', ci: null },
+    ]);
+    for (const r of [a, b, c]) expect(r).toMatchObject({ via: 'PAC', cliente: { id: ficha.id } });
+  });
+
+  it('dos fichas que solo difieren en un guion no se resuelven eligiendo una', async () => {
+    await prisma.cliente.create({ data: { nombre: 'Uno', telefono: '+59177617601', pac: 'P-100' } });
+    await prisma.cliente.create({ data: { nombre: 'Dos', telefono: '+59177617602', pac: 'P100' } });
+    const [r] = await service.reconocerPacientes([{ pac: 'P100', ci: null }]);
+    expect(r.cliente).toBeNull();
+  });
+});

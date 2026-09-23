@@ -306,8 +306,15 @@ export class ClientesService {
     const pacs = [...new Set(identificadores.map(i => canonico(i.pac)).filter((c): c is string => !!c))];
     const cis = [...new Set(identificadores.map(i => canonico(i.ci)).filter((c): c is string => !!c))];
     const [porPac, porCi] = await Promise.all([
+      /* Canónico en los DOS lados, igual que el CI: la ficha guarda el PAC tal
+         como se tecleó (mayúsculas, pero con sus guiones), y comparar la forma
+         sin separadores contra la columna cruda hacía que «PRUEBA-7761» del
+         portal no encontrara nunca a «PRUEBA-7761» del CRM. */
       pacs.length
-        ? this.prisma.cliente.findMany({ where: { pac: { in: pacs } }, select: { id: true, nombre: true, telefono: true, pac: true } })
+        ? this.prisma.$queryRaw<Array<{ clave: string; id: string; nombre: string; telefono: string }>>`
+            SELECT upper(regexp_replace(pac, '[^A-Za-z0-9]', '', 'g')) AS clave, id, nombre, telefono
+              FROM "Cliente"
+             WHERE upper(regexp_replace(pac, '[^A-Za-z0-9]', '', 'g')) = ANY(${pacs}::text[])`
         : Promise.resolve([]),
       cis.length
         ? this.prisma.$queryRaw<Array<{ clave: string; id: string; nombre: string; telefono: string }>>`
@@ -316,13 +323,16 @@ export class ClientesService {
              WHERE upper(regexp_replace(ci, '[^A-Za-z0-9]', '', 'g')) = ANY(${cis}::text[])`
         : Promise.resolve([]),
     ]);
-    const clientePorPac = new Map(porPac.map(c => [c.pac as string, c]));
+    const fichasPorPac = new Map<string, Array<{ id: string; nombre: string; telefono: string }>>();
+    for (const { clave, ...ficha } of porPac) fichasPorPac.set(clave, [...(fichasPorPac.get(clave) ?? []), ficha]);
     const fichasPorCi = new Map<string, Array<{ id: string; nombre: string; telefono: string }>>();
     for (const { clave, ...ficha } of porCi) fichasPorCi.set(clave, [...(fichasPorCi.get(clave) ?? []), ficha]);
 
     return identificadores.map(({ pac, ci }): ReconocimientoPaciente => {
-      const conPac = clientePorPac.get(canonico(pac) ?? '');
-      if (conPac) return { cliente: { id: conPac.id, nombre: conPac.nombre, telefono: conPac.telefono }, via: 'PAC', motivo: null };
+      /* Dos fichas que solo difieren en un guion («P-1» y «P1») no se
+         resuelven eligiendo una: se sigue al CI, y si tampoco, no se avisa. */
+      const conPac = fichasPorPac.get(canonico(pac) ?? '') ?? [];
+      if (conPac.length === 1) return { cliente: conPac[0], via: 'PAC', motivo: null };
       const conCi = fichasPorCi.get(canonico(ci) ?? '') ?? [];
       if (conCi.length === 1) return { cliente: conCi[0], via: 'CI', motivo: null };
       return { cliente: null, via: null, motivo: conCi.length > 1 ? 'CI_REPETIDO' : 'SIN_COINCIDENCIA' };
