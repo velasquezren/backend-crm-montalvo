@@ -46,4 +46,15 @@ describe('componentesPlantilla', () => {
       },
     ]);
   });
+
+  it('con imagen de cabecera: el encabezado va primero, luego el botón', () => {
+    const componentes = componentesPlantilla({
+      plantilla: 'montalvo_informe_listo', idioma: 'es', boton: 'abc',
+      imagenCabecera: 'https://resultados.example/resultados/imagen-aviso',
+    });
+    expect(componentes).toEqual([
+      { type: 'header', parameters: [{ type: 'image', image: { link: 'https://resultados.example/resultados/imagen-aviso' } }] },
+      { type: 'button', sub_type: 'url', index: '0', parameters: [{ type: 'text', text: 'abc' }] },
+    ]);
+  });
 });

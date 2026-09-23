@@ -160,6 +160,10 @@ export class ResultadosService {
           idioma: process.env.RESULTADOS_PLANTILLA_IDIOMA ?? 'es',
           /* La variable del botón URL: identifica el acceso, no lo autoriza. */
           boton: informe.accesoId,
+          /* Solo si la plantilla aprobada tiene cabecera de imagen: pasar a
+             una con imagen es cambiar dos variables, no el código. Ver
+             `docs/plantillas-whatsapp.md`. */
+          ...(process.env.RESULTADOS_PLANTILLA_IMAGEN ? { imagenCabecera: process.env.RESULTADOS_PLANTILLA_IMAGEN } : {}),
           contenido: this.textoParaHistorial(informe),
         },
         usuario.sub,

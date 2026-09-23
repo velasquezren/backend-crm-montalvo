@@ -33,7 +33,7 @@ const prisma = new PrismaService(URL_TEST);
 let service: ResultadosService;
 let portalHttp: Server;
 let informesDelPortal: Array<Record<string, unknown>> = [];
-const plantillasEnviadas: Array<{ conversacionId: string; boton?: string; plantilla: string }> = [];
+const plantillasEnviadas: Array<{ conversacionId: string; boton?: string; plantilla: string; imagenCabecera?: string }> = [];
 let fallarEnvio = false;
 let renovaciones = 0;
 
@@ -44,10 +44,10 @@ const ACCESO = '33333333-3333-4333-8333-333333333333';
 const conversacionesStub = {
   async enviarPlantillaDelSistema(
     conversacionId: string,
-    dto: { plantilla: string; boton?: string },
+    dto: { plantilla: string; boton?: string; imagenCabecera?: string },
   ) {
     if (fallarEnvio) throw new Error('Meta no disponible');
-    plantillasEnviadas.push({ conversacionId, boton: dto.boton, plantilla: dto.plantilla });
+    plantillasEnviadas.push({ conversacionId, boton: dto.boton, plantilla: dto.plantilla, ...(dto.imagenCabecera ? { imagenCabecera: dto.imagenCabecera } : {}) });
     const mensaje = await prisma.mensaje.create({
       data: { conversacionId, direccion: 'SALIENTE', contenido: 'aviso', estadoEnvio: 'ENVIADO' },
     });
@@ -204,6 +204,16 @@ describe('entrega de resultados contra Postgres real', () => {
     const aviso = await prisma.avisoResultado.findUniqueOrThrow({ where: { informeId: INFORME } });
     expect(aviso.mensajeId).not.toBeNull();
     expect(await prisma.auditLog.count({ where: { accion: 'RESULTADO_ENVIADO' } })).toBe(1);
+  });
+
+  it('con una plantilla de cabecera de imagen configurada, el envío lleva la imagen', async () => {
+    process.env.RESULTADOS_PLANTILLA_IMAGEN = 'https://resultados.example/resultados/imagen-aviso';
+    try {
+      await service.enviar(INFORME, asistente);
+      expect(plantillasEnviadas[0]).toMatchObject({ boton: ACCESO, imagenCabecera: 'https://resultados.example/resultados/imagen-aviso' });
+    } finally {
+      delete process.env.RESULTADOS_PLANTILLA_IMAGEN;
+    }
   });
 
   /* La razón de reservar ANTES de enviar: dos clics no pueden costar dos WhatsApp. */

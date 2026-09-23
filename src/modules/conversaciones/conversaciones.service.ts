@@ -1116,7 +1116,7 @@ export class ConversacionesService {
    */
   async enviarPlantillaDelSistema(
     conversacionId: string,
-    envio: { plantilla: string; idioma: string; boton?: string; contenido: string },
+    envio: { plantilla: string; idioma: string; boton?: string; imagenCabecera?: string; contenido: string },
     agenteId: string,
   ) {
     const conversacion = await this.obtenerConversacionPropia(conversacionId);

@@ -41,6 +41,11 @@ export interface Destino {
  */
 export function componentesPlantilla(dto: PlantillaADespachar): Array<Record<string, unknown>> {
   return [
+    /* El encabezado va primero. Una plantilla aprobada con imagen de cabecera
+       la exige en CADA envío: sin ella Meta rechaza el mensaje entero. */
+    ...(dto.imagenCabecera
+      ? [{ type: 'header', parameters: [{ type: 'image', image: { link: dto.imagenCabecera } }] }]
+      : []),
     ...(dto.parametros && dto.parametros.length > 0
       ? [{
           type: 'body',
@@ -73,6 +78,11 @@ export interface PlantillaADespachar {
    * la que llega el paciente. Lo valida el DTO.
    */
   boton?: string;
+  /**
+   * URL pública (https) de la imagen de cabecera, cuando la plantilla aprobada
+   * tiene encabezado de imagen. Meta la descarga en cada envío.
+   */
+  imagenCabecera?: string;
 }
 
 /**

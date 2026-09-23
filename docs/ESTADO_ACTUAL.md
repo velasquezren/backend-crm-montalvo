@@ -1,5 +1,19 @@
 # Estado actual
 
+## 23 de septiembre de 2026 · Plantillas preparadas y aviso con imagen
+
+- **Plantillas listas para enviar a revisión** (sin enviar; regla de la
+  clínica): `montalvo_informe_listo` (encabezado con imagen + «Agendar
+  consulta») y `montalvo_primer_contacto` (para «Nuevo chat»). Ver
+  [plantillas-whatsapp](plantillas-whatsapp.md).
+- El despacho de plantillas soporta **encabezado de imagen**; Resultados lo usa
+  si existe `RESULTADOS_PLANTILLA_IMAGEN`. Activar la plantilla nueva es cambiar
+  dos variables, no el código.
+- Portal de Resultados: pantalla del paciente rediseñada, tarjeta de vista
+  previa al compartir el enlace e imagen de cabecera en `/resultados/imagen-aviso`.
+- Limpieza: borrados del portal los informes de prueba «Rene»/«ppe» (con
+  respaldo previo); queda solo la prueba «Clinica Montalvo».
+
 ## 23 de septiembre de 2026 · Chats con fotos sin parpadeo
 
 - **URLs de media estables por hora** (`R2Service.urlFirmada`): antes cada

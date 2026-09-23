@@ -128,5 +128,6 @@ mensajes cargados (ahora busca en todo el historial); y un índice duplicado en
 | Colores, átomos, geometría | skill `crm-design-system` (frontend) |
 | El inbox de WhatsApp | skill `crm-conversaciones` (frontend) |
 | Comisiones y finanzas | skill `crm-finanzas` (frontend) |
+| Plantillas de WhatsApp preparadas y cómo activarlas | [plantillas-whatsapp](plantillas-whatsapp.md) |
 | Qué cambió y cuándo | [ESTADO_ACTUAL](ESTADO_ACTUAL.md) |
 | Auditorías cerradas F01–F10, rendimiento R3, campañas | `docs/auditoria-*.md`, `docs/rendimiento-r3-2026-09.md`, `docs/CAMP-*.md` |
