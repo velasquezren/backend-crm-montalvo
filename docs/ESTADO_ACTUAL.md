@@ -1,5 +1,49 @@
 # Estado actual
 
+## 23 de septiembre de 2026 · Revisión a fondo de Ventas
+
+Medido en producción antes de tocar nada: **18 ventas, 0 con lead de origen y
+0 con comprobante adjunto**. El comprobante es opcional y no hay errores de
+subida en el registro: simplemente no se usa. Lo del lead sí era un fallo.
+
+- **La atribución de CAMP-1 nunca funcionó en la práctica.** Había DOS
+  formularios de venta: el de la página de Ventas (con la preselección del
+  lead) y el del panel del chat, por donde se registra casi todo, que nunca
+  mandaba `leadId`. Las 4 ventas del 21-sep tenían un único lead previo y
+  ninguna quedó enlazada. Ahora hay **un solo formulario**
+  (`FormularioVentaComponent`) para las dos pantallas.
+- **«4.500» se guardaba como Bs 4,50**: los dos formularios leían el monto con
+  `Number()`. `parsearMonto()` entiende la notación boliviana y el formulario
+  muestra «Se registrará Bs 4.500,00» antes de confirmar. El DTO además acota
+  el monto a lo que cabe en `Decimal(12,2)`.
+- **Venta duplicada por reintento**: nueva columna única
+  `Venta.clientRequestId` (migración `20260923200000_venta_client_request_id`),
+  mismo patrón que `Mensaje.clientMessageId`. La segunda llegada devuelve la
+  misma venta sin repetir auditoría, categoría ni cierre de leads.
+- **Las tarjetas y gráficos sumaban solo la página visible** (25 filas). Ahora
+  salen de `GET /ventas/resumen`, con el mismo filtro y alcance que el listado.
+  El clic en un módulo del gráfico filtra por módulo (antes escribía el nombre
+  en un buscador que no mira esa columna).
+- **Cambiar el estado desde el detalle rompía el cajón**: la respuesta venía
+  sin paciente y la vista leía `venta.cliente.pac`. Un cambio sin efecto ya no
+  escribe «de GANADA a GANADA» en la bitácora.
+- Ventas ya no lee la tabla `Lead` (usa `LeadsService.esDelCliente`); la
+  extensión del comprobante sale del tipo MIME y no del nombre del archivo; el
+  detalle ya no pinta una «Comisión calculada» que nunca existió (las
+  comisiones salen solo de la planilla de FileMaker).
+
+**Ventas del CRM y planilla de FileMaker siguen separadas a propósito** (lo
+fija `ventas.integracion.spec.ts`): la planilla es la fuente oficial de
+comisiones y el CRM registra el cierre comercial. Hoy no se pueden cruzar: el
+CRM tiene ventas de agosto y septiembre, y la planilla importada llega a junio.
+Solo 9 de las 18 pacientes tienen PAC.
+
+**Backfill del `leadId` de las 18 ventas: NO ejecutado**, igual que en CAMP-1.
+
+Entorno local: en el puerto 5433 escuchan dos Postgres, el de `.pgdata` (IPv6)
+y uno temporal de QA en `/tmp/crm-recepcion-qa…` (IPv4, `127.0.0.1`). Varias
+suites usan `127.0.0.1`: hay que migrar las dos `crm_test` o apagar la de QA.
+
 ## 23 de septiembre de 2026 · Escribir primero desde cualquier línea
 
 Hasta hoy un chat solo nacía cuando el paciente escribía (o desde Resultados):

@@ -7,6 +7,7 @@ import {
   IsPositive,
   IsString,
   IsUUID,
+  Max,
   MaxLength,
   MinLength,
 } from 'class-validator';
@@ -16,10 +17,7 @@ import {
  *
  * Es una lista cerrada porque la interfaz la pinta como píldoras y la tabla la
  * muestra como etiqueta: sin restringirla, "QR", "qr", "Qr" y "Pago QR" acaban
- * siendo cuatro métodos distintos y cualquier recuento posterior miente. Hoy
- * `Venta` está vacía, así que promover esto a un enum de Prisma —que es como el
- * proyecto declara los valores cerrados y como llegan tipados al frontend— sale
- * gratis; con datos dentro, ya no.
+ * siendo cuatro métodos distintos y cualquier recuento posterior miente.
  */
 export const METODOS_PAGO = ['QR', 'TRANSFERENCIA', 'TARJETA', 'EFECTIVO'] as const;
 
@@ -44,9 +42,14 @@ export class CreateVentaDto {
   @MaxLength(160)
   producto!: string;
 
-  /** Monto en bolivianos (Bs). */
-  @IsNumber()
+  /**
+   * Monto en bolivianos (Bs). Acotado a lo que cabe en `Decimal(12, 2)`: un
+   * número más grande o con más decimales pasaba la validación y volvía de
+   * Postgres como un 500 sin explicación.
+   */
+  @IsNumber({ maxDecimalPlaces: 2 }, { message: 'El monto admite como mucho dos decimales.' })
   @IsPositive()
+  @Max(99_999_999.99, { message: 'El monto es demasiado grande.' })
   monto!: number;
 
   @IsOptional()
@@ -115,4 +118,13 @@ export class CreateVentaDto {
   @MinLength(3)
   @MaxLength(200)
   motivoPerdida?: string;
+
+  /**
+   * Clave de la intención de registrar, generada por el navegador una vez por
+   * formulario abierto. Ver `Venta.clientRequestId`. Opcional solo mientras
+   * convivan clientes viejos durante el despliegue.
+   */
+  @IsOptional()
+  @IsUUID()
+  clientRequestId?: string;
 }

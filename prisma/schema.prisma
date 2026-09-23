@@ -461,6 +461,11 @@ model Venta {
   /// la venta vuelve a moverse a otro estado — mismo criterio que
   /// `Lead.motivoPerdida` y `VentaImportada.motivoExclusion`.
   motivoPerdida     String?     @db.VarChar(200)
+  /// Clave de la INTENCIÓN de registrar, generada por el navegador. Un doble
+  /// envío o el reintento de una respuesta perdida devuelven la venta que ya
+  /// existe en vez de contar el dinero dos veces. Mismo patrón que
+  /// `Mensaje.clientMessageId`: la garantía es el índice único.
+  clientRequestId   String?     @unique @db.VarChar(64)
   createdAt         DateTime    @default(now())
 
   @@index([clienteId])

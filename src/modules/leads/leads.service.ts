@@ -188,6 +188,16 @@ export class LeadsService {
    * campañas distintas, y cerrar los dos como "convertidos" porque solo uno
    * terminó en venta le atribuye a la campaña equivocada el mismo resultado.
    */
+  /**
+   * ¿Es este lead de ese paciente? Lo usa Ventas para validar el origen de una
+   * venta sin leer la tabla `Lead` por su cuenta (un módulo no toca la base de
+   * otro dominio).
+   */
+  async esDelCliente(leadId: string, clienteId: string): Promise<boolean> {
+    const lead = await this.prisma.lead.findUnique({ where: { id: leadId }, select: { clienteId: true } });
+    return lead?.clienteId === clienteId;
+  }
+
   async marcarConvertidos(clienteId: string, leadId?: string | null): Promise<void> {
     if (leadId) {
       await this.prisma.lead.updateMany({

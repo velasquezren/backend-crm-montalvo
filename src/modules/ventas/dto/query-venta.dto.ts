@@ -1,5 +1,6 @@
 import { EstadoVenta } from '../../../prisma/prisma-client';
-import { IsDateString, IsEnum, IsIn, IsOptional, IsString, MaxLength } from 'class-validator';
+import { Transform } from 'class-transformer';
+import { IsBoolean, IsDateString, IsEnum, IsIn, IsOptional, IsString, MaxLength } from 'class-validator';
 
 import { PaginationDto } from '../../../common/dto/pagination.dto';
 
@@ -52,4 +53,20 @@ export class QueryVentaDto extends PaginationDto {
   @IsOptional()
   @IsIn(FILTROS_COMPROBANTE)
   comprobante?: FiltroComprobante;
+
+  /**
+   * Módulo exacto de FileMaker (LABORATORIO, CONSULTA…). Existe para el clic en
+   * el gráfico de módulos: antes ese clic escribía el nombre del módulo en el
+   * buscador, que no mira esa columna, y la tabla mostraba otra cosa.
+   */
+  @IsOptional()
+  @IsString()
+  @MaxLength(60)
+  modulo?: string;
+
+  /** Las ventas sin módulo — el «Sin módulo» del mismo gráfico. */
+  @IsOptional()
+  @Transform(({ value }) => value === true || value === 'true')
+  @IsBoolean()
+  sinModulo?: boolean;
 }

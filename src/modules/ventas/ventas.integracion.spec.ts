@@ -292,6 +292,72 @@ describe('VentasService contra Postgres real', () => {
     });
   });
 
+  describe('cambiar el estado desde el detalle', () => {
+    it('devuelve la venta con su paciente: el detalle la reemplaza con esta respuesta', async () => {
+      const venta = await service.create(ventaBase(), agenteId);
+      const cambiada = await service.cambiarEstado(venta.id, 'EN_PROCESO', agenteId);
+      expect(cambiada.cliente).toMatchObject({ id: clienteId, telefono: '+59179000001' });
+      expect(cambiada.agente).toMatchObject({ id: agenteId });
+    });
+
+    it('sin cambio real no escribe en la bitácora', async () => {
+      const venta = await service.create(ventaBase(), agenteId);
+      await service.cambiarEstado(venta.id, 'GANADA', agenteId);
+      expect(await prisma.auditLog.count({ where: { entidadId: venta.id, accion: 'CAMBIO_ESTADO' } })).toBe(0);
+    });
+  });
+
+  describe('registrar dos veces la misma venta', () => {
+    const clave = '5d7a2c1e-8f4b-4b6a-9c3d-2e1f0a9b8c7d';
+
+    it('un doble envío o un reintento cuenta UNA venta y la audita una vez', async () => {
+      const [a, b] = await Promise.all([
+        service.create({ ...ventaBase(), clientRequestId: clave }, agenteId),
+        service.create({ ...ventaBase(), clientRequestId: clave }, agenteId),
+      ]);
+      expect(a.id).toBe(b.id);
+      expect(await prisma.venta.count()).toBe(1);
+      expect(await prisma.auditLog.count({ where: { accion: 'CREADA' } })).toBe(1);
+
+      const reintento = await service.create({ ...ventaBase(), clientRequestId: clave }, agenteId);
+      expect(reintento.id).toBe(a.id);
+    });
+
+    it('la clave de otra agente no devuelve su venta', async () => {
+      await service.create({ ...ventaBase(), clientRequestId: clave }, agenteId);
+      await expect(service.create({ ...ventaBase(), clientRequestId: clave }, otraAgenteId)).rejects.toThrow();
+    });
+  });
+
+  describe('resumen de lo filtrado', () => {
+    it('suma TODAS las ventas del filtro, no solo una página', async () => {
+      for (let i = 0; i < 30; i++) await service.create({ ...ventaBase(), monto: 100, modulo: 'CONSULTA', metodoPago: 'QR' }, agenteId);
+      await service.create({ ...ventaBase(), monto: 50 }, agenteId);
+
+      const resumen = await service.resumen({});
+      expect(resumen.porEstado).toEqual([{ clave: 'GANADA', cantidad: 31, monto: 3050 }]);
+      expect(resumen.porModulo).toEqual(
+        expect.arrayContaining([{ clave: 'CONSULTA', cantidad: 30, monto: 3000 }, { clave: null, cantidad: 1, monto: 50 }]),
+      );
+      expect((await service.findAll({ limite: 25 })).datos).toHaveLength(25);
+    });
+
+    it('filtra por módulo y por «sin módulo», igual en listado y resumen', async () => {
+      await service.create({ ...ventaBase(), modulo: 'LABORATORIO' }, agenteId);
+      await service.create(ventaBase(), agenteId);
+
+      expect((await service.findAll({ modulo: 'LABORATORIO' })).total).toBe(1);
+      expect((await service.findAll({ sinModulo: true })).total).toBe(1);
+      expect((await service.resumen({ sinModulo: true })).porEstado[0]!.cantidad).toBe(1);
+    });
+
+    it('respeta el alcance de la agente', async () => {
+      await service.create(ventaBase(), agenteId);
+      await service.create(ventaBase(), otraAgenteId);
+      expect((await service.resumen({ agenteId })).porEstado[0]!.cantidad).toBe(1);
+    });
+  });
+
   describe('categoría del paciente al corregir el estado', () => {
     const categoria = async () =>
       (await prisma.cliente.findUniqueOrThrow({ where: { id: clienteId } })).categoria;

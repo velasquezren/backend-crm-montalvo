@@ -46,6 +46,36 @@ function esComprobantePropio(clave: string, agenteId: string): boolean {
   return clave.startsWith(`${PREFIJO_COMPROBANTES}${agenteId}/`);
 }
 
+/** Una fila del resumen: cuántas ventas y cuánto suman, por estado, método o módulo. */
+export interface GrupoVentas {
+  clave: string | null;
+  cantidad: number;
+  monto: number;
+}
+
+export interface ResumenVentas {
+  porEstado: GrupoVentas[];
+  porMetodo: GrupoVentas[];
+  porModulo: GrupoVentas[];
+}
+
+/** Lo que devuelve cada lectura o comando de una venta. */
+const INCLUDE_VENTA = {
+  cliente: { select: { id: true, nombre: true, telefono: true, pac: true } },
+  agente: { select: { id: true, nombre: true } },
+  lead: { select: { id: true, origen: true, anuncioId: true } },
+} satisfies Prisma.VentaInclude;
+
+/** Extensión del archivo según su tipo, no según el nombre que puso quien lo subió. */
+const EXTENSION_COMPROBANTE: Record<string, string> = {
+  'image/jpeg': 'jpg',
+  'image/jpg': 'jpg',
+  'image/png': 'png',
+  'image/webp': 'webp',
+  'image/heic': 'heic',
+  'application/pdf': 'pdf',
+};
+
 /**
  * Módulo Ventas — RF-11/RF-12.
  * Una venta GANADA dispara (vía services de otros módulos, nunca su BD):
@@ -77,14 +107,8 @@ export class VentasService {
        UUID válido pero ajeno quedaría vinculado a la venta y `marcarConvertidos`
        nunca encontraría el lead a cerrar (está scopeado por clienteId), así
        que el error saldría a la luz recién al leer los reportes de atribución. */
-    if (dto.leadId) {
-      const lead = await this.prisma.lead.findUnique({
-        where: { id: dto.leadId },
-        select: { id: true, clienteId: true },
-      });
-      if (!lead || lead.clienteId !== dto.clienteId) {
-        throw new BadRequestException('El lead indicado no corresponde a este cliente.');
-      }
+    if (dto.leadId && !(await this.leadsService.esDelCliente(dto.leadId, dto.clienteId))) {
+      throw new BadRequestException('El lead indicado no corresponde a este cliente.');
     }
 
     const estado = dto.estado ?? 'GANADA';
@@ -92,8 +116,11 @@ export class VentasService {
       throw new BadRequestException('Para registrar una venta como perdida hay que indicar el motivo.');
     }
 
-    const venta = await this.prisma.venta.create({
+    let venta;
+    try {
+      venta = await this.prisma.venta.create({
       data: {
+        clientRequestId: dto.clientRequestId ?? null,
         clienteId: dto.clienteId,
         agenteId,
         producto: dto.producto,
@@ -110,12 +137,17 @@ export class VentasService {
         leadId: dto.leadId ?? null,
         motivoPerdida: estado === 'PERDIDA' ? dto.motivoPerdida!.trim() : null,
       },
-      include: {
-        cliente: { select: { id: true, nombre: true, telefono: true } },
-        agente: { select: { id: true, nombre: true } },
-        lead: { select: { id: true, origen: true, anuncioId: true } },
-      },
-    });
+      include: INCLUDE_VENTA,
+      });
+    } catch (error) {
+      /* La misma intención otra vez —doble envío, o reintento tras perder la
+         respuesta—: se devuelve la venta que ya existe y NO se repiten la
+         auditoría, la categoría ni el cierre de leads. Una clave ajena (de otra
+         agente) no revela nada: sigue el error original. */
+      const yaRegistrada = await this.ventaDeLaMismaIntencion(error, dto.clientRequestId, agenteId);
+      if (!yaRegistrada) throw error;
+      return yaRegistrada;
+    }
 
     await this.audit.registrar('Venta', venta.id, 'CREADA', agenteId, {
       producto: venta.producto,
@@ -133,6 +165,15 @@ export class VentasService {
       await this.leadsService.marcarConvertidos(venta.clienteId, venta.leadId);
     }
 
+    const comprobanteUrl = venta.comprobanteKey ? await this.firmarComprobante(venta.comprobanteKey) : null;
+    return { ...venta, comprobanteUrl };
+  }
+
+  private async ventaDeLaMismaIntencion(error: unknown, clientRequestId: string | undefined, agenteId: string) {
+    if (!clientRequestId) return null;
+    if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2002') return null;
+    const venta = await this.prisma.venta.findUnique({ where: { clientRequestId }, include: INCLUDE_VENTA });
+    if (!venta || venta.agenteId !== agenteId) return null;
     const comprobanteUrl = venta.comprobanteKey ? await this.firmarComprobante(venta.comprobanteKey) : null;
     return { ...venta, comprobanteUrl };
   }
@@ -170,7 +211,7 @@ export class VentasService {
     }
 
     const idTemp = randomUUID();
-    const extension = file.originalname.split('.').pop() || 'bin';
+    const extension = EXTENSION_COMPROBANTE[file.mimetype.split(';')[0].trim().toLowerCase()] ?? 'bin';
     const comprobanteKey = `comprobantes/${usuarioId}/${idTemp}.${extension}`;
     const ab = file.buffer.buffer.slice(
       file.buffer.byteOffset,
@@ -188,7 +229,8 @@ export class VentasService {
     };
   }
 
-  async findAll(query: QueryVentaDto) {
+  /** El filtro del listado y del resumen: tienen que contar exactamente las mismas ventas. */
+  private construirWhere(query: QueryVentaDto): Prisma.VentaWhereInput {
     const busqueda = terminoBusqueda(query.q);
     const condiciones: Prisma.VentaWhereInput[] = [];
 
@@ -208,6 +250,11 @@ export class VentasService {
     }
     if (query.metodoPago) {
       condiciones.push({ metodoPago: query.metodoPago });
+    }
+    if (query.sinModulo) {
+      condiciones.push({ modulo: null });
+    } else if (query.modulo) {
+      condiciones.push({ modulo: query.modulo });
     }
     if (query.comprobante === 'CON_COMPROBANTE') {
       condiciones.push({
@@ -239,18 +286,18 @@ export class VentasService {
       });
     }
 
-    const where: Prisma.VentaWhereInput = condiciones.length > 0 ? { AND: condiciones } : {};
+    return condiciones.length > 0 ? { AND: condiciones } : {};
+  }
+
+  async findAll(query: QueryVentaDto) {
+    const where = this.construirWhere(query);
     const { skip, take } = calcularPaginacion(query);
 
     const [datos, total] = await this.prisma.$transaction([
       this.prisma.venta.findMany({
         where,
         orderBy: { createdAt: 'desc' },
-        include: {
-          cliente: { select: { id: true, nombre: true, telefono: true, pac: true } },
-          agente: { select: { id: true, nombre: true } },
-          lead: { select: { id: true, origen: true, anuncioId: true } },
-        },
+        include: INCLUDE_VENTA,
         skip,
         take,
       }),
@@ -267,6 +314,32 @@ export class VentasService {
     return paginar(datosConUrl, total, query);
   }
 
+  /**
+   * Los números de las tarjetas y los gráficos, sobre TODO lo filtrado.
+   *
+   * Se calculaban en el navegador sobre la página visible: con más de 25
+   * ventas, «Total cerrado» sumaba solo esas 25 y se leía como el total. Tres
+   * `groupBy` con el mismo filtro que el listado, en un solo viaje.
+   */
+  async resumen(query: QueryVentaDto): Promise<ResumenVentas> {
+    const where = this.construirWhere(query);
+    const [porEstado, porMetodo, porModulo] = await this.prisma.$transaction([
+      this.prisma.venta.groupBy({ by: ['estado'], where, orderBy: { estado: 'asc' }, _count: { _all: true }, _sum: { monto: true } }),
+      this.prisma.venta.groupBy({ by: ['metodoPago'], where, orderBy: { metodoPago: 'asc' }, _count: { _all: true }, _sum: { monto: true } }),
+      this.prisma.venta.groupBy({ by: ['modulo'], where, orderBy: { modulo: 'asc' }, _count: { _all: true }, _sum: { monto: true } }),
+    ]);
+    const grupo = (clave: string | null, f: { _count?: { _all?: number } | true; _sum?: { monto?: Prisma.Decimal | null } }) => ({
+      clave,
+      cantidad: typeof f._count === 'object' ? (f._count._all ?? 0) : 0,
+      monto: Number(f._sum?.monto ?? 0),
+    });
+    return {
+      porEstado: porEstado.map(f => grupo(f.estado, f)),
+      porMetodo: porMetodo.map(f => grupo(f.metodoPago, f)),
+      porModulo: porModulo.map(f => grupo(f.modulo, f)),
+    };
+  }
+
   /** Cambio de estado (solo ADMIN, garantizado en el controller) — RF-12: el agente no se toca. */
   async cambiarEstado(id: string, estado: EstadoVenta, adminId: string, motivoPerdida?: string) {
     const venta = await this.prisma.venta.findUnique({ where: { id } });
@@ -280,6 +353,13 @@ export class VentasService {
       throw new BadRequestException('Para marcar una venta como perdida hay que indicar el motivo.');
     }
 
+    /* Sin cambio real no se escribe: «de GANADA a GANADA» en la bitácora es
+       ruido, igual que en `corregirOrigen`. Una PERDIDA con otro motivo sí es
+       un cambio. */
+    if (venta.estado === estado && (estado !== 'PERDIDA' || venta.motivoPerdida === motivoPerdida!.trim())) {
+      return this.detalleConComprobante(id);
+    }
+
     const actualizada = await this.prisma.venta.update({
       where: { id },
       data: {
@@ -287,6 +367,9 @@ export class VentasService {
         // Al salir de PERDIDA el motivo deja de aplicar — mismo criterio que Lead.updateEstado.
         motivoPerdida: estado === 'PERDIDA' ? motivoPerdida!.trim() : null,
       },
+      /* Sin esto volvía sin paciente, y el detalle —que reemplaza la venta
+         abierta con esta respuesta— se rompía al leer `venta.cliente`. */
+      include: INCLUDE_VENTA,
     });
     await this.audit.registrar('Venta', id, 'CAMBIO_ESTADO', adminId, {
       de: venta.estado,
@@ -349,14 +432,8 @@ export class VentasService {
     /* Mismo criterio que `create`, y mismo mensaje: no se dice si el lead no
        existe o si es de otra paciente, porque distinguirlo permitiría sondear
        qué ids hay en la base. */
-    if (dto.leadId) {
-      const lead = await this.prisma.lead.findUnique({
-        where: { id: dto.leadId },
-        select: { id: true, clienteId: true },
-      });
-      if (!lead || lead.clienteId !== venta.clienteId) {
-        throw new BadRequestException('El lead indicado no corresponde a este cliente.');
-      }
+    if (dto.leadId && !(await this.leadsService.esDelCliente(dto.leadId, venta.clienteId))) {
+      throw new BadRequestException('El lead indicado no corresponde a este cliente.');
     }
 
     /* Sin cambio real no se escribe: una entrada de bitácora que dice "de X a X"
@@ -368,11 +445,7 @@ export class VentasService {
     const actualizada = await this.prisma.venta.update({
       where: { id },
       data: { leadId: dto.leadId },
-      include: {
-        cliente: { select: { id: true, nombre: true, telefono: true, pac: true } },
-        agente: { select: { id: true, nombre: true } },
-        lead: { select: { id: true, origen: true, anuncioId: true } },
-      },
+      include: INCLUDE_VENTA,
     });
 
     await this.audit.registrar('Venta', id, 'CAMBIO_ORIGEN', usuarioId, {
@@ -390,11 +463,7 @@ export class VentasService {
   private async detalleConComprobante(id: string) {
     const venta = await this.prisma.venta.findUniqueOrThrow({
       where: { id },
-      include: {
-        cliente: { select: { id: true, nombre: true, telefono: true, pac: true } },
-        agente: { select: { id: true, nombre: true } },
-        lead: { select: { id: true, origen: true, anuncioId: true } },
-      },
+      include: INCLUDE_VENTA,
     });
     const comprobanteUrl = venta.comprobanteKey
       ? await this.firmarComprobante(venta.comprobanteKey)

@@ -63,6 +63,13 @@ export class VentasController {
     return this.ventasService.findAll(query);
   }
 
+  /** Tarjetas y gráficos de la pantalla: sobre todo lo filtrado, con el mismo alcance que el listado. */
+  @Get('resumen')
+  resumen(@Query() query: QueryVentaDto, @CurrentUser() usuario: UsuarioJwt) {
+    query.agenteId = alcanceAgente(usuario) ?? query.agenteId;
+    return this.ventasService.resumen(query);
+  }
+
   @Patch(':id/estado')
   @Roles('ADMIN')
   cambiarEstado(
