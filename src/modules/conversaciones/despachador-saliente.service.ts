@@ -42,7 +42,16 @@ export interface Destino {
 export function componentesPlantilla(dto: PlantillaADespachar): Array<Record<string, unknown>> {
   return [
     ...(dto.parametros && dto.parametros.length > 0
-      ? [{ type: 'body', parameters: dto.parametros.map(text => ({ type: 'text', text })) }]
+      ? [{
+          type: 'body',
+          /* Una plantilla NAMED exige `parameter_name`; sin él Meta la rechaza
+             aunque los valores vengan en orden. */
+          parameters: dto.parametros.map((text, i) => ({
+            type: 'text',
+            ...(dto.nombresParametros ? { parameter_name: dto.nombresParametros[i] } : {}),
+            text,
+          })),
+        }]
       : []),
     ...(dto.boton
       ? [{ type: 'button', sub_type: 'url', index: '0', parameters: [{ type: 'text', text: dto.boton }] }]
@@ -55,6 +64,8 @@ export interface PlantillaADespachar {
   plantilla: string;
   idioma: string;
   parametros?: string[];
+  /** Solo para plantillas `NAMED`: el nombre de cada parámetro, en el mismo orden. */
+  nombresParametros?: string[];
   /**
    * Valor de la variable del botón URL, cuando la plantilla aprobada lleva uno
    * dinámico. Meta lo CONCATENA a la URL base de la plantilla, así que solo se

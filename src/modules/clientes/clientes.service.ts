@@ -1,8 +1,9 @@
-import { ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { CategoriaCliente, EstadoLead, Prisma } from '../../prisma/prisma-client';
 
 import { AuditService } from '../../common/audit/audit.service';
 import { terminoBusqueda } from '../../common/dto/busqueda';
+import { normalizarTelefono } from '../../common/telefono/telefono';
 import { calcularPaginacion, construirOrden, paginar } from '../../common/dto/pagination.dto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ServiciosService } from '../servicios/servicios.service';
@@ -26,6 +27,13 @@ import { UpdateClienteDto } from './dto/update-cliente.dto';
 const PREFIJO_NOMBRE_PROVISIONAL = 'WhatsApp ';
 
 /** Nombre de relleno mientras no se sepa cómo se llama de verdad. */
+/** Ver `normalizarTelefono`: la ficha se guarda con la misma clave que usa el webhook. */
+function telefonoCanonico(telefono: string): string {
+  const canonico = normalizarTelefono(telefono);
+  if (!canonico) throw new BadRequestException(`«${telefono}» no es un número de teléfono válido.`);
+  return canonico;
+}
+
 export function nombreProvisional(telefono: string): string {
   return `${PREFIJO_NOMBRE_PROVISIONAL}${telefono}`;
 }
@@ -141,6 +149,7 @@ export class ClientesService {
 
     // `fechaNacimiento` NO entra en datosExtra: es columna propia. Meterla en
     // el JSON era lo que hacía que editarla no cambiara nada en pantalla.
+    dto = { ...dto, telefono: telefonoCanonico(dto.telefono) };
     const { empresa, fechaNacimiento, lugarNacimiento, datosExtra, pac, ci, ...restoDto } = dto;
     const datosExtraCombinados = {
       ...(datosExtra || {}),
@@ -269,7 +278,8 @@ export class ClientesService {
   }
 
   async findByTelefono(telefono: string) {
-    return this.prisma.cliente.findUnique({ where: { telefono } });
+    const canonico = normalizarTelefono(telefono);
+    return canonico ? this.prisma.cliente.findUnique({ where: { telefono: canonico } }) : null;
   }
 
   /**
@@ -335,6 +345,7 @@ export class ClientesService {
    * rebota (P2002), releer: para entonces la otra petición ya lo creó.
    */
   async obtenerOCrearPorTelefono(nombre: string, telefono: string) {
+    telefono = telefonoCanonico(telefono);
     const existente = await this.findByTelefono(telefono);
     if (existente) {
       /* Si el cliente se dio de alta con el marcador ("WhatsApp +591…") y ahora
@@ -382,6 +393,7 @@ export class ClientesService {
       dto = { ...dto, agenteId: undefined };
     }
     if (dto.agenteId != null) await this.validarAgenteActivo(dto.agenteId);
+    if (dto.telefono !== undefined) dto = { ...dto, telefono: telefonoCanonico(dto.telefono) };
 
     // La edición fusiona sobre lo que hay, así que el JSON se relee de la base.
     // Es una lectura por clave primaria: más barata que arrastrarlo en cada

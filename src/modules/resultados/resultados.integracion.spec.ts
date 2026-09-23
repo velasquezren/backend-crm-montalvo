@@ -17,7 +17,7 @@ import { ResultadosService } from './resultados.service';
  * quiere comprobar es el cruce por PAC, la reserva contra el doble envío y el
  * permiso por línea, y eso lo decide Postgres.
  *
- * Solo se stubea `ConversacionesService.enviarPlantilla`, que es la frontera
+ * Solo se stubea `ConversacionesService.enviarPlantillaDelSistema`, que es la frontera
  * con Meta; que el botón llegue bien al payload lo fija
  * `componentes-plantilla.spec.ts`.
  *
@@ -42,7 +42,7 @@ const INFORME = '22222222-2222-4222-8222-222222222222';
 const ACCESO = '33333333-3333-4333-8333-333333333333';
 
 const conversacionesStub = {
-  async enviarPlantilla(
+  async enviarPlantillaDelSistema(
     conversacionId: string,
     dto: { plantilla: string; boton?: string },
   ) {

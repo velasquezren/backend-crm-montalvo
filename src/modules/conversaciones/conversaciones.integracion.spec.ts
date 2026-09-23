@@ -1003,11 +1003,10 @@ describe('Conversaciones contra Postgres real', () => {
       await ingesta.procesarEntrante('+59173000003', 'Hola', 'wamid.e3');
       const conv = await prisma.conversacion.findFirstOrThrow();
 
-      await service.enviarPlantilla(
-        conv.id,
-        { plantilla: 'saludo', idioma: 'es', parametros: [], contenido: 'Buenas tardes' },
-        a.id,
-      );
+      jest.spyOn(service['whatsapp'], 'listarPlantillas').mockResolvedValue([
+        { name: 'saludo', status: 'APPROVED', category: 'UTILITY', language: 'es', components: [{ type: 'BODY', text: 'Buenas tardes' }] },
+      ]);
+      await service.enviarPlantilla(conv.id, { plantilla: 'saludo', idioma: 'es', parametros: [] }, a.id);
 
       expect(await esperandoRespuestaDe(conv.id)).toBe(false);
     });

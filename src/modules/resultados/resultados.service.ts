@@ -153,7 +153,7 @@ export class ResultadosService {
     try {
       /* Resultados no es tráfico comercial: la conversación no reserva lead. */
       const conversacion = await obtenerOCrearConversacion(this.prisma, cliente.id, linea, false);
-      const mensaje = await this.conversaciones.enviarPlantilla(
+      const mensaje = await this.conversaciones.enviarPlantillaDelSistema(
         conversacion.id,
         {
           plantilla: this.variable('RESULTADOS_PLANTILLA'),

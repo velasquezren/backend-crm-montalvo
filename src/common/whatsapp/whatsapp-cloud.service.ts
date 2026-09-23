@@ -188,7 +188,7 @@ export class WhatsappCloudService {
     if (!cuenta || !wabaId) return null;
 
     try {
-      const url = `${BASE}/${wabaId}/message_templates?fields=name,status,category,language,components&limit=100`;
+      const url = `${BASE}/${wabaId}/message_templates?fields=name,status,category,language,parameter_format,components&limit=100`;
       const respuesta = await fetch(url, {
         headers: { Authorization: `Bearer ${cuenta.token}` },
         signal: AbortSignal.timeout(ESPERA_MS),

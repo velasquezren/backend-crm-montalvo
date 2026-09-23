@@ -1,5 +1,40 @@
 # Estado actual
 
+## 23 de septiembre de 2026 · Escribir primero desde cualquier línea
+
+Hasta hoy un chat solo nacía cuando el paciente escribía (o desde Resultados):
+no había forma de escribirle a un número nuevo ni de retomar a una paciente
+desde otra línea. Ahora **«Nuevo chat»** en la bandeja: línea → paciente o
+número → plantilla con vista previa → «Enviar y abrir chat»
+(`POST /conversaciones/iniciar`).
+
+Al revisar el flujo salieron fallos del envío de plantillas que ya existía,
+todos corregidos con prueba:
+
+- **El historial guardaba la plantilla sin sustituir** («Hola {{1}}»). Ahora el
+  servidor busca la plantilla aprobada de la línea, valida las variables
+  (vacías, saltos de línea: los rechazos #132000/#132018 de Meta) y compone el
+  texto. El navegador ya no manda `contenido`.
+- **Doble clic = dos plantillas cobradas**: ahora llevan `clientMessageId`,
+  como los textos.
+- **La plantilla no reclamaba la paciente** en la línea comercial, justo el
+  primer contacto; el texto sí.
+- **Plantillas con variables con nombre** (`{{nombre}}`) se mandaban sin
+  `parameter_name` y Meta las rechazaba. Las que tienen imagen de encabezado o
+  enlace variable se muestran deshabilitadas con el motivo.
+- **Teléfonos escritos a mano** («700 12-345») se guardaban tal cual: cuando la
+  paciente contestaba, el webhook no la encontraba y nacía una segunda ficha.
+  `normalizarTelefono()` (libphonenumber, Bolivia por defecto) ahora se aplica
+  en alta, edición y búsqueda de fichas. En producción las 15.993 fichas ya
+  estaban en E.164.
+
+Resultados manda su plantilla por `enviarPlantillaDelSistema`: lleva botón con
+enlace variable y su propio texto, y no pasa por la validación del chat.
+
+**Despliegue**: backend primero (el frontend nuevo llama a `/iniciar` y usa los
+campos nuevos de las plantillas). El frontend viejo sigue funcionando contra el
+backend nuevo.
+
 ## 23 de septiembre de 2026 · Revisión de Actividades, Leads, Ventas y Clientes
 
 Cinco fallos reales, cada uno reproducido con una prueba antes de corregirlo:

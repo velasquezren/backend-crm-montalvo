@@ -6,6 +6,7 @@ import { ConversacionesService } from './conversaciones.service';
 import { AsignarAgenteDto } from './dto/asignar-agente.dto';
 import { EnviarMensajeDto } from './dto/enviar-mensaje.dto';
 import { EnviarPlantillaDto } from './dto/enviar-plantilla.dto';
+import { IniciarConversacionDto } from './dto/iniciar-conversacion.dto';
 import { MarcarLeidoDto } from './dto/marcar-leido.dto';
 import { QueryBuscarMensajesDto } from './dto/query-buscar-mensajes.dto';
 import { QueryConversacionesDto } from './dto/query-conversaciones.dto';
@@ -49,6 +50,15 @@ export class ConversacionesController {
       usuario.sub,
       query,
     );
+  }
+
+  /**
+   * Escribirle primero a una paciente o a un número nuevo, desde una línea.
+   * Va antes de las rutas con `:id` para que `iniciar` no se lea como un id.
+   */
+  @Post('iniciar')
+  iniciar(@Body() dto: IniciarConversacionDto, @CurrentUser() usuario: UsuarioJwt) {
+    return this.conversacionesService.iniciarConversacion(dto, usuario.sub, alcanceAgente(usuario));
   }
 
   /** Plantillas aprobadas de la WABA — para el selector al escribir fuera de la ventana de 24h. */

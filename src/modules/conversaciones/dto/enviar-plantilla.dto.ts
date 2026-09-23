@@ -1,10 +1,15 @@
-import { IsArray, IsOptional, IsString, Matches, MaxLength } from 'class-validator';
+import { ArrayMaxSize, IsArray, IsOptional, IsString, IsUUID, MaxLength } from 'class-validator';
 
 /**
  * Envío de una plantilla de WhatsApp (mensaje iniciado por la empresa, fuera
- * de la ventana de 24h). El nombre + idioma + parámetros arman la llamada real
- * a Meta; `contenido` es el texto ya renderizado (lo que el agente vio en la
- * previsualización) y se guarda como el cuerpo del Mensaje en el CRM.
+ * de la ventana de 24h).
+ *
+ * **El texto no viaja.** Antes llegaba un `contenido` compuesto en el
+ * navegador y era el cuerpo SIN sustituir: el historial del CRM guardaba
+ * «Hola {{1}}» en vez de lo que recibió el paciente. Ahora el servidor busca
+ * la plantilla aprobada de la línea, valida las variables y compone el texto
+ * (`renderizarPlantilla`). Un `contenido` de un cliente viejo se descarta sin
+ * error: el `ValidationPipe` global solo lista blanca.
  */
 export class EnviarPlantillaDto {
   /** Nombre de la plantilla aprobada en la WABA (ej. `recordatorio_cita`). */
@@ -17,27 +22,21 @@ export class EnviarPlantillaDto {
   @MaxLength(10)
   idioma!: string;
 
-  /** Valores para las variables del cuerpo, en orden. Vacío si la plantilla no tiene. */
+  /** Valores de las variables del cuerpo, en el orden de `nombresVariables`. */
   @IsOptional()
   @IsArray()
+  @ArrayMaxSize(20)
   @IsString({ each: true })
+  @MaxLength(1024, { each: true })
   parametros?: string[];
 
   /**
-   * Valor de la variable del botón URL, si la plantilla lleva uno dinámico.
-   * Meta lo concatena a la URL base aprobada, así que se restringe a caracteres
-   * no reservados: un `/`, un `?` o un `%` cambiarían la ruta de destino y
-   * mandarían al paciente a otra parte del sitio.
+   * Clave de la INTENCIÓN de envío, igual que en `EnviarMensajeDto`: un doble
+   * clic o el reintento de una respuesta perdida devuelven el mismo mensaje en
+   * vez de mandar —y cobrar— la plantilla dos veces. Opcional solo mientras
+   * convivan clientes viejos durante el despliegue.
    */
   @IsOptional()
-  @IsString()
-  @Matches(/^[A-Za-z0-9._~-]{1,200}$/, {
-    message: 'El valor del botón solo admite letras, números, punto, guion, guion bajo y virgulilla.',
-  })
-  boton?: string;
-
-  /** Texto ya renderizado (con las variables sustituidas) para guardar en el historial. */
-  @IsString()
-  @MaxLength(4096)
-  contenido!: string;
+  @IsUUID()
+  clientMessageId?: string;
 }

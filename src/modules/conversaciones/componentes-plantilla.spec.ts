@@ -32,4 +32,18 @@ describe('componentesPlantilla', () => {
     expect(componentes[0].type).toBe('body');
     expect(componentes[1].type).toBe('button');
   });
+
+  it('plantilla NAMED: cada parámetro lleva su nombre', () => {
+    expect(
+      componentesPlantilla({ plantilla: 'p', idioma: 'es', parametros: ['Ana', 'lunes'], nombresParametros: ['nombre', 'dia'] }),
+    ).toEqual([
+      {
+        type: 'body',
+        parameters: [
+          { type: 'text', parameter_name: 'nombre', text: 'Ana' },
+          { type: 'text', parameter_name: 'dia', text: 'lunes' },
+        ],
+      },
+    ]);
+  });
 });

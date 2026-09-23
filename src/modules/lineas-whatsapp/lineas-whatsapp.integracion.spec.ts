@@ -239,7 +239,14 @@ beforeEach(async () => {
     return new Response(
       JSON.stringify({
         messages: [{ id: `wamid.salida.${salidas.length}` }],
-        data: [],
+        /* Las plantillas aprobadas de cualquier WABA: el envío las consulta
+           antes de salir para validar variables y componer el texto. */
+        data: String(input).includes("/message_templates")
+          ? [
+              { name: "saludo", status: "APPROVED", category: "UTILITY", language: "es", components: [{ type: "BODY", text: "Hola" }] },
+              { name: "recordatorio_cita", status: "APPROVED", category: "UTILITY", language: "es", components: [{ type: "BODY", text: "Recordatorio de cita" }] },
+            ]
+          : [],
       }),
       { status: 200 },
     );
@@ -687,9 +694,10 @@ it.each(['ventas', 'otra', 'admin', 'super'])(
     expect((await http('recepcion', `/conversaciones/${clinico}/leido`, 'POST', {})).status).toBe(201);
     expect((await http('recepcion', `/conversaciones/${clinico}/mensajes`, 'POST', { contenido: 'Te atiende recepción' })).status).toBe(201);
     expect((await http('recepcion', `/conversaciones/${clinico}/plantilla`, 'POST', {
-      plantilla: 'recordatorio_cita', idioma: 'es', contenido: 'Recordatorio de cita',
+      plantilla: 'recordatorio_cita', idioma: 'es',
     })).status).toBe(201);
-    await esperar(() => salidas.length >= 3);
+    /* leído + texto + consulta de plantillas + plantilla. */
+    await esperar(() => salidas.filter(s => !s.url.includes('/message_templates')).length >= 3);
     expect((await prisma.conversacion.findUniqueOrThrow({ where: { id: clinico } })).agenteId).toBe(usuarios[responsable].id);
     expect((await prisma.cliente.findUniqueOrThrow({ where: { id: paciente } })).agenteId).toBe(usuarios.ventas.id);
     expect((await http('recepcion', '/conversaciones')).body.datos).toEqual(expect.arrayContaining([expect.objectContaining({ id: clinico })]));

@@ -1,7 +1,7 @@
 import { MemoriaAgenteService } from '../memoria-agente/memoria-agente.service';
-import { whereAccesoConversacion as whereVisibilidad, SELECT_LINEA } from './acceso-conversacion';
+import { obtenerOCrearConversacion, whereAccesoConversacion as whereVisibilidad, SELECT_LINEA } from './acceso-conversacion';
 import { LineasWhatsappService } from '../lineas-whatsapp/lineas-whatsapp.service';
-import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { Prisma, Rol, TipoMensaje } from '../../prisma/prisma-client';
 
 import { CacheMemoria } from '../../common/cache/cache-memoria';
@@ -12,10 +12,14 @@ import { R2Service } from '../../common/storage/r2.service';
 import { WhatsappCloudService } from '../../common/whatsapp/whatsapp-cloud.service';
 import { permiteReintentarError } from '../../common/whatsapp/error-envio';
 import { PrismaService } from '../../prisma/prisma.service';
-import { ClientesService } from '../clientes/clientes.service';
+import { ClientesService, nombreProvisional } from '../clientes/clientes.service';
+import { normalizarTelefono } from '../../common/telefono/telefono';
+import { EnviarPlantillaDto } from './dto/enviar-plantilla.dto';
+import { IniciarConversacionDto } from './dto/iniciar-conversacion.dto';
 import { ConversacionesGateway } from './conversaciones.gateway';
-import { DespachadorSalienteService, proximoReintento } from './despachador-saliente.service';
+import { DespachadorSalienteService, PlantillaADespachar, proximoReintento } from './despachador-saliente.service';
 import { QueryConversacionesDto, TabInbox } from './dto/query-conversaciones.dto';
+import { PlantillaMeta, PlantillaResumen, renderizarPlantilla, resumirPlantilla, validarParametros } from './plantillas-whatsapp';
 
 /** Mensajes que trae el detalle inicial de una conversación (más recientes primero, luego se reordenan).
  *  Se acota a 50 para máxima velocidad inicial; los anteriores se cargan por cursor al hacer scroll. */
@@ -45,24 +49,6 @@ const POR_PAGINA_INBOX = 50;
 /* Estas dos cachés guardan un único valor cada una, así que la clave es
    simbólica: existe porque `CacheMemoria` está pensada para varias entradas. */
 const CLAVE_AGENTES = 'activos';
-
-/** Forma cruda de una plantilla en la respuesta de Meta (solo lo que usamos). */
-interface PlantillaMeta {
-  name: string;
-  status: string;
-  category: string;
-  language: string;
-  components?: Array<{ type: string; text?: string }>;
-}
-
-/** Plantilla aprobada, simplificada para el selector del inbox. */
-export interface PlantillaResumen {
-  nombre: string;
-  idioma: string;
-  categoria: string;
-  cuerpo: string;
-  variables: number;
-}
 
 /**
  * Módulo Conversaciones — RF-09/RF-10.
@@ -1076,21 +1062,9 @@ export class ConversacionesService {
          justo cuando Meta no responde es cuando la entrada suele estar caducada. */
       if (!crudas) throw new ServiceUnavailableException('No se pudieron consultar las plantillas de WhatsApp.');
 
-      const data = { data: crudas as PlantillaMeta[] };
-      const resultado = (data.data ?? [])
+      const resultado = (crudas as PlantillaMeta[])
         .filter(p => p.status === 'APPROVED')
-        .map(p => {
-          const body = p.components?.find(c => c.type === 'BODY')?.text ?? '';
-          return {
-            nombre: p.name,
-            idioma: p.language,
-            categoria: p.category,
-            cuerpo: body,
-            /* Nº de variables del cuerpo: cuenta los {{...}} distintos para que
-               la UI sepa cuántos campos pedir antes de enviar. */
-            variables: [...new Set(body.match(/\{\{[^}]+\}\}/g) ?? [])].length,
-          };
-        });
+        .map(resumirPlantilla);
 
       this.cachePlantillas.guardar(clave, resultado);
       return resultado;
@@ -1106,41 +1080,160 @@ export class ConversacionesService {
    * Envía una plantilla aprobada a un paciente — único modo permitido fuera de
    * la ventana de 24h. Mismo patrón que `enviarMensaje`: persiste, avisa por
    * WebSocket, y dispara la llamada a Meta SIN await (el agente no espera el
-   * round-trip). `contenido` es el texto ya renderizado que se guarda.
+   * round-trip).
    */
   async enviarPlantilla(
     conversacionId: string,
-    dto: { plantilla: string; idioma: string; parametros?: string[]; boton?: string; contenido: string },
+    dto: EnviarPlantillaDto,
     agenteId: string,
     soloAgenteId?: string,
   ) {
     const conversacion = await this.obtenerConversacionPropia(conversacionId, soloAgenteId);
+    const envio = await this.prepararPlantilla(conversacion.linea.id, dto);
+    return this.registrarPlantilla(conversacion, envio, dto.clientMessageId, agenteId);
+  }
 
-    const [mensaje] = await this.prisma.$transaction([
-      this.prisma.mensaje.create({
-        data: { conversacionId, direccion: 'SALIENTE', contenido: dto.contenido, estadoEnvio: 'ENVIADO', permiteReintento: false },
-      }),
-      /* Mismo criterio que `enviarMensaje`: reclamar solo si está en el pool. */
-      this.prisma.conversacion.updateMany({
-        where: { id: conversacionId, agenteId: null },
-        data: { agenteId },
-      }),
-      this.prisma.conversacion.update({
-        where: { id: conversacionId },
-        /* Contestó una persona: sale de la pestaña "Sin responder". Va en la
-           MISMA transacción que el mensaje a propósito — si se separara, un
-           fallo entre las dos dejaría la pestaña mintiendo. */
-        data: { updatedAt: new Date(), esperandoRespuesta: false },
-      }),
-    ]);
+  /**
+   * Una plantilla que arma OTRO módulo del CRM, no una persona: hoy, el aviso
+   * de resultados, con su botón de enlace variable y su propio texto para el
+   * historial. Por eso no pasa por `prepararPlantilla` —esa plantilla no es
+   * `enviable` desde el chat— y confía en quien llama, que ya decidió el
+   * permiso por su cuenta.
+   */
+  async enviarPlantillaDelSistema(
+    conversacionId: string,
+    envio: { plantilla: string; idioma: string; boton?: string; contenido: string },
+    agenteId: string,
+  ) {
+    const conversacion = await this.obtenerConversacionPropia(conversacionId);
+    const { contenido, ...despacho } = envio;
+    return this.registrarPlantilla(conversacion, { despacho, contenido }, undefined, agenteId);
+  }
+
+  /**
+   * Escribirle primero a alguien, desde la línea que se elija: una paciente de
+   * la base o un número nuevo. Siempre con plantilla (ver `IniciarConversacionDto`).
+   *
+   * El orden importa. Todo lo que puede rechazarse —la línea, la plantilla, sus
+   * variables, el teléfono, el permiso— se comprueba ANTES de dar de alta nada:
+   * una ficha o un chat vacío creados por un intento fallido quedarían en la
+   * bandeja como si alguien hubiera escrito.
+   *
+   * Si la paciente ya tiene chat en esa línea se usa ese —una conversación por
+   * paciente y línea—, y la plantilla entra en su historial.
+   */
+  async iniciarConversacion(dto: IniciarConversacionDto, agenteId: string, soloAgenteId?: string) {
+    const linea = await this.lineas.porId(dto.lineaId, soloAgenteId);
+    if (!this.lineas.credenciales(linea)) {
+      throw new BadRequestException(`La línea «${linea.nombre}» no está conectada a WhatsApp: desde ella no se puede escribir.`);
+    }
+    const envio = await this.prepararPlantilla(linea.id, dto);
+
+    const cliente = dto.clienteId
+      ? await this.clientesService.findOne(dto.clienteId, soloAgenteId)
+      : await this.pacientePorTelefono(dto.telefono ?? '', dto.nombre);
+
+    /* En una línea comercial la paciente tiene dueña: escribirle a la de otra
+       agente es quitársela. Mismo criterio que la ficha (`findOne`). */
+    if (linea.comercial && soloAgenteId && cliente.agenteId && cliente.agenteId !== soloAgenteId) {
+      throw new ForbiddenException('Esta paciente la atiende otra agente. Pide a administración que te la asigne.');
+    }
+
+    const { id } = await obtenerOCrearConversacion(this.prisma, cliente.id, linea.id, false);
+    const conversacion = await this.prisma.conversacion.findFirst({
+      where: { id, ...whereVisibilidad(soloAgenteId) },
+      select: { id: true, clienteId: true, linea: { select: SELECT_LINEA }, cliente: { select: { telefono: true } } },
+    });
+    if (!conversacion) {
+      throw new ForbiddenException('Ese chat ya lo atiende otra persona de la línea.');
+    }
+
+    const mensaje = await this.registrarPlantilla(conversacion, envio, dto.clientMessageId, agenteId);
+    return { conversacionId: conversacion.id, mensaje };
+  }
+
+  /** Normaliza el teléfono antes de buscar: es la clave que usará el webhook cuando contesten. */
+  private async pacientePorTelefono(telefono: string, nombre?: string) {
+    const canonico = normalizarTelefono(telefono);
+    if (!canonico) throw new BadRequestException(`«${telefono}» no es un número de teléfono válido.`);
+    return this.clientesService.obtenerOCrearPorTelefono(nombre?.trim() || nombreProvisional(canonico), canonico);
+  }
+
+  /**
+   * La plantilla APROBADA de esa línea, sus variables validadas y el texto que
+   * recibirá el paciente. Se lee de la misma caché que llena el selector, así
+   * que no cuesta un viaje a Meta por envío.
+   */
+  private async prepararPlantilla(lineaId: string, dto: EnviarPlantillaDto) {
+    const plantilla = (await this.listarPlantillas(false, lineaId)).find(
+      p => p.nombre === dto.plantilla && p.idioma === dto.idioma,
+    );
+    if (!plantilla) {
+      throw new BadRequestException(
+        'Esa plantilla no está aprobada en esta línea. Pulsa «Actualizar desde Meta» y elige otra.',
+      );
+    }
+    const parametros = validarParametros(plantilla, dto.parametros ?? []);
+    const despacho: PlantillaADespachar = {
+      plantilla: plantilla.nombre,
+      idioma: plantilla.idioma,
+      parametros,
+      ...(plantilla.formato === 'NAMED' ? { nombresParametros: plantilla.nombresVariables } : {}),
+    };
+    return { despacho, contenido: renderizarPlantilla(plantilla, parametros) };
+  }
+
+  private async registrarPlantilla(
+    conversacion: { id: string; clienteId: string; linea: { comercial: boolean }; cliente: { telefono: string } },
+    { despacho, contenido }: { despacho: PlantillaADespachar; contenido: string },
+    clientMessageId: string | undefined,
+    agenteId: string,
+  ) {
+    const conversacionId = conversacion.id;
+    let mensaje;
+    try {
+      [mensaje] = await this.prisma.$transaction([
+        this.prisma.mensaje.create({
+          data: {
+            conversacionId,
+            direccion: 'SALIENTE',
+            contenido,
+            estadoEnvio: 'ENVIADO',
+            permiteReintento: false,
+            clientMessageId: clientMessageId ?? null,
+          },
+        }),
+        /* Mismo criterio que `enviarMensaje`: reclamar solo si está en el pool. */
+        this.prisma.conversacion.updateMany({
+          where: { id: conversacionId, agenteId: null },
+          data: { agenteId },
+        }),
+        this.prisma.conversacion.update({
+          where: { id: conversacionId },
+          data: { updatedAt: new Date(), esperandoRespuesta: false },
+        }),
+      ]);
+    } catch (error) {
+      /* Doble clic o respuesta perdida: la misma fila, sin segundo envío a Meta
+         —que además se cobra—. Ver `enviarMensaje`. */
+      const yaCreado = await this.recuperarEnvioDuplicado(error, conversacionId, clientMessageId);
+      if (!yaCreado) throw error;
+      return { ...yaCreado, clienteTelefono: conversacion.cliente.telefono };
+    }
+
+    /* Igual que un texto: quien le escribe a una paciente sin dueña en la línea
+       comercial se la queda. Faltaba aquí, así que la plantilla —justo el
+       primer contacto— era el único envío que no la reclamaba. */
+    if (conversacion.linea.comercial) await this.clientesService
+      .reclamarSiNoTieneDuena(conversacion.clienteId, agenteId, agenteId)
+      .catch(error =>
+        this.logger.error(`No se pudo reclamar la paciente ${conversacion.clienteId} para ${agenteId}`, error),
+      );
 
     this.gateway.emitirActividad(conversacionId);
 
-    void enSegundoPlano(`envío de la plantilla ${dto.plantilla} a Meta`, this.logger, () =>
-      this.despachador.plantilla(
-        { mensajeId: mensaje.id, conversacionId, telefono: conversacion.cliente.telefono },
-        dto,
-      ),
+    void enSegundoPlano(`envío de la plantilla ${despacho.plantilla} a Meta`, this.logger, () =>
+      this.despachador.plantilla({ mensajeId: mensaje.id, conversacionId, telefono: conversacion.cliente.telefono }, despacho),
     );
 
     return { ...mensaje, clienteTelefono: conversacion.cliente.telefono };
