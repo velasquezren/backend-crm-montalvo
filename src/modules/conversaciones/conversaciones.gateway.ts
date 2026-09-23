@@ -86,8 +86,12 @@ export class ConversacionesGateway implements OnGatewayInit, OnGatewayConnection
    * acuse de entrega de Meta, la media que termina de subir—. Por eso **no
    * manda notificación push**: ver `notificarEntrante`.
    */
-  emitirActividad(conversacionId: string): void {
-    void this.emitirAutenticados('conversacion:actividad', { conversacionId }, conversacionId).catch(() => this.logger.warn('No se pudo difundir la conversación'));
+  emitirActividad(conversacionId: string, entrante = false): void {
+    /* `entrante` viaja para que la pestaña abierta distinga «escribió el
+       paciente» de «cambió algo» y solo avise y suene en lo primero. Sin él,
+       el navegador repetía en pantalla el error que este gateway corrigió en
+       el push: cada tick de entrega sonaba como un mensaje nuevo. */
+    void this.emitirAutenticados('conversacion:actividad', { conversacionId, ...(entrante ? { entrante: true } : {}) }, conversacionId).catch(() => this.logger.warn('No se pudo difundir la conversación'));
   }
 
   /**
@@ -107,7 +111,7 @@ export class ConversacionesGateway implements OnGatewayInit, OnGatewayConnection
     conversacionId: string,
     info: { clienteNombre?: string; texto?: string; agenteId?: string | null },
   ): void {
-    this.emitirActividad(conversacionId);
+    this.emitirActividad(conversacionId, true);
 
     const aviso = {
       titulo: info.clienteNombre ? `WhatsApp: ${info.clienteNombre}` : 'Mensaje de WhatsApp',
