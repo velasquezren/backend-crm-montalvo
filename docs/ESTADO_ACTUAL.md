@@ -1,5 +1,56 @@
 # Estado actual
 
+## Para continuar en otra máquina (cierre del 23 de septiembre de 2026)
+
+**Todo está limpio, en `main` y desplegado.** Ningún repositorio tiene cambios
+locales ni commits sin subir: basta clonar.
+
+| Repo | Último commit | Desplegado en |
+| --- | --- | --- |
+| `backend-crm-montalvo` | este commit (el de este documento) · código `5808e34` | VPS `107.175.132.15`, `crm_backend` :3001 |
+| `frontend-crm-montalvo` | `594d447` | Vercel (`git push` a `main`) |
+| `backend-resultados-montalvo` | `e1ba088` | mismo VPS, `releases/20260923-1911-pagina-paciente` |
+| `landing-montalvo` | `802f0ef` | Vercel |
+
+Primero: [PANORAMA](PANORAMA.md) y este documento. Recetas de despliegue:
+skill `crm-backend-arquitectura` §4 (CRM) y `docs/operacion.md` de Resultados.
+No se guardan contraseñas en el repo.
+
+**Pendientes, en orden:**
+
+1. **Enviar a revisión de Meta** `montalvo_informe_listo` y
+   `montalvo_primer_contacto` — preparadas en
+   [plantillas-whatsapp](plantillas-whatsapp.md). **Solo con OK explícito del
+   propietario** (regla de la clínica). Al aprobarse, dos variables en
+   `/opt/crm-backend/.env`, sin tocar código.
+2. **Dominio propio** para el portal de resultados (lo compra/apunta el
+   propietario); exige una plantilla nueva porque la URL del botón queda fija.
+3. **Prueba de punta a punta del aviso**: el informe de prueba «Clinica
+   Montalvo» (PAC `PRUEBA-7761`) está publicado y la ficha del 77617610 lo
+   reconoce. **Al terminar las pruebas, quitar ese PAC de la ficha** (es una
+   ficha real a la que se le puso el código de prueba).
+4. **Contraseña del médico**: la inicial de `doctor@montalvo.com` ya no vale.
+   Crear una cuenta de médico de prueba requiere autorización del propietario.
+5. **Conciliación Ventas CRM ↔ FileMaker** (marcar cada venta «Confirmada /
+   No aparece»): decisión pendiente del propietario; tiene sentido cuando se
+   importe julio o agosto.
+6. **Seguir la revisión módulo a módulo**: hecho Ventas, Dashboard y
+   Conversaciones (apertura, fotos, Nuevo chat, enlaces). Faltan a fondo
+   Actividades, Leads y Usuarios.
+7. Límite conocido: la categoría del paciente no caduca sola
+   ([PANORAMA](PANORAMA.md), límite 5).
+
+Entorno local: un único Postgres en :5433 (`.pgdata`); si `lsof -iTCP:5433`
+muestra dos, apagar el ajeno (ver la nota de `reference_postgres_local`).
+
+## 23 de septiembre de 2026 · Página del paciente al estilo del CRM
+
+El portal de Resultados separa marcos: el paciente tiene el suyo
+(`app/resultados/layout.tsx`, Poppins y la paleta del CRM, tarjeta de 16 px,
+botón en píldora) y los médicos conservan el suyo en `app/(medico)/`. Las URL no
+cambiaron. «Agendar una consulta» y «Ayuda» van en una lista discreta bajo el
+informe.
+
 ## 23 de septiembre de 2026 · Plantillas preparadas y aviso con imagen
 
 - **Plantillas listas para enviar a revisión** (sin enviar; regla de la
