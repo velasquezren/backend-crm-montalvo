@@ -36,6 +36,8 @@ export interface FilaEntrega {
   pacientePortal: { nombre: string; pac: string | null; ci: string | null };
   /** Ya avisado: cuándo y en qué estado quedó el mensaje. */
   aviso: { enviadoEn: Date; estadoMensaje: string | null } | null;
+  /** Primera vez que el paciente abrió su informe. Es lo que importa: entregado no es visto. */
+  abiertoEn: string | null;
 }
 
 @Injectable()
@@ -88,6 +90,7 @@ export class ResultadosService {
         sinFicha: motivo,
         pacientePortal: informe.paciente,
         aviso: aviso ? { enviadoEn: aviso.enviadoEn, estadoMensaje: aviso.mensaje?.estadoEnvio ?? null } : null,
+        abiertoEn: informe.abiertoEn,
       };
     });
     return paginar(filas, cola.total, query);
@@ -107,7 +110,34 @@ export class ResultadosService {
        sondear qué informes existen y qué PAC está en el CRM por el código de
        error que recibe. */
     const linea = await this.permitirLinea(usuario);
-    const informe = await this.revalidar(informeId);
+    return this.entregar(await this.revalidar(informeId), linea, usuario);
+  }
+
+  /**
+   * Para cuando el enlace venció: lo extiende 30 días en el portal y vuelve a
+   * avisar al paciente. El enlace es el mismo, así que el mensaje anterior
+   * también vuelve a funcionar.
+   *
+   * La reserva del aviso anterior se libera **solo si es anterior al
+   * vencimiento**. Con dos clics simultáneos, el segundo ya ve el enlace
+   * vigente y recibe 409; y si los dos llegan antes de renovar, ninguno borra
+   * la reserva nueva del otro —es posterior al vencimiento—, así que el índice
+   * único sigue dejando pasar un solo WhatsApp.
+   */
+  async renovarYEnviar(informeId: string, usuario: UsuarioJwt): Promise<{ enviado: true; mensajeId: string }> {
+    const linea = await this.permitirLinea(usuario);
+    const [previo] = (await this.portal.informes({ informeId, limite: 1 })).datos;
+    if (!previo) throw new NotFoundException('Ese informe ya no está publicado en el portal.');
+    if (previo.accesoVigente) {
+      throw new ConflictException('El enlace de este informe sigue activo: no hace falta renovarlo.');
+    }
+    await this.portal.renovarAcceso(informeId);
+    await this.prisma.avisoResultado.deleteMany({ where: { informeId, enviadoEn: { lt: new Date(previo.accesoExpiraEn) } } });
+    return this.entregar(await this.revalidar(informeId), linea, usuario);
+  }
+
+  private async entregar(informe: InformePublicado, linea: string, usuario: UsuarioJwt): Promise<{ enviado: true; mensajeId: string }> {
+    const informeId = informe.informeId;
     /* Se reconoce de nuevo aquí, no se confía en la fila que vio la
        asistente: entre la cola y el clic alguien pudo corregir un CI. */
     const [{ cliente, motivo }] = await this.clientes.reconocerPacientes([informe.paciente]);
@@ -159,9 +189,7 @@ export class ResultadosService {
       throw new NotFoundException('Ese informe ya no está publicado en el portal.');
     }
     if (!informe.accesoVigente) {
-      throw new ConflictException(
-        'El acceso del paciente está vencido o revocado. Pide al médico que lo renueve antes de avisarle.',
-      );
+      throw new ConflictException('El enlace del paciente venció. Usa «Renovar y enviar».');
     }
     return informe;
   }

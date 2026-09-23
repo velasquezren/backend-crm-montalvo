@@ -1,4 +1,4 @@
-import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
+import { ConflictException, Injectable, Logger, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 
 /** Una fila de la cola del portal de resultados. Contrato de su API, no nuestro. */
 export interface InformePublicado {
@@ -12,9 +12,15 @@ export interface InformePublicado {
   estudio: string;
   fechaEstudio: string;
   publicadoEn: string | null;
-  /** Identifica el acceso del paciente; NO lo autoriza — eso lo hace su código. */
+  /**
+   * El acceso del paciente. Es la llave del enlace (desde el 2026-09-23 no hay
+   * código): quien abre `…/resultados/<accesoId>` ve el informe.
+   */
   accesoId: string;
   accesoVigente: boolean;
+  accesoExpiraEn: string;
+  /** Primera vez que el paciente lo abrió; `null` si todavía no. */
+  abiertoEn: string | null;
 }
 
 interface ColaInformes {
@@ -51,15 +57,24 @@ export class PortalResultadosClient {
 
   /** Informes publicados. Con `informeId`, solo ese. */
   async informes(params: { pagina?: number; limite?: number; informeId?: string }): Promise<ColaInformes> {
-    const { base, token } = this.configuracion();
     const query = new URLSearchParams();
     if (params.pagina) query.set('pagina', String(params.pagina));
     if (params.limite) query.set('limite', String(params.limite));
     if (params.informeId) query.set('informeId', params.informeId);
+    return this.pedir<ColaInformes>(`/v1/integraciones/crm/informes?${query}`, 'GET');
+  }
 
+  /** Extiende 30 días el acceso de un informe publicado; el enlace no cambia. */
+  renovarAcceso(informeId: string): Promise<{ accesoId: string; expiraEn: string }> {
+    return this.pedir(`/v1/integraciones/crm/informes/${informeId}/acceso/renovar`, 'POST');
+  }
+
+  private async pedir<T>(ruta: string, method: 'GET' | 'POST'): Promise<T> {
+    const { base, token } = this.configuracion();
     let respuesta: Response;
     try {
-      respuesta = await fetch(`${base}/v1/integraciones/crm/informes?${query}`, {
+      respuesta = await fetch(`${base}${ruta}`, {
+        method,
         headers: { Authorization: `Bearer ${token}` },
         signal: AbortSignal.timeout(10_000),
       });
@@ -68,6 +83,10 @@ export class PortalResultadosClient {
       this.logger.error('No se pudo consultar el portal de resultados', error as Error);
       throw new ServiceUnavailableException('El portal de resultados no responde. Intenta de nuevo en un momento.');
     }
+    /* Estas dos no son caídas del portal: son respuestas sobre el informe, y
+       decir «el portal no responde» mandaría a reintentar algo que no cambia. */
+    if (respuesta.status === 404) throw new NotFoundException('Ese informe ya no está publicado en el portal.');
+    if (respuesta.status === 409) throw new ConflictException('El informe fue retirado: su enlace no se puede renovar.');
     if (!respuesta.ok) {
       this.logger.error(`El portal de resultados respondió ${respuesta.status}`);
       throw new ServiceUnavailableException(
@@ -76,6 +95,6 @@ export class PortalResultadosClient {
           : 'El portal de resultados no pudo atender la consulta.',
       );
     }
-    return (await respuesta.json()) as ColaInformes;
+    return (await respuesta.json()) as T;
   }
 }

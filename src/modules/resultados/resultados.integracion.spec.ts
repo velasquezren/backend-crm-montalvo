@@ -35,6 +35,7 @@ let portalHttp: Server;
 let informesDelPortal: Array<Record<string, unknown>> = [];
 const plantillasEnviadas: Array<{ conversacionId: string; boton?: string; plantilla: string }> = [];
 let fallarEnvio = false;
+let renovaciones = 0;
 
 const LINEA = '11111111-1111-4111-8111-111111111111';
 const INFORME = '22222222-2222-4222-8222-222222222222';
@@ -62,6 +63,17 @@ beforeAll(async () => {
       res.writeHead(401).end('{}');
       return;
     }
+    /* Renovar: como el portal real, extiende el mismo acceso 30 días. */
+    const renovar = url.pathname.match(/informes\/([^/]+)\/acceso\/renovar$/);
+    if (req.method === 'POST' && renovar) {
+      const informe = informesDelPortal.find(i => i.informeId === renovar[1]);
+      if (!informe) { res.writeHead(404).end('{}'); return; }
+      renovaciones += 1;
+      Object.assign(informe, { accesoVigente: true, accesoExpiraEn: new Date(Date.now() + 30 * 86400_000).toISOString() });
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ accesoId: informe.accesoId, expiraEn: informe.accesoExpiraEn }));
+      return;
+    }
     const pedido = url.searchParams.get('informeId');
     const datos = pedido ? informesDelPortal.filter(i => i.informeId === pedido) : informesDelPortal;
     res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -85,6 +97,7 @@ afterAll(async () => {
 beforeEach(async () => {
   plantillasEnviadas.length = 0;
   fallarEnvio = false;
+  renovaciones = 0;
   /* Limpieza ACOTADA a las filas propias. Un `deleteMany()` a secas sobre
      líneas o usuarios se lleva por delante la línea comercial inicial y deja
      al resto de la suite sin claves foráneas — pasó, y tumbó seis specs. */
@@ -123,6 +136,7 @@ beforeEach(async () => {
       informeId: INFORME, paciente: { nombre: 'Paciente Vinculado', pac: 'PAC33009', ci: null }, estudio: 'Ecografía abdominal',
       fechaEstudio: '2026-09-20', publicadoEn: '2026-09-21T10:00:00.000Z',
       accesoId: ACCESO, accesoVigente: true,
+      accesoExpiraEn: new Date(Date.now() + 20 * 86400_000).toISOString(), abiertoEn: null,
     },
   ];
 
@@ -232,8 +246,48 @@ describe('entrega de resultados contra Postgres real', () => {
 
   it('no manda a una puerta cerrada: acceso vencido o revocado se rechaza', async () => {
     informesDelPortal[0].accesoVigente = false;
-    await expect(service.enviar(INFORME, asistente)).rejects.toThrow(/vencido o revocado/i);
+    await expect(service.enviar(INFORME, asistente)).rejects.toThrow(/venció/i);
     expect(await prisma.avisoResultado.count()).toBe(0);
+  });
+
+  it('la cola dice si el paciente ya abrió su informe', async () => {
+    informesDelPortal[0].abiertoEn = '2026-09-22T15:00:00.000Z';
+    const cola = await service.pendientes({}, asistente);
+    expect(cola.datos[0].abiertoEn).toBe('2026-09-22T15:00:00.000Z');
+  });
+
+  /* El enlace venció después de avisar: se extiende y se vuelve a avisar,
+     sin que el aviso anterior bloquee el nuevo. */
+  it('renovar y enviar: extiende el enlace vencido y avisa otra vez', async () => {
+    await service.enviar(INFORME, asistente);
+    /* El aviso se mandó antes de que venciera el enlace. */
+    await prisma.avisoResultado.updateMany({ data: { enviadoEn: new Date(Date.now() - 40 * 86400_000) } });
+    Object.assign(informesDelPortal[0], { accesoVigente: false, accesoExpiraEn: new Date(Date.now() - 86400_000).toISOString() });
+
+    await expect(service.enviar(INFORME, asistente)).rejects.toThrow(/Renovar y enviar/);
+    await expect(service.renovarYEnviar(INFORME, asistente)).resolves.toMatchObject({ enviado: true });
+    expect(renovaciones).toBe(1);
+    expect(plantillasEnviadas).toHaveLength(2);
+    expect(await prisma.avisoResultado.count()).toBe(1);
+  });
+
+  it('renovar y enviar no hace nada si el enlace sigue activo', async () => {
+    await expect(service.renovarYEnviar(INFORME, asistente)).rejects.toThrow(/sigue activo/);
+    expect(renovaciones).toBe(0);
+    expect(plantillasEnviadas).toHaveLength(0);
+  });
+
+  it('dos «renovar y enviar» simultáneos mandan UN solo WhatsApp', async () => {
+    Object.assign(informesDelPortal[0], { accesoVigente: false, accesoExpiraEn: new Date(Date.now() - 86400_000).toISOString() });
+    await Promise.allSettled([service.renovarYEnviar(INFORME, asistente), service.renovarYEnviar(INFORME, asistente)]);
+    expect(plantillasEnviadas).toHaveLength(1);
+    expect(await prisma.avisoResultado.count()).toBe(1);
+  });
+
+  it('solo quien entrega resultados puede renovar y enviar', async () => {
+    Object.assign(informesDelPortal[0], { accesoVigente: false, accesoExpiraEn: new Date(Date.now() - 86400_000).toISOString() });
+    await expect(service.renovarYEnviar(INFORME, agente)).rejects.toThrow(/no encontrada/i);
+    expect(renovaciones).toBe(0);
   });
 
   it('un paciente sin ficha en el CRM se señala, no se inventa', async () => {

@@ -1,5 +1,30 @@
 # Estado actual
 
+## 23 de septiembre de 2026 · El paciente abre su resultado sin código
+
+Decisión de la clínica: el código de 12 caracteres en papel era el paso que más
+frenaba al paciente (antes la asistente le mandaba el PDF y bastaba un toque).
+Ahora **el enlace es la llave**: toca «Ver mi informe» en el WhatsApp, se abre
+la página y un botón grande le abre el PDF en el visor del teléfono. Que el
+equipo del hospital pueda abrir el enlace desde el historial del chat es
+aceptado por la clínica. Frente al PDF por WhatsApp, se conserva: retiro
+inmediato, vencimiento a 30 días, el PDF no viaja en el chat y se sabe si lo
+abrió.
+
+En el CRM: estado **«Abierto por el paciente»** (primera apertura, registrada
+en Resultados) y **«Renovar y enviar»** cuando el enlace venció — lo extiende 30
+días en el portal (mismo enlace) y vuelve a avisar; dos clics simultáneos
+mandan un solo WhatsApp porque solo se libera el aviso anterior al vencimiento.
+En Resultados: sin código (migración `20260923120000_enlace_directo` borra el
+hash y añade `abiertoEn`), renovación pedida por el CRM y el PDF del paciente se
+sirve `inline`.
+
+**Pendiente en Meta:** la plantilla en revisión pide todavía «el código de 12
+caracteres». No se puede editar hasta que la aprueben; entonces se edita su
+texto (propuesta en `docs/operacion.md` de Resultados). Mientras tanto
+funciona igual: el paciente toca el botón y ve su informe.
+
+
 ## 22 de septiembre de 2026 · Revisión de roles: quién entrega resultados
 
 **Hallazgo con datos de producción:** el permiso de `/resultados` era solo la

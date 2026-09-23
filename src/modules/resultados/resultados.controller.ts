@@ -32,4 +32,13 @@ export class ResultadosController {
   ) {
     return this.service.enviar(informeId, usuario);
   }
+
+  /** El enlace venció: se extiende 30 días y se vuelve a avisar al paciente. */
+  @Post(':informeId/renovar-y-enviar')
+  renovarYEnviar(
+    @Param('informeId', ParseUUIDPipe) informeId: string,
+    @CurrentUser() usuario: UsuarioJwt,
+  ) {
+    return this.service.renovarYEnviar(informeId, usuario);
+  }
 }
