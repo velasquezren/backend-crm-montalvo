@@ -1,5 +1,12 @@
 # Cierre técnico — septiembre de 2026
 
+> **Actualización 2026-09-23.** Esta es la foto del 18/09. Después llegaron el
+> portal de Resultados en el mismo servidor, los roles `ASISTENTE` y
+> recepción compartida, y el dashboard medido sobre mensajes. El mapa vigente
+> está en [PANORAMA](PANORAMA.md). De la deuda de abajo, **la 3 está resuelta**
+> (`contenido-adjunto.ts`: el tipo sale de `mediaMime`, y de paso el texto de
+> una foto ya llega al paciente).
+
 Estado del CRM Montalvo tras cerrar R2.2 y R3. Documento corto a propósito: lo
 que hay que saber para retomar, sin historia.
 

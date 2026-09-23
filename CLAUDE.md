@@ -19,7 +19,7 @@ referencia de arquitectura que citan los skills.
 
 ## Antes de escribir código
 
-**Primero lee [`docs/ESTADO_ACTUAL.md`](docs/ESTADO_ACTUAL.md)** y haz `git fetch`
+**Primero lee [`docs/PANORAMA.md`](docs/PANORAMA.md)** —el mapa de qué hay hoy: productos, módulos, pantallas, roles e integraciones— **y después [`docs/ESTADO_ACTUAL.md`](docs/ESTADO_ACTUAL.md)** y haz `git fetch`
 en los dos repos. Dice qué fase de la auditoría está cerrada, qué sigue y qué no
 hay que deshacer. Se trabaja desde dos máquinas: es normal encontrarse commits
 que no se hicieron aquí.
@@ -110,7 +110,10 @@ la base local.
 - **Ningún módulo toca la tabla de otro dominio.** Se llama a su service.
 - **Todo listado se pagina.** Hay 15.000+ pacientes.
 - **Nunca compares roles a mano** (`rol === 'ADMIN'`): usa `alcanceAgente()` /
-  `cubreRol()` de `common/auth/roles.ts`. La jerarquía es `AGENTE < ADMIN < SUPER_ADMIN`.
+  `cubreRol()` de `common/auth/roles.ts`. La jerarquía es `RECEPCION` y `ASISTENTE`
+  (0) < `AGENTE` (1) < `ADMIN` (2) < `SUPER_ADMIN` (3). Lo que el rango no expresa
+  son **capacidades** de la misma lista: `esRolOperativo()` (recepción y asistente:
+  atienden sus líneas sin alcance comercial) y `puedeEntregarResultados()`.
 - **Si tocas `schema.prisma`, la migración se genera y se commitea.** Sin eso, quien
   clone el repo queda con la base desincronizada.
 - **Todo campo de un DTO lleva su decorador de `class-validator`.** El

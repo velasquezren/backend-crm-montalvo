@@ -149,7 +149,7 @@ describe('ReintentoSalienteService', () => {
    * minuto para siempre.
    */
   it('despacha marcado como reintento, con el contenido y la media guardados', async () => {
-    const { servicio, despachador } = montar({ pendientes: [fila({ mediaKey: 'r2/abc.jpg' })] });
+    const { servicio, despachador } = montar({ pendientes: [fila({ mediaKey: 'r2/abc.jpg', mediaMime: 'image/jpeg', mediaNombre: null })] });
 
     await servicio.barrerEnviosPendientes();
 
@@ -161,7 +161,7 @@ describe('ReintentoSalienteService', () => {
         reintento: true,
       },
       'hola',
-      'r2/abc.jpg',
+      { key: 'r2/abc.jpg', mime: 'image/jpeg', nombre: null },
     );
   });
 

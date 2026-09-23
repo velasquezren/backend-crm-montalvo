@@ -59,8 +59,8 @@ export type ResultadoEnvio =
 /** Lo que Meta acepta como cuerpo de `/messages`, sin el `to` ni las constantes. */
 export type ContenidoMensaje =
   | { type: 'text'; text: { body: string } }
-  | { type: 'image'; image: { link: string } }
-  | { type: 'document'; document: { link: string; filename: string } }
+  | { type: 'image'; image: { link: string; caption?: string } }
+  | { type: 'document'; document: { link: string; filename: string; caption?: string } }
   | { type: 'template'; template: Record<string, unknown> }
   | { type: 'interactive'; interactive: Record<string, unknown> };
 

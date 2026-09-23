@@ -59,13 +59,13 @@ class R2Espia {
 
 /** Cuenta los despachos reales a Meta: es el efecto externo que no se deshace. */
 class DespachadorEspia {
-  readonly despachos: Array<{ mensajeId: string; contenido: string; mediaKey?: string }> = [];
+  readonly despachos: Array<{ mensajeId: string; contenido: string; mediaKey?: string; mediaMime?: string | null }> = [];
   async texto(
     destino: { mensajeId: string },
     contenido: string,
-    mediaKey?: string,
+    adjunto?: { key: string; mime?: string | null },
   ): Promise<void> {
-    this.despachos.push({ mensajeId: destino.mensajeId, contenido, mediaKey });
+    this.despachos.push({ mensajeId: destino.mensajeId, contenido, mediaKey: adjunto?.key, mediaMime: adjunto?.mime });
   }
 }
 
@@ -208,6 +208,8 @@ describe('R2.2 · idempotencia del envío con adjunto (PostgreSQL real)', () => 
     /* Y sobre todo: la paciente recibe UNA imagen, no dos. */
     expect(despachador.despachos).toHaveLength(1);
     expect(despachador.despachos[0].mediaKey).toBe(CLAVE_A);
+    /* El MIME viaja al despacho: es lo que decide si sale como imagen o documento. */
+    expect(despachador.despachos[0].mediaMime).toBe('image/jpeg');
   });
 
   it('B · un segundo envío con la misma clave y OTRA media conserva la original', async () => {

@@ -1,3 +1,4 @@
+import { AdjuntoSaliente, contenidoAdjunto } from './contenido-adjunto';
 import { LineasWhatsappService } from '../lineas-whatsapp/lineas-whatsapp.service';
 import { Injectable, Logger } from '@nestjs/common';
 import { permiteReintentarError } from '../../common/whatsapp/error-envio';
@@ -96,12 +97,12 @@ export class DespachadorSalienteService {
   ) {}
 
   /** Texto del agente, con adjunto opcional guardado en R2. */
-  async texto(destino: Destino, contenido: string, mediaKey?: string): Promise<void> {
+  async texto(destino: Destino, contenido: string, adjunto?: AdjuntoSaliente): Promise<void> {
     /* Con adjunto se firma una URL NUEVA aquí mismo. Reutilizar la que devolvió
        la subida sería jugársela: si el mensaje se reintenta pasados 15 minutos,
        Meta descargaría un enlace ya caducado y el paciente no recibiría nada. */
-    const contenidoMeta = mediaKey
-      ? await this.contenidoDesdeMedia(mediaKey, contenido)
+    const contenidoMeta = adjunto
+      ? await this.contenidoDesdeMedia(adjunto, contenido)
       : contenidoSegunTexto(contenido);
 
     if (!contenidoMeta) {
@@ -183,18 +184,13 @@ export class DespachadorSalienteService {
   }
 
   /** Arma el adjunto para Meta a partir de la clave de R2, firmando al vuelo. */
-  private async contenidoDesdeMedia(
-    mediaKey: string,
-    caption: string,
-  ): Promise<ContenidoMensaje | null> {
-    const url = await this.r2.urlFirmada(mediaKey);
+  private async contenidoDesdeMedia(adjunto: AdjuntoSaliente, texto: string): Promise<ContenidoMensaje | null> {
+    const url = await this.r2.urlFirmada(adjunto.key);
     if (!url) {
-      this.logger.error(`No se pudo firmar la media ${mediaKey}; el mensaje queda FALLIDO`);
+      this.logger.error(`No se pudo firmar la media ${adjunto.key}; el mensaje queda FALLIDO`);
       return null;
     }
-    return /\.pdf(\?.*)?$/i.test(mediaKey)
-      ? { type: 'document', document: { link: url, filename: caption || 'Documento.pdf' } }
-      : { type: 'image', image: { link: url } };
+    return contenidoAdjunto(url, adjunto, texto);
   }
 
   /**

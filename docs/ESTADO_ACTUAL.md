@@ -1,5 +1,32 @@
 # Estado actual
 
+## 23 de septiembre de 2026 · Revisión del sistema y mapa vigente
+
+Nuevo [PANORAMA](PANORAMA.md): el mapa de qué hay hoy (productos, módulos,
+pantallas, roles, integraciones, límites). `check:skills` falla si un módulo de
+`src/modules/` no aparece o si cita uno que ya no existe. Los dos `CLAUDE.md`
+lo enlazan como primera lectura.
+
+Corregido en la revisión, con pruebas:
+- **Adjuntos salientes** (`contenido-adjunto.ts`): el texto que la agente
+  escribía con una foto **no le llegaba al paciente** (se mandaba la imagen sin
+  `caption`); un PDF salía con el texto del mensaje como nombre de archivo; el
+  tipo se decidía por la extensión (deuda 3 del cierre técnico). Ahora el
+  texto va de descripción, el nombre es el del archivo, el tipo sale de
+  `mediaMime` y solo JPEG/PNG salen como imagen.
+- **Buscar dentro de un chat** mira todo el historial, no solo lo cargado; el
+  endpoint `buscar-mensajes` existía sin consumidor.
+- **Índice duplicado** en `PeriodoComision` retirado
+  (`20260923140000_quitar_indice_duplicado_periodo`).
+- **Clases inexistentes**: `animate-fade-in` y `no-scrollbar` no pintaban nada;
+  `check:skills` del frontend ahora rechaza cualquier `animate-*` inexistente.
+- `CLAUDE.md` del backend describía la jerarquía de roles sin recepción ni
+  asistente.
+
+De la lista de pendientes menores de más abajo, `temporal-polyfill` ya estaba
+declarado en el `package.json` del frontend: ese punto estaba resuelto.
+
+
 ## 23 de septiembre de 2026 · El paciente abre su resultado sin código
 
 Decisión de la clínica: el código de 12 caracteres en papel era el paso que más

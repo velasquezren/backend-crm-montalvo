@@ -922,7 +922,9 @@ export class ConversacionesService {
       this.despachador.texto(
         { mensajeId: mensaje.id, conversacionId, telefono: conversacion.cliente.telefono },
         contenido,
-        adjunto?.mediaKey,
+        adjunto?.mediaKey
+          ? { key: adjunto.mediaKey, mime: adjunto.mediaMime ?? null, nombre: adjunto.mediaNombre ?? null }
+          : undefined,
       ),
     );
 

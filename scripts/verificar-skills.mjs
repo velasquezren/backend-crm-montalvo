@@ -325,11 +325,32 @@ for (const nombre of readdirSync(SKILLS)) {
   verificarHelpers(nombre, texto);
 }
 
+/* ── El mapa del sistema no miente sobre los módulos ─────────────────────────
+   `docs/PANORAMA.md` lista los módulos de `src/modules/`. Las listas del
+   manifiesto se pudrieron por no tener esto: citaban dos módulos que no
+   existían y olvidaban seis. Aquí, un módulo nuevo sin su fila rompe el build,
+   y una fila de un módulo borrado también. */
+function verificarPanorama() {
+  const panorama = join(RAIZ, 'docs', 'PANORAMA.md');
+  if (!existsSync(panorama)) {
+    señala('PANORAMA', 'falta docs/PANORAMA.md');
+    return;
+  }
+  const texto = readFileSync(panorama, 'utf8');
+  const reales = readdirSync(join(RAIZ, 'src', 'modules'), { withFileTypes: true })
+    .filter(d => d.isDirectory())
+    .map(d => d.name);
+  const citados = new Set([...texto.matchAll(/`modules\/([a-z-]+)`/g)].map(m => m[1]));
+  for (const m of reales) if (!citados.has(m)) señala('PANORAMA', `el módulo \`${m}\` no aparece en docs/PANORAMA.md`);
+  for (const m of citados) if (!reales.includes(m)) señala('PANORAMA', `docs/PANORAMA.md cita \`modules/${m}\`, que no existe`);
+}
+
 /* Global, no por skill: mira el código, no la documentación. */
 verificarWebhooks();
 verificarDtos();
 verificarImportsDePrisma();
 verificarTrabajoEnSegundoPlano();
+verificarPanorama();
 
 if (problemas.length === 0) {
   console.log('✓ Los skills coinciden con el código.');

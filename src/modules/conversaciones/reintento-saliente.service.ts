@@ -113,6 +113,8 @@ export class ReintentoSalienteService implements OnModuleInit, OnModuleDestroy {
         conversacionId: true,
         contenido: true,
         mediaKey: true,
+        mediaMime: true,
+        mediaNombre: true,
         intentosEnvio: true,
         conversacion: { select: { cliente: { select: { telefono: true } } } },
       },
@@ -144,6 +146,8 @@ export class ReintentoSalienteService implements OnModuleInit, OnModuleDestroy {
       conversacionId: string;
       contenido: string;
       mediaKey: string | null;
+      mediaMime?: string | null;
+      mediaNombre?: string | null;
       intentosEnvio: number;
       conversacion: { cliente: { telefono: string } };
     },
@@ -173,7 +177,7 @@ export class ReintentoSalienteService implements OnModuleInit, OnModuleDestroy {
           reintento: true,
         },
         mensaje.contenido,
-        mensaje.mediaKey ?? undefined,
+        mensaje.mediaKey ? { key: mensaje.mediaKey, mime: mensaje.mediaMime, nombre: mensaje.mediaNombre } : undefined,
       );
       return true;
     } catch (error) {

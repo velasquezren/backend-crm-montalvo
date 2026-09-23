@@ -664,8 +664,9 @@ model PeriodoComision {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  /// El único ya indexa `(anio, mes)`: un `@@index` igual al lado duplicaba el
+  /// índice y cada escritura lo mantenía dos veces (retirado 2026-09-23).
   @@unique([anio, mes])
-  @@index([anio, mes])
 }
 
 //
