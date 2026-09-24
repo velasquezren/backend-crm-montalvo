@@ -198,16 +198,20 @@ export class LeadsService {
     return lead?.clienteId === clienteId;
   }
 
-  async marcarConvertidos(clienteId: string, leadId?: string | null): Promise<void> {
+  async marcarConvertidos(
+    clienteId: string,
+    leadId?: string | null,
+    tx: Prisma.TransactionClient = this.prisma,
+  ): Promise<void> {
     if (leadId) {
-      await this.prisma.lead.updateMany({
+      await tx.lead.updateMany({
         where: { id: leadId, clienteId, estado: { in: ['NUEVO', 'CONTACTADO'] } },
         data: { estado: 'CONVERTIDO' },
       });
       return;
     }
 
-    await this.prisma.lead.updateMany({
+    await tx.lead.updateMany({
       where: { clienteId, estado: { in: ['NUEVO', 'CONTACTADO'] } },
       data: { estado: 'CONVERTIDO' },
     });

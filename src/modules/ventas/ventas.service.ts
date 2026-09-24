@@ -116,28 +116,39 @@ export class VentasService {
       throw new BadRequestException('Para registrar una venta como perdida hay que indicar el motivo.');
     }
 
+    /* La venta y sus efectos (categoría, cierre de leads) van en UNA transacción.
+       Separados, un fallo entre ellos dejaba la venta guardada sin sus efectos,
+       y el reintento con la misma `clientRequestId` devolvía esa venta sin
+       repetirlos: quedaban así para siempre. */
     let venta;
     try {
-      venta = await this.prisma.venta.create({
-      data: {
-        clientRequestId: dto.clientRequestId ?? null,
-        clienteId: dto.clienteId,
-        agenteId,
-        producto: dto.producto,
-        monto: dto.monto,
-        estado,
-        metodoPago: dto.metodoPago ?? null,
-        comprobante: dto.comprobante ?? null,
-        comprobanteKey: dto.comprobanteKey ?? null,
-        comprobanteMime: dto.comprobanteMime ?? null,
-        comprobanteNombre: dto.comprobanteNombre ?? null,
-        medico: dto.medico ?? null,
-        modulo: dto.modulo ?? null,
-        notas: dto.notas ?? null,
-        leadId: dto.leadId ?? null,
-        motivoPerdida: estado === 'PERDIDA' ? dto.motivoPerdida!.trim() : null,
-      },
-      include: INCLUDE_VENTA,
+      venta = await this.prisma.$transaction(async tx => {
+        const creada = await tx.venta.create({
+          data: {
+            clientRequestId: dto.clientRequestId ?? null,
+            clienteId: dto.clienteId,
+            agenteId,
+            producto: dto.producto,
+            monto: dto.monto,
+            estado,
+            metodoPago: dto.metodoPago ?? null,
+            comprobante: dto.comprobante ?? null,
+            comprobanteKey: dto.comprobanteKey ?? null,
+            comprobanteMime: dto.comprobanteMime ?? null,
+            comprobanteNombre: dto.comprobanteNombre ?? null,
+            medico: dto.medico ?? null,
+            modulo: dto.modulo ?? null,
+            notas: dto.notas ?? null,
+            leadId: dto.leadId ?? null,
+            motivoPerdida: estado === 'PERDIDA' ? dto.motivoPerdida!.trim() : null,
+          },
+          include: INCLUDE_VENTA,
+        });
+        if (creada.estado === 'GANADA') {
+          await this.clientesService.actualizarCategoria(creada.clienteId, undefined, tx);
+          await this.leadsService.marcarConvertidos(creada.clienteId, creada.leadId, tx);
+        }
+        return creada;
       });
     } catch (error) {
       /* La misma intención otra vez —doble envío, o reintento tras perder la
@@ -159,11 +170,6 @@ export class VentasService {
       medico: venta.medico,
       leadId: venta.leadId,
     });
-
-    if (venta.estado === 'GANADA') {
-      await this.clientesService.actualizarCategoria(venta.clienteId);
-      await this.leadsService.marcarConvertidos(venta.clienteId, venta.leadId);
-    }
 
     const comprobanteUrl = venta.comprobanteKey ? await this.firmarComprobante(venta.comprobanteKey) : null;
     return { ...venta, comprobanteUrl };
@@ -360,33 +366,39 @@ export class VentasService {
       return this.detalleConComprobante(id);
     }
 
-    const actualizada = await this.prisma.venta.update({
-      where: { id },
-      data: {
-        estado,
-        // Al salir de PERDIDA el motivo deja de aplicar — mismo criterio que Lead.updateEstado.
-        motivoPerdida: estado === 'PERDIDA' ? motivoPerdida!.trim() : null,
-      },
-      /* Sin esto volvía sin paciente, y el detalle —que reemplaza la venta
-         abierta con esta respuesta— se rompía al leer `venta.cliente`. */
-      include: INCLUDE_VENTA,
+    /* En una transacción por lo mismo que `create`: si los efectos fallaban
+       tras guardar el estado, el reintento caía en «sin cambio real» de arriba
+       y ya nunca recalculaba la categoría ni cerraba los leads. */
+    const actualizada = await this.prisma.$transaction(async tx => {
+      const cambiada = await tx.venta.update({
+        where: { id },
+        data: {
+          estado,
+          // Al salir de PERDIDA el motivo deja de aplicar — mismo criterio que Lead.updateEstado.
+          motivoPerdida: estado === 'PERDIDA' ? motivoPerdida!.trim() : null,
+        },
+        /* Sin esto volvía sin paciente, y el detalle —que reemplaza la venta
+           abierta con esta respuesta— se rompía al leer `venta.cliente`. */
+        include: INCLUDE_VENTA,
+      });
+
+      /* La categoría se recalcula al entrar Y al salir de GANADA: una venta
+         anulada seguía contando y el paciente se quedaba en GOLD o SILVER por
+         una compra que no existió. Los leads no se reabren — su estado cuenta lo
+         que pasó cuando pasó (ver `corregirOrigen`). */
+      if ((estado === 'GANADA') !== (venta.estado === 'GANADA')) {
+        await this.clientesService.actualizarCategoria(cambiada.clienteId, undefined, tx);
+      }
+      if (estado === 'GANADA' && venta.estado !== 'GANADA') {
+        await this.leadsService.marcarConvertidos(cambiada.clienteId, cambiada.leadId, tx);
+      }
+      return cambiada;
     });
     await this.audit.registrar('Venta', id, 'CAMBIO_ESTADO', adminId, {
       de: venta.estado,
       a: estado,
       motivoPerdida: estado === 'PERDIDA' ? actualizada.motivoPerdida : undefined,
     });
-
-    /* La categoría se recalcula al entrar Y al salir de GANADA: una venta
-       anulada seguía contando y el paciente se quedaba en GOLD o SILVER por
-       una compra que no existió. Los leads no se reabren — su estado cuenta lo
-       que pasó cuando pasó (ver `corregirOrigen`). */
-    if ((estado === 'GANADA') !== (venta.estado === 'GANADA')) {
-      await this.clientesService.actualizarCategoria(actualizada.clienteId);
-    }
-    if (estado === 'GANADA' && venta.estado !== 'GANADA') {
-      await this.leadsService.marcarConvertidos(actualizada.clienteId, actualizada.leadId);
-    }
 
     const comprobanteUrl = actualizada.comprobanteKey ? await this.firmarComprobante(actualizada.comprobanteKey) : null;
     return { ...actualizada, comprobanteUrl };

@@ -566,22 +566,35 @@ export class ClientesService {
    *   SILVER 1-2 ventas ganadas
    *   BRONZE cliente con ventas pero fuera de la ventana de 90 días
    *   PROSPECTO sin ventas ganadas
+   *
+   * `tx`: Ventas la llama dentro de la transacción que guarda la venta, para
+   * que la venta y su categoría se confirmen juntas o no se confirme ninguna.
    */
-  async actualizarCategoria(clienteId: string, soloAgenteId?: string): Promise<CategoriaCliente> {
+  async actualizarCategoria(
+    clienteId: string,
+    soloAgenteId?: string,
+    tx?: Prisma.TransactionClient,
+  ): Promise<CategoriaCliente> {
     if (soloAgenteId) await this.findOne(clienteId, soloAgenteId);
+    return tx
+      ? this.recategorizar(tx, clienteId)
+      : this.prisma.$transaction(nueva => this.recategorizar(nueva, clienteId));
+  }
+
+  private async recategorizar(tx: Prisma.TransactionClient, clienteId: string): Promise<CategoriaCliente> {
     const hace90Dias = new Date();
     hace90Dias.setDate(hace90Dias.getDate() - 90);
 
     /* Se agrega en SQL en vez de traer todas las ventas del cliente a memoria
-       para filtrarlas y sumarlas en JS: la base solo devuelve 3 números. */
-    const [recientes, historicas] = await this.prisma.$transaction([
-      this.prisma.venta.aggregate({
-        where: { clienteId, estado: 'GANADA', createdAt: { gte: hace90Dias } },
-        _count: true,
-        _sum: { monto: true },
-      }),
-      this.prisma.venta.count({ where: { clienteId, estado: 'GANADA' } }),
-    ]);
+       para filtrarlas y sumarlas en JS: la base solo devuelve 3 números.
+       En serie y no con `Promise.all`: una transacción es UNA conexión, y `pg`
+       desaconseja encolarle consultas simultáneas. */
+    const recientes = await tx.venta.aggregate({
+      where: { clienteId, estado: 'GANADA', createdAt: { gte: hace90Dias } },
+      _count: true,
+      _sum: { monto: true },
+    });
+    const historicas = await tx.venta.count({ where: { clienteId, estado: 'GANADA' } });
 
     const cantidadReciente = recientes._count;
     const montoReciente = Number(recientes._sum.monto ?? 0);
@@ -595,7 +608,7 @@ export class ClientesService {
       categoria = 'BRONZE';
     }
 
-    await this.prisma.cliente.update({ where: { id: clienteId }, data: { categoria } });
+    await tx.cliente.update({ where: { id: clienteId }, data: { categoria } });
     return categoria;
   }
 

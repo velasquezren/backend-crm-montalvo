@@ -327,6 +327,27 @@ describe('VentasService contra Postgres real', () => {
       await service.create({ ...ventaBase(), clientRequestId: clave }, agenteId);
       await expect(service.create({ ...ventaBase(), clientRequestId: clave }, otraAgenteId)).rejects.toThrow();
     });
+
+    /* La idempotencia devuelve la venta existente SIN repetir sus efectos. Si
+       la venta pudiera quedar guardada sin ellos, el reintento la daría por
+       buena y el lead y la categoría se quedarían mal para siempre. */
+    it('si un efecto falla no queda la venta a medias, y el reintento lo completa todo', async () => {
+      const lead = await prisma.lead.create({ data: { clienteId, origen: 'PRESENCIAL', estado: 'NUEVO' } });
+      const leads = (service as unknown as { leadsService: LeadsService }).leadsService;
+      jest.spyOn(leads, 'marcarConvertidos').mockRejectedValueOnce(new Error('la base se cayó a mitad'));
+
+      await expect(service.create({ ...ventaBase(), clientRequestId: clave }, agenteId)).rejects.toThrow(
+        'la base se cayó a mitad',
+      );
+      expect(await prisma.venta.count()).toBe(0);
+      /* `actualizarCategoria` ya había corrido: también se deshace. */
+      expect((await prisma.cliente.findUniqueOrThrow({ where: { id: clienteId } })).categoria).toBe('PROSPECTO');
+
+      await service.create({ ...ventaBase(), clientRequestId: clave }, agenteId);
+      expect(await prisma.venta.count()).toBe(1);
+      expect((await prisma.lead.findUniqueOrThrow({ where: { id: lead.id } })).estado).toBe('CONVERTIDO');
+      expect((await prisma.cliente.findUniqueOrThrow({ where: { id: clienteId } })).categoria).toBe('SILVER');
+    });
   });
 
   describe('resumen de lo filtrado', () => {
@@ -371,6 +392,22 @@ describe('VentasService contra Postgres real', () => {
 
       await service.cambiarEstado(venta.id, 'GANADA', agenteId);
       expect(await categoria()).toBe('SILVER');
+    });
+
+    /* Sin transacción, el estado quedaba cambiado y el reintento caía en «sin
+       cambio real»: la categoría ya no se recalculaba nunca. */
+    it('si recalcular la categoría falla, el estado no cambia y el reintento la recalcula', async () => {
+      const venta = await service.create(ventaBase(), agenteId);
+      const clientes = (service as unknown as { clientesService: ClientesService }).clientesService;
+      jest.spyOn(clientes, 'actualizarCategoria').mockRejectedValueOnce(new Error('la base se cayó a mitad'));
+
+      await expect(service.cambiarEstado(venta.id, 'PERDIDA', agenteId, 'Pago rechazado')).rejects.toThrow(
+        'la base se cayó a mitad',
+      );
+      expect((await prisma.venta.findUniqueOrThrow({ where: { id: venta.id } })).estado).toBe('GANADA');
+
+      await service.cambiarEstado(venta.id, 'PERDIDA', agenteId, 'Pago rechazado');
+      expect(await categoria()).toBe('PROSPECTO');
     });
   });
 
