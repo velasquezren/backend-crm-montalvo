@@ -20,7 +20,7 @@ describe('componentesPlantilla', () => {
   /* La plantilla de resultados: cuerpo sin variables y botón URL en índice 0. */
   it('solo botón: componente de botón en índice 0, sin cuerpo', () => {
     expect(
-      componentesPlantilla({ plantilla: 'montalvo_resultado_disponible', idioma: 'es', boton: '32415e53-ef1f-45e6-a9fa-7f6c91f9168b' }),
+      componentesPlantilla({ plantilla: 'montalvo_informe_disponible', idioma: 'es', boton: '32415e53-ef1f-45e6-a9fa-7f6c91f9168b' }),
     ).toEqual([
       { type: 'button', sub_type: 'url', index: '0', parameters: [{ type: 'text', text: '32415e53-ef1f-45e6-a9fa-7f6c91f9168b' }] },
     ]);

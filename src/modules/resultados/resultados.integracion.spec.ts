@@ -85,7 +85,7 @@ beforeAll(async () => {
     PORTAL_RESULTADOS_URL: `http://127.0.0.1:${puerto}`,
     PORTAL_RESULTADOS_TOKEN: 'token-de-prueba-integracion',
     RESULTADOS_LINEA_ID: LINEA,
-    RESULTADOS_PLANTILLA: 'montalvo_resultado_disponible',
+    RESULTADOS_PLANTILLA: 'montalvo_informe_disponible',
   });
 });
 
@@ -199,7 +199,7 @@ describe('entrega de resultados contra Postgres real', () => {
   it('envía el ID de acceso como variable del botón, nunca el código', async () => {
     await service.enviar(INFORME, asistente);
     expect(plantillasEnviadas).toEqual([
-      { conversacionId: expect.any(String), boton: ACCESO, plantilla: 'montalvo_resultado_disponible' },
+      { conversacionId: expect.any(String), boton: ACCESO, plantilla: 'montalvo_informe_disponible' },
     ]);
     const aviso = await prisma.avisoResultado.findUniqueOrThrow({ where: { informeId: INFORME } });
     expect(aviso.mensajeId).not.toBeNull();

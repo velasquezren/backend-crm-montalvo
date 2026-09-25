@@ -51,6 +51,17 @@ botón en píldora) y los médicos conservan el suyo en `app/(medico)/`. Las URL
 cambiaron. «Agendar una consulta» y «Ayuda» van en una lista discreta bajo el
 informe.
 
+## 24 de septiembre de 2026 · Aviso de resultado sin código
+
+- Los avisos de resultado salen con **`montalvo_informe_disponible`**
+  (aprobada): «tu informe médico ya está disponible. Toca el botón de abajo
+  para verlo y descargarlo. Si necesitas ayuda, responde a este mensaje.»
+  Mismo botón URL con el ID de acceso; sin imagen.
+- La plantilla anterior, que pedía un código que ya no existe, se retiró del
+  código y la clínica la elimina de Meta.
+- Cambio de configuración: `RESULTADOS_PLANTILLA=montalvo_informe_disponible`
+  en `/opt/crm-backend/.env`.
+
 ## 23 de septiembre de 2026 · Plantillas preparadas y aviso con imagen
 
 - **Plantillas listas para enviar a revisión** (sin enviar; regla de la
@@ -230,10 +241,8 @@ En Resultados: sin código (migración `20260923120000_enlace_directo` borra el
 hash y añade `abiertoEn`), renovación pedida por el CRM y el PDF del paciente se
 sirve `inline`.
 
-**Pendiente en Meta:** la plantilla en revisión pide todavía «el código de 12
-caracteres». No se puede editar hasta que la aprueben; entonces se edita su
-texto (propuesta en `docs/operacion.md` de Resultados). Mientras tanto
-funciona igual: el paciente toca el botón y ve su informe.
+El aviso sin código es la plantilla `montalvo_informe_disponible` (en uso
+desde el 24-09).
 
 
 ## 22 de septiembre de 2026 · Revisión de roles: quién entrega resultados
@@ -279,8 +288,8 @@ consumía nadie), y las columnas `Paciente.referenciaCrm` y `Paciente.telefono`.
 Su cola `/v1/integraciones/crm/informes` ahora entrega `paciente: {nombre, pac,
 ci}` y el CRM resuelve el vínculo.
 
-La plantilla `montalvo_resultado_disponible` se **creó en Meta** en la línea de
-Recepción (id `2137598870221549`, en revisión). La pantalla del CRM tenía tres
+La primera plantilla de aviso se **creó en Meta** en la línea de Recepción (hoy
+reemplazada por `montalvo_informe_disponible`). La pantalla del CRM tenía tres
 fallos de interfaz, corregidos: el diálogo de confirmación no tenía fondo
 (`bg-surface` no existe), los textos secundarios salían en negro (`text-muted`
 tampoco) y el botón respondía al clic estando deshabilitado (`(click)` en vez
@@ -353,8 +362,8 @@ previos: `/root/backup-crm-20260922-141918.sql.gz` y
 `/root/backups-crm/crm-20260922-144524.sql.gz`.
 
 **Falta para que la función sirva de algo:** la app de Meta sigue en modo
-desarrollo sin política de privacidad; la plantilla
-`montalvo_resultado_disponible` no está creada; no hay ninguna cuenta con rol
+desarrollo sin política de privacidad; la plantilla de
+aviso no está creada; no hay ninguna cuenta con rol
 `ASISTENTE`; y **ningún paciente del portal tiene PAC** (los 2 que hay se
 registraron por CI), así que la cola aparecerá vacía hasta que los médicos
 registren con PAC.

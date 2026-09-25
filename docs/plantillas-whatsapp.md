@@ -4,12 +4,11 @@ Regla de la clínica: **ninguna plantilla se crea, borra ni edita en Meta sin OK
 explícito**. Este documento deja cada una lista para enviarla a revisión con
 un solo paso cuando se dé ese OK.
 
-Estado en Meta al 2026-09-23 (línea «Recepción Clínica Montalvo»):
+Estado en Meta al 2026-09-24 (línea «Recepción Clínica Montalvo»):
 
 | Plantilla | Estado | Uso |
 | --- | --- | --- |
-| `montalvo_resultado_disponible` | **Aprobada** — en uso | Aviso de resultado. Su texto aún pide «el código de 12 caracteres», que ya no se usa |
-| `montalvo_informe_disponible` | En revisión | Mismo aviso con el texto correcto, sin imagen |
+| `montalvo_informe_disponible` | **Aprobada** — **la única de resultados** | Aviso de resultado, sin imagen: «tu informe médico ya está disponible. Toca el botón de abajo para verlo y descargarlo. Si necesitas ayuda, responde a este mensaje.» |
 | `montalvo_recordatorio_cita`, `montalvo_confirmacion_cita`, `montalvo_seguimiento_solicitud_cita` | Aprobadas | Selector del chat y «Nuevo chat» |
 
 ## 1. `montalvo_informe_listo` — aviso de resultado con imagen y «Agendar consulta»
@@ -70,8 +69,9 @@ Sin código que tocar: `componentesPlantilla` ya manda la cabecera cuando
 y `resultados.integracion.spec.ts`). **No poner esa variable con una plantilla
 sin imagen**: Meta rechaza un encabezado que la plantilla no tiene.
 
-Si `montalvo_informe_disponible` se aprueba antes, sirve de puente: solo
-`RESULTADOS_PLANTILLA=montalvo_informe_disponible`, sin la variable de imagen.
+Hasta entonces el puente es `montalvo_informe_disponible` (activa desde el
+24-09): solo `RESULTADOS_PLANTILLA=montalvo_informe_disponible`, sin la
+variable de imagen.
 
 ## 2. `montalvo_primer_contacto` — escribirle primero a alguien («Nuevo chat»)
 
