@@ -51,6 +51,22 @@ botón en píldora) y los médicos conservan el suyo en `app/(medico)/`. Las URL
 cambiaron. «Agendar una consulta» y «Ayuda» van en una lista discreta bajo el
 informe.
 
+## 25 de septiembre de 2026 · Recepción: contestar no asigna el chat
+
+- En una línea **no comercial** (Recepción, CLIMON) el primer envío ya no
+  reclama la conversación: sigue siendo de la línea. Antes quedaba a nombre de
+  quien contestó y toda persona de la línea sin rol operativo —p. ej. una
+  agente de ventas con acceso a Recepción— dejaba de verla y de recibir sus
+  avisos. Entre recepcionistas nunca se perdía (rama operativa de
+  `whereAccesoConversacion`).
+- En líneas comerciales, sin cambios: quien contesta primero se queda con el
+  chat del pool. Asignar a propósito sigue existiendo (`asignarAgente`, ADMIN).
+- Frontend: la fila del inbox solo pasa a quien contestó si la línea es
+  comercial, y «Sin asignar» solo se muestra en esas líneas.
+- **Datos anteriores intactos**: los chats de Recepción ya asignados por la
+  regla vieja siguen asignados. Liberarlos es una decisión aparte.
+- Desplegado: backend `acc9e2a`, frontend `a751056`.
+
 ## 24 de septiembre de 2026 · Aviso de resultado sin código
 
 - Los avisos de resultado salen con **`montalvo_informe_disponible`**
