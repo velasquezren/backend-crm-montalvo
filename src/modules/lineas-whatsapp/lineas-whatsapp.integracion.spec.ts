@@ -36,6 +36,7 @@ import { AcuseAutomaticoService } from "../conversaciones/acuse-automatico.servi
 import { WhatsappWebhookController } from "../conversaciones/webhooks/whatsapp-webhook.controller";
 import { LineasWhatsappController } from "./lineas-whatsapp.controller";
 import { LineasWhatsappService } from "./lineas-whatsapp.service";
+import { CONTENIDO_PIN, UBICACION_CLINICA } from "../conversaciones/ubicacion-clinica";
 
 const prisma = new PrismaService(
   "postgresql://crm_app:crm_dev_local@127.0.0.1:5433/crm_test",
@@ -775,6 +776,29 @@ it('en tiempo real, Beatriz recibe la respuesta de Ana y el mensaje nuevo de la 
   } finally {
     ws.close();
   }
+});
+
+it('el botón Ubicación manda el pin nativo una sola vez, como respuesta y dentro de la ventana', async () => {
+  const clave = '6f1c2a0e-3b7d-4c55-9a1e-2d8f0b4c7e11';
+  for (let i = 0; i < 2; i++) {
+    expect((await http('recepcion', `/conversaciones/${clinico}/ubicacion`, 'POST', { clientMessageId: clave })).status).toBe(201);
+  }
+  await esperar(() => salidas.some(s => s.body.type === 'location'));
+  await new Promise(r => setTimeout(r, 200));
+  const pines = salidas.filter(s => s.body.type === 'location');
+  expect(pines).toHaveLength(1);
+  expect(pines[0].url).toContain('/102/messages');
+  expect(pines[0].body.location).toEqual(expect.objectContaining({
+    latitude: UBICACION_CLINICA.latitud, longitude: UBICACION_CLINICA.longitud, address: UBICACION_CLINICA.direccion,
+  }));
+
+  const filas = await prisma.mensaje.findMany({ where: { conversacionId: clinico, direccion: 'SALIENTE' } });
+  expect(filas.map(m => [m.contenido, m.automatico])).toEqual([[CONTENIDO_PIN, false]]);
+  expect((await prisma.conversacion.findUniqueOrThrow({ where: { id: clinico } })).esperandoRespuesta).toBe(false);
+
+  expect((await http('otra', `/conversaciones/${clinico}/ubicacion`, 'POST', {})).status).toBe(404);
+  await prisma.mensaje.updateMany({ where: { conversacionId: clinico, direccion: 'ENTRANTE' }, data: { createdAt: new Date(Date.now() - 25 * 3600 * 1000) } });
+  expect((await http('recepcion', `/conversaciones/${clinico}/ubicacion`, 'POST', {})).status).toBe(400);
 });
 
 it('recepción agenda pacientes de sus líneas, con actividades personales y sin acceso comercial', async () => {

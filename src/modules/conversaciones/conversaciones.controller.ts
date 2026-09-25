@@ -6,6 +6,7 @@ import { ConversacionesService } from './conversaciones.service';
 import { AsignarAgenteDto } from './dto/asignar-agente.dto';
 import { EnviarMensajeDto } from './dto/enviar-mensaje.dto';
 import { EnviarPlantillaDto } from './dto/enviar-plantilla.dto';
+import { EnviarUbicacionDto } from './dto/enviar-ubicacion.dto';
 import { IniciarConversacionDto } from './dto/iniciar-conversacion.dto';
 import { MarcarLeidoDto } from './dto/marcar-leido.dto';
 import { QueryBuscarMensajesDto } from './dto/query-buscar-mensajes.dto';
@@ -128,6 +129,16 @@ export class ConversacionesController {
       mediaMime: dto.mediaMime,
       mediaNombre: dto.mediaNombre,
     }, dto.clientMessageId);
+  }
+
+  /** El pin de ubicación de la clínica (Maps/Waze de un toque). Dentro de la ventana de 24 h. */
+  @Post(':id/ubicacion')
+  enviarUbicacion(
+    @Param('id') id: string,
+    @Body() dto: EnviarUbicacionDto,
+    @CurrentUser() usuario: UsuarioJwt,
+  ) {
+    return this.conversacionesService.enviarUbicacion(id, usuario.sub, alcanceAgente(usuario), dto.clientMessageId);
   }
 
   /** Marca como leído (tildes azules) el último mensaje entrante; `typing` muestra "escribiendo…". */

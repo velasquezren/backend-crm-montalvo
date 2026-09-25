@@ -8,6 +8,7 @@ import { CacheMemoria } from '../../common/cache/cache-memoria';
 import { escaparComodinesLike, terminoBusqueda } from '../../common/dto/busqueda';
 import { calcularPaginacion, paginar, RespuestaPaginada } from '../../common/dto/pagination.dto';
 import { enSegundoPlano } from '../../common/fiabilidad/en-segundo-plano';
+import { CONTENIDO_PIN, UBICACION_CLINICA } from './ubicacion-clinica';
 import { R2Service } from '../../common/storage/r2.service';
 import { WhatsappCloudService } from '../../common/whatsapp/whatsapp-cloud.service';
 import { permiteReintentarError } from '../../common/whatsapp/error-envio';
@@ -932,6 +933,50 @@ export class ConversacionesService {
         adjunto?.mediaKey
           ? { key: adjunto.mediaKey, mime: adjunto.mediaMime ?? null, nombre: adjunto.mediaNombre ?? null }
           : undefined,
+      ),
+    );
+
+    return { ...mensaje, clienteTelefono: conversacion.cliente.telefono };
+  }
+
+  /**
+   * El pin de ubicación de la clínica, mandado por una persona desde el chat
+   * (el botón «Ubicación» sobre la caja de texto). Es el mismo pin que manda
+   * la respuesta automática, pero esto SÍ es una respuesta: saca el chat de
+   * «Sin responder» y reclama como cualquier envío —por eso reutiliza
+   * `crearMensajeSaliente` en vez de `guardarMensajeAutomatico`—.
+   *
+   * Mismo contrato que `enviarMensaje`: visibilidad, ventana de 24 h (un pin
+   * no es plantilla), idempotencia por `clientMessageId` y despacho sin
+   * esperar a Meta. Si Meta rechaza el pin, el despachador manda el enlace
+   * de Maps como texto; el historial guarda ese mismo texto.
+   */
+  async enviarUbicacion(conversacionId: string, agenteId: string, soloAgenteId?: string, clientMessageId?: string) {
+    const conversacion = await this.obtenerConversacionPropia(conversacionId, soloAgenteId);
+    await this.verificarVentana24h(conversacionId);
+
+    let mensaje;
+    try {
+      [mensaje] = await this.crearMensajeSaliente(conversacionId, CONTENIDO_PIN, agenteId, undefined, clientMessageId);
+    } catch (error) {
+      const yaCreado = await this.recuperarEnvioDuplicado(error, conversacionId, clientMessageId);
+      if (!yaCreado) throw error;
+      return { ...yaCreado, clienteTelefono: conversacion.cliente.telefono };
+    }
+
+    if (conversacion.linea.comercial) await this.clientesService
+      .reclamarSiNoTieneDuena(conversacion.clienteId, agenteId, agenteId)
+      .catch(error =>
+        this.logger.error(`No se pudo reclamar la paciente ${conversacion.clienteId} para ${agenteId}`, error),
+      );
+
+    this.gateway.emitirActividad(conversacionId);
+
+    void enSegundoPlano(`envío de la ubicación ${mensaje.id} a Meta`, this.logger, () =>
+      this.despachador.ubicacion(
+        { mensajeId: mensaje.id, conversacionId, telefono: conversacion.cliente.telefono },
+        UBICACION_CLINICA,
+        CONTENIDO_PIN,
       ),
     );
 

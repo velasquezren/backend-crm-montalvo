@@ -51,6 +51,14 @@ botón en píldora) y los médicos conservan el suyo en `app/(medico)/`. Las URL
 cambiaron. «Agendar una consulta» y «Ayuda» van en una lista discreta bajo el
 informe.
 
+## 26 de septiembre de 2026 · Botón «Ubicación» en el chat
+
+- Primer chip fijo de la barra de respuestas rápidas: manda el mismo pin de
+  ubicación en un clic (`POST /conversaciones/:id/ubicacion`). A diferencia del
+  automático, cuenta como respuesta (sale de «Sin responder» y reclama igual
+  que un texto). Idempotente por `clientMessageId`; deshabilitado fuera de la
+  ventana de 24 h, porque un pin no es plantilla.
+
 ## 26 de septiembre de 2026 · Ubicación automática
 
 - Si la paciente pregunta dónde queda la clínica (cualquier línea), el CRM le
