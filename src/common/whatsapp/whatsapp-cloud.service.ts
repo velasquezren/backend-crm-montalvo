@@ -62,7 +62,8 @@ export type ContenidoMensaje =
   | { type: 'image'; image: { link: string; caption?: string } }
   | { type: 'document'; document: { link: string; filename: string; caption?: string } }
   | { type: 'template'; template: Record<string, unknown> }
-  | { type: 'interactive'; interactive: Record<string, unknown> };
+  | { type: 'interactive'; interactive: Record<string, unknown> }
+  | { type: 'location'; location: { latitude: number; longitude: number; name?: string; address?: string } };
 
 export interface CredencialesWhatsapp { token: string; phoneId: string; wabaId?: string; }
 

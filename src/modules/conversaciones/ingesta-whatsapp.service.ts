@@ -10,6 +10,12 @@ import { AcuseAutomaticoService } from './acuse-automatico.service';
 import { ConversacionesGateway } from './conversaciones.gateway';
 import { DespachadorSalienteService } from './despachador-saliente.service';
 import { MediaEntranteService, MediaEntrante } from './media-entrante.service';
+import { CONTENIDO_PIN, TEXTO_UBICACION, UBICACION_CLINICA } from './ubicacion-clinica';
+
+/** No repetir el pin en la misma conversación antes de esto. */
+const UBICACION_ESPERA_MS = 12 * 60 * 60 * 1000;
+/** Si una persona escribió hace menos que esto, está atendiendo: no interrumpir. */
+const PERSONA_ATENDIENDO_MS = 15 * 60 * 1000;
 
 /** Contexto de campaña publicitaria / anuncio de Meta (Click-to-WhatsApp Ads). */
 export interface ReferenciaCampana {
@@ -222,11 +228,15 @@ export class IngestaWhatsappService {
       agenteId: conversacion.agenteId,
     });
 
-    /* Acuse fuera de horario. Sin `await`, como todo lo que habla con Meta: el
-       webhook tiene que responder en milisegundos. */
-    if (linea.comercial) void enSegundoPlano('acuse fuera de horario', this.logger, () =>
-      this.responderFueraDeHorario(conversacion.id, cliente.telefono),
-    );
+    /* Respuestas automáticas: el acuse fuera de horario (solo línea comercial)
+       y la ubicación si la paciente la pide (cualquier línea). Sin `await`,
+       como todo lo que habla con Meta: el webhook tiene que responder en
+       milisegundos. Van en orden y no en paralelo: el acuse mira si ya hubo un
+       automático reciente, y el pin no debe contar como tal. */
+    void enSegundoPlano('respuestas automáticas', this.logger, async () => {
+      if (linea.comercial) await this.responderFueraDeHorario(conversacion.id, cliente.telefono);
+      if (!media) await this.compartirUbicacionSiLaPiden(conversacion.id, cliente.telefono, contenido);
+    });
 
     /* El clic en un botón del acuse hoy no disparaba nada más: el título
        quedaba en el chat como si el paciente lo hubiera escrito, y ahí se
@@ -266,7 +276,9 @@ export class IngestaWhatsappService {
          se lee como un sistema roto y molesta a quien ya está esperando. */
       const desde = new Date(this.ahora().getTime() - this.acuse.esperaHoras * 60 * 60 * 1000);
       const yaAvisado = await this.prisma.mensaje.findFirst({
-        where: { conversacionId, automatico: true, createdAt: { gte: desde } },
+        /* La ubicación también es automática, pero no es un acuse: pedirla por
+           la tarde no puede dejar sin aviso a quien escribe esa noche. */
+        where: { conversacionId, automatico: true, createdAt: { gte: desde }, contenido: { notIn: [TEXTO_UBICACION, CONTENIDO_PIN] } },
         select: { id: true },
       });
       if (yaAvisado) return;
@@ -313,6 +325,43 @@ export class IngestaWhatsappService {
       /* Mismo criterio que el acuse: nunca tumba la entrada del mensaje del
          paciente, que ya está guardada. */
       this.logger.error('No se pudo enviar el pedido de nombre y edad tras el clic en el acuse', error);
+    }
+  }
+
+  /**
+   * Si la paciente pregunta dónde queda la clínica, le manda el pin de
+   * ubicación precedido de una línea que avisa que enseguida la atiende una
+   * persona. No es un bot: responde a esa sola intención (ver
+   * `ubicacion-clinica.ts`).
+   *
+   * No lo hace si una persona le escribió en los últimos minutos —está
+   * atendiendo y el pin automático interrumpiría— ni si ya se lo mandó hace
+   * poco: preguntar dos veces seguidas no merece dos mapas.
+   */
+  private async compartirUbicacionSiLaPiden(conversacionId: string, telefono: string, contenido: string): Promise<void> {
+    if (!this.acuse.decidirUbicacion(contenido)) return;
+
+    try {
+      const ahora = this.ahora().getTime();
+      const [yaCompartida, atendiendo] = await Promise.all([
+        this.prisma.mensaje.findFirst({
+          where: { conversacionId, automatico: true, contenido: CONTENIDO_PIN, createdAt: { gte: new Date(ahora - UBICACION_ESPERA_MS) } },
+          select: { id: true },
+        }),
+        this.prisma.mensaje.findFirst({
+          where: { conversacionId, direccion: 'SALIENTE', automatico: false, createdAt: { gte: new Date(ahora - PERSONA_ATENDIENDO_MS) } },
+          select: { id: true },
+        }),
+      ]);
+      if (yaCompartida || atendiendo) return;
+
+      const aviso = await this.guardarMensajeAutomatico(conversacionId, TEXTO_UBICACION);
+      await this.despachador.texto({ mensajeId: aviso.id, conversacionId, telefono }, TEXTO_UBICACION);
+      const pin = await this.guardarMensajeAutomatico(conversacionId, CONTENIDO_PIN);
+      await this.despachador.ubicacion({ mensajeId: pin.id, conversacionId, telefono }, UBICACION_CLINICA, CONTENIDO_PIN);
+    } catch (error) {
+      /* Mismo criterio que el acuse: nunca tumba la entrada del mensaje. */
+      this.logger.error('No se pudo compartir la ubicación de la clínica', error);
     }
   }
 

@@ -9,13 +9,14 @@ import { R2Service } from '../../common/storage/r2.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ClientesService } from '../clientes/clientes.service';
 import { ServiciosService } from '../servicios/servicios.service';
-import { WhatsappCloudService } from '../../common/whatsapp/whatsapp-cloud.service';
+import { ContenidoMensaje, WhatsappCloudService } from '../../common/whatsapp/whatsapp-cloud.service';
 import { ConversacionesGateway } from './conversaciones.gateway';
 import { AcuseAutomaticoService } from './acuse-automatico.service';
 import { DespachadorSalienteService } from './despachador-saliente.service';
 import { ConversacionesService } from './conversaciones.service';
 import { IngestaWhatsappService } from './ingesta-whatsapp.service';
 import { MediaEntranteService } from './media-entrante.service';
+import { CONTENIDO_PIN, TEXTO_UBICACION, UBICACION_CLINICA } from './ubicacion-clinica';
 
 /**
  * Pruebas contra un PostgreSQL DE VERDAD (`crm_test` en el :5433 local), con
@@ -1244,6 +1245,93 @@ describe('Acuse automático fuera de horario', () => {
 
       await new Promise(r => setTimeout(r, 300));
       expect(await prisma.mensaje.count({ where: { direccion: 'SALIENTE' } })).toBe(1);
+    });
+  });
+
+  /* Una sola intención, no un bot: si preguntan dónde queda la clínica, el
+     pin nativo de WhatsApp y un aviso de que enseguida atiende una persona. */
+  describe('ubicación de la clínica', () => {
+    let enviados: ContenidoMensaje[];
+    beforeEach(() => {
+      enviados = [];
+      jest.spyOn(WhatsappCloudService.prototype, 'enviar').mockImplementation(async (_tel, contenido) => {
+        enviados.push(contenido);
+        return { estado: 'ENVIADO', metaMsgId: `wamid.ubicacion.${enviados.length}` };
+      });
+    });
+    afterEach(() => jest.restoreAllMocks());
+
+    const salientes = () => prisma.mensaje.findMany({ where: { direccion: 'SALIENTE' }, orderBy: { createdAt: 'asc' } });
+
+    it('en horario manda el aviso y el pin, sin darla por atendida', async () => {
+      const s = servicioCon(conConfig(), MARTES);
+      await s.procesarEntrante('+59176000020', '¿Dónde quedan?', 'wamid.u1');
+      await esperarSalientes(2);
+
+      expect((await salientes()).map(m => [m.contenido, m.automatico])).toEqual([
+        [TEXTO_UBICACION, true],
+        [CONTENIDO_PIN, true],
+      ]);
+      expect(enviados.map(c => c.type)).toEqual(['text', 'location']);
+      expect(enviados[1]).toEqual({
+        type: 'location',
+        location: {
+          latitude: UBICACION_CLINICA.latitud, longitude: UBICACION_CLINICA.longitud,
+          name: UBICACION_CLINICA.nombre, address: UBICACION_CLINICA.direccion,
+        },
+      });
+      expect((await prisma.conversacion.findFirstOrThrow()).esperandoRespuesta).toBe(true);
+    });
+
+    it('preguntar dos veces no manda dos mapas', async () => {
+      const s = servicioCon(conConfig(), MARTES);
+      await s.procesarEntrante('+59176000021', 'Me pasa la ubicación?', 'wamid.u2');
+      await esperarSalientes(2);
+      await s.procesarEntrante('+59176000021', 'Cómo llego?', 'wamid.u3');
+
+      await new Promise(r => setTimeout(r, 300));
+      expect(await prisma.mensaje.count({ where: { direccion: 'SALIENTE' } })).toBe(2);
+    });
+
+    it('si una persona está atendiendo, no interrumpe', async () => {
+      const s = servicioCon(conConfig(), MARTES);
+      await s.procesarEntrante('+59176000022', 'Hola', 'wamid.u4');
+      const conversacion = await prisma.conversacion.findFirstOrThrow();
+      await prisma.mensaje.create({ data: { conversacionId: conversacion.id, direccion: 'SALIENTE', contenido: 'Hola, ¿en qué te ayudo?' } });
+      await s.procesarEntrante('+59176000022', '¿Dónde están?', 'wamid.u5');
+
+      await new Promise(r => setTimeout(r, 300));
+      expect((await salientes()).map(m => m.contenido)).toEqual(['Hola, ¿en qué te ayudo?']);
+    });
+
+    it('un domingo llegan el acuse y la ubicación, y el pin no tapa acuses posteriores', async () => {
+      const s = servicioCon(conConfig(), DOMINGO);
+      await s.procesarEntrante('+59176000023', 'Dónde se encuentran?', 'wamid.u6');
+      await esperarSalientes(3);
+      expect((await salientes()).map(m => m.contenido)).toEqual([
+        'Mensaje automático. Urgencias: 700-00000.', TEXTO_UBICACION, CONTENIDO_PIN,
+      ]);
+
+      await prisma.mensaje.deleteMany({ where: { contenido: { startsWith: 'Mensaje automático' } } });
+      await s.procesarEntrante('+59176000023', 'Hola?', 'wamid.u7');
+      await esperarSalientes(3);
+      expect((await salientes()).map(m => m.contenido)).toContain('Mensaje automático. Urgencias: 700-00000.');
+    });
+
+    it('lo que no pregunta por la ubicación no recibe nada', async () => {
+      const s = servicioCon(conConfig(), MARTES);
+      await s.procesarEntrante('+59176000024', '¿Dónde están mis resultados?', 'wamid.u8');
+
+      await new Promise(r => setTimeout(r, 300));
+      expect(await prisma.mensaje.count({ where: { direccion: 'SALIENTE' } })).toBe(0);
+    });
+
+    it('UBICACION_AUTOMATICA=off la apaga', async () => {
+      const s = servicioCon(conConfig({ UBICACION_AUTOMATICA: 'off' }), MARTES);
+      await s.procesarEntrante('+59176000025', '¿Dónde quedan?', 'wamid.u9');
+
+      await new Promise(r => setTimeout(r, 300));
+      expect(await prisma.mensaje.count({ where: { direccion: 'SALIENTE' } })).toBe(0);
     });
   });
 });

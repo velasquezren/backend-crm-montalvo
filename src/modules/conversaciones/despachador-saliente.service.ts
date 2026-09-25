@@ -179,6 +179,35 @@ export class DespachadorSalienteService {
     await this.texto(destino, texto);
   }
 
+  /**
+   * Pin de ubicación nativo: la tarjeta con mapa que abre Maps o Waze.
+   * Mismo criterio que `botones`: si Meta lo rechaza entero, se manda
+   * `textoRespaldo` —el enlace de Maps— para que la paciente reciba algo.
+   */
+  async ubicacion(
+    destino: Destino,
+    lugar: { latitud: number; longitud: number; nombre: string; direccion: string },
+    textoRespaldo: string,
+  ): Promise<void> {
+    const resultado = await this.whatsapp.enviar(
+      destino.telefono,
+      {
+        type: 'location',
+        location: { latitude: lugar.latitud, longitude: lugar.longitud, name: lugar.nombre, address: lugar.direccion },
+      },
+      destino.mensajeId,
+      await this.lineas.cuentaDeConversacion(destino.conversacionId),
+    );
+
+    if (resultado.estado !== 'NO_SALIO') {
+      await this.registrarResultadoEnvio(destino, resultado);
+      return;
+    }
+
+    this.logger.warn('El pin de ubicación no salió; se reintenta como texto con el enlace');
+    await this.texto(destino, textoRespaldo);
+  }
+
   /** Plantilla aprobada — el único camino fuera de la ventana de 24 h. */
   async plantilla(destino: Destino, dto: PlantillaADespachar): Promise<void> {
     const componentes = componentesPlantilla(dto);

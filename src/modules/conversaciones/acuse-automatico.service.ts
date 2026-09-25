@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 import { estaAtendiendo, parsearHorario, ZONA_POR_DEFECTO } from './horario-atencion';
+import { preguntaPorUbicacion } from './ubicacion-clinica';
 
 /** Lo que hay que mandarle al paciente cuando no hay nadie atendiendo. */
 export interface AcuseADespachar {
@@ -75,6 +76,18 @@ export class AcuseAutomaticoService {
    */
   decidirPedidoDatos(): string | null {
     return this.config.get<string>('AUTORESPUESTA_PEDIDO_DATOS')?.trim() || null;
+  }
+
+  /**
+   * ¿Mandar la ubicación de la clínica? Solo si el mensaje la pide.
+   *
+   * Encendido por defecto, a diferencia del acuse: el texto y el lugar no
+   * cambian y no llevan datos que se puedan equivocar. `UBICACION_AUTOMATICA=off`
+   * lo apaga sin desplegar código.
+   */
+  decidirUbicacion(contenido: string): boolean {
+    if (this.config.get<string>('UBICACION_AUTOMATICA')?.trim().toLowerCase() === 'off') return false;
+    return preguntaPorUbicacion(contenido);
   }
 }
 

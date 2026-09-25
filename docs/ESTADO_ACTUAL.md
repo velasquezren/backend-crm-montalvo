@@ -51,6 +51,18 @@ botón en píldora) y los médicos conservan el suyo en `app/(medico)/`. Las URL
 cambiaron. «Agendar una consulta» y «Ayuda» van en una lista discreta bajo el
 informe.
 
+## 26 de septiembre de 2026 · Ubicación automática
+
+- Si la paciente pregunta dónde queda la clínica (cualquier línea), el CRM le
+  manda un aviso y el **pin nativo de ubicación** de WhatsApp; si Meta lo
+  rechaza, el enlace de Maps como texto. Detección en `ubicacion-clinica.ts`
+  (prefiere callar: «¿dónde están mis resultados?» no dispara nada).
+- No se repite en 12 h, no interrumpe si una persona escribió en los últimos
+  15 min, no saca el chat de «Sin responder» y no tapa el acuse fuera de
+  horario. `UBICACION_AUTOMATICA=off` lo apaga.
+- **Pendiente:** la dirección exacta (calle y número); hoy el pin dice «Santa
+  Cruz de la Sierra, Bolivia».
+
 ## 25 de septiembre de 2026 · Recepción: contestar no asigna el chat
 
 - En una línea **no comercial** (Recepción, CLIMON) el primer envío ya no
