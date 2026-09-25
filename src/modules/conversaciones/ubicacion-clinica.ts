@@ -13,7 +13,7 @@ export const UBICACION_CLINICA = {
   latitud: -17.7995078,
   longitud: -63.1998084,
   nombre: 'Clínica Montalvo',
-  direccion: 'Santa Cruz de la Sierra, Bolivia',
+  direccion: 'Universo 641, Santa Cruz de la Sierra',
   enlace: 'https://maps.app.goo.gl/CfFbxoEoe2RDmZYT7',
 } as const;
 

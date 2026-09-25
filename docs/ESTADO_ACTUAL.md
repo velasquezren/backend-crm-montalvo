@@ -60,8 +60,8 @@ informe.
 - No se repite en 12 h, no interrumpe si una persona escribió en los últimos
   15 min, no saca el chat de «Sin responder» y no tapa el acuse fuera de
   horario. `UBICACION_AUTOMATICA=off` lo apaga.
-- **Pendiente:** la dirección exacta (calle y número); hoy el pin dice «Santa
-  Cruz de la Sierra, Bolivia».
+- El pin dice «Clínica Montalvo · Universo 641, Santa Cruz de la Sierra»
+  (plus code 6R22+53).
 
 ## 25 de septiembre de 2026 · Recepción: contestar no asigna el chat
 
