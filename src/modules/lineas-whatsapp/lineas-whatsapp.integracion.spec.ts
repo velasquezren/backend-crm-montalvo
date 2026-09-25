@@ -172,7 +172,7 @@ async function esperar(condicion: () => boolean) {
     await new Promise((r) => setTimeout(r, 10));
   expect(condicion()).toBe(true);
 }
-async function webhook(phoneId: string | undefined, id: string) {
+async function webhook(phoneId: string | undefined, id: string, desde = "59179991999") {
   const body = JSON.stringify({
     object: "whatsapp_business_account",
     entry: [
@@ -184,13 +184,13 @@ async function webhook(phoneId: string | undefined, id: string) {
               metadata: phoneId ? { phone_number_id: phoneId } : undefined,
               contacts: [
                 {
-                  wa_id: "59179991999",
+                  wa_id: desde,
                   profile: { name: "Paciente multicanal" },
                 },
               ],
               messages: [
                 {
-                  from: "59179991999",
+                  from: desde,
                   id,
                   type: "text",
                   text: { body: "Consulta de prueba" },
@@ -714,6 +714,67 @@ it('un agente con la misma línea conserva la restricción por responsable', asy
   expect((await http('ventas', `/conversaciones/${clinico}/mensajes`, 'POST', { contenido: 'No permitido' })).status).toBe(404);
   expect((await http('ventas', '/conversaciones')).body.datos).not.toEqual(expect.arrayContaining([expect.objectContaining({ id: clinico })]));
   expect(await app.get(LineasWhatsappService).destinatarios(clinico)).not.toContain(usuarios.ventas.id);
+});
+
+/* Una línea no comercial es atención compartida: contestar primero no la
+   vuelve de quien contestó. Antes el primer envío asignaba el chat y, desde
+   ahí, toda persona de la línea sin rol operativo dejaba de verlo. */
+it('contestar en una línea no comercial no la vuelve exclusiva: la línea sigue compartida', async () => {
+  usuarios.beatriz = await alta('beatriz', 'RECEPCION', [CLIMON]);
+  await prisma.accesoLineaWhatsapp.create({ data: { usuarioId: usuarios.ventas.id, lineaId: CLIMON } });
+
+  expect((await http('recepcion', `/conversaciones/${clinico}/mensajes`, 'POST', { contenido: 'Te atiende Ana' })).status).toBe(201);
+  expect((await http('recepcion', `/conversaciones/${clinico}/plantilla`, 'POST', {
+    plantilla: 'recordatorio_cita', idioma: 'es',
+  })).status).toBe(201);
+  expect((await prisma.conversacion.findUniqueOrThrow({ where: { id: clinico } })).agenteId).toBeNull();
+
+  /* La otra recepcionista y la agente que también atiende esta línea. */
+  for (const actor of ['beatriz', 'ventas']) {
+    expect((await http(actor, '/conversaciones')).body.datos).toEqual(expect.arrayContaining([expect.objectContaining({ id: clinico })]));
+    expect((await http(actor, `/conversaciones/${clinico}`)).status).toBe(200);
+  }
+  expect((await http('beatriz', `/conversaciones/${clinico}/mensajes`, 'POST', { contenido: 'Sigo yo' })).status).toBe(201);
+  expect((await prisma.conversacion.findUniqueOrThrow({ where: { id: clinico } })).agenteId).toBeNull();
+
+  for (const actor of ['otra', 'vacio']) expect((await http(actor, `/conversaciones/${clinico}`)).status).toBe(404);
+  for (const actor of ['admin', 'super']) expect((await http(actor, `/conversaciones/${clinico}`)).status).toBe(200);
+
+  const destinatarios = await app.get(LineasWhatsappService).destinatarios(clinico);
+  expect(destinatarios).toEqual(expect.arrayContaining(
+    ['recepcion', 'beatriz', 'ventas', 'admin', 'super'].map(actor => usuarios[actor].id),
+  ));
+  expect(destinatarios).not.toContain(usuarios.otra.id);
+  expect(destinatarios).not.toContain(usuarios.vacio.id);
+});
+
+it('en tiempo real, Beatriz recibe la respuesta de Ana y el mensaje nuevo de la paciente', async () => {
+  usuarios.beatriz = await alta('beatriz', 'RECEPCION', [CLIMON]);
+  const ws = new WebSocket(base.replace("http:", "ws:") + "/socket.io/?EIO=4&transport=websocket");
+  const paquetes: string[] = [];
+  try {
+    ws.addEventListener("message", (e) => {
+      const p = String(e.data);
+      paquetes.push(p);
+      if (p.startsWith("0")) ws.send("40/realtime," + JSON.stringify({ token: usuarios.beatriz.token }));
+      if (p === "2") ws.send("3");
+    });
+    await esperar(() => paquetes.some((p) => p.startsWith("40/realtime,")));
+    const delChat = () => paquetes.filter((p) => p.includes(clinico));
+
+    expect((await http('recepcion', `/conversaciones/${clinico}/mensajes`, 'POST', { contenido: 'Te atiende Ana' })).status).toBe(201);
+    await esperar(() => delChat().length > 0);
+    expect((await prisma.conversacion.findUniqueOrThrow({ where: { id: clinico } })).agenteId).toBeNull();
+
+    expect((await webhook("102", "wamid.nuevo-de-la-paciente", "59179991001")).status).toBe(200);
+    await esperar(() => delChat().some((p) => p.includes('"entrante":true')));
+    await esperar(() => push.enviarAUsuario.mock.calls.length >= 2);
+    const avisados = push.enviarAUsuario.mock.calls.map(([id]) => id);
+    expect(avisados).toEqual(expect.arrayContaining([usuarios.recepcion.id, usuarios.beatriz.id]));
+    expect(avisados).not.toContain(usuarios.otra.id);
+  } finally {
+    ws.close();
+  }
 });
 
 it('recepción agenda pacientes de sus líneas, con actividades personales y sin acceso comercial', async () => {

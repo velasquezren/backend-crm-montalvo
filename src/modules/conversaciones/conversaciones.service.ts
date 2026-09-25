@@ -722,6 +722,12 @@ export class ConversacionesService {
    * la condición la evalúa la base (`updateMany` con `agenteId: null` en el
    * where), que además resuelve el empate si dos agentes contestan a la vez el
    * mismo chat del pool: exactamente uno se lo lleva.
+   *
+   * **Solo en líneas comerciales.** Allí el chat sigue a la cartera de la
+   * agente. Una línea no comercial —Recepción, CLIMON— es atención compartida:
+   * contestar primero no la vuelve de nadie, porque `whereAccesoConversacion`
+   * le quitaría el chat a toda persona de la línea sin rol operativo. Asignar
+   * sigue siendo posible, pero a propósito (`asignarAgente`, solo ADMIN).
    */
   /**
    * Los dos writes del envío, en una sola transacción.
@@ -760,9 +766,10 @@ export class ConversacionesService {
               : {}),
           },
         }),
-        /* Solo reclama el chat si está en el pool — ver la nota del método. */
+        /* Solo reclama el chat si está en el pool de una línea comercial — ver
+           la nota del método. */
         this.prisma.conversacion.updateMany({
-          where: { id: conversacionId, agenteId: null },
+          where: { id: conversacionId, agenteId: null, linea: { comercial: true } },
           data: { agenteId },
         }),
         this.prisma.conversacion.update({
@@ -1217,9 +1224,10 @@ export class ConversacionesService {
             clientMessageId: clientMessageId ?? null,
           },
         }),
-        /* Mismo criterio que `enviarMensaje`: reclamar solo si está en el pool. */
+        /* Mismo criterio que `enviarMensaje`: reclamar solo si está en el pool
+           de una línea comercial. */
         this.prisma.conversacion.updateMany({
-          where: { id: conversacionId, agenteId: null },
+          where: { id: conversacionId, agenteId: null, linea: { comercial: true } },
           data: { agenteId },
         }),
         this.prisma.conversacion.update({
