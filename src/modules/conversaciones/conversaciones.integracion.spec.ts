@@ -1326,6 +1326,27 @@ describe('Acuse automático fuera de horario', () => {
       expect(await prisma.mensaje.count({ where: { direccion: 'SALIENTE' } })).toBe(0);
     });
 
+    /* La frontera falla como falla de verdad: Meta responde 4xx al pin
+       (NO_SALIO), no un throw. Lo que llega entonces es el enlace como texto. */
+    it('si Meta rechaza el pin, manda el enlace de Maps como texto', async () => {
+      jest.spyOn(WhatsappCloudService.prototype, 'enviar').mockImplementation(async (_tel, contenido) => {
+        enviados.push(contenido);
+        return contenido.type === 'location'
+          ? { estado: 'NO_SALIO', motivo: 'Meta devolvió 400 a un location' }
+          : { estado: 'ENVIADO', metaMsgId: `wamid.ubicacion.${enviados.length}` };
+      });
+      const s = servicioCon(conConfig(), MARTES);
+      await s.procesarEntrante('+59176000026', '¿Dónde quedan?', 'wamid.u10');
+      await esperarSalientes(2);
+      const limite = Date.now() + 2000;
+      while (enviados.length < 3 && Date.now() < limite) await new Promise(r => setTimeout(r, 25));
+
+      expect(enviados.map(c => c.type)).toEqual(['text', 'location', 'text']);
+      expect(enviados[2]).toEqual({ type: 'text', text: { body: CONTENIDO_PIN } });
+      const pin = await prisma.mensaje.findFirstOrThrow({ where: { contenido: CONTENIDO_PIN } });
+      expect(pin.estadoEnvio).toBe('ENVIADO');
+    });
+
     it('UBICACION_AUTOMATICA=off la apaga', async () => {
       const s = servicioCon(conConfig({ UBICACION_AUTOMATICA: 'off' }), MARTES);
       await s.procesarEntrante('+59176000025', '¿Dónde quedan?', 'wamid.u9');
