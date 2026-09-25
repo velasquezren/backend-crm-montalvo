@@ -1142,6 +1142,18 @@ describe('Acuse automático fuera de horario', () => {
    * conversaciones del fin de semana desaparecerían de esa pestaña y el lunes
    * nadie sabría quién escribió.
    */
+  it('varios mensajes SIMULTÁNEOS también reciben un solo acuse', async () => {
+    const s = servicioCon(conConfig(), DOMINGO);
+    await s.procesarEntrante('+59176000012', 'hola', 'wamid.c0');
+    await esperarSalientes(1);
+    await prisma.mensaje.deleteMany({ where: { direccion: 'SALIENTE' } });
+    await Promise.all([1, 2, 3, 4].map(n => s.procesarEntrante('+59176000012', `mensaje ${n}`, `wamid.c${n}`)));
+    await esperarSalientes(1);
+    await new Promise(r => setTimeout(r, 400));
+
+    expect(await prisma.mensaje.count({ where: { direccion: 'SALIENTE' } })).toBe(1);
+  });
+
   it('el acuse no hace que la conversación parezca contestada', async () => {
     const s = servicioCon(conConfig(), DOMINGO);
     await s.procesarEntrante('+59176000004', 'Hola', 'wamid.s1');
@@ -1291,6 +1303,23 @@ describe('Acuse automático fuera de horario', () => {
 
       await new Promise(r => setTimeout(r, 300));
       expect(await prisma.mensaje.count({ where: { direccion: 'SALIENTE' } })).toBe(2);
+    });
+
+    /* Meta entrega en paralelo: dos preguntas casi a la vez no pueden dar dos
+       mapas. Lo que lo impide es el candado de Postgres, no el orden del test. */
+    it('dos preguntas simultáneas dan un solo mapa', async () => {
+      const s = servicioCon(conConfig(), MARTES);
+      await s.procesarEntrante('+59176000027', 'Hola', 'wamid.u11');
+      await Promise.all([
+        s.procesarEntrante('+59176000027', '¿Dónde quedan?', 'wamid.u12'),
+        s.procesarEntrante('+59176000027', 'Me pasa la ubicación', 'wamid.u13'),
+        s.procesarEntrante('+59176000027', 'Cómo llego?', 'wamid.u14'),
+      ]);
+      await esperarSalientes(2);
+      await new Promise(r => setTimeout(r, 400));
+
+      expect((await salientes()).map(m => m.contenido)).toEqual([TEXTO_UBICACION, CONTENIDO_PIN]);
+      expect(enviados.filter(c => c.type === 'location')).toHaveLength(1);
     });
 
     it('si una persona está atendiendo, no interrumpe', async () => {

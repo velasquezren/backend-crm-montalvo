@@ -275,15 +275,15 @@ export class IngestaWhatsappService {
          manda cinco mensajes seguidos no puede recibir cinco acuses idénticos:
          se lee como un sistema roto y molesta a quien ya está esperando. */
       const desde = new Date(this.ahora().getTime() - this.acuse.esperaHoras * 60 * 60 * 1000);
-      const yaAvisado = await this.prisma.mensaje.findFirst({
-        /* La ubicación también es automática, pero no es un acuse: pedirla por
-           la tarde no puede dejar sin aviso a quien escribe esa noche. */
-        where: { conversacionId, automatico: true, createdAt: { gte: desde }, contenido: { notIn: [TEXTO_UBICACION, CONTENIDO_PIN] } },
-        select: { id: true },
-      });
-      if (yaAvisado) return;
-
-      const mensaje = await this.guardarMensajeAutomatico(conversacionId, acuse.texto);
+      const [mensaje] = await this.guardarMensajeAutomatico(conversacionId, [acuse.texto], async tx =>
+        !!(await tx.mensaje.findFirst({
+          /* La ubicación también es automática, pero no es un acuse: pedirla por
+             la tarde no puede dejar sin aviso a quien escribe esa noche. */
+          where: { conversacionId, automatico: true, createdAt: { gte: desde }, contenido: { notIn: [TEXTO_UBICACION, CONTENIDO_PIN] } },
+          select: { id: true },
+        })),
+      ) ?? [];
+      if (!mensaje) return;
 
       const destino = { mensajeId: mensaje.id, conversacionId, telefono };
       if (acuse.botones) {
@@ -313,13 +313,10 @@ export class IngestaWhatsappService {
     if (!texto) return; // apagado mientras no exista AUTORESPUESTA_PEDIDO_DATOS
 
     try {
-      const yaPedido = await this.prisma.mensaje.findFirst({
-        where: { conversacionId, automatico: true, contenido: texto },
-        select: { id: true },
-      });
-      if (yaPedido) return;
-
-      const mensaje = await this.guardarMensajeAutomatico(conversacionId, texto);
+      const [mensaje] = await this.guardarMensajeAutomatico(conversacionId, [texto], async tx =>
+        !!(await tx.mensaje.findFirst({ where: { conversacionId, automatico: true, contenido: texto }, select: { id: true } })),
+      ) ?? [];
+      if (!mensaje) return;
       await this.despachador.texto({ mensajeId: mensaje.id, conversacionId, telefono }, texto);
     } catch (error) {
       /* Mismo criterio que el acuse: nunca tumba la entrada del mensaje del
@@ -343,21 +340,23 @@ export class IngestaWhatsappService {
 
     try {
       const ahora = this.ahora().getTime();
-      const [yaCompartida, atendiendo] = await Promise.all([
-        this.prisma.mensaje.findFirst({
-          where: { conversacionId, automatico: true, contenido: CONTENIDO_PIN, createdAt: { gte: new Date(ahora - UBICACION_ESPERA_MS) } },
-          select: { id: true },
-        }),
-        this.prisma.mensaje.findFirst({
-          where: { conversacionId, direccion: 'SALIENTE', automatico: false, createdAt: { gte: new Date(ahora - PERSONA_ATENDIENDO_MS) } },
-          select: { id: true },
-        }),
-      ]);
-      if (yaCompartida || atendiendo) return;
+      const filas = await this.guardarMensajeAutomatico(conversacionId, [TEXTO_UBICACION, CONTENIDO_PIN], async tx => {
+        const [yaCompartida, atendiendo] = await Promise.all([
+          tx.mensaje.findFirst({
+            where: { conversacionId, automatico: true, contenido: CONTENIDO_PIN, createdAt: { gte: new Date(ahora - UBICACION_ESPERA_MS) } },
+            select: { id: true },
+          }),
+          tx.mensaje.findFirst({
+            where: { conversacionId, direccion: 'SALIENTE', automatico: false, createdAt: { gte: new Date(ahora - PERSONA_ATENDIENDO_MS) } },
+            select: { id: true },
+          }),
+        ]);
+        return !!(yaCompartida || atendiendo);
+      });
+      if (!filas) return;
 
-      const aviso = await this.guardarMensajeAutomatico(conversacionId, TEXTO_UBICACION);
+      const [aviso, pin] = filas;
       await this.despachador.texto({ mensajeId: aviso.id, conversacionId, telefono }, TEXTO_UBICACION);
-      const pin = await this.guardarMensajeAutomatico(conversacionId, CONTENIDO_PIN);
       await this.despachador.ubicacion({ mensajeId: pin.id, conversacionId, telefono }, UBICACION_CLINICA, CONTENIDO_PIN);
     } catch (error) {
       /* Mismo criterio que el acuse: nunca tumba la entrada del mensaje. */
@@ -366,34 +365,58 @@ export class IngestaWhatsappService {
   }
 
   /**
-   * Guarda un mensaje SALIENTE marcado `automatico: true` y bumpea la
-   * conversación — el mismo par de escrituras que necesitan el acuse y el
-   * pedido de datos, así que vive en un solo sitio.
+   * Guarda respuestas automáticas —SALIENTE, `automatico: true`— y bumpea la
+   * conversación, **si `yaHecho` dice que todavía no tocan**. Devuelve las
+   * filas en el orden de `contenidos`, o `null` si no guardó nada.
+   *
+   * La pregunta y la escritura van bajo un candado de Postgres por
+   * conversación, y ese es el punto. Antes eran «leer y luego escribir»: dos
+   * webhooks casi simultáneos del mismo paciente —Meta entrega en paralelo—
+   * leían los dos «todavía no» y el paciente recibía dos acuses o dos mapas.
+   * Con el candado, el segundo espera a que el primero confirme y ya ve sus
+   * filas. Un solo candado para todos los automáticos de la conversación: el
+   * acuse mira lo que guarda la ubicación. El despacho a Meta va DESPUÉS, fuera
+   * de la transacción: el candado no debe quedar tomado durante la red.
    */
-  private async guardarMensajeAutomatico(conversacionId: string, contenido: string) {
-    const [mensaje] = await this.prisma.$transaction([
-      this.prisma.mensaje.create({
-        data: {
-          conversacionId,
-          direccion: 'SALIENTE',
-          contenido,
-          estadoEnvio: 'ENVIADO',
-          /* La marca que impide que esto tape la conversación en el inbox —
-             ver el comentario del campo en schema.prisma. */
-          automatico: true,
-        },
-      }),
-      this.prisma.conversacion.update({
+  private async guardarMensajeAutomatico(
+    conversacionId: string,
+    contenidos: readonly string[],
+    yaHecho: (tx: Prisma.TransactionClient) => Promise<boolean>,
+  ): Promise<Mensaje[] | null> {
+    const filas = await this.prisma.$transaction(async tx => {
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${conversacionId}, 70071))::text`;
+      if (await yaHecho(tx)) return null;
+
+      /* Instantes distintos a propósito: el hilo ordena por `createdAt` y el
+         aviso tiene que quedar antes que el pin. */
+      const base = Date.now();
+      const creadas: Mensaje[] = [];
+      for (const [i, contenido] of contenidos.entries()) {
+        creadas.push(await tx.mensaje.create({
+          data: {
+            conversacionId,
+            direccion: 'SALIENTE',
+            contenido,
+            estadoEnvio: 'ENVIADO',
+            /* La marca que impide que esto tape la conversación en el inbox —
+               ver el comentario del campo en schema.prisma. */
+            automatico: true,
+            createdAt: new Date(base + i),
+          },
+        }));
+      }
+      await tx.conversacion.update({
         where: { id: conversacionId },
         /* `true`, no `false`: el acuse NO es una respuesta. Si esto lo pusiera
            en `false`, todo lo que entra un fin de semana saldría de "Sin
            responder" y el lunes nadie sabría quién quedó esperando — el mismo
            caso que ya cubre `automatico` en `estaSinResponder()`. */
         data: { updatedAt: new Date(), esperandoRespuesta: true },
-      }),
-    ]);
+      });
+      return creadas;
+    });
 
-    this.gateway.emitirActividad(conversacionId);
-    return mensaje;
+    if (filas) this.gateway.emitirActividad(conversacionId);
+    return filas;
   }
 }
