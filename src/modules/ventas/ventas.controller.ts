@@ -13,7 +13,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { alcanceAgente } from '../../common/auth/roles';
 import { CurrentUser, UsuarioJwt } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
-import { ArchivoSubido } from './archivo-subido';
+import { ArchivoSubido } from '../../common/archivos/archivo-subido';
 import { CambiarEstadoDto } from './dto/cambiar-estado.dto';
 import { CorregirOrigenDto } from './dto/corregir-origen.dto';
 import { CreateVentaDto } from './dto/create-venta.dto';

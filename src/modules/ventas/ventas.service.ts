@@ -7,7 +7,7 @@ import { R2Service } from '../../common/storage/r2.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ClientesService } from '../clientes/clientes.service';
 import { LeadsService } from '../leads/leads.service';
-import { ArchivoSubido } from './archivo-subido';
+import { ArchivoSubido } from '../../common/archivos/archivo-subido';
 import { CorregirOrigenDto } from './dto/corregir-origen.dto';
 import { CreateVentaDto } from './dto/create-venta.dto';
 import { QueryVentaDto } from './dto/query-venta.dto';

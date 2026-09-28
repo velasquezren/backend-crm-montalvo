@@ -17,6 +17,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { Response } from 'express';
 import { ClasifComision, TipoVendedora } from '../../prisma/prisma-client';
 
+import { ArchivoSubido } from '../../common/archivos/archivo-subido';
 import { CurrentUser, UsuarioJwt } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { AnaliticaComisionesService } from './analitica-comisiones.service';
@@ -50,14 +51,6 @@ import {
   QueryVentasImportadasDto,
 } from './dto/planilla.dto';
 import { PlanillaComisionesService } from './planilla-comisiones.service';
-
-/** Lo que entrega multer. Se declara a mano para no arrastrar `any` ni @types/multer. */
-interface ArchivoSubido {
-  originalname: string;
-  buffer: Buffer;
-  size: number;
-  mimetype: string;
-}
 
 /** Tope del Excel mensual: el VPS tiene poca RAM y un mes real pesa muy por debajo. */
 const TAMANO_MAXIMO_BYTES = 15 * 1024 * 1024;

@@ -1,5 +1,5 @@
 import { Roles } from '../../common/decorators/roles.decorator';
-import { ArchivoSubido } from './archivo-subido';
+import { ArchivoSubido } from '../../common/archivos/archivo-subido';
 import {
   Body,
   Controller,

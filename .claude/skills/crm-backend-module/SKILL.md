@@ -634,7 +634,9 @@ Usa `$transaction([...])` para lanzar en paralelo las consultas independientes (
 Los endpoints que reciben un archivo (importar planilla de comisiones, recursos de memoria del
 agente) usan `FileInterceptor` de Multer. Como el `@UploadedFile()` no viene tipado y no vale la
 pena instalar `@types/multer` por cuatro propiedades, existe la interfaz `ArchivoSubido`
-(`modules/memoria-agente/archivo-subido.ts`): `originalname`, `mimetype`, `size`, `buffer`.
+(`common/archivos/archivo-subido.ts`): `originalname`, `mimetype`, `size`, `buffer`. Una sola
+declaración para todo el backend: hubo una copia por módulo (Ventas, Memoria y el controller de
+Planilla) hasta el 2026-09-28.
 
 ```ts
 @Post('importar')

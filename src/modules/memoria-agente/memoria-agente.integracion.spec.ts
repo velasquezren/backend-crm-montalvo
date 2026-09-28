@@ -2,7 +2,7 @@ import { BadRequestException, ConflictException } from '@nestjs/common';
 
 import { R2Service } from '../../common/storage/r2.service';
 import { PrismaService } from '../../prisma/prisma.service';
-import { ArchivoSubido } from './archivo-subido';
+import { ArchivoSubido } from '../../common/archivos/archivo-subido';
 import { MemoriaAgenteService } from './memoria-agente.service';
 
 /**

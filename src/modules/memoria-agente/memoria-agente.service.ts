@@ -1,5 +1,5 @@
 import { dimensionesImagen } from '../../common/storage/dimensiones-imagen';
-import { ArchivoSubido } from './archivo-subido';
+import { ArchivoSubido } from '../../common/archivos/archivo-subido';
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma, TipoRecursoMemoria } from '../../prisma/prisma-client';
 import { terminoBusqueda } from '../../common/dto/busqueda';
