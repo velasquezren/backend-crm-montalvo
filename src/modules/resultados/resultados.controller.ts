@@ -1,4 +1,4 @@
-import { Controller, Get, Param, ParseUUIDPipe, Post, Query } from '@nestjs/common';
+import { Controller, Get, Header, Param, ParseUUIDPipe, Post, Query } from '@nestjs/common';
 
 import { CurrentUser, UsuarioJwt } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -23,6 +23,24 @@ export class ResultadosController {
   @Get('pendientes')
   pendientes(@Query() query: QueryResultadosDto, @CurrentUser() usuario: UsuarioJwt) {
     return this.service.pendientes(query, usuario);
+  }
+
+  /**
+   * El PDF, para comprobar QUÉ informe se va a enviar.
+   *
+   * Lo sirve el CRM en vez de enlazar al portal porque el enlace del paciente
+   * marca `abiertoEn`: si lo abriera la asistente, la fila diría «Abierto por
+   * el paciente» y esa señal —la que dice a quién hay que seguir— se volvería
+   * mentira.
+   *
+   * `inline` para que se vea en el navegador y no se descargue.
+   */
+  @Get(':informeId/pdf')
+  @Header('Content-Type', 'application/pdf')
+  @Header('Content-Disposition', 'inline; filename="informe.pdf"')
+  @Header('Cache-Control', 'no-store, private')
+  pdf(@Param('informeId', ParseUUIDPipe) informeId: string, @CurrentUser() usuario: UsuarioJwt) {
+    return this.service.pdf(informeId, usuario);
   }
 
   @Post(':informeId/enviar')

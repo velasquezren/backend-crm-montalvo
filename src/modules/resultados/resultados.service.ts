@@ -38,18 +38,6 @@ export interface FilaEntrega {
   aviso: { enviadoEn: Date; estadoMensaje: string | null } | null;
   /** Primera vez que el paciente abrió su informe. Es lo que importa: entregado no es visto. */
   abiertoEn: string | null;
-  /**
-   * El mismo enlace que recibe el paciente, para que la asistente pueda abrir
-   * el informe y comprobar QUÉ PDF va a enviar antes de mandarlo.
-   *
-   * Lo arma el servidor y no el navegador: la base vive en
-   * `PORTAL_RESULTADOS_PUBLICO`, así que el día que haya dominio propio cambia
-   * una variable y no el código de la pantalla.
-   *
-   * Abre el informe sin código, decisión ya tomada: el equipo de la clínica
-   * puede abrirlo desde el historial.
-   */
-  enlace: string;
 }
 
 @Injectable()
@@ -103,10 +91,21 @@ export class ResultadosService {
         pacientePortal: informe.paciente,
         aviso: aviso ? { enviadoEn: aviso.enviadoEn, estadoMensaje: aviso.mensaje?.estadoEnvio ?? null } : null,
         abiertoEn: informe.abiertoEn,
-        enlace: this.enlaceDe(informe.accesoId),
       };
     });
     return paginar(filas, cola.total, query);
+  }
+
+  /**
+   * El PDF que la asistente revisa antes de enviar.
+   *
+   * Mismo permiso que la cola: quien no puede entregar resultados tampoco lee
+   * informes. Y lo pide por una ruta que NO marca el informe como abierto por
+   * el paciente.
+   */
+  async pdf(informeId: string, usuario: UsuarioJwt): Promise<Buffer> {
+    await this.permitirLinea(usuario);
+    return this.portal.pdf(informeId);
   }
 
   /**

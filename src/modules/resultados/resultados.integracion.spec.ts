@@ -343,20 +343,19 @@ describe('entrega de resultados contra Postgres real', () => {
   });
 });
 
-/* El enlace de la cola y el que se guarda en el historial del chat salen de la
-   MISMA función: si divergen, la asistente comprueba un PDF y se manda otro. */
+/* El enlace que queda escrito en el chat es el del paciente, no otro: es por
+   donde el equipo vuelve al informe desde el historial. */
 describe('el enlace del informe', () => {
-  it('es el mismo en la cola y en el mensaje que queda en el chat', async () => {
+  it('el mensaje del chat guarda el enlace del paciente', async () => {
     const antes = process.env.PORTAL_RESULTADOS_PUBLICO;
     process.env.PORTAL_RESULTADOS_PUBLICO = 'https://portal.prueba/resultados';
     try {
       const cola = await service.pendientes({}, asistente);
       const fila = cola.datos[0];
-      expect(fila.enlace).toBe(`https://portal.prueba/resultados/${ACCESO}`);
 
       await service.enviar(fila.informeId, asistente);
       const mensaje = await prisma.mensaje.findFirstOrThrow({ orderBy: { createdAt: 'desc' }, select: { contenido: true } });
-      expect(mensaje.contenido).toContain(fila.enlace);
+      expect(mensaje.contenido).toContain(`https://portal.prueba/resultados/${ACCESO}`);
     } finally {
       if (antes === undefined) delete process.env.PORTAL_RESULTADOS_PUBLICO; else process.env.PORTAL_RESULTADOS_PUBLICO = antes;
     }
