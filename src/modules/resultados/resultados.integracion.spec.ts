@@ -44,12 +44,12 @@ const ACCESO = '33333333-3333-4333-8333-333333333333';
 const conversacionesStub = {
   async enviarPlantillaDelSistema(
     conversacionId: string,
-    dto: { plantilla: string; boton?: string; imagenCabecera?: string },
+    dto: { plantilla: string; boton?: string; imagenCabecera?: string; contenido: string },
   ) {
     if (fallarEnvio) throw new Error('Meta no disponible');
     plantillasEnviadas.push({ conversacionId, boton: dto.boton, plantilla: dto.plantilla, ...(dto.imagenCabecera ? { imagenCabecera: dto.imagenCabecera } : {}) });
     const mensaje = await prisma.mensaje.create({
-      data: { conversacionId, direccion: 'SALIENTE', contenido: 'aviso', estadoEnvio: 'ENVIADO' },
+      data: { conversacionId, direccion: 'SALIENTE', contenido: dto.contenido, estadoEnvio: 'ENVIADO' },
     });
     return mensaje;
   },
@@ -340,5 +340,25 @@ describe('entrega de resultados contra Postgres real', () => {
     informesDelPortal[0].paciente = { nombre: 'Paciente Vinculado', pac: 'pac-33009', ci: '1234567' };
     const cola = await service.pendientes({}, asistente);
     expect(cola.datos[0]).toMatchObject({ vinculo: 'PAC', paciente: { nombre: 'Paciente Vinculado' } });
+  });
+});
+
+/* El enlace de la cola y el que se guarda en el historial del chat salen de la
+   MISMA función: si divergen, la asistente comprueba un PDF y se manda otro. */
+describe('el enlace del informe', () => {
+  it('es el mismo en la cola y en el mensaje que queda en el chat', async () => {
+    const antes = process.env.PORTAL_RESULTADOS_PUBLICO;
+    process.env.PORTAL_RESULTADOS_PUBLICO = 'https://portal.prueba/resultados';
+    try {
+      const cola = await service.pendientes({}, asistente);
+      const fila = cola.datos[0];
+      expect(fila.enlace).toBe(`https://portal.prueba/resultados/${ACCESO}`);
+
+      await service.enviar(fila.informeId, asistente);
+      const mensaje = await prisma.mensaje.findFirstOrThrow({ orderBy: { createdAt: 'desc' }, select: { contenido: true } });
+      expect(mensaje.contenido).toContain(fila.enlace);
+    } finally {
+      if (antes === undefined) delete process.env.PORTAL_RESULTADOS_PUBLICO; else process.env.PORTAL_RESULTADOS_PUBLICO = antes;
+    }
   });
 });
