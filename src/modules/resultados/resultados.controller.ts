@@ -1,4 +1,4 @@
-import { Controller, Get, Header, Param, ParseUUIDPipe, Post, Query } from '@nestjs/common';
+import { Controller, Get, Param, ParseUUIDPipe, Post, Query, StreamableFile } from '@nestjs/common';
 
 import { CurrentUser, UsuarioJwt } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -33,14 +33,23 @@ export class ResultadosController {
    * el paciente» y esa señal —la que dice a quién hay que seguir— se volvería
    * mentira.
    *
-   * `inline` para que se vea en el navegador y no se descargue.
+   * Va en un `StreamableFile` y NO devolviendo el Buffer a secas: Nest trata
+   * cualquier objeto devuelto como JSON, y un Buffer se convierte en
+   * `{"type":"Buffer","data":[…]}`. Con la cabecera puesta a mano el navegador
+   * recibía eso creyendo que era un PDF y el visor fallaba — ya pasó.
+   *
+   * `inline` para que se vea en el navegador en vez de descargarse.
    */
   @Get(':informeId/pdf')
-  @Header('Content-Type', 'application/pdf')
-  @Header('Content-Disposition', 'inline; filename="informe.pdf"')
-  @Header('Cache-Control', 'no-store, private')
-  pdf(@Param('informeId', ParseUUIDPipe) informeId: string, @CurrentUser() usuario: UsuarioJwt) {
-    return this.service.pdf(informeId, usuario);
+  async pdf(
+    @Param('informeId', ParseUUIDPipe) informeId: string,
+    @CurrentUser() usuario: UsuarioJwt,
+  ): Promise<StreamableFile> {
+    const pdf = await this.service.pdf(informeId, usuario);
+    return new StreamableFile(pdf, {
+      type: 'application/pdf',
+      disposition: 'inline; filename="informe.pdf"',
+    });
   }
 
   @Post(':informeId/enviar')
