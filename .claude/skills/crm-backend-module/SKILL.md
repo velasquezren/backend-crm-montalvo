@@ -9,8 +9,10 @@ NestJS 10 + Prisma 7 + PostgreSQL. Reglas base: `CRM_MANIFESTO.md` (repo del fro
 
 ## Reglas de oro
 
-1. **Un módulo nunca toca la base de otro dominio.** Si Ventas necesita recategorizar un cliente,
+1. **Un módulo nunca escribe la base de otro dominio.** Si Ventas necesita recategorizar un cliente,
    llama a `ClientesService.actualizarCategoria()`, jamás a `prisma.cliente` directamente.
+   Leer para agregar (KPIs, Servicios) sí vale. Las escrituras cruzadas que existen hoy, con su
+   motivo, están en PANORAMA («Quién escribe cada tabla»): una nueva se apunta ahí.
 2. **Toda entrada externa se valida con un DTO** antes de llegar a la lógica de negocio.
    Nunca `@Body('campo') x: any` — eso salta el `ValidationPipe` por completo.
 3. **`schema.prisma` es la única fuente de verdad del modelo.** No dupliques tipos a mano.

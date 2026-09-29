@@ -107,7 +107,11 @@ la base local.
 - **Ningún `any`.** Tampoco `catch (e: any)` — usa `unknown` y estrecha. Con
   `strict` completo en `tsconfig` (`useUnknownInCatchVariables`), esto ya no es
   solo convención: el compilador lo rechaza.
-- **Ningún módulo toca la tabla de otro dominio.** Se llama a su service.
+- **Ningún módulo escribe la tabla de otro dominio.** Se llama a su service. Leer
+  para agregar o informar (KPIs, Servicios) sí está permitido. Las pocas
+  escrituras cruzadas que existen hoy están listadas, con su motivo, en
+  [PANORAMA](docs/PANORAMA.md#quién-escribe-cada-tabla); no añadas otra sin
+  apuntarla ahí.
 - **Todo listado se pagina.** Hay 15.000+ pacientes.
 - **Nunca compares roles a mano** (`rol === 'ADMIN'`): usa `alcanceAgente()` /
   `cubreRol()` de `common/auth/roles.ts`. La jerarquía es `RECEPCION` y `ASISTENTE`

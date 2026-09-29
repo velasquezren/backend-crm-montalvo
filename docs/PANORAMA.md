@@ -49,6 +49,25 @@ web, almacenamiento R2 y el cliente de WhatsApp Cloud.
 Tamaños de referencia: `planilla-comisiones` ≈ 13.800 líneas y
 `conversaciones` ≈ 7.200 son los dos grandes; el resto, menos de 2.000.
 
+### Quién escribe cada tabla
+
+La regla es que **cada tabla la escribe su módulo dueño**, y los demás le
+piden el cambio a su service. Leer tablas de otro dominio para agregar o
+informar está permitido y es lo normal en `modules/kpis` y `modules/servicios`
+(Venta, Lead, Mensaje, VentaImportada, Cliente): pasar esas lecturas por
+services que solo reenvíen la consulta no aportaría nada.
+
+Estas son las escrituras que **hoy** cruzan la frontera, medidas en el código
+el 2026-09-29. No son descuidos ocultos, sino decisiones o deuda conocida;
+si añades otra, añádela aquí con su motivo.
+
+| Quién escribe | Tabla ajena | Dónde | Por qué |
+| --- | --- | --- | --- |
+| `modules/clientes` | Lead, Conversacion | `ClientesService.update` y `reclamarSiNoTieneDuena` | Reasignar una paciente mueve a la vez sus leads y sus chats de la línea comercial, en la misma transacción. Deuda: la cascada va escondida dentro de `update` |
+| `modules/conversaciones` | Cliente, Interes | `IngestaWhatsappService`, contexto de campaña del anuncio | Deuda: debería pedírselo a `ClientesService` |
+| `modules/usuarios` | Conversacion | `UsuariosService.update`, al quitar líneas o desactivar | Libera los chats que la persona ya no puede atender, en la misma transacción que el cambio de permisos |
+| varios | AuditLog | conversaciones, usuarios, lineas-whatsapp | Escriben la bitácora dentro de su propia transacción cuando el registro tiene que ser atómico con el cambio; fuera de una transacción se usa `AuditService` |
+
 ## Frontend del CRM — pantallas (`src/app/features/`)
 
 | Pantalla | Ruta | Quién la ve |
