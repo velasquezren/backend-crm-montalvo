@@ -220,21 +220,11 @@ type ConSilencios<T> = T & { silenciosLinea: { lineaId: string }[] };
 
 /**
  * La forma pública de un usuario: el silencio como lista (`lineasSilenciadas`)
- * y no como la relación cruda.
- *
- * `lineasWhatsapp[].notificar` es COMPATIBILIDAD con el frontend anterior, que
- * lo lee de ahí mientras Vercel publica el nuevo; si faltara, leería `undefined`
- * como «silenciada» y guardar la ficha callaría todas sus líneas. Se quita en
- * la fase de contracción, junto con la columna.
+ * y no como la relación cruda, que es un detalle de almacenamiento.
  */
-function vista<T extends { lineasWhatsapp: { lineaId: string }[] }>(usuario: ConSilencios<T>) {
+function vista<T>(usuario: ConSilencios<T>) {
   const { silenciosLinea, ...resto } = usuario;
-  const silenciadas = silenciosLinea.map(s => s.lineaId);
-  return {
-    ...resto,
-    lineasWhatsapp: usuario.lineasWhatsapp.map(l => ({ ...l, notificar: !silenciadas.includes(l.lineaId) })),
-    lineasSilenciadas: silenciadas,
-  };
+  return { ...resto, lineasSilenciadas: silenciosLinea.map(s => s.lineaId) };
 }
 
 function mismoConjunto(a: readonly string[], b: readonly string[]): boolean {

@@ -266,6 +266,24 @@ curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:3001/planilla-comision
   # → 401: el guard sigue vivo
 ```
 
+**Una migración que BORRA (columna, tabla) va en dos despliegues y se aplica
+después del reinicio (expand/contract).** La secuencia de arriba migra antes de
+compilar: correcto para lo que AÑADE, roto para lo que quita. Mientras compila el
+nuevo —un par de minutos— sigue vivo el proceso anterior, y su cliente de Prisma
+pide la columna en toda consulta sin `select` explícito: borrarla con él vivo hace
+fallar esas consultas justo en ese rato. Por eso:
+
+1. **Expand** (un despliegue normal): crear lo nuevo, copiar los datos y dejar
+   de leer/escribir lo viejo. Lo viejo sigue en el schema, marcado como retirado.
+2. **Contract** (otro despliegue, cuando el anterior ya está en marcha): quitar
+   el campo del schema con su `DROP`, y desplegar **cambiando el orden**:
+   `git pull` → `npm ci` → `prisma generate` → `npm run build` → `systemctl
+   restart` → **y recién entonces** `prisma migrate deploy`. El proceso nuevo ya no
+   conoce la columna, y una columna de más en la base no le molesta a Prisma.
+
+Hecho así por primera vez el 2026-09-29 con `AccesoLineaWhatsapp.notificar` →
+`SilencioLinea` (migraciones `20260929210000` y `20260929220000`).
+
 **Desde el 2026-09-02 hay además un respaldo automático**, que NO reemplaza al
 manual de arriba: el de antes del despliegue sigue siendo obligatorio, porque el
 automático corre a las 03:15 y puede tener casi un día de antigüedad.

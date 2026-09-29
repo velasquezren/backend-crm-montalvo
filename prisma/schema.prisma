@@ -280,10 +280,6 @@ model AccesoLineaWhatsapp {
   lineaId   String
   usuario   Usuario @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
   linea     LineaWhatsapp @relation(fields: [lineaId], references: [id], onDelete: Cascade)
-  /// RETIRADO: ya no se lee ni se escribe; la preferencia vive en
-  /// `SilencioLinea`. Sigue aquí solo porque el proceso anterior lo consulta
-  /// mientras dura el despliegue; la migración siguiente lo borra.
-  notificar Boolean @default(true)
 
   @@id([usuarioId, lineaId])
   @@index([lineaId])

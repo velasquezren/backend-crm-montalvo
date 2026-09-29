@@ -910,11 +910,8 @@ it('el admin silencia sin sacar a la agente del CRM, y guardar la ficha no lo de
   const silencio = await http("super", ruta, "PATCH", { lineasSilenciadas: [CLIMON] });
   expect(silencio.status).toBe(200);
   expect(silencio.body.lineasSilenciadas).toEqual([CLIMON]);
-  /* Compatibilidad con el frontend anterior mientras Vercel publica el nuevo. */
-  expect(silencio.body.lineasWhatsapp).toEqual(expect.arrayContaining([
-    { lineaId: CLIMON, notificar: false },
-    { lineaId: VENTAS, notificar: true },
-  ]));
+  /* El acceso ya no lleva la preferencia: solo dice qué ve. */
+  expect(silencio.body.lineasWhatsapp).toEqual(expect.arrayContaining([{ lineaId: CLIMON }, { lineaId: VENTAS }]));
   expect((await http("ventas", "/conversaciones")).status).toBe(200);
   expect(await prisma.auditLog.count({ where: { entidadId: usuarios.ventas.id, accion: "AVISOS_LINEAS" } })).toBe(1);
 
