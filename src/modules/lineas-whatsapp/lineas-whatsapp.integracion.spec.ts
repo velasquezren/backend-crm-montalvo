@@ -915,10 +915,19 @@ it('el admin silencia sin sacar a la agente del CRM, y guardar la ficha no lo de
   expect((await http("ventas", "/conversaciones")).status).toBe(200);
   expect(await prisma.auditLog.count({ where: { entidadId: usuarios.ventas.id, accion: "AVISOS_LINEAS" } })).toBe(1);
 
-  /* Lo que manda la pantalla al guardar la ficha: las MISMAS líneas y un
-     nombre. Antes eso reescribía los accesos —el silencio volvía a sonar— y
-     además cerraba la sesión de la agente. */
-  expect((await http("super", ruta, "PATCH", { nombre: "ventas", lineaIds: [CLIMON, VENTAS] })).status).toBe(200);
+  /* EXACTAMENTE lo que manda la pantalla de Agentes al guardar sin tocar
+     nada (agentes.page.ts → guardarEdicion): todos los campos, rol incluido.
+     Una versión anterior de esta prueba mandaba solo nombre y líneas, y por
+     ese hueco pasó que el rol —que la pantalla manda siempre— cerraba la
+     sesión de la agente en cada guardado. */
+  expect((await http("super", ruta, "PATCH", {
+    nombre: "ventas",
+    email: "ventas@lineas.test",
+    rol: "AGENTE",
+    lineaIds: [CLIMON, VENTAS],
+    lineasSilenciadas: [CLIMON],
+    codigo: "",
+  })).status).toBe(200);
   expect(await accesos()).toEqual({ [VENTAS]: true, [CLIMON]: false });
   expect((await http("ventas", "/conversaciones")).status).toBe(200);
 

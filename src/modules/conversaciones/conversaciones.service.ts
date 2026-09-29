@@ -5,6 +5,7 @@ import { BadRequestException, ConflictException, ForbiddenException, Injectable,
 import { Prisma, Rol, TipoMensaje } from '../../prisma/prisma-client';
 import { candidatosDeChoqueUnico } from '../../prisma/choque-unico';
 
+import { ROLES_ALCANCE_GLOBAL } from '../../common/auth/roles';
 import { CacheMemoria } from '../../common/cache/cache-memoria';
 import { escaparComodinesLike, terminoBusqueda } from '../../common/dto/busqueda';
 import { calcularPaginacion, paginar, RespuestaPaginada } from '../../common/dto/pagination.dto';
@@ -1323,7 +1324,7 @@ export class ConversacionesService {
     }
 
     if (agenteId) {
-      const agente = await this.prisma.usuario.findFirst({ where: { id: agenteId, activo: true, OR: [{ rol: { in: ['ADMIN', 'SUPER_ADMIN'] } }, { lineasWhatsapp: { some: { lineaId: conversacion.lineaId } } }] } });
+      const agente = await this.prisma.usuario.findFirst({ where: { id: agenteId, activo: true, OR: [{ rol: { in: [...ROLES_ALCANCE_GLOBAL] } }, { lineasWhatsapp: { some: { lineaId: conversacion.lineaId } } }] } });
       if (!agente || !agente.activo) {
         throw new NotFoundException(`Agente ${agenteId} no encontrado o inactivo`);
       }

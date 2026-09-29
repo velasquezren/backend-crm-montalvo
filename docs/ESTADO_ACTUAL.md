@@ -12,6 +12,16 @@
   chat en el servicio de push (`opcionesEntrega`). Antes duraban cuatro semanas.
 - **Teléfono repetido = 409 con nombre.** La traducción del P2002 llevaba muerta desde
   Prisma 7; lector único en `prisma/choque-unico.ts`.
+- **Revisión de lo anterior, mismo día** — corregido:
+  - La asistente recibía **403** al cambiar un teléfono o crear una ficha desde
+    `/resultados` (la cola llamaba a `/clientes`, que exige agente). Ahora son
+    acciones sobre el informe: `PATCH /resultados/:id/telefono` y
+    `POST /resultados/:id/ficha`. La cuenta Asistente aún no se había usado.
+  - El 409 nombraba a la dueña de un teléfono aunque quien preguntaba no pudiera
+    ver esa ficha. Ahora solo si podría verla.
+  - Guardar la ficha de una agente en Agentes le cerraba la sesión aunque no
+    cambiara nada (la pantalla manda siempre el rol). Ahora solo si cambian
+    permisos de verdad.
 - **Portal de Resultados vaciado de pruebas** (con OK del propietario) y el PAC
   `PRUEBA-7761` retirado de la ficha real: el pendiente nº 3 de abajo está hecho.
 

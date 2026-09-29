@@ -3,6 +3,7 @@ import { Rol } from '../../prisma/prisma-client';
 import {
   puedeEntregarResultados,
   RANGO_ROL,
+  ROLES_ALCANCE_GLOBAL,
   ROLES_OPERATIVOS,
   alcanceAgente,
   cubreRol,
@@ -64,5 +65,16 @@ describe('quién entrega resultados médicos', () => {
 
   it('cubre todos los roles del esquema', () => {
     expect(Object.keys(RANGO_ROL).sort()).toEqual([Rol.ADMIN, Rol.AGENTE, Rol.ASISTENTE, Rol.RECEPCION, Rol.SUPER_ADMIN].sort());
+  });
+});
+
+describe('ROLES_ALCANCE_GLOBAL', () => {
+  /* La lista existe para los `where` de Prisma; la función, para el código.
+     Si divergen, una consulta y un `if` deciden distinto quién ve todo. */
+  it('son exactamente los roles para los que tieneAlcanceGlobal es verdad', () => {
+    for (const rol of Object.values(Rol)) {
+      expect(ROLES_ALCANCE_GLOBAL.includes(rol)).toBe(tieneAlcanceGlobal(rol));
+    }
+    expect([...ROLES_ALCANCE_GLOBAL].sort()).toEqual([Rol.ADMIN, Rol.SUPER_ADMIN].sort());
   });
 });

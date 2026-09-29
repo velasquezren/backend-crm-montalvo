@@ -1,6 +1,7 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { PushSubscription, Rol } from '../../prisma/prisma-client';
+import { PushSubscription } from '../../prisma/prisma-client';
+import { ROLES_ALCANCE_GLOBAL } from '../auth/roles';
 import * as webpush from 'web-push';
 
 import { PrismaService } from '../../prisma/prisma.service';
@@ -129,7 +130,7 @@ export class PushService implements OnModuleInit {
     if (!this.habilitado) return;
     await this.despachar(
       await this.prisma.pushSubscription.findMany({
-        where: { usuario: { rol: { in: [Rol.ADMIN, Rol.SUPER_ADMIN] }, activo: true } },
+        where: { usuario: { rol: { in: [...ROLES_ALCANCE_GLOBAL] }, activo: true } },
       }),
       payload,
     );

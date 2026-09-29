@@ -4,10 +4,10 @@ import {
   Injectable,
   NotFoundException,
 } from "@nestjs/common";
-import { esRolOperativo, tieneAlcanceGlobal } from "../../common/auth/roles";
+import { esRolOperativo, ROLES_ALCANCE_GLOBAL, tieneAlcanceGlobal } from "../../common/auth/roles";
 import { ConfigService } from "@nestjs/config";
 import { PrismaService } from "../../prisma/prisma.service";
-import { Prisma, LineaWhatsapp, Rol } from "../../prisma/prisma-client";
+import { Prisma, LineaWhatsapp } from "../../prisma/prisma-client";
 import {
   calcularPaginacion,
   paginar,
@@ -240,7 +240,7 @@ export class LineasWhatsappService {
       where: {
         activo: true,
         OR: [
-          { rol: { in: ["ADMIN", "SUPER_ADMIN"] } },
+          { rol: { in: [...ROLES_ALCANCE_GLOBAL] } },
           { lineasWhatsapp: { some: { lineaId } } },
         ],
       },
@@ -271,12 +271,14 @@ export class LineasWhatsappService {
    * muestra para que decida ella; las inactivas no reciben mensajes y un
    * interruptor sobre ellas solo sería ruido.
    *
-   * «Ve» con la misma regla que el resto: todas por rol, o las de su acceso.
+   * «Ve» con la misma convención que `listar` y `porId`: `alcance` es el de
+   * `alcanceAgente()` —`undefined` con alcance global—, y el dueño de los avisos
+   * es siempre `usuarioId`, que sale del token.
    */
-  async avisosDe(usuarioId: string, rol: Rol, query: PaginationDto) {
+  async avisosDe(usuarioId: string, alcance: string | undefined, query: PaginationDto) {
     const where: Prisma.LineaWhatsappWhereInput = {
       activa: true,
-      ...(tieneAlcanceGlobal(rol) ? {} : { usuarios: { some: { usuarioId } } }),
+      ...(alcance ? { usuarios: { some: { usuarioId: alcance } } } : {}),
     };
     const { skip, take } = calcularPaginacion(query);
     const [lineas, total] = await this.prisma.$transaction([
@@ -317,15 +319,8 @@ export class LineasWhatsappService {
    * No toca `versionSesion`: no cambia permisos, y la audiencia se relee de la
    * base en cada mensaje, así que el cambio vale desde el siguiente.
    */
-  async fijarAviso(usuarioId: string, rol: Rol, lineaId: string, suena: boolean) {
-    const visible = await this.prisma.lineaWhatsapp.findFirst({
-      where: {
-        id: lineaId,
-        ...(tieneAlcanceGlobal(rol) ? {} : { usuarios: { some: { usuarioId } } }),
-      },
-      select: { id: true },
-    });
-    if (!visible) throw new NotFoundException("Línea no encontrada");
+  async fijarAviso(usuarioId: string, alcance: string | undefined, lineaId: string, suena: boolean) {
+    await this.porId(lineaId, alcance);
 
     await this.prisma.$transaction([
       suena

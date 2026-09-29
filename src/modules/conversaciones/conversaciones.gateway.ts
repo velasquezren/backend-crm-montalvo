@@ -123,7 +123,7 @@ export class ConversacionesGateway implements OnGatewayInit, OnGatewayConnection
    */
   notificarEntrante(
     conversacionId: string,
-    info: { clienteNombre?: string; texto?: string; agenteId?: string | null },
+    info: { clienteNombre?: string; texto?: string },
   ): void {
     const aviso = {
       titulo: info.clienteNombre ? `WhatsApp: ${info.clienteNombre}` : 'Mensaje de WhatsApp',

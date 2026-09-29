@@ -68,6 +68,18 @@ export function tieneAlcanceGlobal(rol: Rol): boolean {
 }
 
 /**
+ * Los roles de alcance global, como LISTA, para las consultas: un `where` de
+ * Prisma no puede llamar a `tieneAlcanceGlobal`.
+ *
+ * Se deriva del rango y no se escribe a mano: `['ADMIN', 'SUPER_ADMIN']`
+ * estaba copiado en tres consultas (audiencia de un chat, avisos a admins,
+ * reasignación), y es la misma forma en que ROLES_OPERATIVOS nació —seis
+ * copias que se desincronizaron al añadir un rol—. Un rol nuevo con rango de
+ * admin entra aquí solo.
+ */
+export const ROLES_ALCANCE_GLOBAL: readonly Rol[] = (Object.keys(RANGO_ROL) as Rol[]).filter(tieneAlcanceGlobal);
+
+/**
  * Id del agente al que hay que limitar la consulta, o `undefined` si el usuario
  * ve todo. Es justo lo que esperan los services en su parámetro `soloAgenteId`.
  *

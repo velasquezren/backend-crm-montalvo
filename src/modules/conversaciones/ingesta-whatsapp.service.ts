@@ -219,13 +219,12 @@ export class IngestaWhatsappService {
 
     /* Refresca el inbox de quien lo tenga abierto y avisa al teléfono de quien
        no. **Es el único sitio del módulo que manda notificación push**: aquí y
-       solo aquí ha escrito una paciente. La dueña sale del cliente y no de la
-       conversación: si el chat está en el pool, `agenteId` es null y el aviso
-       va a todo el equipo. */
+       solo aquí ha escrito una paciente. A quién le suena no se decide aquí:
+       lo lee `LineasWhatsappService.audiencia` de la base, con la línea, la
+       dueña y quién la silenció. */
     this.gateway.notificarEntrante(conversacion.id, {
       clienteNombre: cliente.nombre,
       texto: contenido,
-      agenteId: conversacion.agenteId,
     });
 
     /* Respuestas automáticas: el acuse fuera de horario (solo línea comercial)

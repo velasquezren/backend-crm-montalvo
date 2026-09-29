@@ -29,7 +29,7 @@ export class LineasWhatsappController {
    */
   @Get("avisos")
   avisos(@Query() query: PaginationDto, @CurrentUser() usuario: UsuarioJwt) {
-    return this.service.avisosDe(usuario.sub, usuario.rol, query);
+    return this.service.avisosDe(usuario.sub, alcanceAgente(usuario), query);
   }
 
   @Put(":id/avisos")
@@ -38,7 +38,7 @@ export class LineasWhatsappController {
     @Body() dto: FijarAvisoDto,
     @CurrentUser() usuario: UsuarioJwt,
   ) {
-    return this.service.fijarAviso(usuario.sub, usuario.rol, id, dto.suena);
+    return this.service.fijarAviso(usuario.sub, alcanceAgente(usuario), id, dto.suena);
   }
 
   @Patch(":id")

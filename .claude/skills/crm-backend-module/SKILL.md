@@ -739,6 +739,24 @@ Recepción entregaba informes médicos — medido en producción el 2026-09-22 c
 ventas. Si otra función necesita "este rol sí, aquel no" a través de la jerarquía, añade una
 lista junto a `ROLES_OPERATIVOS` en `common/auth/roles.ts`; no la escribas en el service.
 
+**La asistente corrige fichas desde el INFORME, nunca por `/clientes`** (2026-09-29).
+`/clientes` exige rango de agente: la cola llamaba ahí para cambiar el teléfono o dar de alta
+una ficha, y la asistente —la persona para la que existe— recibía 403. Abrirle Clientes le
+daría las 15.000 fichas con sus datos comerciales. Por eso existen
+`PATCH /resultados/:informeId/telefono` y `POST /resultados/:informeId/ficha`: el servidor
+decide qué ficha es con el mismo cruce por PAC o CI de la cola, y en el alta nombre, PAC y CI
+salen del portal; del navegador solo viaja el teléfono. `ClientesService` ofrece para eso
+`telefonoDesdeResultados` y `altaDesdeResultados`, con visor `ninguno` (el 409 no nombra a
+nadie). Lo fija `resultados-roles.spec.ts` con el guard real.
+
+**Un 409 de dato repetido nombra al dueño solo si quien pregunta podría ver esa ficha**
+(`VisorFichas` en `clientes.service.ts`): alcance global, todas; una agente, su cartera; quien
+no entra en Clientes, ninguna. Sin eso, teclear un número le decía a una agente el nombre de
+una paciente de otra.
+
+Para una consulta, los roles globales son `ROLES_ALCANCE_GLOBAL` (derivada del rango), no
+`['ADMIN', 'SUPER_ADMIN']` escrito a mano.
+
 `RECEPCION` tiene acceso a conversaciones, perfil, push y recursos propios. Las rutas sin `@Roles` requieren `AGENTE`; los endpoints públicos conservan `@Public`. `ADMIN` y `SUPER_ADMIN` tienen alcance global. Las demás cuentas necesitan membresía explícita `AccesoLineaWhatsapp` además del alcance de asignación. Recepción no admite membresía comercial. La identidad de un chat es `(clienteId, lineaId)`. No usar solo clienteId ni credenciales globales para enviar. El webhook resuelve `metadata.phone_number_id` y confirma HTTP después de persistir, devolviendo 503 si falla un elemento para permitir reintento — **salvo que el número receptor no esté registrado, que se descarta con 200** (ver «Un 503 solo vale para fallos transitorios»). Reasignar un chat no cambia el cliente ni los leads.
 
 **Ver una línea y que te suene son dos cosas (2026-09-29).** Una fila en `SilencioLinea`

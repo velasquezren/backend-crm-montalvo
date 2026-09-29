@@ -1,8 +1,9 @@
-import { Controller, Get, Param, ParseUUIDPipe, Post, Query, StreamableFile } from '@nestjs/common';
+import { Body, Controller, Get, Param, ParseUUIDPipe, Patch, Post, Query, StreamableFile } from '@nestjs/common';
 
 import { CurrentUser, UsuarioJwt } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { QueryResultadosDto } from './dto/query-resultados.dto';
+import { TelefonoPacienteDto } from './dto/telefono-paciente.dto';
 import { ResultadosService } from './resultados.service';
 
 /**
@@ -58,6 +59,30 @@ export class ResultadosController {
     @CurrentUser() usuario: UsuarioJwt,
   ) {
     return this.service.enviar(informeId, usuario);
+  }
+
+  /**
+   * Corrige el teléfono de la ficha a la que va el aviso de este informe. Va
+   * aquí y no en `/clientes` porque esa ruta exige rango de agente: la
+   * asistente actúa sobre el informe y el servidor decide qué ficha es.
+   */
+  @Patch(':informeId/telefono')
+  corregirTelefono(
+    @Param('informeId', ParseUUIDPipe) informeId: string,
+    @Body() dto: TelefonoPacienteDto,
+    @CurrentUser() usuario: UsuarioJwt,
+  ) {
+    return this.service.corregirTelefono(informeId, dto.telefono, usuario);
+  }
+
+  /** Alta de la ficha del paciente del informe: nombre y PAC salen del portal. */
+  @Post(':informeId/ficha')
+  crearFicha(
+    @Param('informeId', ParseUUIDPipe) informeId: string,
+    @Body() dto: TelefonoPacienteDto,
+    @CurrentUser() usuario: UsuarioJwt,
+  ) {
+    return this.service.crearFicha(informeId, dto.telefono, usuario);
   }
 
   /** El enlace venció: se extiende 30 días y se vuelve a avisar al paciente. */

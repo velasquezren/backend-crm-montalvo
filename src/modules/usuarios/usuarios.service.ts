@@ -97,14 +97,19 @@ export class UsuariosService {
         ? silencioValidado(lineasSilenciadas, visibles)
         : new Set(silencioActual.filter(id => visibles.includes(id)));
       const cambianLineas = lineaIds !== undefined && !mismoConjunto(lineaIds, lineasActuales);
+      /* «Viene» no es «cambia»: la pantalla de Agentes manda siempre el rol, el
+         mismo que tenía, y tomarlo como cambio cerraba la sesión de la agente
+         cada vez que alguien guardaba su ficha. */
+      const cambiaRol = resto.rol !== undefined && resto.rol !== actual.rol;
+      const cambiaActivo = resto.activo !== undefined && resto.activo !== actual.activo;
       const cambiaSilencio = !mismoConjunto([...silencio], silencioActual);
-      if (ejecutorId === id && resto.rol && resto.rol !== actual.rol) {
+      if (ejecutorId === id && cambiaRol) {
         throw new BadRequestException('No puedes cambiarte a ti mismo el rol.');
       }
-      if (ejecutorId === id && resto.activo === false) {
+      if (ejecutorId === id && cambiaActivo && resto.activo === false) {
         throw new BadRequestException('No puedes desactivar tu propia cuenta.');
       }
-      if (actual.rol === 'SUPER_ADMIN' && ((resto.rol && resto.rol !== 'SUPER_ADMIN') || resto.activo === false)) {
+      if (actual.rol === 'SUPER_ADMIN' && ((cambiaRol && resto.rol !== 'SUPER_ADMIN') || (cambiaActivo && resto.activo === false))) {
         await this.verificarQueQuedaOtroSuperAdmin(id, tx);
       }
       const actualizado = await tx.usuario.update({
@@ -113,11 +118,11 @@ export class UsuariosService {
           ...resto,
           ...(resto.codigo !== undefined ? { codigo: await this.normalizarCodigo(resto.codigo, id, tx) } : {}),
           ...(passwordHash ? { passwordHash } : {}),
-          /* Cambiar QUÉ líneas ve revoca las sesiones; cambiar cuáles le suenan
-             no: no toca permisos, y la audiencia de cada aviso se relee de la
-             base. Antes bastaba con que viniera `lineaIds` —aunque fuera la
-             misma lista— y guardar la ficha sacaba a la agente del CRM. */
-          ...(password || resto.rol !== undefined || resto.activo !== undefined || cambianLineas
+          /* Se revocan las sesiones solo si cambian los permisos de verdad:
+             contraseña, rol, estado o el CONJUNTO de líneas. Cambiar cuáles le
+             suenan no toca permisos —la audiencia se relee en cada aviso—, y
+             reenviar los mismos valores tampoco. */
+          ...(password || cambiaRol || cambiaActivo || cambianLineas
             ? { versionSesion: { increment: 1 } } : {}),
           ...(cambianLineas
             ? { lineasWhatsapp: { deleteMany: {}, create: permisos.map(lineaId => ({ lineaId })) } } : {}),
@@ -125,7 +130,7 @@ export class UsuariosService {
             ? { silenciosLinea: { deleteMany: {}, create: [...silencio].map(lineaId => ({ lineaId })) } } : {}),
         }, select: SIN_PASSWORD,
       });
-      if (lineaIds !== undefined || resto.rol !== undefined || resto.activo !== undefined) {
+      if (cambianLineas || cambiaRol || cambiaActivo) {
         if (!actualizado.activo || !tieneAlcanceGlobal(actualizado.rol)) {
           await tx.conversacion.updateMany({ where: { agenteId: id, ...(actualizado.activo ? { lineaId: { notIn: permisos } } : {}) }, data: { agenteId: null } });
         }

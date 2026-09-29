@@ -212,3 +212,53 @@ describe('ClientesService — un dato único repetido se explica, no estalla', (
     expect(creada).toMatchObject({ nombre: 'Carmen Vaca', telefono: '+59170000004' });
   });
 });
+
+/**
+ * El nombre del dueño de un dato repetido es información de OTRA ficha, y se
+ * revela con la misma regla con que se ve: una agente, solo su cartera; quien
+ * no entra en Clientes, nada. Sin esto, teclear un número le decía a una agente
+ * de ventas el nombre de una paciente de otra agente.
+ */
+describe('ClientesService — el 409 solo nombra a quien podrías ver', () => {
+  async function agente(nombre: string) {
+    return prisma.usuario.create({ data: { nombre, email: `${nombre}@clientes.test`, passwordHash: 'x', rol: 'AGENTE' } });
+  }
+
+  it('a una agente no le dice de quién es una paciente de otra agente', async () => {
+    const ana = await agente('ana');
+    const beto = await agente('beto');
+    await prisma.cliente.create({ data: { nombre: 'Paciente de Beto', telefono: '+59170000011', agenteId: beto.id } });
+
+    await expect(service.create({ nombre: 'Nueva', telefono: '+59170000011' }, ana.id)).rejects.toMatchObject({
+      status: 409,
+      response: { message: 'Ya existe un paciente con el teléfono +59170000011.', campo: 'telefono' },
+    });
+  });
+
+  it('si la paciente es de su cartera, sí se la nombra: es alguien que ya ve', async () => {
+    const ana = await agente('ana');
+    await prisma.cliente.create({ data: { nombre: 'Paciente de Ana', telefono: '+59170000012', agenteId: ana.id } });
+
+    await expect(service.create({ nombre: 'Nueva', telefono: '+59170000012' }, ana.id)).rejects.toMatchObject({
+      response: { message: 'El teléfono +59170000012 ya es de Paciente de Ana.' },
+    });
+  });
+
+  /* La asistente entrega resultados pero no entra en Clientes. */
+  it('desde Resultados no se nombra a nadie, aunque el dueño exista', async () => {
+    await cliente('Ana Pérez', '+59170000013');
+    const otra = await cliente('Beto Suárez', '+59170000014');
+
+    await expect(service.telefonoDesdeResultados(otra.id, '+59170000013', 'sistema')).rejects.toMatchObject({
+      response: { message: 'Ya existe un paciente con el teléfono +59170000013.', campo: 'telefono' },
+    });
+    await expect(service.altaDesdeResultados({ nombre: 'X', pac: 'PAC777', ci: null }, '+59170000013')).rejects.toMatchObject({
+      response: { message: 'Ya existe un paciente con el teléfono +59170000013.', campo: 'telefono' },
+    });
+  });
+
+  it('el alta desde Resultados nace sin agente comercial y con el PAC del informe', async () => {
+    const creada = await service.altaDesdeResultados({ nombre: 'Carla Vaca', pac: 'pac-778', ci: null }, '+59170000015');
+    expect(creada).toMatchObject({ nombre: 'Carla Vaca', telefono: '+59170000015', pac: 'PAC-778', agenteId: null });
+  });
+});

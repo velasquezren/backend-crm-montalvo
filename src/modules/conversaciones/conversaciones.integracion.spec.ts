@@ -53,7 +53,7 @@ const prisma = new PrismaService(URL_TEST);
 class GatewayEspia {
   readonly emitidos: string[] = [];
   /** Solo lo que dispara notificación al teléfono — ver `notificarEntrante`. */
-  readonly notificados: Array<{ conversacionId: string; agenteId?: string | null }> = [];
+  readonly notificados: Array<{ conversacionId: string; texto?: string }> = [];
 
   emitirActividad(conversacionId: string): void {
     this.emitidos.push(conversacionId);
@@ -61,10 +61,10 @@ class GatewayEspia {
 
   notificarEntrante(
     conversacionId: string,
-    info: { clienteNombre?: string; texto?: string; agenteId?: string | null },
+    info: { clienteNombre?: string; texto?: string },
   ): void {
     this.emitirActividad(conversacionId);
-    this.notificados.push({ conversacionId, agenteId: info.agenteId });
+    this.notificados.push({ conversacionId, texto: info.texto });
   }
 }
 
@@ -610,19 +610,19 @@ describe('Conversaciones contra Postgres real', () => {
       expect(gateway.notificados).toHaveLength(1);
     });
 
-    it('el chat sin dueña notifica al equipo entero', async () => {
-      await ingesta.procesarEntrante('+59172000011', 'Hola', 'wamid.n2');
-
-      expect(gateway.notificados[0].agenteId).toBeNull();
-    });
-
-    it('el aviso lleva la asignación del chat; el gateway resuelve los destinatarios con permisos', async () => {
+    /* A QUIÉN le suena no lo decide la ingesta: lo lee
+       `LineasWhatsappService.audiencia` de la base, y eso se prueba contra el
+       gateway real en `lineas-whatsapp.integracion.spec.ts` (pool, dueña,
+       líneas silenciadas). Aquí se prueba lo que sí es de la ingesta: avisar
+       del chat correcto con lo que escribió la paciente. Antes estas pruebas
+       comprobaban un `agenteId` que la ingesta pasaba y el gateway ignoraba. */
+    it('avisa del chat de la paciente con lo que escribió', async () => {
       const a = await crearAgente('agente-a');
-      await crearChat({ telefono: '+59172000012', agenteCliente: a.id });
+      const chat = await crearChat({ telefono: '+59172000012', agenteCliente: a.id });
 
-      await ingesta.procesarEntrante('+59172000012', 'Hola', 'wamid.n3');
+      await ingesta.procesarEntrante('+59172000012', 'Hola, ¿tienen turno?', 'wamid.n3');
 
-      expect(gateway.notificados[0].agenteId).toBeNull();
+      expect(gateway.notificados).toEqual([{ conversacionId: chat.conversacion.id, texto: 'Hola, ¿tienen turno?' }]);
     });
 
     /**

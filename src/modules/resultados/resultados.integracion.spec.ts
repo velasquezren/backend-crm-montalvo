@@ -1,3 +1,4 @@
+import { ConflictException, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createServer, Server } from 'node:http';
 import { AddressInfo } from 'node:net';
@@ -106,7 +107,7 @@ beforeEach(async () => {
   await prisma.conversacion.deleteMany({ where: { lineaId: LINEA } });
   await prisma.accesoLineaWhatsapp.deleteMany({ where: { lineaId: LINEA } });
   await prisma.lineaWhatsapp.deleteMany({ where: { id: LINEA } });
-  await prisma.auditLog.deleteMany({ where: { entidad: 'AvisoResultado' } });
+  await prisma.auditLog.deleteMany({ where: { OR: [{ entidad: 'AvisoResultado' }, { usuarioId: 'a0000000-0000-4000-8000-000000000001' }] } });
   /* Por PAC y por teléfono: otra suite puede haber dejado una ficha con el
      mismo número de prueba y el índice único de `telefono` rebotaría. */
   await prisma.cliente.deleteMany({
@@ -359,5 +360,57 @@ describe('el enlace del informe', () => {
     } finally {
       if (antes === undefined) delete process.env.PORTAL_RESULTADOS_PUBLICO; else process.env.PORTAL_RESULTADOS_PUBLICO = antes;
     }
+  });
+});
+
+/**
+ * La asistente corrige el teléfono o da de alta la ficha DESDE EL INFORME.
+ *
+ * Antes la pantalla llamaba a `/clientes`, que exige rango de agente: la
+ * asistente —justo la persona para la que existe esta cola— recibía 403 al
+ * pulsar «Cambiar» o «Crear ficha», y nadie lo vio porque la cuenta todavía no
+ * se había usado. Abrirle Clientes le daría las 15.000 fichas; por eso actúa
+ * sobre el informe y el servidor decide qué ficha es.
+ */
+describe('la asistente corrige la ficha desde el informe', () => {
+  it('cambia el teléfono de la ficha que el informe reconoce, y queda auditado', async () => {
+    const hecho = await service.corregirTelefono(INFORME, '+59170000091', asistente);
+    const ficha = await prisma.cliente.findUniqueOrThrow({ where: { pac: 'PAC33009' } });
+    expect(hecho).toEqual({ clienteId: ficha.id, telefono: '+59170000091' });
+    expect(ficha.telefono).toBe('+59170000091');
+    expect(await prisma.auditLog.count({ where: { entidad: 'Cliente', entidadId: ficha.id, usuarioId: 'a0000000-0000-4000-8000-000000000001' } })).toBe(1);
+  });
+
+  it('quien no entrega resultados no toca fichas por esta vía', async () => {
+    await expect(service.corregirTelefono(INFORME, '+59170000091', agente)).rejects.toThrow(NotFoundException);
+    await expect(service.crearFicha(INFORME, '+59170000091', agente)).rejects.toThrow(NotFoundException);
+    expect((await prisma.cliente.findUniqueOrThrow({ where: { pac: 'PAC33009' } })).telefono).toBe('+59170000001');
+  });
+
+  /* Ella no ve Clientes: el 409 dice que el número está en uso, no de quién. */
+  it('un teléfono que ya es de otra ficha se explica sin nombrar a nadie', async () => {
+    await prisma.cliente.create({ data: { nombre: 'Otra Paciente', telefono: '+59170000092' } });
+    await expect(service.corregirTelefono(INFORME, '+59170000092', asistente)).rejects.toMatchObject({
+      status: 409,
+      response: { message: 'Ya existe un paciente con el teléfono +59170000092.', campo: 'telefono' },
+    });
+  });
+
+  it('da de alta con el nombre y el PAC del PORTAL, y la cola la reconoce', async () => {
+    informesDelPortal[0].paciente = { nombre: 'Carla Arauz', pac: 'PAC99999', ci: null };
+    const { clienteId } = await service.crearFicha(INFORME, '+59170000093', asistente);
+    expect(await prisma.cliente.findUniqueOrThrow({ where: { id: clienteId } })).toMatchObject({
+      nombre: 'Carla Arauz', pac: 'PAC99999', telefono: '+59170000093', agenteId: null,
+    });
+    const cola = await service.pendientes({}, asistente);
+    expect(cola.datos[0]).toMatchObject({ vinculo: 'PAC', paciente: { id: clienteId } });
+
+    /* Dos clics, o alguien que la creó mientras tanto: no se duplica. */
+    await expect(service.crearFicha(INFORME, '+59170000094', asistente)).rejects.toThrow(ConflictException);
+  });
+
+  it('corregir el teléfono de un informe sin ficha lo dice, no inventa una', async () => {
+    informesDelPortal[0].paciente = { nombre: 'Nadie', pac: 'PAC99999', ci: null };
+    await expect(service.corregirTelefono(INFORME, '+59170000091', asistente)).rejects.toThrow(/no tiene ficha/);
   });
 });

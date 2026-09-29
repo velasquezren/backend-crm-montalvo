@@ -45,6 +45,26 @@ export function esNombreProvisional(nombre: string): boolean {
 }
 
 /**
+ * Quién pregunta, a efectos de lo que se le puede revelar de OTRA ficha.
+ *
+ * El 409 de un dato repetido nombra a quien lo tiene —«ese número ya es de Ana
+ * Pérez»—, y eso es revelar una ficha. Se revela con la MISMA regla con que se
+ * ve: alcance global, todas; una agente, solo las de su cartera; quien no entra
+ * en Clientes (la asistente desde Resultados), ninguna. Sin esto, una agente
+ * de ventas que tecleaba un número se enteraba del nombre de una paciente de
+ * otra agente.
+ */
+export type VisorFichas =
+  | { readonly alcance: 'global' }
+  | { readonly alcance: 'cartera'; readonly agenteId: string }
+  | { readonly alcance: 'ninguno' };
+
+/** El visor que corresponde al alcance de siempre (`alcanceAgente`). */
+function visorDe(soloAgenteId: string | undefined): VisorFichas {
+  return soloAgenteId === undefined ? { alcance: 'global' } : { alcance: 'cartera', agenteId: soloAgenteId };
+}
+
+/**
  * Qué decirle a la agente cuando un índice único de `Cliente` rebota.
  *
  * Lleva el nombre de quien ya tiene ese valor porque sin él el mensaje es un
@@ -139,7 +159,11 @@ export class ClientesService {
    * dos viajes a la base por alta que no hacen falta: el índice ya sabe la
    * respuesta.
    */
-  private async traducirChoqueUnico(error: unknown, valores: Record<string, string | null | undefined>): Promise<void> {
+  private async traducirChoqueUnico(
+    error: unknown,
+    valores: Record<string, string | null | undefined>,
+    visor: VisorFichas,
+  ): Promise<void> {
     if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2002') return;
 
     /* El campo no sale de `meta.target`: con el driver adapter de Prisma 7 esa
@@ -154,7 +178,7 @@ export class ClientesService {
       const valor = valores[campo] ?? '';
       /* Una consulta de más, y solo cuando YA se ha chocado: el camino feliz no
          paga nada. Si falla, el mensaje sigue sirviendo sin el nombre. */
-      const duenio = valor ? await this.duenioDe(campo, valor).catch(() => undefined) : undefined;
+      const duenio = valor ? await this.duenioDe(campo, valor, visor).catch(() => undefined) : undefined;
       /* `campo` va en el cuerpo para que la interfaz marque el control que hay
          que corregir. Sin él tendría que deducirlo del texto del mensaje, y un
          choque de PAC acabaría señalando la casilla del teléfono. */
@@ -167,18 +191,52 @@ export class ClientesService {
     }
   }
 
-  /** Quién tiene ya ese valor único, para poder nombrarlo en el conflicto. */
-  private async duenioDe(campo: string, valor: string): Promise<string | undefined> {
-    if (campo !== 'telefono' && campo !== 'pac') return undefined;
+  /**
+   * Quién tiene ya ese valor único, para nombrarlo en el conflicto — solo si
+   * quien pregunta podría ver esa ficha. Ver `VisorFichas`.
+   */
+  private async duenioDe(campo: string, valor: string, visor: VisorFichas): Promise<string | undefined> {
+    if (visor.alcance === 'ninguno' || (campo !== 'telefono' && campo !== 'pac')) return undefined;
     const ficha = await this.prisma.cliente.findUnique({
       where: campo === 'telefono' ? { telefono: valor } : { pac: valor },
-      select: { nombre: true },
+      select: { nombre: true, agenteId: true },
     });
+    if (!ficha || (visor.alcance === 'cartera' && ficha.agenteId !== visor.agenteId)) return undefined;
     /* El marcador «WhatsApp +591…» no es un nombre: decirlo no ayuda a nadie. */
-    return ficha && !esNombreProvisional(ficha.nombre) ? ficha.nombre : undefined;
+    return esNombreProvisional(ficha.nombre) ? undefined : ficha.nombre;
   }
 
   async create(dto: CreateClienteDto, soloAgenteId?: string) {
+    return this.crear(dto, soloAgenteId, visorDe(soloAgenteId));
+  }
+
+  /**
+   * Alta de la ficha de un paciente que el portal de Resultados conoce y el CRM
+   * no, por encargo de la asistente que va a avisarle.
+   *
+   * Método propio y estrecho, y no `create`, a propósito: la asistente no entra
+   * en Clientes, así que solo puede dar el teléfono —nombre, PAC y CI los pone
+   * quien llama, sacados del informe— y la ficha nace sin agente comercial. Un
+   * dato repetido no nombra a nadie: ella no ve esas fichas.
+   */
+  async altaDesdeResultados(paciente: { nombre: string; pac: string | null; ci: string | null }, telefono: string) {
+    return this.crear(
+      { nombre: paciente.nombre, telefono, pac: paciente.pac ?? undefined, ci: paciente.ci ?? undefined },
+      undefined,
+      { alcance: 'ninguno' },
+    );
+  }
+
+  /**
+   * Corrige el teléfono de la ficha a la que va un aviso de Resultados. Solo el
+   * teléfono; queda en la auditoría como cualquier edición. La autorización es
+   * de quien llama (el informe es de esa ficha); aquí se decide qué se revela.
+   */
+  async telefonoDesdeResultados(clienteId: string, telefono: string, usuarioId: string) {
+    return this.actualizar(clienteId, { telefono }, usuarioId, undefined, { alcance: 'ninguno' });
+  }
+
+  private async crear(dto: CreateClienteDto, soloAgenteId: string | undefined, visor: VisorFichas) {
     if (soloAgenteId && dto.agenteId != null && dto.agenteId !== soloAgenteId) {
       throw new ForbiddenException('Solo un administrador puede asignar pacientes a otro agente');
     }
@@ -207,7 +265,7 @@ export class ClientesService {
         },
       });
     } catch (error: unknown) {
-      await this.traducirChoqueUnico(error, { telefono: dto.telefono, pac: pacNormalizado });
+      await this.traducirChoqueUnico(error, { telefono: dto.telefono, pac: pacNormalizado }, visor);
       throw error;
     }
   }
@@ -430,6 +488,16 @@ export class ClientesService {
 
   /** `soloAgenteId` — ver la nota de `findOne`: mismo hueco existía en edición. */
   async update(id: string, dto: UpdateClienteDto, usuarioId?: string, soloAgenteId?: string) {
+    return this.actualizar(id, dto, usuarioId, soloAgenteId, visorDe(soloAgenteId));
+  }
+
+  private async actualizar(
+    id: string,
+    dto: UpdateClienteDto,
+    usuarioId: string | undefined,
+    soloAgenteId: string | undefined,
+    visor: VisorFichas,
+  ) {
     const cliente = await this.findOne(id, soloAgenteId);
     if (soloAgenteId && dto.agenteId !== undefined) {
       if (dto.agenteId !== cliente.agenteId) {
@@ -470,7 +538,7 @@ export class ClientesService {
       ...(datosExtra || {}),
     };
 
-    const [actualizado] = await this.ejecutarActualizacion([
+    const actualizado = await this.ejecutarActualizacion(
       this.prisma.cliente.update({
         where: { id },
         data: {
@@ -486,7 +554,7 @@ export class ClientesService {
           datosExtra: nuevosDatosExtra as Prisma.InputJsonValue,
         },
       }),
-      ...(dto.agenteId !== undefined
+      [...(dto.agenteId !== undefined
         ? [
             this.prisma.lead.updateMany({
               where: { clienteId: id },
@@ -497,12 +565,12 @@ export class ClientesService {
               data: { agenteId: dto.agenteId },
             }),
           ]
-        : []),
-    ],
+        : [])],
     /* El teléfono va aquí igual que el PAC: sin él, el 409 de un número
        repetido salía sin número y sin dueño («Ya existe un paciente con el
        teléfono .»), que no le sirve a nadie para corregirlo. */
-    { pac: pacData.pac, telefono: restoDto.telefono });
+    { pac: pacData.pac, telefono: restoDto.telefono },
+    visor);
 
     await this.audit.registrar('Cliente', id, 'ACTUALIZADO', usuarioId, { ...dto });
     return actualizado;
@@ -513,14 +581,20 @@ export class ClientesService {
    * 409 igual que en el alta. Aparte para que el `try` no envuelva las 30
    * líneas de armado del `data`, donde nada puede lanzar un P2002.
    */
-  private async ejecutarActualizacion(
-    operaciones: Prisma.PrismaPromise<unknown>[],
+  private async ejecutarActualizacion<T>(
+    principal: Prisma.PrismaPromise<T>,
+    extras: Prisma.PrismaPromise<unknown>[],
     valores: Record<string, string | null | undefined>,
-  ): Promise<unknown[]> {
+    visor: VisorFichas,
+  ): Promise<T> {
     try {
-      return await this.prisma.$transaction(operaciones);
+      /* La principal va aparte para no perder su tipo: una lista mezclada sale
+         de `$transaction` como `unknown[]`, y con eso `update` devolvía
+         `unknown` a quien lo llamara. Va primera, así que es la posición 0. */
+      const [resultado] = await this.prisma.$transaction([principal, ...extras]);
+      return resultado as T;
     } catch (error: unknown) {
-      await this.traducirChoqueUnico(error, valores);
+      await this.traducirChoqueUnico(error, valores, visor);
       throw error;
     }
   }

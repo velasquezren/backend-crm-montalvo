@@ -40,6 +40,12 @@ export interface FilaEntrega {
   abiertoEn: string | null;
 }
 
+/** Por qué un informe no tiene a quién avisar, en las palabras de la asistente. */
+const SIN_FICHA = {
+  CI_REPETIDO: 'El CI de este paciente está en más de una ficha del CRM. Corrige las fichas antes de avisarle.',
+  SIN_COINCIDENCIA: 'El paciente del informe no tiene ficha en el CRM con ese PAC o CI. Revísalo antes de avisarle.',
+} as const;
+
 @Injectable()
 export class ResultadosService {
   private readonly logger = new Logger(ResultadosService.name);
@@ -138,8 +144,7 @@ export class ResultadosService {
    */
   async renovarYEnviar(informeId: string, usuario: UsuarioJwt): Promise<{ enviado: true; mensajeId: string }> {
     const linea = await this.permitirLinea(usuario);
-    const [previo] = (await this.portal.informes({ informeId, limite: 1 })).datos;
-    if (!previo) throw new NotFoundException('Ese informe ya no está publicado en el portal.');
+    const previo = await this.publicado(informeId);
     if (previo.accesoVigente) {
       throw new ConflictException('El enlace de este informe sigue activo: no hace falta renovarlo.');
     }
@@ -152,14 +157,7 @@ export class ResultadosService {
     const informeId = informe.informeId;
     /* Se reconoce de nuevo aquí, no se confía en la fila que vio la
        asistente: entre la cola y el clic alguien pudo corregir un CI. */
-    const [{ cliente, motivo }] = await this.clientes.reconocerPacientes([informe.paciente]);
-    if (!cliente) {
-      throw new NotFoundException(
-        motivo === 'CI_REPETIDO'
-          ? 'El CI de este paciente está en más de una ficha del CRM. Corrige las fichas antes de avisarle.'
-          : 'El paciente del informe no tiene ficha en el CRM con ese PAC o CI. Revísalo antes de avisarle.',
-      );
-    }
+    const cliente = await this.fichaDe(informe);
 
     const reserva = await this.reservar(informeId, cliente.id, usuario.sub);
     try {
@@ -197,13 +195,67 @@ export class ResultadosService {
     }
   }
 
+  /**
+   * Corrige el teléfono de la ficha a la que va el aviso de ESTE informe.
+   *
+   * La asistente no entra en Clientes —esa ruta exige rango de agente, y abrirla
+   * le daría las 15.000 fichas con sus datos comerciales—, así que actúa sobre
+   * el INFORME y el servidor decide qué ficha es, con el mismo cruce por PAC o
+   * CI que la cola. Nunca un id de cliente que mande el navegador: con eso,
+   * cualquiera con este permiso podría cambiar el teléfono de cualquier ficha.
+   *
+   * Vale aunque el enlace haya vencido: corregir el número es justo lo que se
+   * hace antes de «Renovar y enviar».
+   */
+  async corregirTelefono(informeId: string, telefono: string, usuario: UsuarioJwt) {
+    await this.permitirLinea(usuario);
+    const cliente = await this.fichaDe(await this.publicado(informeId));
+    const ficha = await this.clientes.telefonoDesdeResultados(cliente.id, telefono, usuario.sub);
+    return { clienteId: ficha.id, telefono: ficha.telefono };
+  }
+
+  /**
+   * Crea la ficha del paciente de ESTE informe cuando el CRM no la tiene. Pasa
+   * más de lo que parece: la importación de FileMaker dejó fuera 36.372 fichas
+   * sin celular, y son justo las que el médico sigue atendiendo.
+   *
+   * Nombre, PAC y CI salen del portal, no del navegador: lo único que aporta la
+   * asistente es el teléfono, que es lo que el CRM no puede saber.
+   */
+  async crearFicha(informeId: string, telefono: string, usuario: UsuarioJwt) {
+    await this.permitirLinea(usuario);
+    const informe = await this.publicado(informeId);
+    const [{ cliente, motivo }] = await this.clientes.reconocerPacientes([informe.paciente]);
+    /* Entre la cola y el clic alguien pudo darla de alta: no se duplica. */
+    if (cliente) throw new ConflictException('Este paciente ya tiene ficha en el CRM. Recarga la cola.');
+    if (motivo === 'CI_REPETIDO') throw new ConflictException(SIN_FICHA.CI_REPETIDO);
+    const ficha = await this.clientes.altaDesdeResultados(informe.paciente, telefono);
+    await this.audit.registrar('Cliente', ficha.id, 'FICHA_DESDE_RESULTADOS', usuario.sub, { informeId });
+    return { clienteId: ficha.id };
+  }
+
+  /**
+   * La ficha del CRM del paciente de un informe, o el porqué de que no la haya
+   * con las palabras que ve la asistente. Se reconoce en cada acción y no se
+   * confía en la fila de la pantalla: entre la cola y el clic alguien pudo
+   * corregir un CI.
+   */
+  private async fichaDe(informe: InformePublicado) {
+    const [{ cliente, motivo }] = await this.clientes.reconocerPacientes([informe.paciente]);
+    if (!cliente) throw new NotFoundException(motivo === 'CI_REPETIDO' ? SIN_FICHA.CI_REPETIDO : SIN_FICHA.SIN_COINCIDENCIA);
+    return cliente;
+  }
+
+  /** El informe tal como está publicado ahora, venza o no su enlace. */
+  private async publicado(informeId: string): Promise<InformePublicado> {
+    const informe = (await this.portal.informes({ informeId, limite: 1 })).datos[0];
+    if (!informe) throw new NotFoundException('Ese informe ya no está publicado en el portal.');
+    return informe;
+  }
+
   /** Revalida contra el portal: la pantalla del asistente puede estar vieja. */
   private async revalidar(informeId: string): Promise<InformePublicado> {
-    const cola = await this.portal.informes({ informeId, limite: 1 });
-    const informe = cola.datos[0];
-    if (!informe) {
-      throw new NotFoundException('Ese informe ya no está publicado en el portal.');
-    }
+    const informe = await this.publicado(informeId);
     if (!informe.accesoVigente) {
       throw new ConflictException('El enlace del paciente venció. Usa «Renovar y enviar».');
     }
