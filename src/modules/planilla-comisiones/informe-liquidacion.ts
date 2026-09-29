@@ -11,6 +11,8 @@
  * informe.
  */
 
+import type { AreaVendedora } from '../../prisma/prisma-client';
+
 /**
  * Lo que se suma en un pie de bloque: solo importes.
  *
@@ -76,7 +78,38 @@ export interface InformeComisiones {
   totalGeneral: TotalesBloque;
 }
 
-const AREA_MARKETING = 'PUBLICIDAD';
+/* `import type` y no el enum: este archivo es puro y sus pruebas no cargan el
+   cliente de Prisma. El `satisfies` ata igual el literal al enum del schema. */
+const AREA_MARKETING = 'PUBLICIDAD' satisfies AreaVendedora;
+
+/**
+ * Quién va en el bloque aparte de la planilla.
+ *
+ * Se decide por ÁREA y no por "tiene ventas en cero": una ejecutiva puede tener
+ * un mes malo y sigue perteneciendo a la tabla de ventas, con sus ceros, porque
+ * esos ceros son información. Marketing no comisiona por definición.
+ *
+ * Una sola definición para los tres documentos —Excel, Word y métricas—: el
+ * Excel tenía la suya con el enum y este archivo la suya con el literal.
+ */
+export function esDeMarketing(fila: { readonly area: string }): boolean {
+  return fila.area === AREA_MARKETING;
+}
+
+const MESES = [
+  'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+  'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre',
+] as const;
+
+/**
+ * El mes (1-12) con su nombre, para los títulos de los tres documentos.
+ *
+ * Estaba escrito tres veces, y con dos respaldos distintos para un mes fuera de
+ * rango: el número (Excel y Word) o `undefined` impreso en el título (métricas).
+ */
+export function nombreMes(mes: number): string {
+  return MESES[mes - 1] ?? String(mes);
+}
 
 const CLAVES: ReadonlyArray<keyof TotalesBloque> = [
   'montoVendido',
@@ -128,8 +161,8 @@ export function sumar(filas: readonly FilaInforme[]): TotalesBloque {
  * tener pie.
  */
 export function armarInforme(filas: readonly FilaInforme[]): InformeComisiones {
-  const ventas = filas.filter(f => f.area !== AREA_MARKETING);
-  const marketing = filas.filter(f => f.area === AREA_MARKETING);
+  const ventas = filas.filter(f => !esDeMarketing(f));
+  const marketing = filas.filter(esDeMarketing);
 
   return {
     ventas,

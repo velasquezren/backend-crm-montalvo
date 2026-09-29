@@ -24,6 +24,7 @@ import {
   FIRMANTES_PLANILLA,
   formatearNumero,
   InformeComisiones,
+  nombreMes,
   TotalesBloque,
 } from './informe-liquidacion';
 
@@ -63,11 +64,6 @@ const NEGRO = '000000';
 
 /** A4 vertical con márgenes de 2 cm, en twips (1 cm = 567). */
 const MARGEN = 1134;
-
-const MESES = [
-  'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
-  'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre',
-];
 
 const ESTADO_LEGIBLE: Record<string, string> = {
   BORRADOR: 'Borrador',
@@ -212,7 +208,7 @@ export class ExportacionWordService {
         spacing: { after: 240 },
         border: { bottom: { style: BorderStyle.SINGLE, size: 6, color: GRIS_FILETE, space: 6 } },
         children: [
-          new TextRun({ text: `${MESES[mes - 1] ?? mes} ${anio}`, bold: true, size: 24 }),
+          new TextRun({ text: `${nombreMes(mes)} ${anio}`, bold: true, size: 24 }),
         ],
       }),
       /* Con qué se convirtió y cuándo se emitió, en una sola línea: son el

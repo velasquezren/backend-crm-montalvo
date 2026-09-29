@@ -9,6 +9,7 @@ import {
   FilaInforme,
   formatearNumero,
   formatearPorcentaje,
+  nombreMes,
 } from './informe-liquidacion';
 
 /**
@@ -60,10 +61,6 @@ const SERIES = [
 ] as const;
 
 const MARGEN = 40;
-const MESES = [
-  'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
-  'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre',
-];
 
 type Doc = PDFKit.PDFDocument;
 
@@ -125,7 +122,7 @@ export class ExportacionMetricasService {
   ): void {
     const ancho = doc.page.width - MARGEN * 2;
 
-    this.titulo(doc, 'Métricas de Comisiones', `${MESES[periodo.mes - 1]} ${periodo.anio}`);
+    this.titulo(doc, 'Métricas de Comisiones', `${nombreMes(periodo.mes)} ${periodo.anio}`);
 
     let y = MARGEN + 62;
 

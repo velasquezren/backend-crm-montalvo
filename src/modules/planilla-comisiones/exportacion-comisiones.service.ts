@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { AreaVendedora, ClasifComision, Prisma, UnidadNegocio } from '../../prisma/prisma-client';
+import { ClasifComision, Prisma, UnidadNegocio } from '../../prisma/prisma-client';
 import { TableColumnProperties, Workbook, Worksheet } from 'exceljs';
 import { Writable } from 'stream';
 
@@ -12,6 +12,7 @@ import {
 } from './analitica-comisiones.service';
 import { CalculoComisionesService, FotoConfiguracion, LineaDesglose } from './calculo-comisiones.service';
 import { redondear } from './clasificador';
+import { esDeMarketing, nombreMes } from './informe-liquidacion';
 import { PlanCandidato, seleccionarPlanesComisionables, ultimoPrimero } from './reglas-calculo';
 
 /**
@@ -195,7 +196,7 @@ export class ExportacionComisionesService {
     hoja.columns = [{ width: 38 }, { width: 20 }, { width: 30 }];
 
     const { periodo, resumen } = informe;
-    this.titulo(hoja, `Informe de Comisiones · ${this.nombreMes(periodo.mes)} ${periodo.anio}`, 3);
+    this.titulo(hoja, `Informe de Comisiones · ${nombreMes(periodo.mes)} ${periodo.anio}`, 3);
 
     hoja.addRow([]);
     this.seccion(hoja, 'Periodo', 3);
@@ -237,7 +238,7 @@ export class ExportacionComisionesService {
      */
     /* Igual que con las dadas de baja: si el número de arriba no coincide con
        las filas de la tabla de ventas, esta línea dice por qué. */
-    const enMarketing = (consolidado?.filas ?? []).filter(esMarketing);
+    const enMarketing = (consolidado?.filas ?? []).filter(esDeMarketing);
     if (enMarketing.length > 0) {
       this.dato(
         hoja,
@@ -349,8 +350,8 @@ export class ExportacionComisionesService {
      * "Sueldo base" y "A PAGAR" sigan alineadas de arriba abajo y se puedan
      * leer de un vistazo para toda la planilla.
      */
-    const equipoVentas = consolidado.filas.filter(f => !esMarketing(f));
-    const equipoMarketing = consolidado.filas.filter(esMarketing);
+    const equipoVentas = consolidado.filas.filter(f => !esDeMarketing(f));
+    const equipoMarketing = consolidado.filas.filter(esDeMarketing);
 
     for (const f of equipoVentas) {
       const fila = hoja.addRow({
@@ -576,7 +577,7 @@ export class ExportacionComisionesService {
 
     /* Marketing fuera: no tiene ingreso de maternidad ni de RA, así que su fila
        sería once columnas en cero explicando un cubo que no le aplica. */
-    for (const f of consolidado.filas.filter(v => !esMarketing(v))) {
+    for (const f of consolidado.filas.filter(v => !esDeMarketing(v))) {
       const combinado = f.ingresoMaternidadTipoARA + f.ingresoRATipoARA;
       const objetivo = redondear(combinado - f.excedenteTipoARA);
       const escala = f.nivelTipoARA !== null ? nivelesPorNumero.get(f.nivelTipoARA) : undefined;
@@ -814,7 +815,7 @@ export class ExportacionComisionesService {
    * congelado con el que se pagó, no algo que se recalcule aquí.
    */
   private async hojasPorVendedora(libro: Workbook, consolidado: ConsolidadoPeriodo): Promise<void> {
-    const conHoja = consolidado.filas.filter(v => !esMarketing(v));
+    const conHoja = consolidado.filas.filter(v => !esDeMarketing(v));
 
     /*
      * Las ventas del mes se piden UNA vez y se agrupan en memoria.
@@ -1329,14 +1330,6 @@ export class ExportacionComisionesService {
       celda.border = { top: { style: 'medium', color: { argb: COLOR.cabecera } } };
     }
   }
-
-  private nombreMes(mes: number): string {
-    const meses = [
-      'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
-      'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre',
-    ];
-    return meses[mes - 1] ?? String(mes);
-  }
 }
 
 /* Tipos de lo que devuelven los servicios de analítica y cálculo. Se declaran
@@ -1371,14 +1364,3 @@ type VentaDeHoja = Prisma.VentaImportadaGetPayload<{
     codOrigen: true;
   };
 }>;
-
-/**
- * Quién va en el bloque aparte de la planilla.
- *
- * Se decide por ÁREA y no por "tiene ventas en cero": una ejecutiva puede tener
- * un mes malo y sigue perteneciendo a la tabla de ventas, con sus ceros, porque
- * esos ceros son información. Marketing no comisiona por definición.
- */
-function esMarketing(fila: FilaConsolidado): boolean {
-  return fila.area === AreaVendedora.PUBLICIDAD;
-}
