@@ -445,8 +445,22 @@ seguro— devolvía un 500 sobre un mensaje que **sí** se había enviado. No lo
 nadie porque la prueba de R2.1 ejercitaba el índice contra Prisma directamente y
 nunca pasaba por ese método.
 
-Hay que mirar **las dos formas**. `conversaciones.service.ts` tiene el helper
-`choqueDe()` resolviéndolo; `transaccion-periodo.ts` ya lo hacía desde antes.
+Hay que mirar **las dos formas**, y hay **un solo sitio** donde están miradas:
+`prisma/choque-unico.ts` (`candidatosDeChoqueUnico`, `tablaDelChoque`,
+`campoDeIndice`). Úsalo; no vuelvas a leer `error.meta` a mano.
+
+Vive aparte porque tenerlo dentro de un módulo no sirvió de nada: el 2026-09-29
+apareció **la segunda víctima de lo mismo**, `traducirChoqueUnico` de Clientes,
+que llevaba muerta desde la migración a Prisma 7 sin que nadie lo notara. Un
+teléfono repetido —el caso más corriente de recepción, corregir el número de una
+paciente— devolvía el error crudo de Prisma en vez del 409 que explica de quién
+es ese número. El helper de Conversaciones ya tenía la respuesta a 700 líneas de
+distancia; por eso ahora es compartido y tiene prueba propia con un volcado
+literal del error, no una forma inventada.
+
+Si el 409 va a llegar a una pantalla, manda también **qué campo** chocó en el
+cuerpo (`{ message, campo }`): sin eso la interfaz tiene que deducirlo del texto
+del mensaje, y un choque de PAC acaba señalando la casilla del teléfono.
 
 Y la lección de fondo, que vale para cualquier módulo: **probar que el índice
 único rebota NO es probar lo que tu código hace con el rebote.** Eso se prueba
