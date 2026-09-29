@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+
 /** Lo que el CRM quiere avisar; la forma que viaja la decide `cuerpoPush`. */
 export interface PushNotificationPayload {
   titulo: string;
@@ -5,7 +7,20 @@ export interface PushNotificationPayload {
   url?: string;
   tag?: string;
   count?: number;
+  /** Cuánto vale el aviso si llega tarde. Ver `opcionesEntrega`. */
+  entrega?: {
+    /** Segundos que el servicio de push lo guarda si el teléfono no está. */
+    vigenciaSegundos?: number;
+    /** Despierta al teléfono aunque esté en ahorro de batería. */
+    urgente?: boolean;
+  };
 }
+
+/**
+ * Una hora: si en ese tiempo no llegó al teléfono, la bandeja ya lo muestra
+ * en «Sin responder», y llegar después solo suma ruido. Ver `opcionesEntrega`.
+ */
+export const VIGENCIA_POR_DEFECTO_S = 60 * 60;
 
 const URL_POR_DEFECTO = '/conversaciones';
 const ICONO = '/web-app-manifest-192x192.png';
@@ -64,4 +79,38 @@ export function cuerpoPush(payload: PushNotificationPayload): string {
     tag: payload.tag,
     count: payload.count,
   });
+}
+
+/**
+ * Las cabeceras de entrega del Web Push (RFC 8030 §5): cuánto se guarda el
+ * aviso si el teléfono no está, con qué prioridad, y cuál reemplaza a cuál.
+ *
+ * **Por qué no se dejan los valores de `web-push`.** Sin opciones, la librería
+ * manda `TTL` de **cuatro semanas** y ningún `Topic`. Un teléfono apagado el
+ * fin de semana recibía el lunes la ráfaga entera, un aviso por cada mensaje
+ * viejo que la bandeja ya mostraba: justo el ruido que acaba con las
+ * notificaciones desactivadas.
+ *
+ * - `TTL`: por defecto una hora (`VIGENCIA_POR_DEFECTO_S`). Quien necesite más
+ *   —un aviso de plataforma que solo un admin resuelve— lo pide.
+ * - `Topic`: sale del `tag`. Mientras un aviso espera en el servicio de push,
+ *   uno nuevo con el mismo topic lo **reemplaza** en vez de ponerse en cola: al
+ *   reconectar llega solo el último de cada chat. Es lo mismo que ya hace el
+ *   `tag` en pantalla, pero antes de gastar la batería de la entrega. La RFC
+ *   pide como mucho 32 caracteres del alfabeto base64url, y `chat-<uuid>` tiene
+ *   41; por eso es un hash del tag y no el tag.
+ * - `Urgency`: `high` solo para lo que tiene a alguien esperando. En Android es
+ *   lo que decide si el aviso atraviesa el modo de ahorro de batería o espera
+ *   a la siguiente ventana de mantenimiento. Todo lo demás, `normal`.
+ */
+export function opcionesEntrega(payload: PushNotificationPayload): {
+  TTL: number;
+  urgency: 'normal' | 'high';
+  topic?: string;
+} {
+  return {
+    TTL: payload.entrega?.vigenciaSegundos ?? VIGENCIA_POR_DEFECTO_S,
+    urgency: payload.entrega?.urgente ? 'high' : 'normal',
+    ...(payload.tag ? { topic: createHash('sha256').update(payload.tag).digest('base64url').slice(0, 32) } : {}),
+  };
 }

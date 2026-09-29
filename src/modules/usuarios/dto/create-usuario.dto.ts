@@ -9,6 +9,22 @@ export class CreateUsuarioDto {
   @IsUUID('all', { each: true })
   lineaIds?: string[];
 
+  /**
+   * Las líneas asignadas cuyos mensajes NO le suenan: los sigue viendo, pero
+   * sin push ni aviso en la pestaña (salvo los chats que sean suyos). Tiene
+   * que ser un subconjunto de sus líneas.
+   *
+   * Ausente = se conserva lo que tenía. Por eso no basta con `lineaIds`: la
+   * edición reescribe los accesos, y sin este campo cada vez que un admin
+   * guardara la ficha le volverían a sonar las líneas que había silenciado.
+   */
+  @IsOptional()
+  @IsArray()
+  @ArrayUnique()
+  @ArrayMaxSize(100)
+  @IsUUID('all', { each: true })
+  lineasSilenciadas?: string[];
+
   @IsString()
   @MinLength(2)
   nombre!: string;

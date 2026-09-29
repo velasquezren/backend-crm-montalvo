@@ -1,5 +1,19 @@
 # Estado actual
 
+## Actualización del 29 de septiembre de 2026
+
+- **Avisos por línea.** Un SUPER_ADMIN puede apagar, por agente y por línea, los
+  avisos de mensajes nuevos (Agentes → editar → «Avisos de mensajes nuevos»). La
+  agente sigue viendo esos chats; solo le suenan los que tenga asignados. Pensado
+  para las agentes de ventas que también cubren Recepción. Regla en
+  `LineasWhatsappService.audiencia`; skill `crm-backend-module`, «Líneas de WhatsApp».
+- **Push con caducidad.** Los avisos de chat caducan en una hora y se reemplazan por
+  chat en el servicio de push (`opcionesEntrega`). Antes duraban cuatro semanas.
+- **Teléfono repetido = 409 con nombre.** La traducción del P2002 llevaba muerta desde
+  Prisma 7; lector único en `prisma/choque-unico.ts`.
+- **Portal de Resultados vaciado de pruebas** (con OK del propietario) y el PAC
+  `PRUEBA-7761` retirado de la ficha real: el pendiente nº 3 de abajo está hecho.
+
 ## Para continuar en otra máquina (cierre del 23 de septiembre de 2026)
 
 **Todo está limpio, en `main` y desplegado.** Ningún repositorio tiene cambios

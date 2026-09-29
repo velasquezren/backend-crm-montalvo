@@ -14,10 +14,7 @@ import {
   PaginationDto,
 } from "../../common/dto/pagination.dto";
 import { CredencialesWhatsapp } from "../../common/whatsapp/whatsapp-cloud.service";
-import {
-  LINEA_COMERCIAL_INICIAL,
-  SELECT_LINEA,
-} from "../conversaciones/acceso-conversacion";
+import { LINEA_COMERCIAL_INICIAL } from "../conversaciones/acceso-conversacion";
 import { ActualizarLineaDto } from "./dto/actualizar-linea.dto";
 
 @Injectable()
@@ -205,42 +202,71 @@ export class LineasWhatsappService {
     return { ok: true };
   }
 
-  /** Los mismos permisos que REST. Se releen en cada aviso y no se cachean. */
-  async destinatarios(conversacionId: string) {
+  /**
+   * Quién ve esta conversación en vivo (`ven`) y a quién, además, le suena
+   * (`avisar`). Los mismos permisos que REST; se releen en cada aviso y no se
+   * cachean, porque quitarle una línea a alguien tiene que cortarle los avisos
+   * en el acto.
+   *
+   * **Son dos listas y no una a propósito.** Silenciar una línea no puede
+   * quitarte de `ven`: el socket es también lo que refresca la bandeja, y una
+   * agente que cubre Recepción con los avisos apagados tiene que seguir viendo
+   * llegar esos chats — solo que sin que le suenen. Si el silencio recortara
+   * `ven`, su bandeja se quedaría congelada sin que nadie supiera por qué.
+   *
+   * Lo que es SUYO avisa aunque la línea esté silenciada: el chat asignado a
+   * ella, o en la comercial la paciente de su cartera. Silenciar quita el ruido
+   * del pool, no su trabajo — igual que en Slack un canal silenciado sigue
+   * avisando cuando te mencionan.
+   *
+   * Sin membresía (los admins ven todo por rol) no hay nada que silenciar y se
+   * avisa como siempre.
+   */
+  async audiencia(conversacionId: string): Promise<{ ven: string[]; avisar: string[] }> {
+    const conversacion = await this.prisma.conversacion.findUnique({
+      where: { id: conversacionId },
+      select: {
+        lineaId: true,
+        agenteId: true,
+        linea: { select: { comercial: true } },
+        cliente: { select: { agenteId: true } },
+      },
+    });
+    if (!conversacion) return { ven: [], avisar: [] };
+
+    const { lineaId, agenteId, linea, cliente } = conversacion;
     const usuarios = await this.prisma.usuario.findMany({
       where: {
         activo: true,
         OR: [
           { rol: { in: ["ADMIN", "SUPER_ADMIN"] } },
-          {
-            lineasWhatsapp: {
-              some: {
-                linea: { conversaciones: { some: { id: conversacionId } } },
-              },
-            },
-          },
+          { lineasWhatsapp: { some: { lineaId } } },
         ],
       },
-      select: { id: true, rol: true },
-    });
-    const conversacion = await this.prisma.conversacion.findUnique({
-      where: { id: conversacionId },
-      include: {
-        linea: { select: SELECT_LINEA },
-        cliente: { select: { agenteId: true } },
+      select: {
+        id: true,
+        rol: true,
+        lineasWhatsapp: { where: { lineaId }, select: { notificar: true } },
       },
     });
-    if (!conversacion) return [];
-    return usuarios
-      .filter(
-        (u) =>
-          tieneAlcanceGlobal(u.rol) ||
-          esRolOperativo(u.rol) ||
-          conversacion.agenteId === null ||
-          conversacion.agenteId === u.id ||
-          (conversacion.linea.comercial &&
-            conversacion.cliente.agenteId === u.id),
-      )
-      .map((u) => u.id);
+
+    const esSuya = (id: string) =>
+      agenteId === id || (linea.comercial && cliente.agenteId === id);
+    const ven = usuarios.filter(
+      (u) =>
+        tieneAlcanceGlobal(u.rol) ||
+        esRolOperativo(u.rol) ||
+        agenteId === null ||
+        esSuya(u.id),
+    );
+    const avisar = ven.filter(
+      (u) => u.lineasWhatsapp[0]?.notificar !== false || esSuya(u.id),
+    );
+    return { ven: ven.map((u) => u.id), avisar: avisar.map((u) => u.id) };
+  }
+
+  /** Quién ve la conversación. Para saber a quién le suena, `audiencia`. */
+  async destinatarios(conversacionId: string): Promise<string[]> {
+    return (await this.audiencia(conversacionId)).ven;
   }
 }

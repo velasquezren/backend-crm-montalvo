@@ -4,7 +4,7 @@ import { PushSubscription, Rol } from '../../prisma/prisma-client';
 import * as webpush from 'web-push';
 
 import { PrismaService } from '../../prisma/prisma.service';
-import { cuerpoPush, PushNotificationPayload } from './cuerpo-push';
+import { cuerpoPush, opcionesEntrega, PushNotificationPayload } from './cuerpo-push';
 import { SuscribirPushDto } from './dto/suscribir-push.dto';
 
 export type { PushNotificationPayload };
@@ -155,6 +155,7 @@ export class PushService implements OnModuleInit {
     /* La forma la decide `cuerpoPush`, y no es cosmética: el Service Worker de
        Angular descarta en silencio un payload sin `notification.title`. */
     const cuerpo = cuerpoPush(payload);
+    const opciones = opcionesEntrega(payload);
 
     await Promise.all(
       subs.map(async sub => {
@@ -162,6 +163,7 @@ export class PushService implements OnModuleInit {
           await webpush.sendNotification(
             { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
             cuerpo,
+            opciones,
           );
         } catch (err: unknown) {
           const error = err as { statusCode?: number; message?: string };

@@ -740,3 +740,18 @@ ventas. Si otra función necesita "este rol sí, aquel no" a través de la jerar
 lista junto a `ROLES_OPERATIVOS` en `common/auth/roles.ts`; no la escribas en el service.
 
 `RECEPCION` tiene acceso a conversaciones, perfil, push y recursos propios. Las rutas sin `@Roles` requieren `AGENTE`; los endpoints públicos conservan `@Public`. `ADMIN` y `SUPER_ADMIN` tienen alcance global. Las demás cuentas necesitan membresía explícita `AccesoLineaWhatsapp` además del alcance de asignación. Recepción no admite membresía comercial. La identidad de un chat es `(clienteId, lineaId)`. No usar solo clienteId ni credenciales globales para enviar. El webhook resuelve `metadata.phone_number_id` y confirma HTTP después de persistir, devolviendo 503 si falla un elemento para permitir reintento — **salvo que el número receptor no esté registrado, que se descarta con 200** (ver «Un 503 solo vale para fallos transitorios»). Reasignar un chat no cambia el cliente ni los leads.
+
+**Ver una línea y que te suene son dos cosas (2026-09-29).** `AccesoLineaWhatsapp.notificar`
+decide si los mensajes de esa línea le suenan a esa cuenta —push y aviso en la pestaña—; no
+toca qué ve. `LineasWhatsappService.audiencia()` devuelve las dos listas: `ven` (refresco de
+bandeja por socket) y `avisar` (marca `entrante` + push). **Nunca silencies recortando `ven`**:
+el socket es también lo que refresca la bandeja, y quien silenció Recepción tiene que seguir
+viendo llegar esos chats. Lo suyo avisa aunque la línea calle: el chat asignado a ella, o en la
+comercial la paciente de su cartera. Lo administra SUPER_ADMIN con `lineasSilenciadas` en
+`PATCH /usuarios/:id`; ausente, se conserva lo que había — la edición reescribe los accesos, y
+sin ese cuidado guardar la ficha volvía a encender lo silenciado. Cambiar el silencio **no**
+incrementa `versionSesion` (no toca permisos); cambiar el conjunto de líneas sí.
+
+Los avisos salen con TTL, `Topic` y `Urgency` explícitos (`opcionesEntrega` en
+`common/push/cuerpo-push.ts`). Sin opciones, `web-push` guarda cada aviso **cuatro semanas**:
+un teléfono apagado el fin de semana recibía el lunes uno por cada mensaje viejo.

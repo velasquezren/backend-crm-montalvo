@@ -594,6 +594,8 @@ export class ActividadesService implements OnModuleInit, OnModuleDestroy {
         mensaje: `${actividad.titulo} — ${actividad.cliente.nombre}`,
         url: '/actividades',
         tag: `actividad-${actividad.id}`,
+        /* Un recordatorio es de AHORA: a destiempo ya no recuerda nada. */
+        entrega: { urgente: true },
       });
       this.realtimeGateway.emitirRecordatorioActividad(actividad.id, actividad.agenteId);
       await this.prisma.actividad.update({

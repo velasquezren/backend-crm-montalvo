@@ -822,3 +822,105 @@ it('recepción agenda pacientes de sus líneas, con actividades personales y sin
   expect((await http('recepcion', `/actividades/${id}/estado`, 'PATCH', { estado: 'COMPLETADA' })).status).toBe(200);
   for (const ruta of ['/clientes', '/usuarios']) expect((await http('recepcion', ruta)).status).toBe(403);
 });
+
+/**
+ * Ver una línea y que te suene son cosas distintas.
+ *
+ * En producción, dos agentes de ventas cubren también Recepción, y a una de
+ * ellas le sonaban ~1.500 mensajes al mes que no eran suyos. Silenciar la
+ * línea tiene que quitarle ESO sin quitarle nada más: sigue viendo los chats
+ * (y su bandeja se sigue refrescando), y lo que es suyo le sigue sonando.
+ */
+async function socketDe(actor: string) {
+  const ws = new WebSocket(base.replace("http:", "ws:") + "/socket.io/?EIO=4&transport=websocket");
+  const paquetes: string[] = [];
+  ws.addEventListener("message", (e) => {
+    const p = String(e.data);
+    paquetes.push(p);
+    if (p.startsWith("0")) ws.send("40/realtime," + JSON.stringify({ token: usuarios[actor].token }));
+    if (p === "2") ws.send("3");
+  });
+  await esperar(() => paquetes.some((p) => p.startsWith("40/realtime,")));
+  return { ws, paquetes };
+}
+
+it('con la línea silenciada la agente sigue viendo el pool, pero solo le suena lo suyo', async () => {
+  await prisma.accesoLineaWhatsapp.create({ data: { usuarioId: usuarios.ventas.id, lineaId: CLIMON, notificar: false } });
+  const lineas = app.get(LineasWhatsappService);
+
+  const pool = await lineas.audiencia(clinico);
+  expect(pool.ven).toContain(usuarios.ventas.id);
+  expect(pool.avisar).not.toContain(usuarios.ventas.id);
+  /* El silencio es de ELLA: a recepción, que no silenció nada, le sigue sonando. */
+  expect(pool.avisar).toContain(usuarios.recepcion.id);
+  expect(await lineas.destinatarios(clinico)).toEqual(pool.ven);
+
+  /* Asignado a ella deja de ser ruido del pool: suena aunque la línea calle. */
+  await prisma.conversacion.update({ where: { id: clinico }, data: { agenteId: usuarios.ventas.id } });
+  expect((await lineas.audiencia(clinico)).avisar).toContain(usuarios.ventas.id);
+});
+
+it('en vivo: a quien silenció, la bandeja se le refresca sin sonar y el teléfono no recibe push', async () => {
+  await prisma.accesoLineaWhatsapp.create({ data: { usuarioId: usuarios.ventas.id, lineaId: CLIMON, notificar: false } });
+  const silenciada = await socketDe("ventas");
+  const control = await socketDe("recepcion");
+  try {
+    expect((await webhook("102", "wamid.linea-silenciada", "59179991001")).status).toBe(200);
+
+    /* El control sí suena. Las dos emisiones salen del MISMO recorrido de
+       sockets, así que cuando llega la suya la de la agente ya se envió. */
+    await esperar(() => control.paquetes.some((p) => p.includes(clinico) && p.includes('"entrante":true')));
+    await esperar(() => silenciada.paquetes.some((p) => p.includes(clinico)));
+    await new Promise((r) => setTimeout(r, 100));
+    expect(silenciada.paquetes.filter((p) => p.includes(clinico)).some((p) => p.includes('"entrante":true'))).toBe(false);
+
+    await esperar(() => push.enviarAUsuario.mock.calls.some(([id]) => id === usuarios.recepcion.id));
+    expect(push.enviarAUsuario.mock.calls.map(([id]) => id)).not.toContain(usuarios.ventas.id);
+  } finally {
+    silenciada.ws.close();
+    control.ws.close();
+  }
+});
+
+it('el admin silencia sin sacar a la agente del CRM, y guardar la ficha no lo deshace', async () => {
+  const ruta = `/usuarios/${usuarios.ventas.id}`;
+  const relogin = async () => {
+    usuarios.ventas.token = (await app.get(AuthService).login({ email: "ventas@lineas.test", password })).access_token;
+  };
+  const accesos = async () =>
+    Object.fromEntries(
+      (await prisma.accesoLineaWhatsapp.findMany({ where: { usuarioId: usuarios.ventas.id } }))
+        .map((a) => [a.lineaId, a.notificar]),
+    );
+
+  /* Darle una línea SÍ cambia permisos: revoca la sesión, como siempre. */
+  expect((await http("super", ruta, "PATCH", { lineaIds: [VENTAS, CLIMON] })).status).toBe(200);
+  expect((await http("ventas", "/conversaciones")).status).toBe(401);
+  await relogin();
+
+  /* Silenciarla no: sigue dentro. */
+  const silencio = await http("super", ruta, "PATCH", { lineasSilenciadas: [CLIMON] });
+  expect(silencio.status).toBe(200);
+  expect(silencio.body.lineasWhatsapp).toEqual(expect.arrayContaining([
+    { lineaId: CLIMON, notificar: false },
+    { lineaId: VENTAS, notificar: true },
+  ]));
+  expect((await http("ventas", "/conversaciones")).status).toBe(200);
+  expect(await prisma.auditLog.count({ where: { entidadId: usuarios.ventas.id, accion: "AVISOS_LINEAS" } })).toBe(1);
+
+  /* Lo que manda la pantalla al guardar la ficha: las MISMAS líneas y un
+     nombre. Antes eso reescribía los accesos —el silencio volvía a sonar— y
+     además cerraba la sesión de la agente. */
+  expect((await http("super", ruta, "PATCH", { nombre: "ventas", lineaIds: [CLIMON, VENTAS] })).status).toBe(200);
+  expect(await accesos()).toEqual({ [VENTAS]: true, [CLIMON]: false });
+  expect((await http("ventas", "/conversaciones")).status).toBe(200);
+
+  /* Silenciar lo que no ve no significa nada, y crearía la fila de acceso. */
+  expect((await http("super", ruta, "PATCH", { lineasSilenciadas: [RECEPCION] })).status).toBe(400);
+  expect(await accesos()).toEqual({ [VENTAS]: true, [CLIMON]: false });
+
+  /* Quitarle la línea se lleva su silencio: si vuelve, vuelve sonando. */
+  expect((await http("super", ruta, "PATCH", { lineaIds: [VENTAS] })).status).toBe(200);
+  expect((await http("super", ruta, "PATCH", { lineaIds: [VENTAS, CLIMON] })).status).toBe(200);
+  expect(await accesos()).toEqual({ [VENTAS]: true, [CLIMON]: true });
+});

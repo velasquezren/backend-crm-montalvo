@@ -1,5 +1,4 @@
 import { LineasWhatsappService } from '../lineas-whatsapp/lineas-whatsapp.service';
-import { cubreRol } from '../../common/auth/roles';
 import { Logger, UnauthorizedException } from '@nestjs/common';
 import {
   OnGatewayConnection,
@@ -63,19 +62,32 @@ export class ConversacionesGateway implements OnGatewayInit, OnGatewayConnection
     this.sesiones.delete(client.id);
   }
 
-  private async emitirAutenticados(evento: string, payload: object, conversacionId?: string, usuarioId?: string): Promise<void> {
+  /**
+   * Emite a cada socket con sesión vigente que pase `aQuien`, con el payload
+   * que le toca a ESA usuaria.
+   *
+   * El payload es por usuaria porque un mismo mensaje de la paciente no es lo
+   * mismo para todas: a quien silenció la línea le llega el refresco de la
+   * bandeja sin la marca `entrante`, que es la que hace sonar la pestaña. Así
+   * el push y el aviso en pantalla obedecen a la misma regla —`audiencia`— en
+   * vez de a dos que acabarían divergiendo.
+   */
+  private async emitirAutenticados(
+    evento: string,
+    aQuien: (acceso: AccesoAutenticado) => boolean,
+    payloadPara: (usuarioId: string) => object,
+  ): Promise<void> {
     if (!this.server) return;
     const clientes = [...this.server.sockets.values()];
     const accesos = clientes.flatMap(c => {
       const sesion = this.sesiones.get(c.id);
       return sesion ? [sesion.acceso] : [];
     });
-    const permitidos = conversacionId ? new Set(await this.lineas.destinatarios(conversacionId)) : null;
     const vigentes = await this.authService.accesosVigentes(accesos);
     for (const client of clientes) {
       const acceso = this.sesiones.get(client.id)?.acceso;
       if (!acceso || !vigentes.has(acceso) || acceso.exp * 1000 <= Date.now()) client.disconnect(true);
-      else if (client.connected && (usuarioId ? acceso.sub === usuarioId : permitidos ? permitidos.has(acceso.sub) : cubreRol(acceso.rol, 'AGENTE'))) client.emit(evento, payload);
+      else if (client.connected && aQuien(acceso)) client.emit(evento, payloadPara(acceso.sub));
     }
   }
 
@@ -86,12 +98,13 @@ export class ConversacionesGateway implements OnGatewayInit, OnGatewayConnection
    * acuse de entrega de Meta, la media que termina de subir—. Por eso **no
    * manda notificación push**: ver `notificarEntrante`.
    */
-  emitirActividad(conversacionId: string, entrante = false): void {
-    /* `entrante` viaja para que la pestaña abierta distinga «escribió el
-       paciente» de «cambió algo» y solo avise y suene en lo primero. Sin él,
-       el navegador repetía en pantalla el error que este gateway corrigió en
-       el push: cada tick de entrega sonaba como un mensaje nuevo. */
-    void this.emitirAutenticados('conversacion:actividad', { conversacionId, ...(entrante ? { entrante: true } : {}) }, conversacionId).catch(() => this.logger.warn('No se pudo difundir la conversación'));
+  emitirActividad(conversacionId: string): void {
+    void this.lineas.destinatarios(conversacionId)
+      .then(ven => {
+        const alcanzadas = new Set(ven);
+        return this.emitirAutenticados('conversacion:actividad', a => alcanzadas.has(a.sub), () => ({ conversacionId }));
+      })
+      .catch(() => this.logger.warn('No se pudo difundir la conversación'));
   }
 
   /**
@@ -105,14 +118,13 @@ export class ConversacionesGateway implements OnGatewayInit, OnGatewayConnection
    * y entonces tampoco suena la que sí importaba.
    *
    * Con dueña, solo a ella; sin dueña, la conversación está en el pool y le
-   * toca a quien la agarre primero.
+   * toca a quien la agarre primero — salvo a quien silenció esa línea, que la
+   * sigue viendo llegar sin que le suene. Ver `LineasWhatsappService.audiencia`.
    */
   notificarEntrante(
     conversacionId: string,
     info: { clienteNombre?: string; texto?: string; agenteId?: string | null },
   ): void {
-    this.emitirActividad(conversacionId, true);
-
     const aviso = {
       titulo: info.clienteNombre ? `WhatsApp: ${info.clienteNombre}` : 'Mensaje de WhatsApp',
       mensaje: resumir(info.texto) ?? 'Tienes un mensaje nuevo',
@@ -120,14 +132,31 @@ export class ConversacionesGateway implements OnGatewayInit, OnGatewayConnection
       /* Mismo `tag` por conversación: cinco mensajes seguidos reemplazan la
          notificación anterior en vez de apilar cinco en la pantalla. */
       tag: `chat-${conversacionId}`,
+      /* Hay una paciente esperando: que atraviese el ahorro de batería. La
+         vigencia es la de por defecto, una hora — después la bandeja ya lo
+         muestra y el aviso tarde solo es ruido. */
+      entrega: { urgente: true },
     };
 
-    void this.lineas.destinatarios(conversacionId).then(async ids => {
-      for (let i = 0; i < ids.length; i += 5) {
-        await Promise.all(ids.slice(i, i + 5).map(id => this.pushService.enviarAUsuario(id, aviso)));
-      }
-    }).catch(() => this.logger.warn('No se pudo notificar la conversación'));
+    /* Una sola consulta de audiencia para las dos salidas. `ven` recibe el
+       refresco de la bandeja; solo `avisar` recibe la marca que hace sonar la
+       pestaña y el push al teléfono. Van por separado para que un fallo en una
+       no se lleve la otra: sin socket, el teléfono aún debe sonar. */
+    void this.lineas.audiencia(conversacionId).then(({ ven, avisar }) => {
+      const alcanzadas = new Set(ven);
+      const suenan = new Set(avisar);
+      void this.emitirAutenticados(
+        'conversacion:actividad',
+        a => alcanzadas.has(a.sub),
+        sub => ({ conversacionId, ...(suenan.has(sub) ? { entrante: true } : {}) }),
+      ).catch(() => this.logger.warn('No se pudo difundir la conversación'));
 
+      void (async () => {
+        for (let i = 0; i < avisar.length; i += 5) {
+          await Promise.all(avisar.slice(i, i + 5).map(id => this.pushService.enviarAUsuario(id, aviso)));
+        }
+      })().catch(() => this.logger.warn('No se pudo notificar la conversación'));
+    }).catch(() => this.logger.warn('No se pudo calcular quién recibe la conversación'));
   }
 
   /**
@@ -146,7 +175,7 @@ export class ConversacionesGateway implements OnGatewayInit, OnGatewayConnection
    * no dos conexiones por pestaña.
    */
   emitirRecordatorioActividad(actividadId: string, agenteId: string): void {
-    void this.emitirAutenticados('actividad:recordatorio', { actividadId, agenteId }, undefined, agenteId)
+    void this.emitirAutenticados('actividad:recordatorio', a => a.sub === agenteId, () => ({ actividadId, agenteId }))
       .catch(() => this.logger.warn('No se pudo difundir el recordatorio'));
   }
 }

@@ -1,4 +1,7 @@
-import { cuerpoPush } from './cuerpo-push';
+import { createECDH, randomBytes } from 'node:crypto';
+import * as webpush from 'web-push';
+
+import { cuerpoPush, opcionesEntrega, VIGENCIA_POR_DEFECTO_S } from './cuerpo-push';
 
 /**
  * F09 — que el aviso llegue al teléfono en vez de morir en silencio.
@@ -107,5 +110,67 @@ describe('cuerpoPush', () => {
     expect(cuerpo.mensaje).toBe('Ana García: hola, quería consultar');
     expect(cuerpo.url).toBe('/conversaciones/abc');
     expect(cuerpo.count).toBe(3);
+  });
+});
+
+/**
+ * Las cabeceras de entrega (RFC 8030). Sin opciones, `web-push` manda TTL de
+ * cuatro semanas: un teléfono apagado el fin de semana recibía el lunes un
+ * aviso por cada mensaje viejo.
+ */
+describe('opcionesEntrega', () => {
+  const base = { titulo: 'WhatsApp: Ana', mensaje: 'Hola', tag: 'chat-3f2b8c1e-9d4a-4e7b-8c2d-1a5f6e7b8c9d' };
+
+  it('por defecto el aviso caduca en una hora, no en las cuatro semanas de la librería', () => {
+    expect(opcionesEntrega(base).TTL).toBe(VIGENCIA_POR_DEFECTO_S);
+    expect(VIGENCIA_POR_DEFECTO_S).toBe(3600);
+  });
+
+  it('quien necesita más vigencia la pide', () => {
+    expect(opcionesEntrega({ ...base, entrega: { vigenciaSegundos: 86400 } }).TTL).toBe(86400);
+  });
+
+  it('solo lo urgente despierta al teléfono', () => {
+    expect(opcionesEntrega(base).urgency).toBe('normal');
+    expect(opcionesEntrega({ ...base, entrega: { urgente: true } }).urgency).toBe('high');
+  });
+
+  /* `web-push` LANZA si el topic pasa de 32 caracteres o sale del alfabeto
+     base64url, y `chat-<uuid>` tiene 41: mandar el tag tal cual rompería todos
+     los avisos de chat, no solo el reemplazo. */
+  it('el topic cabe en lo que exige la RFC y es estable por tag', () => {
+    const topic = opcionesEntrega(base).topic;
+    expect(topic).toMatch(/^[A-Za-z0-9_-]{1,32}$/);
+    expect(opcionesEntrega(base).topic).toBe(topic);
+    expect(opcionesEntrega({ ...base, tag: 'chat-otra' }).topic).not.toBe(topic);
+  });
+
+  /* Lo de arriba solo prueba nuestra función. Esto pasa las opciones por la
+     librería real, que valida y arma las cabeceras sin tocar la red: si un día
+     rechaza el topic, falla aquí y no en el teléfono de una agente. */
+  it('web-push las acepta y salen como cabeceras de la RFC', () => {
+    const cliente = createECDH('prime256v1');
+    cliente.generateKeys();
+    const vapid = webpush.generateVAPIDKeys();
+    const detalles = webpush.generateRequestDetails(
+      {
+        endpoint: 'https://fcm.googleapis.com/fcm/send/prueba',
+        keys: { p256dh: cliente.getPublicKey('base64url'), auth: randomBytes(16).toString('base64url') },
+      },
+      cuerpoPush(base),
+      {
+        ...opcionesEntrega({ ...base, entrega: { urgente: true } }),
+        vapidDetails: { subject: 'mailto:prueba@montalvo.test', publicKey: vapid.publicKey, privateKey: vapid.privateKey },
+      },
+    );
+    expect(detalles.headers).toMatchObject({
+      TTL: 3600,
+      Urgency: 'high',
+      Topic: opcionesEntrega(base).topic,
+    });
+  });
+
+  it('sin tag no hay topic: nada que reemplazar', () => {
+    expect(opcionesEntrega({ titulo: 'x', mensaje: 'y' }).topic).toBeUndefined();
   });
 });

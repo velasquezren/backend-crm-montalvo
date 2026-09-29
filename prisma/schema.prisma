@@ -278,6 +278,15 @@ model AccesoLineaWhatsapp {
   lineaId   String
   usuario   Usuario @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
   linea     LineaWhatsapp @relation(fields: [lineaId], references: [id], onDelete: Cascade)
+  /// Si los mensajes de esta línea le suenan (push y aviso en la pestaña).
+  ///
+  /// Ver una línea y que te avise son cosas distintas. Una agente de ventas
+  /// que también cubre Recepción necesita VER esos chats, pero que le suene
+  /// cada uno de los ~1.500 mensajes al mes que no son suyos es cómo se acaba
+  /// desactivando la notificación del teléfono entero —y entonces tampoco le
+  /// suenan sus pacientes—. Un chat asignado a ella avisa igual: silenciar
+  /// quita el ruido del pool, no lo que es suyo. Ver `LineasWhatsappService.audiencia`.
+  notificar Boolean @default(true)
 
   @@id([usuarioId, lineaId])
   @@index([lineaId])

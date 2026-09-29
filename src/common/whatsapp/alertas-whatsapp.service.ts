@@ -70,6 +70,9 @@ export class AlertasWhatsappService {
           /* Un `tag` por tipo de aviso: si Meta repite el mismo evento, la
              notificación se reemplaza en vez de apilarse. */
           tag: `wa-${field}`,
+          /* Una restricción de Meta sigue siendo verdad mañana: que no se
+             pierda porque el teléfono del admin estaba apagado esta noche. */
+          entrega: { vigenciaSegundos: 24 * 60 * 60 },
         });
       } catch (error) {
         this.logger.error('No se pudo notificar el aviso de WhatsApp a los admins', error);
