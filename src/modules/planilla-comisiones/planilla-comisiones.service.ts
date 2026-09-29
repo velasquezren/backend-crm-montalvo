@@ -33,7 +33,7 @@ import {
   MOTIVO_BLOQUEO,
   transicionPermitida,
 } from './estados-periodo';
-import { ActualizarVendedoraDto, CrearVendedoraDto } from './dto/configuracion.dto';
+import { ActualizarVendedoraDto, CrearReglaDto, CrearVendedoraDto } from './dto/configuracion.dto';
 import { AjustarVentaDto, ImportarExcelDto, QueryPeriodosDto, QueryVentasImportadasDto } from './dto/planilla.dto';
 import { deducirPeriodo, leerExcel } from './excel-parser';
 import { ResumenAnualService } from './resumen-anual.service';
@@ -1113,6 +1113,23 @@ export class PlanillaComisionesService {
     this.invalidarCachesDelPeriodo(destino.periodoId);
 
     return actualizada;
+  }
+
+  /**
+   * Crea la regla del diccionario Y la aplica de inmediato a las filas de
+   * cualquier periodo abierto que ya estaban importadas sin clasificar y
+   * calzan con ella — no solo a la próxima importación. Antes había que
+   * reimportar el mes para que "Clasificar como…" surtiera efecto; recalcular
+   * el mismo periodo no volvía a leer el diccionario.
+   *
+   * Vivía en el controller, que coordinaba dos servicios. Son dos pasos y no
+   * una transacción: si la reclasificación falla, la regla ya quedó creada y
+   * la respuesta es el error, igual que antes de moverlo.
+   */
+  async crearReglaYAplicar(dto: CrearReglaDto, usuarioId: string) {
+    const regla = await this.configuracion.crearRegla(dto);
+    const filasActualizadas = await this.reclasificarConRegla(regla, usuarioId);
+    return { ...regla, filasActualizadas };
   }
 
   /**

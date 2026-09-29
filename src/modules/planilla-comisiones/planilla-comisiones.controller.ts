@@ -516,20 +516,11 @@ export class PlanillaComisionesController {
 
   /* ── Diccionario de clasificación ───────────────────────────────────── */
 
-  /**
-   * Crea la regla del diccionario Y la aplica de inmediato a las filas de
-   * cualquier periodo abierto que ya estaban importadas sin clasificar y
-   * calzan con ella — no solo a la próxima importación. Antes había que
-   * reimportar el mes para que "Clasificar como…" surtiera efecto; recalcular
-   * el mismo periodo no volvía a leer el diccionario. Ver
-   * `PlanillaComisionesService.reclasificarConRegla`.
-   */
+  /** Crea la regla y la aplica a lo ya importado. Ver `crearReglaYAplicar`. */
   @Post('configuracion/reglas')
   @Roles('SUPER_ADMIN')
-  async crearRegla(@Body() dto: CrearReglaDto, @CurrentUser() usuario: UsuarioJwt) {
-    const regla = await this.configuracion.crearRegla(dto);
-    const filasActualizadas = await this.planilla.reclasificarConRegla(regla, usuario.sub);
-    return { ...regla, filasActualizadas };
+  crearRegla(@Body() dto: CrearReglaDto, @CurrentUser() usuario: UsuarioJwt) {
+    return this.planilla.crearReglaYAplicar(dto, usuario.sub);
   }
 
   @Patch('configuracion/reglas/:id')
