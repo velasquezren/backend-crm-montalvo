@@ -845,7 +845,8 @@ async function socketDe(actor: string) {
 }
 
 it('con la línea silenciada la agente sigue viendo el pool, pero solo le suena lo suyo', async () => {
-  await prisma.accesoLineaWhatsapp.create({ data: { usuarioId: usuarios.ventas.id, lineaId: CLIMON, notificar: false } });
+  await prisma.accesoLineaWhatsapp.create({ data: { usuarioId: usuarios.ventas.id, lineaId: CLIMON } });
+  await prisma.silencioLinea.create({ data: { usuarioId: usuarios.ventas.id, lineaId: CLIMON } });
   const lineas = app.get(LineasWhatsappService);
 
   const pool = await lineas.audiencia(clinico);
@@ -861,7 +862,8 @@ it('con la línea silenciada la agente sigue viendo el pool, pero solo le suena 
 });
 
 it('en vivo: a quien silenció, la bandeja se le refresca sin sonar y el teléfono no recibe push', async () => {
-  await prisma.accesoLineaWhatsapp.create({ data: { usuarioId: usuarios.ventas.id, lineaId: CLIMON, notificar: false } });
+  await prisma.accesoLineaWhatsapp.create({ data: { usuarioId: usuarios.ventas.id, lineaId: CLIMON } });
+  await prisma.silencioLinea.create({ data: { usuarioId: usuarios.ventas.id, lineaId: CLIMON } });
   const silenciada = await socketDe("ventas");
   const control = await socketDe("recepcion");
   try {
@@ -887,11 +889,17 @@ it('el admin silencia sin sacar a la agente del CRM, y guardar la ficha no lo de
   const relogin = async () => {
     usuarios.ventas.token = (await app.get(AuthService).login({ email: "ventas@lineas.test", password })).access_token;
   };
-  const accesos = async () =>
-    Object.fromEntries(
-      (await prisma.accesoLineaWhatsapp.findMany({ where: { usuarioId: usuarios.ventas.id } }))
-        .map((a) => [a.lineaId, a.notificar]),
+  /* Línea → ¿le suena? Sale de las dos tablas: el acceso dice qué ve, el
+     silencio dice qué calla. */
+  const accesos = async () => {
+    const calladas = new Set(
+      (await prisma.silencioLinea.findMany({ where: { usuarioId: usuarios.ventas.id } })).map((s) => s.lineaId),
     );
+    return Object.fromEntries(
+      (await prisma.accesoLineaWhatsapp.findMany({ where: { usuarioId: usuarios.ventas.id } }))
+        .map((a) => [a.lineaId, !calladas.has(a.lineaId)]),
+    );
+  };
 
   /* Darle una línea SÍ cambia permisos: revoca la sesión, como siempre. */
   expect((await http("super", ruta, "PATCH", { lineaIds: [VENTAS, CLIMON] })).status).toBe(200);
@@ -901,6 +909,8 @@ it('el admin silencia sin sacar a la agente del CRM, y guardar la ficha no lo de
   /* Silenciarla no: sigue dentro. */
   const silencio = await http("super", ruta, "PATCH", { lineasSilenciadas: [CLIMON] });
   expect(silencio.status).toBe(200);
+  expect(silencio.body.lineasSilenciadas).toEqual([CLIMON]);
+  /* Compatibilidad con el frontend anterior mientras Vercel publica el nuevo. */
   expect(silencio.body.lineasWhatsapp).toEqual(expect.arrayContaining([
     { lineaId: CLIMON, notificar: false },
     { lineaId: VENTAS, notificar: true },
@@ -923,4 +933,69 @@ it('el admin silencia sin sacar a la agente del CRM, y guardar la ficha no lo de
   expect((await http("super", ruta, "PATCH", { lineaIds: [VENTAS] })).status).toBe(200);
   expect((await http("super", ruta, "PATCH", { lineaIds: [VENTAS, CLIMON] })).status).toBe(200);
   expect(await accesos()).toEqual({ [VENTAS]: true, [CLIMON]: true });
+});
+
+/* Los administradores ven todas las líneas por su ROL, sin fila de acceso. Por
+   eso el silencio no podía vivir en el acceso: no había dónde guardárselo. */
+it('un superadmin silencia una línea desde su perfil sin tener acceso a ella', async () => {
+  const ruta = `/lineas-whatsapp/${CLIMON}/avisos`;
+  const lineas = app.get(LineasWhatsappService);
+  expect(await prisma.accesoLineaWhatsapp.count({ where: { usuarioId: usuarios.super.id } })).toBe(0);
+
+  const callar = await http("super", ruta, "PUT", { suena: false });
+  expect(callar.status).toBe(200);
+  expect(callar.body).toEqual({ lineaId: CLIMON, suena: false });
+  let audiencia = await lineas.audiencia(clinico);
+  expect(audiencia.ven).toContain(usuarios.super.id);
+  expect(audiencia.avisar).not.toContain(usuarios.super.id);
+
+  /* Idempotente: el doble toque no duplica ni falla. */
+  expect((await http("super", ruta, "PUT", { suena: false })).status).toBe(200);
+  expect(await prisma.silencioLinea.count({ where: { usuarioId: usuarios.super.id } })).toBe(1);
+
+  const lista = await http("super", "/lineas-whatsapp/avisos");
+  expect(lista.body.datos).toEqual(expect.arrayContaining([expect.objectContaining({ lineaId: CLIMON, suena: false })]));
+  /* No toca permisos: su sesión sigue viva. */
+  expect((await http("super", "/conversaciones")).status).toBe(200);
+
+  /* Lo suyo suena aunque la línea calle. */
+  await prisma.conversacion.update({ where: { id: clinico }, data: { agenteId: usuarios.super.id } });
+  expect((await lineas.audiencia(clinico)).avisar).toContain(usuarios.super.id);
+  await prisma.conversacion.update({ where: { id: clinico }, data: { agenteId: null } });
+
+  expect((await http("super", ruta, "PUT", { suena: true })).status).toBe(200);
+  audiencia = await lineas.audiencia(clinico);
+  expect(audiencia.avisar).toContain(usuarios.super.id);
+  expect(await prisma.silencioLinea.count({ where: { usuarioId: usuarios.super.id } })).toBe(0);
+});
+
+it('cada cual toca solo sus avisos y solo de líneas que ve', async () => {
+  /* Ventas no ve CLIMON: 404, como cualquier recurso fuera de su alcance. */
+  expect((await http("ventas", `/lineas-whatsapp/${CLIMON}/avisos`, "PUT", { suena: false })).status).toBe(404);
+  expect(await prisma.silencioLinea.count({ where: { usuarioId: usuarios.ventas.id } })).toBe(0);
+  const suyas = await http("ventas", "/lineas-whatsapp/avisos");
+  expect(suyas.status).toBe(200);
+  expect(suyas.body.datos).not.toEqual(expect.arrayContaining([expect.objectContaining({ lineaId: CLIMON })]));
+
+  expect((await http("recepcion", `/lineas-whatsapp/${CLIMON}/avisos`, "PUT", { suena: "no" })).status).toBe(400);
+
+  /* Colar el id de otra en el cuerpo no sirve: el usuario sale del token. */
+  expect((await http("recepcion", `/lineas-whatsapp/${CLIMON}/avisos`, "PUT", { suena: false, usuarioId: usuarios.super.id })).status).toBe(200);
+  expect(await prisma.silencioLinea.findMany({ where: { lineaId: CLIMON }, select: { usuarioId: true } }))
+    .toEqual([{ usuarioId: usuarios.recepcion.id }]);
+});
+
+it('guardar la ficha de un admin en Agentes no pisa lo que eligió en su perfil', async () => {
+  expect((await http("admin", `/lineas-whatsapp/${CLIMON}/avisos`, "PUT", { suena: false })).status).toBe(200);
+
+  /* Lo que manda la pantalla de Agentes para un admin: sin `lineasSilenciadas`. */
+  const guardado = await http("super", `/usuarios/${usuarios.admin.id}`, "PATCH", { nombre: "admin", lineaIds: [] });
+  expect(guardado.status).toBe(200);
+  expect(guardado.body.lineasSilenciadas).toEqual([CLIMON]);
+  /* Y no lo sacó del CRM: nada de sus permisos cambió. */
+  expect((await http("admin", "/conversaciones")).status).toBe(200);
+
+  /* Deja de ser admin y no conserva CLIMON: el silencio se va con la línea. */
+  expect((await http("super", `/usuarios/${usuarios.admin.id}`, "PATCH", { rol: "AGENTE", lineaIds: [VENTAS] })).status).toBe(200);
+  expect(await prisma.silencioLinea.count({ where: { usuarioId: usuarios.admin.id } })).toBe(0);
 });

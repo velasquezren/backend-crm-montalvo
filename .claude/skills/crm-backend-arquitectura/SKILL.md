@@ -684,8 +684,10 @@ cierre de esta sección).
   2026-09-22, cuando el embudo pasó a SQL) fija el escopado por agente
   (`kpis.service.ts` es justo donde ya hubo una fuga real de datos entre
   agentes, ver `crm-backend-module`) y que la caché no sirva el resumen de un
-  agente a otro; `usuarios.service.spec.ts` fija la protección del último
-  `SUPER_ADMIN` activo y que nadie se toque sus propios privilegios;
+  agente a otro; `usuarios.integracion.spec.ts` fija la protección del último
+  `SUPER_ADMIN` activo y que nadie se toque sus propios privilegios —contra
+  Postgres real desde 2026-09-29: el doble de Prisma que tenía antes se rompió
+  entero con un refactor correcto, porque imitaba cada `select` del service—;
   `auth.service.spec.ts` fija que `refresh()` solo dé 401 por un problema real
   de credenciales, nunca por un fallo transitorio de la base. `leads` **ya
   tenía** `leads.integracion.spec.ts` (2026-08-21): la falta de tests ahí no

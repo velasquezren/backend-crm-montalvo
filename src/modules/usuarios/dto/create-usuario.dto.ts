@@ -10,13 +10,12 @@ export class CreateUsuarioDto {
   lineaIds?: string[];
 
   /**
-   * Las líneas asignadas cuyos mensajes NO le suenan: los sigue viendo, pero
-   * sin push ni aviso en la pestaña (salvo los chats que sean suyos). Tiene
-   * que ser un subconjunto de sus líneas.
+   * Las líneas cuyos mensajes NO le suenan: las sigue viendo, pero sin push ni
+   * aviso en la pestaña (salvo los chats que sean suyos). Solo líneas que la
+   * cuenta puede ver: las de `lineaIds`, o cualquiera si su rol es global.
    *
-   * Ausente = se conserva lo que tenía. Por eso no basta con `lineaIds`: la
-   * edición reescribe los accesos, y sin este campo cada vez que un admin
-   * guardara la ficha le volverían a sonar las líneas que había silenciado.
+   * Ausente = se conserva lo que tenía, y eso importa: la propia persona puede
+   * cambiarlo desde su perfil, y guardar su ficha en Agentes no debe pisarlo.
    */
   @IsOptional()
   @IsArray()

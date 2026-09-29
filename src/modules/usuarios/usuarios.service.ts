@@ -14,7 +14,8 @@ import { UpdateUsuarioDto } from './dto/update-usuario.dto';
 
 const SIN_PASSWORD = {
   id: true,
-  lineasWhatsapp: { select: { lineaId: true, notificar: true } },
+  lineasWhatsapp: { select: { lineaId: true } },
+  silenciosLinea: { select: { lineaId: true } },
   nombre: true,
   email: true,
   rol: true,
@@ -40,23 +41,26 @@ export class UsuariosService {
     }
 
     const lineaIds = dto.lineaIds ?? [];
-    await this.validarLineas(lineaIds, dto.rol ?? 'AGENTE');
-    const silencio = silencioValidado(dto.lineasSilenciadas ?? [], lineaIds);
-    return this.prisma.usuario.create({
+    const rol = dto.rol ?? 'AGENTE';
+    await this.validarLineas(lineaIds, rol);
+    const silencio = silencioValidado(dto.lineasSilenciadas ?? [], await this.lineasVisibles(rol, lineaIds));
+    const creado = await this.prisma.usuario.create({
       data: {
         nombre: dto.nombre,
         email: dto.email,
         passwordHash: await bcrypt.hash(dto.password, 10),
         rol: dto.rol,
-        lineasWhatsapp: { create: accesos(lineaIds, silencio) },
+        lineasWhatsapp: { create: lineaIds.map(lineaId => ({ lineaId })) },
+        silenciosLinea: { create: [...silencio].map(lineaId => ({ lineaId })) },
         codigo: await this.normalizarCodigo(dto.codigo),
       },
       select: SIN_PASSWORD,
     });
+    return vista(creado);
   }
 
   async findAll() {
-    return this.prisma.usuario.findMany({ select: SIN_PASSWORD, orderBy: { nombre: 'asc' } });
+    return (await this.prisma.usuario.findMany({ select: SIN_PASSWORD, orderBy: { nombre: 'asc' } })).map(vista);
   }
 
   async findOne(id: string) {
@@ -64,7 +68,7 @@ export class UsuariosService {
     if (!usuario) {
       throw new NotFoundException(`Usuario ${id} no encontrado`);
     }
-    return usuario;
+    return vista(usuario);
   }
 
   /** Solo para AuthService — incluye el hash para validar credenciales. */
@@ -81,15 +85,17 @@ export class UsuariosService {
       const actual = await tx.usuario.findUnique({ where: { id }, select: SIN_PASSWORD });
       if (!actual) throw new NotFoundException(`Usuario ${id} no encontrado`);
       const lineasActuales = actual.lineasWhatsapp.map(l => l.lineaId);
-      const silencioActual = actual.lineasWhatsapp.filter(l => !l.notificar).map(l => l.lineaId);
+      const silencioActual = actual.silenciosLinea.map(s => s.lineaId);
       const permisos = lineaIds ?? lineasActuales;
-      await this.validarLineas(permisos, dto.rol ?? actual.rol, tx);
+      const rolFinal = dto.rol ?? actual.rol;
+      await this.validarLineas(permisos, rolFinal, tx);
       /* Sin `lineasSilenciadas` se conserva el silencio que había, recortado a
-         las líneas que siguen asignadas: quitarle una línea también le quita
-         su silencio, y si se la devuelven vuelve sonando, como una nueva. */
+         las líneas que seguirá viendo: perder una línea —o dejar de ser admin—
+         se lleva su silencio, y si vuelve a verla, vuelve sonando. */
+      const visibles = await this.lineasVisibles(rolFinal, permisos, tx);
       const silencio = lineasSilenciadas !== undefined
-        ? silencioValidado(lineasSilenciadas, permisos)
-        : new Set(silencioActual.filter(id => permisos.includes(id)));
+        ? silencioValidado(lineasSilenciadas, visibles)
+        : new Set(silencioActual.filter(id => visibles.includes(id)));
       const cambianLineas = lineaIds !== undefined && !mismoConjunto(lineaIds, lineasActuales);
       const cambiaSilencio = !mismoConjunto([...silencio], silencioActual);
       if (ejecutorId === id && resto.rol && resto.rol !== actual.rol) {
@@ -113,8 +119,10 @@ export class UsuariosService {
              misma lista— y guardar la ficha sacaba a la agente del CRM. */
           ...(password || resto.rol !== undefined || resto.activo !== undefined || cambianLineas
             ? { versionSesion: { increment: 1 } } : {}),
-          ...(cambianLineas || cambiaSilencio
-            ? { lineasWhatsapp: { deleteMany: {}, create: accesos(permisos, silencio) } } : {}),
+          ...(cambianLineas
+            ? { lineasWhatsapp: { deleteMany: {}, create: permisos.map(lineaId => ({ lineaId })) } } : {}),
+          ...(cambiaSilencio
+            ? { silenciosLinea: { deleteMany: {}, create: [...silencio].map(lineaId => ({ lineaId })) } } : {}),
         }, select: SIN_PASSWORD,
       });
       if (lineaIds !== undefined || resto.rol !== undefined || resto.activo !== undefined) {
@@ -128,8 +136,17 @@ export class UsuariosService {
       if (cambiaSilencio) {
         await tx.auditLog.create({ data: { entidad: 'Usuario', entidadId: id, accion: 'AVISOS_LINEAS', usuarioId: ejecutorId, cambios: { lineasSilenciadas: [...silencio] } } });
       }
-      return actualizado;
+      return vista(actualizado);
     });
+  }
+
+  /**
+   * Las líneas que esa persona ve con ese rol: todas si el rol es global, las
+   * de su acceso si no. Es sobre lo único que puede silenciar.
+   */
+  private async lineasVisibles(rol: Rol, acceso: string[], db: Prisma.TransactionClient = this.prisma): Promise<string[]> {
+    if (!tieneAlcanceGlobal(rol)) return acceso;
+    return (await db.lineaWhatsapp.findMany({ select: { id: true } })).map(l => l.id);
   }
 
   private async validarLineas(ids: string[], rol: Rol, db: Prisma.TransactionClient = this.prisma): Promise<void> {
@@ -187,20 +204,37 @@ export class UsuariosService {
 }
 
 /**
- * El silencio pedido, comprobado contra las líneas que de verdad tiene.
+ * El silencio pedido, comprobado contra las líneas que de verdad ve.
  *
- * Silenciar una línea que no ve no significa nada, y aceptarlo dejaría una
- * membresía fantasma: la fila de acceso se crearía para guardar el silencio y
- * de paso le daría la línea.
+ * Silenciar una línea que no ve no significa nada, y la fila quedaría
+ * esperando: el día que le dieran esa línea, llegaría ya callada sin que nadie
+ * lo hubiera decidido.
  */
 function silencioValidado(silenciadas: string[], lineas: string[]): Set<string> {
   const ajenas = silenciadas.filter(id => !lineas.includes(id));
-  if (ajenas.length) throw new BadRequestException('Solo se pueden silenciar líneas que la cuenta tiene asignadas.');
+  if (ajenas.length) throw new BadRequestException('Solo se pueden silenciar líneas que la cuenta puede ver.');
   return new Set(silenciadas);
 }
 
-function accesos(lineas: string[], silencio: ReadonlySet<string>) {
-  return lineas.map(lineaId => ({ lineaId, notificar: !silencio.has(lineaId) }));
+type ConSilencios<T> = T & { silenciosLinea: { lineaId: string }[] };
+
+/**
+ * La forma pública de un usuario: el silencio como lista (`lineasSilenciadas`)
+ * y no como la relación cruda.
+ *
+ * `lineasWhatsapp[].notificar` es COMPATIBILIDAD con el frontend anterior, que
+ * lo lee de ahí mientras Vercel publica el nuevo; si faltara, leería `undefined`
+ * como «silenciada» y guardar la ficha callaría todas sus líneas. Se quita en
+ * la fase de contracción, junto con la columna.
+ */
+function vista<T extends { lineasWhatsapp: { lineaId: string }[] }>(usuario: ConSilencios<T>) {
+  const { silenciosLinea, ...resto } = usuario;
+  const silenciadas = silenciosLinea.map(s => s.lineaId);
+  return {
+    ...resto,
+    lineasWhatsapp: usuario.lineasWhatsapp.map(l => ({ ...l, notificar: !silenciadas.includes(l.lineaId) })),
+    lineasSilenciadas: silenciadas,
+  };
 }
 
 function mismoConjunto(a: readonly string[], b: readonly string[]): boolean {

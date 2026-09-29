@@ -7,7 +7,7 @@ import {
 import { esRolOperativo, tieneAlcanceGlobal } from "../../common/auth/roles";
 import { ConfigService } from "@nestjs/config";
 import { PrismaService } from "../../prisma/prisma.service";
-import { Prisma, LineaWhatsapp } from "../../prisma/prisma-client";
+import { Prisma, LineaWhatsapp, Rol } from "../../prisma/prisma-client";
 import {
   calcularPaginacion,
   paginar,
@@ -219,8 +219,9 @@ export class LineasWhatsappService {
    * del pool, no su trabajo — igual que en Slack un canal silenciado sigue
    * avisando cuando te mencionan.
    *
-   * Sin membresía (los admins ven todo por rol) no hay nada que silenciar y se
-   * avisa como siempre.
+   * El silencio vale igual para quien ve la línea por membresía que para quien
+   * la ve por rol (los admins): es una preferencia de la persona, no del
+   * acceso. Ver `SilencioLinea`.
    */
   async audiencia(conversacionId: string): Promise<{ ven: string[]; avisar: string[] }> {
     const conversacion = await this.prisma.conversacion.findUnique({
@@ -246,7 +247,7 @@ export class LineasWhatsappService {
       select: {
         id: true,
         rol: true,
-        lineasWhatsapp: { where: { lineaId }, select: { notificar: true } },
+        silenciosLinea: { where: { lineaId }, select: { lineaId: true } },
       },
     });
 
@@ -260,9 +261,91 @@ export class LineasWhatsappService {
         esSuya(u.id),
     );
     const avisar = ven.filter(
-      (u) => u.lineasWhatsapp[0]?.notificar !== false || esSuya(u.id),
+      (u) => u.silenciosLinea.length === 0 || esSuya(u.id),
     );
     return { ven: ven.map((u) => u.id), avisar: avisar.map((u) => u.id) };
+  }
+
+  /**
+   * Las líneas activas que esta persona ve, y si le suenan. Es lo que se le
+   * muestra para que decida ella; las inactivas no reciben mensajes y un
+   * interruptor sobre ellas solo sería ruido.
+   *
+   * «Ve» con la misma regla que el resto: todas por rol, o las de su acceso.
+   */
+  async avisosDe(usuarioId: string, rol: Rol, query: PaginationDto) {
+    const where: Prisma.LineaWhatsappWhereInput = {
+      activa: true,
+      ...(tieneAlcanceGlobal(rol) ? {} : { usuarios: { some: { usuarioId } } }),
+    };
+    const { skip, take } = calcularPaginacion(query);
+    const [lineas, total] = await this.prisma.$transaction([
+      this.prisma.lineaWhatsapp.findMany({
+        where,
+        skip,
+        take,
+        orderBy: { nombre: "asc" },
+        select: {
+          id: true,
+          nombre: true,
+          telefono: true,
+          silencios: { where: { usuarioId }, select: { lineaId: true } },
+        },
+      }),
+      this.prisma.lineaWhatsapp.count({ where }),
+    ]);
+    return paginar(
+      lineas.map((l) => ({
+        lineaId: l.id,
+        nombre: l.nombre,
+        telefono: l.telefono,
+        suena: l.silencios.length === 0,
+      })),
+      total,
+      query,
+    );
+  }
+
+  /**
+   * Enciende o apaga los avisos de una línea para quien lo pide. Idempotente:
+   * pedir dos veces lo mismo deja lo mismo.
+   *
+   * Solo sobre una línea que ve —404 si no, como cualquier recurso fuera de su
+   * alcance—: silenciar lo que no ve no significa nada, y dejaría una fila que
+   * reaparecería el día que le dieran esa línea.
+   *
+   * No toca `versionSesion`: no cambia permisos, y la audiencia se relee de la
+   * base en cada mensaje, así que el cambio vale desde el siguiente.
+   */
+  async fijarAviso(usuarioId: string, rol: Rol, lineaId: string, suena: boolean) {
+    const visible = await this.prisma.lineaWhatsapp.findFirst({
+      where: {
+        id: lineaId,
+        ...(tieneAlcanceGlobal(rol) ? {} : { usuarios: { some: { usuarioId } } }),
+      },
+      select: { id: true },
+    });
+    if (!visible) throw new NotFoundException("Línea no encontrada");
+
+    await this.prisma.$transaction([
+      suena
+        ? this.prisma.silencioLinea.deleteMany({ where: { usuarioId, lineaId } })
+        : this.prisma.silencioLinea.upsert({
+            where: { usuarioId_lineaId: { usuarioId, lineaId } },
+            create: { usuarioId, lineaId },
+            update: {},
+          }),
+      this.prisma.auditLog.create({
+        data: {
+          entidad: "Usuario",
+          entidadId: usuarioId,
+          accion: "AVISOS_LINEAS",
+          usuarioId,
+          cambios: { lineaId, suena },
+        },
+      }),
+    ]);
+    return { lineaId, suena };
   }
 
   /** Quién ve la conversación. Para saber a quién le suena, `audiencia`. */

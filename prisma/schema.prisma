@@ -98,6 +98,7 @@ model Usuario {
   leads                 Lead[]
   conversaciones        Conversacion[]
   lineasWhatsapp        AccesoLineaWhatsapp[]
+  silenciosLinea        SilencioLinea[]
   ventas                Venta[]
   plantillas            PlantillaAgente[]
   recursosMemoria       RecursoMemoriaAgente[]
@@ -270,6 +271,7 @@ model LineaWhatsapp {
   activa         Boolean @default(false)
   comercial      Boolean @default(false)
   usuarios       AccesoLineaWhatsapp[]
+  silencios      SilencioLinea[]
   conversaciones Conversacion[]
 }
 
@@ -278,15 +280,34 @@ model AccesoLineaWhatsapp {
   lineaId   String
   usuario   Usuario @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
   linea     LineaWhatsapp @relation(fields: [lineaId], references: [id], onDelete: Cascade)
-  /// Si los mensajes de esta línea le suenan (push y aviso en la pestaña).
-  ///
-  /// Ver una línea y que te avise son cosas distintas. Una agente de ventas
-  /// que también cubre Recepción necesita VER esos chats, pero que le suene
-  /// cada uno de los ~1.500 mensajes al mes que no son suyos es cómo se acaba
-  /// desactivando la notificación del teléfono entero —y entonces tampoco le
-  /// suenan sus pacientes—. Un chat asignado a ella avisa igual: silenciar
-  /// quita el ruido del pool, no lo que es suyo. Ver `LineasWhatsappService.audiencia`.
+  /// RETIRADO: ya no se lee ni se escribe; la preferencia vive en
+  /// `SilencioLinea`. Sigue aquí solo porque el proceso anterior lo consulta
+  /// mientras dura el despliegue; la migración siguiente lo borra.
   notificar Boolean @default(true)
+
+  @@id([usuarioId, lineaId])
+  @@index([lineaId])
+}
+
+/// Una línea cuyos mensajes NO le suenan a esta persona: sin push ni aviso en
+/// la pestaña, salvo en los chats que sean suyos. La fila existe = silenciada.
+///
+/// Es una tabla propia, y no una columna del acceso, porque **ver una línea y
+/// que te suene son cosas distintas** y no siempre hay acceso donde guardarlo:
+/// los administradores ven todas las líneas por su rol, sin fila de acceso, y
+/// también tienen que poder silenciar Recepción. Una columna en el acceso
+/// obligaba a inventarles accesos para guardar una preferencia —y la edición
+/// de agentes, que reescribe los accesos, se los llevaba por delante—.
+///
+/// Solo tiene sentido sobre una línea que la persona ve: al perder la línea se
+/// borra su silencio, y si se la devuelven vuelve sonando, como una nueva. Ver
+/// `LineasWhatsappService.audiencia`.
+model SilencioLinea {
+  usuarioId String
+  lineaId   String
+  usuario   Usuario       @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  linea     LineaWhatsapp @relation(fields: [lineaId], references: [id], onDelete: Cascade)
+  createdAt DateTime      @default(now())
 
   @@id([usuarioId, lineaId])
   @@index([lineaId])

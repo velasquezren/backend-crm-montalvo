@@ -157,8 +157,8 @@ las agentes recibirán avisos por sus propios envíos y por cada tilde de entreg
 Meta; eso termina con la notificación desactivada y con la que sí importa perdida.
 
 **A quién le suena lo decide `LineasWhatsappService.audiencia()`, no quién ve la
-línea.** Una cuenta puede tener una línea silenciada (`AccesoLineaWhatsapp.notificar`):
-la sigue viendo, pero solo le suenan sus chats asignados. El push y el aviso en la
+línea.** Cada persona —admins incluidos— puede silenciar una línea (`SilencioLinea`,
+desde su Perfil): la sigue viendo, pero solo le suenan sus chats asignados. El push y el aviso en la
 pestaña salen de la misma lista; no le pongas a uno una regla que el otro no tenga.
 
 Sin `VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY` la función queda apagada, igual que R2 y
