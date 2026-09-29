@@ -3,6 +3,7 @@ import { obtenerOCrearConversacion, whereAccesoConversacion as whereVisibilidad,
 import { LineasWhatsappService } from '../lineas-whatsapp/lineas-whatsapp.service';
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { Prisma, Rol, TipoMensaje } from '../../prisma/prisma-client';
+import { candidatosDeChoqueUnico } from '../../prisma/choque-unico';
 
 import { CacheMemoria } from '../../common/cache/cache-memoria';
 import { escaparComodinesLike, terminoBusqueda } from '../../common/dto/busqueda';
@@ -273,36 +274,6 @@ function combinar(
 }
 
 /** Tipo de mensaje a partir del MIME del archivo subido por el agente. */
-/**
- * Qué índice rebotó en un P2002, mirando las DOS formas en que Prisma lo dice.
- *
- * `meta.target` es la clásica y la que documenta Prisma. Con el driver adapter
- * que usa este proyecto no existe: el nombre real del índice viaja dentro del
- * error del driver, en `meta.driverAdapterError.cause.constraint.index`.
- *
- * Mirar solo `target` es lo que tenía roto el reintento seguro sin que nadie se
- * enterara. `recuperarEnvioDuplicado` no reconocía el choque de
- * `clientMessageId`, devolvía `null`, y el POST duplicado terminaba en 500 en
- * lugar de devolver la fila que ya existía — justo lo contrario de lo que R2.1
- * prometía. No se vio antes porque la prueba de R2.1 ejercita el índice
- * directamente contra Prisma y nunca pasa por este método.
- */
-function choqueDe(error: Prisma.PrismaClientKnownRequestError): string[] {
-  const candidatos: string[] = [];
-
-  const objetivo = error.meta?.['target'];
-  if (Array.isArray(objetivo)) candidatos.push(...objetivo.map(String));
-  else if (objetivo !== undefined && objetivo !== null) candidatos.push(String(objetivo));
-
-  const driver = error.meta?.['driverAdapterError'] as
-    | { cause?: { constraint?: { index?: string; fields?: string[] } } }
-    | undefined;
-  const constraint = driver?.cause?.constraint;
-  if (constraint?.index) candidatos.push(constraint.index);
-  if (Array.isArray(constraint?.fields)) candidatos.push(...constraint.fields.map(String));
-
-  return candidatos;
-}
 
 function tipoSegunMime(mime: string | undefined): TipoMensaje {
   if (!mime) return 'DOCUMENTO';
@@ -811,7 +782,7 @@ export class ConversacionesService {
     if (!clientMessageId) return null;
     if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2002') return null;
 
-    if (!choqueDe(error).some(campo => campo.includes('clientMessageId'))) return null;
+    if (!candidatosDeChoqueUnico(error).some(campo => campo.includes('clientMessageId'))) return null;
 
     /* La otra petición ya la creó: para cuando el índice rebotó, la fila
        existe. Si aun así no aparece, el error no era lo que parecía y se

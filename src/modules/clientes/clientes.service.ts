@@ -1,5 +1,6 @@
-import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, HttpStatus, Injectable, NotFoundException } from '@nestjs/common';
 import { CategoriaCliente, EstadoLead, Prisma } from '../../prisma/prisma-client';
+import { campoDeIndice, candidatosDeChoqueUnico, tablaDelChoque } from '../../prisma/choque-unico';
 
 import { AuditService } from '../../common/audit/audit.service';
 import { terminoBusqueda } from '../../common/dto/busqueda';
@@ -43,10 +44,19 @@ export function esNombreProvisional(nombre: string): boolean {
   return nombre.startsWith(PREFIJO_NOMBRE_PROVISIONAL);
 }
 
-/** Qué decirle a la agente cuando un índice único de `Cliente` rebota. */
-const MENSAJE_UNICO: Record<string, (valor: string) => string> = {
-  telefono: valor => `Ya existe un cliente con el teléfono ${valor}`,
-  pac: valor => `Ya existe un cliente con el código PAC ${valor}`,
+/**
+ * Qué decirle a la agente cuando un índice único de `Cliente` rebota.
+ *
+ * Lleva el nombre de quien ya tiene ese valor porque sin él el mensaje es un
+ * callejón sin salida: «ese número está en uso» no deja decidir nada, mientras
+ * que «ese número es de María Pérez» dice al instante si es la misma persona
+ * con ficha duplicada o un número tecleado mal.
+ */
+const MENSAJE_UNICO: Record<string, (valor: string, duenio?: string) => string> = {
+  telefono: (valor, duenio) =>
+    duenio ? `El teléfono ${valor} ya es de ${duenio}.` : `Ya existe un paciente con el teléfono ${valor}.`,
+  pac: (valor, duenio) =>
+    duenio ? `El código PAC ${valor} ya es de ${duenio}.` : `Ya existe un paciente con el código PAC ${valor}.`,
 };
 
 /**
@@ -129,16 +139,43 @@ export class ClientesService {
    * dos viajes a la base por alta que no hacen falta: el índice ya sabe la
    * respuesta.
    */
-  private traducirChoqueUnico(error: unknown, valores: Record<string, string | null | undefined>): void {
+  private async traducirChoqueUnico(error: unknown, valores: Record<string, string | null | undefined>): Promise<void> {
     if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2002') return;
 
-    const objetivo = error.meta?.['target'];
-    const campos = Array.isArray(objetivo) ? objetivo.map(String) : [String(objetivo ?? '')];
+    /* El campo no sale de `meta.target`: con el driver adapter de Prisma 7 esa
+       propiedad no existe y esta traducción llevaba muerta desde la migración
+       —un teléfono repetido salía como error crudo—. Ver `choque-unico.ts`. */
+    const tabla = tablaDelChoque(error);
+    const campos = candidatosDeChoqueUnico(error).map(candidato => campoDeIndice(candidato, tabla));
 
     for (const campo of campos) {
       const mensaje = MENSAJE_UNICO[campo];
-      if (mensaje) throw new ConflictException(mensaje(valores[campo] ?? ''));
+      if (!mensaje) continue;
+      const valor = valores[campo] ?? '';
+      /* Una consulta de más, y solo cuando YA se ha chocado: el camino feliz no
+         paga nada. Si falla, el mensaje sigue sirviendo sin el nombre. */
+      const duenio = valor ? await this.duenioDe(campo, valor).catch(() => undefined) : undefined;
+      /* `campo` va en el cuerpo para que la interfaz marque el control que hay
+         que corregir. Sin él tendría que deducirlo del texto del mensaje, y un
+         choque de PAC acabaría señalando la casilla del teléfono. */
+      throw new ConflictException({
+        statusCode: HttpStatus.CONFLICT,
+        error: 'Conflict',
+        message: mensaje(valor, duenio),
+        campo,
+      });
     }
+  }
+
+  /** Quién tiene ya ese valor único, para poder nombrarlo en el conflicto. */
+  private async duenioDe(campo: string, valor: string): Promise<string | undefined> {
+    if (campo !== 'telefono' && campo !== 'pac') return undefined;
+    const ficha = await this.prisma.cliente.findUnique({
+      where: campo === 'telefono' ? { telefono: valor } : { pac: valor },
+      select: { nombre: true },
+    });
+    /* El marcador «WhatsApp +591…» no es un nombre: decirlo no ayuda a nadie. */
+    return ficha && !esNombreProvisional(ficha.nombre) ? ficha.nombre : undefined;
   }
 
   async create(dto: CreateClienteDto, soloAgenteId?: string) {
@@ -170,7 +207,7 @@ export class ClientesService {
         },
       });
     } catch (error: unknown) {
-      this.traducirChoqueUnico(error, { telefono: dto.telefono, pac: pacNormalizado });
+      await this.traducirChoqueUnico(error, { telefono: dto.telefono, pac: pacNormalizado });
       throw error;
     }
   }
@@ -461,7 +498,11 @@ export class ClientesService {
             }),
           ]
         : []),
-    ], { pac: pacData.pac });
+    ],
+    /* El teléfono va aquí igual que el PAC: sin él, el 409 de un número
+       repetido salía sin número y sin dueño («Ya existe un paciente con el
+       teléfono .»), que no le sirve a nadie para corregirlo. */
+    { pac: pacData.pac, telefono: restoDto.telefono });
 
     await this.audit.registrar('Cliente', id, 'ACTUALIZADO', usuarioId, { ...dto });
     return actualizado;
@@ -479,7 +520,7 @@ export class ClientesService {
     try {
       return await this.prisma.$transaction(operaciones);
     } catch (error: unknown) {
-      this.traducirChoqueUnico(error, valores);
+      await this.traducirChoqueUnico(error, valores);
       throw error;
     }
   }

@@ -162,3 +162,53 @@ describe('ClientesService.reconocerPacientes — PAC con separadores', () => {
     expect(r.cliente).toBeNull();
   });
 });
+
+/**
+ * El teléfono y el PAC son únicos en `Cliente`. Cuando rebotan, lo que llega a
+ * la pantalla decide si la asistente puede resolverlo: «ya existe un cliente»
+ * es un callejón sin salida, mientras que el nombre de quien lo tiene dice al
+ * instante si es la misma persona duplicada o un número mal tecleado.
+ *
+ * Va contra la base real a propósito: lo que se prueba es que el ÍNDICE rebota
+ * y que el P2002 se traduce. Con un doble solo se probaría la traducción de un
+ * error que nos inventamos nosotros.
+ */
+describe('ClientesService — un dato único repetido se explica, no estalla', () => {
+  it('al corregir el teléfono a uno que ya es de otra ficha, dice de quién es', async () => {
+    await cliente('Ana Pérez', '+59170000001');
+    const otra = await cliente('Beto Suárez', '+59170000002');
+
+    await expect(service.update(otra.id, { telefono: '+59170000001' })).rejects.toMatchObject({
+      status: 409,
+      response: { message: 'El teléfono +59170000001 ya es de Ana Pérez.', campo: 'telefono' },
+    });
+  });
+
+  /* Sin `campo`, la interfaz tendría que deducirlo del texto del mensaje y un
+     choque de PAC acabaría señalando la casilla del teléfono. */
+  it('un PAC repetido se señala como PAC, no como teléfono', async () => {
+    await prisma.cliente.create({ data: { nombre: 'Ana Pérez', telefono: '+59170000001', pac: 'PAC900' } });
+
+    await expect(service.create({ nombre: 'Otra', telefono: '+59170000009', pac: 'PAC900' })).rejects.toMatchObject({
+      status: 409,
+      response: { message: 'El código PAC PAC900 ya es de Ana Pérez.', campo: 'pac' },
+    });
+  });
+
+  /* «WhatsApp +591…» es el marcador de una ficha creada por un mensaje
+     entrante, no un nombre: repetirlo no ayuda a identificar a nadie. */
+  it('no nombra al dueño cuando su nombre es el provisional', async () => {
+    await cliente('WhatsApp +59170000003', '+59170000003');
+    const otra = await cliente('Beto Suárez', '+59170000002');
+
+    await expect(service.update(otra.id, { telefono: '+59170000003' })).rejects.toMatchObject({
+      status: 409,
+      response: { message: 'Ya existe un paciente con el teléfono +59170000003.', campo: 'telefono' },
+    });
+  });
+
+  it('el alta con un teléfono libre sigue funcionando', async () => {
+    const creada = await service.create({ nombre: 'Carmen Vaca', telefono: '+59170000004' });
+    expect(creada).toMatchObject({ nombre: 'Carmen Vaca', telefono: '+59170000004' });
+  });
+});
