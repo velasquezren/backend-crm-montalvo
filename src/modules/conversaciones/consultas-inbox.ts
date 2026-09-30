@@ -1,8 +1,9 @@
 import { Prisma } from '../../prisma/prisma-client';
 
 import { terminoBusqueda } from '../../common/dto/busqueda';
-import { SELECT_LINEA } from './acceso-conversacion';
-import { TabInbox } from './dto/query-conversaciones.dto';
+import { SELECT_LINEA, whereAccesoConversacion } from './acceso-conversacion';
+import { QueryConversacionesDto, TabInbox } from './dto/query-conversaciones.dto';
+import { ABIERTA, SIN_RESPONDER } from './estado-conversacion';
 
 /*
  * Las piezas de consulta del inbox: filtros (`where`), columnas de una fila y
@@ -44,17 +45,75 @@ export function whereSoloMios(usuarioId: string): Prisma.ConversacionWhereInput 
  * Igual que `whereSoloMios`, esto es **preferencia de vista, no permiso**: se
  * combina con AND sobre `whereVisibilidad` y jamás lo amplía.
  */
-export function whereTab(tab: TabInbox | undefined, usuarioId: string): Prisma.ConversacionWhereInput | undefined {
+export function whereTab(
+  tab: TabInbox | undefined,
+  usuarioId: string,
+  conBusqueda = false,
+): Prisma.ConversacionWhereInput | undefined {
   switch (tab) {
     case 'SIN_ASIGNAR':
-      return { agenteId: null };
+      return { ...ABIERTA, agenteId: null };
     case 'MIS_CHATS':
-      return { agenteId: usuarioId };
+      return { ...ABIERTA, agenteId: usuarioId };
     case 'SIN_RESPONDER':
-      return { esperandoRespuesta: true };
+      return SIN_RESPONDER;
+    case 'CERRADAS':
+      return { cerradaEn: { not: null } };
     default:
-      return undefined;
+      /* «Todas» son las abiertas... salvo cuando se BUSCA: quien busca a una
+         paciente quiere encontrarla, esté su chat abierto o cerrado. */
+      return conBusqueda ? undefined : ABIERTA;
   }
+}
+
+/**
+ * El ALCANCE de la vista: permiso + preferencias que acotan a QUIÉN se mira
+ * (solo míos, una agente, una línea). Lo comparten la lista y los contadores
+ * de las pestañas, así que no pueden divergir.
+ *
+ * Divergían: la lista aplicaba el filtro de agente y el contador no, y con un
+ * admin mirando los chats de una agente las pestañas seguían contando las de
+ * todas.
+ */
+export function whereAlcanceInbox(
+  query: QueryConversacionesDto,
+  soloAgenteId: string | undefined,
+  usuarioId: string,
+): Prisma.ConversacionWhereInput | undefined {
+  return combinar(
+    whereAccesoConversacion(soloAgenteId),
+    query.soloMios ? whereSoloMios(usuarioId) : undefined,
+    whereAgente(query.agenteId),
+    query.lineaId ? { lineaId: query.lineaId } : undefined,
+  );
+}
+
+/**
+ * Lo que se LISTA: el alcance más la pestaña y la búsqueda. Una sola
+ * definición para el listado y para la fila del tiempo real: si difirieran, una
+ * conversación aparecería al refrescar pero no al recargar, o al revés.
+ */
+export function whereVistaInbox(
+  query: QueryConversacionesDto,
+  soloAgenteId: string | undefined,
+  usuarioId: string,
+): Prisma.ConversacionWhereInput | undefined {
+  return combinar(
+    whereAlcanceInbox(query, soloAgenteId, usuarioId),
+    whereTab(query.tab, usuarioId, Boolean(terminoBusqueda(query.busqueda))),
+    whereBusqueda(query.busqueda),
+  );
+}
+
+/** Los contadores de las pestañas sobre un alcance: mismas condiciones que `whereTab`. */
+export function wherePestanas(usuarioId: string) {
+  return {
+    total: ABIERTA,
+    sinAsignar: whereTab('SIN_ASIGNAR', usuarioId)!,
+    misChats: whereTab('MIS_CHATS', usuarioId)!,
+    sinResponder: whereTab('SIN_RESPONDER', usuarioId)!,
+    cerradas: whereTab('CERRADAS', usuarioId)!,
+  } satisfies Record<keyof ContadoresInbox, Prisma.ConversacionWhereInput>;
 }
 
 /**
@@ -106,6 +165,8 @@ export const SELECT_INBOX = {
   linea: { select: SELECT_LINEA },
   updatedAt: true,
   esperandoRespuesta: true,
+  /* Para marcar «Cerrada» en una fila que trajo la búsqueda. */
+  cerradaEn: true,
   cliente: {
     select: {
       id: true,
@@ -161,10 +222,12 @@ export type ConversacionDeInbox = Omit<FilaCruda, '_count'> & {
 
 /** Los números de las cuatro pestañas del inbox. */
 export interface ContadoresInbox {
+  /** Abiertas. */
   total: number;
   sinAsignar: number;
   misChats: number;
   sinResponder: number;
+  cerradas: number;
 }
 
 /**

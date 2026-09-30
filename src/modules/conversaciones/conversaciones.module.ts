@@ -1,3 +1,4 @@
+import { CierreInactividadService } from './cierre-inactividad.service';
 import { CabecerasPlantillaController } from './cabeceras-plantilla.controller';
 import { MemoriaAgenteModule } from '../memoria-agente/memoria-agente.module';
 import { LineasWhatsappModule } from '../lineas-whatsapp/lineas-whatsapp.module';
@@ -32,6 +33,7 @@ import { WhatsappWebhookController } from './webhooks/whatsapp-webhook.controlle
     DespachadorSalienteService,
     MediaEntranteService,
     ReintentoSalienteService,
+    CierreInactividadService,
     MetaSignatureGuard,
     WhatsappCloudService,
     AlertasWhatsappService,

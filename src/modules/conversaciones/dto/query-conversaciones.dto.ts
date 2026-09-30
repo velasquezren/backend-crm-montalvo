@@ -4,7 +4,7 @@ import { IsBoolean, IsIn, IsOptional, IsString, IsUUID, MaxLength } from 'class-
 import { PaginationDto } from '../../../common/dto/pagination.dto';
 
 /** Pestañas del inbox. Espejo de `FiltroInbox` en el frontend. */
-export const TABS_INBOX = ['TODAS', 'SIN_RESPONDER', 'SIN_ASIGNAR', 'MIS_CHATS'] as const;
+export const TABS_INBOX = ['TODAS', 'SIN_RESPONDER', 'SIN_ASIGNAR', 'MIS_CHATS', 'CERRADAS'] as const;
 export type TabInbox = (typeof TABS_INBOX)[number];
 
 /**

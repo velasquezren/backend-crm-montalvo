@@ -317,6 +317,33 @@ export class ClientesService {
     return count > 0;
   }
 
+  /**
+   * La paciente paró o reanudó las promociones desde los ajustes de WhatsApp
+   * (webhook `user_preferences`), o Meta rechazó una plantilla con 131050
+   * porque ya las había parado. Es la misma decisión que el botón «No me
+   * interesa», dicha en otro sitio: sin confirmación, porque ella no escribió
+   * en el chat.
+   *
+   * Reanudar sí borra la baja, aunque la hubiera dado con el botón: es un gesto
+   * explícito, posterior y de ella, sobre promociones de este negocio.
+   * Condicionado en el UPDATE, como la baja: un webhook repetido no deja
+   * dos entradas en la auditoría.
+   *
+   * Un teléfono sin ficha no crea una: si nunca fue paciente no hay nada que
+   * registrar, y la baja de Meta sigue vigente en su lado igual.
+   */
+  async preferenciaPromocionesDesdeWhatsapp(telefono: string, recibe: boolean): Promise<boolean> {
+    const cliente = await this.findByTelefono(telefono);
+    if (!cliente) return false;
+    if (!recibe) return this.registrarBajaPromociones(cliente.id);
+    const { count } = await this.prisma.cliente.updateMany({
+      where: { id: cliente.id, bajaPromocionesEn: { not: null } },
+      data: { bajaPromocionesEn: null },
+    });
+    if (count) await this.audit.registrar('Cliente', cliente.id, 'ALTA_PROMOCIONES');
+    return count > 0;
+  }
+
   /** Desde cuándo no quiere promociones, o null si las acepta. */
   async bajaDePromociones(clienteId: string): Promise<Date | null> {
     const cliente = await this.prisma.cliente.findUnique({ where: { id: clienteId }, select: { bajaPromocionesEn: true } });

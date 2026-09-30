@@ -5,6 +5,7 @@ import { inicioDelDiaClinica, inicioDelMesClinica, ZONA_CLINICA } from '../../co
 import { Prisma } from '../../prisma/prisma-client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { whereAccesoConversacion } from '../conversaciones/acceso-conversacion';
+import { SIN_RESPONDER } from '../conversaciones/estado-conversacion';
 import { PeriodoKpi } from './dto/query-kpis.dto';
 
 /** Un tramo de tiempo: `desde` incluido, `hasta` excluido. */
@@ -121,7 +122,7 @@ export class KpisService {
       /* El MISMO where que la pestaña "Sin responder" del inbox: si el
          dashboard y el inbox dan dos números distintos, nadie cree a ninguno. */
       this.prisma.conversacion.count({
-        where: { AND: [whereAccesoConversacion(soloAgenteId), { esperandoRespuesta: true }] },
+        where: { AND: [whereAccesoConversacion(soloAgenteId), SIN_RESPONDER] },
       }),
       this.prisma.lead.count({
         where: { ...leadsDelAlcance, createdAt: { gte: inicioDelDiaClinica(ahora) } },

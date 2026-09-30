@@ -29,7 +29,7 @@ Los dos primeros comparten servidor y Postgres (bases separadas) y se hablan
 | `modules/auth` | Login, sesiones revocables, refresco con cookie, perfil propio | Todos |
 | `modules/usuarios` | Cuentas, roles y líneas de cada usuario | SUPER_ADMIN |
 | `modules/lineas-whatsapp` | Las cuatro líneas de WhatsApp y quién atiende cada una | Lectura: cada uno las suyas · edición: SUPER_ADMIN |
-| `modules/conversaciones` | Inbox: webhook de Meta, envío, media en R2, plantillas, reintentos, acuse fuera de horario, alertas de plataforma y tiempo real | Todos, por línea |
+| `modules/conversaciones` | Inbox: webhook de Meta, envío, media en R2, plantillas, reintentos, acuse fuera de horario, abierta/cerrada con cierre por inactividad, bajas de marketing de Meta, alertas de plataforma y tiempo real | Todos, por línea |
 | `modules/plantillas-agente` | Respuestas rápidas personales (atajos con «/») | Todos |
 | `modules/memoria-agente` | Biblioteca personal de textos y archivos (30 MB) para el chat | Todos |
 | `modules/actividades` | Recordatorios y calendario de seguimiento, con push | Todos (operativos sin leads) |

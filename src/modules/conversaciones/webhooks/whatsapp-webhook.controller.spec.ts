@@ -1,7 +1,8 @@
-import { ForbiddenException, ServiceUnavailableException } from '@nestjs/common';
+import { ForbiddenException, ServiceUnavailableException, ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 import { AlertasWhatsappService } from '../../../common/whatsapp/alertas-whatsapp.service';
+import { ClientesService } from '../../clientes/clientes.service';
 import { ConversacionesService } from '../conversaciones.service';
 import { IngestaWhatsappService } from '../ingesta-whatsapp.service';
 import { WhatsappWebhookDto } from './dto/whatsapp-webhook.dto';
@@ -49,16 +50,18 @@ function montar(
      `servicio.procesarEntrante` de abajo — sigue siendo el mismo objeto. */
   const servicio = { ...conversaciones, ...ingesta };
   const alertas = new AlertasEspia();
+  const clientes = { preferenciaPromocionesDesdeWhatsapp: jest.fn().mockResolvedValue(true) };
   const controller = new WhatsappWebhookController(
     { get: (clave: string) => config[clave] } as ConfigService,
     conversaciones as unknown as ConversacionesService,
     ingesta as unknown as IngestaWhatsappService,
     alertas as unknown as AlertasWhatsappService,
     lineas as never,
+    clientes as unknown as ClientesService,
   );
   jest.spyOn(controller['logger'], 'error').mockImplementation(() => undefined);
   jest.spyOn(controller['logger'], 'log').mockImplementation(() => undefined);
-  return { controller, servicio, alertas };
+  return { controller, servicio, alertas, clientes };
 }
 
 /** Envuelve mensajes y estados en la estructura anidada real de Meta. */
@@ -580,6 +583,60 @@ describe('WhatsappWebhookController', () => {
 
       expect(log).toHaveBeenCalledWith(expect.stringContaining('131047: Re-engagement message'));
       expect(servicio.procesarEstadoMensaje).toHaveBeenCalledWith('wamid.out.1', 'failed', undefined, "linea-1", 131047);
+    });
+  });
+
+  describe('preferencias de marketing (user_preferences)', () => {
+    /** El ejemplo literal de la referencia de Meta, con `field` fuera de `value`. */
+    function preferencia(value: string, wa_id = '59170000001'): Record<string, unknown> {
+      return {
+        object: 'whatsapp_business_account',
+        entry: [{ id: '102290129340398', changes: [{ field: 'user_preferences', value: {
+          messaging_product: 'whatsapp',
+          metadata: { display_phone_number: '15550783881', phone_number_id: '106540352242922' },
+          contacts: [{ wa_id }],
+          user_preferences: [{
+            wa_id, detail: 'User requested to stop marketing messages',
+            category: 'marketing_messages', value, timestamp: 1731705721,
+          }],
+        } }] }],
+      };
+    }
+
+    /** Pasa por el mismo pipe global (whitelist) que en producción: un campo sin
+     *  decorador no llegaría a medias, llegaría vacío. */
+    async function comoEnProduccion(cuerpo: Record<string, unknown>): Promise<WhatsappWebhookDto> {
+      const pipe = new ValidationPipe({ whitelist: true, transform: true });
+      return pipe.transform(cuerpo, { type: 'body', metatype: WhatsappWebhookDto }) as Promise<WhatsappWebhookDto>;
+    }
+
+    it('stop registra la baja; resume la levanta — sin resolver línea ni tocar mensajes', async () => {
+      const { controller, servicio, clientes } = montar({}, { desdeWebhook: async () => null });
+
+      await controller.procesarWebhook(await comoEnProduccion(preferencia('stop')));
+      await controller.procesarWebhook(await comoEnProduccion(preferencia('resume')));
+
+      expect(clientes.preferenciaPromocionesDesdeWhatsapp.mock.calls).toEqual([
+        ['+59170000001', false],
+        ['+59170000001', true],
+      ]);
+      expect(servicio.procesarEntrante).not.toHaveBeenCalled();
+    });
+
+    it('un valor o categoría desconocidos se ignoran sin fallar el lote', async () => {
+      const { controller, clientes } = montar();
+      const cuerpo = preferencia('interested');
+
+      await expect(controller.procesarWebhook(await comoEnProduccion(cuerpo))).resolves.toBeUndefined();
+      expect(clientes.preferenciaPromocionesDesdeWhatsapp).not.toHaveBeenCalled();
+    });
+
+    it('si la base falla responde 503 para que Meta reintente', async () => {
+      const { controller, clientes } = montar();
+      clientes.preferenciaPromocionesDesdeWhatsapp.mockRejectedValueOnce(new Error('base caída'));
+
+      await expect(controller.procesarWebhook(await comoEnProduccion(preferencia('stop'))))
+        .rejects.toBeInstanceOf(ServiceUnavailableException);
     });
   });
 

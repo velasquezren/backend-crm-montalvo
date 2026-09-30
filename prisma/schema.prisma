@@ -96,7 +96,8 @@ model Usuario {
   clientes              Cliente[]              @relation("AgenteAsignado")
   intereses             Interes[]
   leads                 Lead[]
-  conversaciones        Conversacion[]
+  conversaciones        Conversacion[]  @relation("ConversacionAgente")
+  conversacionesCerradas Conversacion[] @relation("ConversacionCerradaPor")
   lineasWhatsapp        AccesoLineaWhatsapp[]
   silenciosLinea        SilencioLinea[]
   ventas                Venta[]
@@ -326,7 +327,7 @@ model Conversacion {
   clienteId          String
   lineaId            String @default("00000000-0000-4000-8000-000000000001")
   linea              LineaWhatsapp @relation(fields: [lineaId], references: [id])
-  agente             Usuario?  @relation(fields: [agenteId], references: [id])
+  agente             Usuario?  @relation("ConversacionAgente", fields: [agenteId], references: [id])
   agenteId           String?
   mensajes           Mensaje[]
   createdAt          DateTime  @default(now())
@@ -349,6 +350,18 @@ model Conversacion {
   /// `conversaciones.integracion.spec.ts`, bloque "la pestaña Sin responder se
   /// mantiene al crear cada mensaje".
   esperandoRespuesta Boolean   @default(false)
+  /// Cuándo se cerró —resuelta—, o null si está abierta. Es lo que hacen los
+  /// inbox serios (Intercom, Front): una conversación resuelta sale de las
+  /// pestañas de trabajo y se REABRE sola en cuanto la paciente escribe o la
+  /// clínica le contesta, así que cerrar nunca pierde a nadie.
+  ///
+  /// Existe porque sin él «Sin responder» acumulaba para siempre todo lo que
+  /// alguna vez quedó sin contestar: 427 el 2026-09-30, de los que 201 llevaban
+  /// más de una semana sin movimiento y nadie iba a atender.
+  cerradaEn          DateTime?
+  /// Quién la cerró. null con `cerradaEn` = cerrada por inactividad (barrido).
+  cerradaPor         Usuario?  @relation("ConversacionCerradaPor", fields: [cerradaPorId], references: [id], onDelete: SetNull)
+  cerradaPorId       String?
 
   @@index([agenteId])
   @@index([updatedAt])

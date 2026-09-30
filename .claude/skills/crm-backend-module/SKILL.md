@@ -93,6 +93,36 @@ columna desnormalizada (`Conversacion.esperandoRespuesta`) porque "el último
 mensaje es ENTRANTE" no se puede expresar en un `where` de Prisma. **Habría
 sido más barato paginar desde el principio.**
 
+### Abierta / cerrada: el número de cada pestaña es lo que aparece al pulsarla
+
+**Cicatriz (2026-09-30):** «Sin responder» decía 427 y la clínica contaba bastantes
+menos. No mentía sobre su definición: sin estado «cerrada», acumulaba todo lo que alguna
+vez quedó sin contestar (201 chats sin movimiento en más de una semana, 83 en más de un
+mes). Además el contador ignoraba el filtro por agente que sí aplicaba la lista, y el
+Dashboard escribía su propia copia de la regla.
+
+- **`Conversacion.cerradaEn` / `cerradaPorId`** = resuelta (el modelo de Intercom y Front).
+  Las pestañas de trabajo (`TODAS`, `SIN_RESPONDER`, `SIN_ASIGNAR`, `MIS_CHATS`) solo
+  muestran abiertas. `CERRADAS` es el archivo. Buscar en `TODAS` encuentra también las
+  cerradas: buscar a una paciente nunca puede decir «no está».
+- **Las definiciones viven UNA vez en `estado-conversacion.ts`** (`ABIERTA`,
+  `SIN_RESPONDER`, `REABRIR`). El inbox y KPIs importan de ahí. Si escribes
+  `esperandoRespuesta: true` a mano en un `where`, reintroduces el 427.
+- **Lista, contadores y resumen de fila salen de los mismos constructores**
+  (`whereAlcanceInbox` + `wherePestanas` en `consultas-inbox.ts`). Un filtro de vista
+  nuevo va en `whereAlcanceInbox`, o el número y la lista vuelven a divergir. Los
+  contadores van sin la búsqueda, a propósito.
+- **Se reabre sola con actividad humana.** Las dos transacciones que escriben
+  `esperandoRespuesta` por un humano (entrante en la ingesta, envío de la clínica y
+  plantilla) esparcen `...REABRIR`. El acuse automático NO reabre.
+- **Cerrar, reabrir y el barrido NO tocan `updatedAt`.** Van por `$executeRaw`, porque Prisma
+  pone `updatedAt` en cada UPDATE, y es la hora que el inbox muestra y por la que ordena.
+  Si lo tocaran, un chat de hace dos semanas diría «hace un momento».
+- **`CierreInactividadService`** cierra cada 6 h lo que no tiene ningún MENSAJE en
+  `CONVERSACIONES_CIERRE_DIAS` (30 por defecto). Mide por el último mensaje, no por
+  `updatedAt`, que se mueve al asignar. `cerradaPorId` nulo significa que la cerró el
+  sistema.
+
 ## Visibilidad por rol
 
 El backend es la autoridad, no el frontend. La jerarquía vive en
@@ -766,6 +796,20 @@ TOQUE de un botón (`esRespuestaBoton`), nunca el texto escrito. La ingesta conf
 y **no manda nada más** —ni el acuse fuera de horario ni el pedido de nombre y edad—. Con
 baja, el servidor rechaza con 409 las plantillas de Marketing (Utilidad sigue). Se reactiva
 con `recibePromociones: true` en la ficha, y solo si ella lo pide.
+
+**Las otras dos puertas de la baja son de Meta** (2026-09-30). La paciente puede parar las
+promociones desde «Ofertas y anuncios» de WhatsApp sin escribir nada:
+- **Webhook `user_preferences`** (`stop`/`resume`, categoría `marketing_messages`) →
+  `ClientesService.preferenciaPromocionesDesdeWhatsapp`. La preferencia es de la persona,
+  no de la línea, así que no resuelve la línea receptora. Si el número no tiene ficha, no
+  crea una. `resume` borra la baja aunque la hubiera dado con el botón. Hay que tener el
+  campo suscrito en la app de Meta.
+- **Estado `failed` con 131050** (Meta no entregó una plantilla porque ella las paró) →
+  `procesarEstadoMensaje` registra la baja. Es la red si el webhook se perdió.
+
+Ni 131050 ni 131049 (el tope diario de marketing por persona) se reintentan: están en
+`ERRORES_WHATSAPP_PERMANENTES`. Los reintentos del despachador son de minutos, y Meta pide
+no reintentar 131049 enseguida.
 
 **La cola de resultados se filtra donde se corta la página** (2026-09-30). Pestañas
 `POR_AVISAR` / `ESPERANDO` / `VENCIDOS` / `ABIERTOS` / `TODOS` (`ESTADOS_COLA`). Las tres

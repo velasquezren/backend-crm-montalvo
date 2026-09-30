@@ -6,10 +6,9 @@ import {
   ContadoresInbox,
   ConversacionDeInbox,
   SELECT_INBOX,
-  whereAgente,
-  whereBusqueda,
-  whereSoloMios,
-  whereTab,
+  whereAlcanceInbox,
+  wherePestanas,
+  whereVistaInbox,
 } from './consultas-inbox';
 import { LineasWhatsappService } from '../lineas-whatsapp/lineas-whatsapp.service';
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
@@ -24,7 +23,7 @@ import { enSegundoPlano } from '../../common/fiabilidad/en-segundo-plano';
 import { CONTENIDO_PIN, UBICACION_CLINICA } from './ubicacion-clinica';
 import { R2Service } from '../../common/storage/r2.service';
 import { WhatsappCloudService } from '../../common/whatsapp/whatsapp-cloud.service';
-import { permiteReintentarError } from '../../common/whatsapp/error-envio';
+import { ERROR_BAJA_MARKETING, permiteReintentarError } from '../../common/whatsapp/error-envio';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ClientesService, nombreProvisional } from '../clientes/clientes.service';
 import { normalizarTelefono } from '../../common/telefono/telefono';
@@ -35,6 +34,7 @@ import { DespachadorSalienteService, PlantillaADespachar, proximoReintento } fro
 import { QueryConversacionesDto } from './dto/query-conversaciones.dto';
 import { PlantillaMeta, PlantillaResumen, renderizarPlantilla, resumirPlantilla, validarParametros } from './plantillas-whatsapp';
 import { urlDeCabecera } from './cabeceras-plantilla';
+import { REABRIR } from './estado-conversacion';
 
 /** Mensajes que trae el detalle inicial de una conversación (más recientes primero, luego se reordenan).
  *  Se acota a 50 para máxima velocidad inicial; los anteriores se cargan por cursor al hacer scroll. */
@@ -190,14 +190,7 @@ export class ConversacionesService {
     /* El permiso va primero y siempre; lo demás son preferencias de vista que
        se le suman con AND. Fundirlos es cómo un interruptor de la interfaz
        termina redefiniendo quién ve los datos de qué paciente. */
-    const where = combinar(
-      whereVisibilidad(soloAgenteId),
-      query.soloMios ? whereSoloMios(usuarioId) : undefined,
-      whereTab(query.tab, usuarioId),
-      whereBusqueda(query.busqueda),
-      whereAgente(query.agenteId),
-      query.lineaId ? { lineaId: query.lineaId } : undefined,
-    );
+    const where = whereVistaInbox(query, soloAgenteId, usuarioId);
 
     const dto = { pagina: query.pagina, limite: query.limite ?? POR_PAGINA_INBOX };
     const { skip, take } = calcularPaginacion(dto);
@@ -216,12 +209,12 @@ export class ConversacionesService {
 
     return {
       ...paginar(conversaciones.map(aFilaDeInbox), total, dto),
-      contadores: await this.contadoresInbox(soloAgenteId, usuarioId, query.soloMios, query.lineaId),
+      contadores: await this.contadoresInbox(query, soloAgenteId, usuarioId),
     };
   }
 
   /**
-   * Los números de las cuatro pestañas.
+   * Los números de las pestañas.
    *
    * Se calculan sobre el ALCANCE del usuario, no sobre la pestaña ni la búsqueda
    * activas — igual que hacía el `stats` del frontend, que contaba sobre la lista
@@ -229,32 +222,32 @@ export class ConversacionesService {
    * la pestaña "Sin responder" mostraría "0" mientras estás dentro de ella
    * habiendo escrito algo en el buscador.
    *
-   * Cuatro `count` indexados en una sola transacción: `agenteId` sostiene dos y
-   * `esperandoRespuesta` el tercero.
+   * Cinco `count` en una sola transacción: un viaje a la base, no cinco.
    */
   private async contadoresInbox(
+    query: QueryConversacionesDto,
     soloAgenteId: string | undefined,
     usuarioId: string,
-    soloMios?: boolean,
-    lineaId?: string,
   ): Promise<ContadoresInbox> {
-    const base = combinar(
-      whereVisibilidad(soloAgenteId),
-      soloMios ? whereSoloMios(usuarioId) : undefined,
-      lineaId ? { lineaId } : undefined,
-    );
+    /* El MISMO alcance que la lista (`whereAlcanceInbox`) y las mismas
+       condiciones que cada pestaña (`wherePestanas`): lo que dice el número es
+       lo que aparece al pulsarla. Sin la búsqueda, a propósito (ver arriba). */
+    const alcance = whereAlcanceInbox(query, soloAgenteId, usuarioId);
+    const pestanas = wherePestanas(usuarioId);
+    const contar = (pestana: Prisma.ConversacionWhereInput) =>
+      this.prisma.conversacion.count({ where: combinar(alcance, pestana) });
 
-    const conBase = (extra?: Prisma.ConversacionWhereInput) => combinar(base, extra);
-
-    const [total, sinAsignar, misChats, sinResponder] = await this.prisma.$transaction([
-      this.prisma.conversacion.count({ where: base }),
-      this.prisma.conversacion.count({ where: conBase({ agenteId: null }) }),
-      this.prisma.conversacion.count({ where: conBase({ agenteId: usuarioId }) }),
-      this.prisma.conversacion.count({ where: conBase({ esperandoRespuesta: true }) }),
+    const [total, sinAsignar, misChats, sinResponder, cerradas] = await this.prisma.$transaction([
+      contar(pestanas.total),
+      contar(pestanas.sinAsignar),
+      contar(pestanas.misChats),
+      contar(pestanas.sinResponder),
+      contar(pestanas.cerradas),
     ]);
 
-    return { total, sinAsignar, misChats, sinResponder };
+    return { total, sinAsignar, misChats, sinResponder, cerradas };
   }
+
 
   /**
    * Una sola fila del inbox, para el aviso de tiempo real.
@@ -276,21 +269,13 @@ export class ConversacionesService {
     query: QueryConversacionesDto = {},
   ): Promise<{ conversacion: ConversacionDeInbox | null; contadores: ContadoresInbox }> {
     const fila = await this.prisma.conversacion.findFirst({
-      where: combinar(
-        { id },
-        whereVisibilidad(soloAgenteId),
-        query.soloMios ? whereSoloMios(usuarioId) : undefined,
-        whereTab(query.tab, usuarioId),
-        whereBusqueda(query.busqueda),
-        whereAgente(query.agenteId),
-      query.lineaId ? { lineaId: query.lineaId } : undefined,
-      ),
+      where: combinar({ id }, whereVistaInbox(query, soloAgenteId, usuarioId)),
       select: SELECT_INBOX,
     });
 
     return {
       conversacion: fila ? aFilaDeInbox(fila) : null,
-      contadores: await this.contadoresInbox(soloAgenteId, usuarioId, query.soloMios, query.lineaId),
+      contadores: await this.contadoresInbox(query, soloAgenteId, usuarioId),
     };
   }
 
@@ -330,6 +315,8 @@ export class ConversacionesService {
           },
         },
         agente: { select: { id: true, nombre: true } },
+        /* El aviso «cerrada por X / por inactividad» del chat. */
+        cerradaPor: { select: { id: true, nombre: true } },
         /* Se traen las más recientes primero (para poder acotar con `take`)
            y se reordenan a ascendente en memoria — invertir 300 elementos
            es despreciable frente a traer un historial sin límite. */
@@ -468,6 +455,44 @@ export class ConversacionesService {
     return { total, items };
   }
 
+  /**
+   * La da por resuelta. Idempotente: cerrar una ya cerrada no le cambia ni la
+   * fecha ni quién la cerró. Condicionado en el UPDATE, no leído antes: dos
+   * pestañas cerrando a la vez no pisan al que cerró primero.
+   *
+   * SQL y no `updateMany` para no tocar `updatedAt`: Prisma lo pone en cada
+   * UPDATE, y es la hora que el inbox muestra y por la que ordena. Cerrar un
+   * chat de hace dos semanas no puede hacerlo pasar por «hace un momento».
+   */
+  async cerrar(id: string, usuarioId: string, soloAgenteId?: string) {
+    await this.obtenerConversacionPropia(id, soloAgenteId);
+    await this.prisma.$executeRaw`
+      UPDATE "Conversacion" SET "cerradaEn" = ${new Date()}, "cerradaPorId" = ${usuarioId}
+      WHERE id = ${id} AND "cerradaEn" IS NULL`;
+    this.gateway.emitirActividad(id);
+    return this.estadoDe(id);
+  }
+
+  /**
+   * Vuelve a abrirla a mano (se reabre sola con actividad; esto es para cuando
+   * no la hay). Sin tocar `updatedAt`, por lo mismo que `cerrar`.
+   */
+  async reabrir(id: string, soloAgenteId?: string) {
+    await this.obtenerConversacionPropia(id, soloAgenteId);
+    await this.prisma.$executeRaw`
+      UPDATE "Conversacion" SET "cerradaEn" = NULL, "cerradaPorId" = NULL
+      WHERE id = ${id} AND "cerradaEn" IS NOT NULL`;
+    this.gateway.emitirActividad(id);
+    return this.estadoDe(id);
+  }
+
+  private async estadoDe(id: string) {
+    return this.prisma.conversacion.findUniqueOrThrow({
+      where: { id },
+      select: { id: true, cerradaEn: true, cerradaPor: { select: { id: true, nombre: true } } },
+    });
+  }
+
   /** Versión liviana del chequeo de propiedad de `findOne`, sin traer mensajes:
    *  la usan `enviarMensaje`/`asignarAgente`, que solo necesitan confirmar
    *  dueño + el teléfono del cliente, no el historial completo del chat. */
@@ -586,7 +611,7 @@ export class ConversacionesService {
           /* Contestó una persona: sale de la pestaña "Sin responder". Va en la
              MISMA transacción que el mensaje a propósito — si se separara, un
              fallo entre las dos dejaría la pestaña mintiendo. */
-          data: { updatedAt: new Date(), esperandoRespuesta: false },
+          data: { updatedAt: new Date(), esperandoRespuesta: false, ...REABRIR },
         }),
       ]);
   }
@@ -868,6 +893,16 @@ export class ConversacionesService {
             : null,
         },
       });
+      /* Meta no entregó una plantilla porque ella paró las promociones desde
+         WhatsApp. Si el webhook `user_preferences` se perdió —o la baja es
+         anterior a suscribirlo— este es el único aviso: registrarla evita que
+         la próxima campaña vuelva a pagar un intento que nunca llega. */
+      if (codigo === ERROR_BAJA_MARKETING) {
+        const { clienteId } = await this.prisma.conversacion.findUniqueOrThrow({
+          where: { id: mensaje.conversacionId }, select: { clienteId: true },
+        });
+        await this.clientesService.registrarBajaPromociones(clienteId);
+      }
     } else if (status === 'sent' && mensaje.estadoEnvio === 'INCIERTO') {
       /* La otra mitad de F06 entrega 2. Un 'sent' normalmente no aporta nada
          —la fila ya nace ENVIADO— pero sobre una fila INCIERTA es justo la
@@ -1105,7 +1140,7 @@ export class ConversacionesService {
         }),
         this.prisma.conversacion.update({
           where: { id: conversacionId },
-          data: { updatedAt: new Date(), esperandoRespuesta: false },
+          data: { updatedAt: new Date(), esperandoRespuesta: false, ...REABRIR },
         }),
       ]);
     } catch (error) {

@@ -19,11 +19,13 @@ import { TipoMensaje } from '../../../prisma/prisma-client';
 import { Public } from '../../../common/decorators/public.decorator';
 import { MetaSignatureGuard } from '../../../common/guards/meta-signature.guard';
 import { AlertasWhatsappService } from '../../../common/whatsapp/alertas-whatsapp.service';
+import { ClientesService } from '../../clientes/clientes.service';
 import { ConversacionesService } from '../conversaciones.service';
 import { IngestaWhatsappService } from '../ingesta-whatsapp.service';
 import {
   WhatsappContactDto,
   WhatsappMessageDto,
+  WhatsappPreferenciaDto,
   WhatsappWebhookDto,
 } from './dto/whatsapp-webhook.dto';
 
@@ -126,6 +128,7 @@ export class WhatsappWebhookController {
     private readonly ingesta: IngestaWhatsappService,
     private readonly alertas: AlertasWhatsappService,
     private readonly lineas: LineasWhatsappService,
+    private readonly clientes: ClientesService,
   ) {}
 
   @Public()
@@ -184,6 +187,16 @@ export class WhatsappWebhookController {
         } catch (error) {
           fallos++;
           this.logger.error(`Error procesando el aviso "${cambio.field}" de WhatsApp`, error);
+        }
+        continue;
+      }
+
+      if (cambio.field === 'user_preferences') {
+        try {
+          await this.procesarPreferencias(cambio.value?.user_preferences ?? []);
+        } catch (error) {
+          fallos++;
+          this.logger.error('Error procesando el cambio de preferencias de marketing de WhatsApp', error);
         }
         continue;
       }
@@ -274,6 +287,20 @@ export class WhatsappWebhookController {
       }
     }
     if (fallos) throw new ServiceUnavailableException('No se pudo persistir todo el webhook');
+  }
+
+  /**
+   * «Ofertas y anuncios» de WhatsApp: la paciente paró o reanudó las
+   * promociones. La preferencia es de la PERSONA, no de la línea por la que
+   * llega el aviso —`Cliente.bajaPromocionesEn` es una sola—, así que no hace
+   * falta resolver la línea receptora. Un valor que no sea stop/resume (Meta
+   * añade categorías con el tiempo) se ignora sin fallar el lote.
+   */
+  private async procesarPreferencias(preferencias: WhatsappPreferenciaDto[]): Promise<void> {
+    for (const { wa_id, category, value } of preferencias) {
+      if (!wa_id || category !== 'marketing_messages' || (value !== 'stop' && value !== 'resume')) continue;
+      await this.clientes.preferenciaPromocionesDesdeWhatsapp(`+${wa_id}`, value === 'resume');
+    }
   }
 
   /** Persiste un mensaje entrante. Devuelve false si no es de un tipo que el CRM registre. */

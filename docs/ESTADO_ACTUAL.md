@@ -1,5 +1,24 @@
 # Estado actual
 
+## Actualización del 30 de septiembre de 2026
+
+- **Conversaciones abiertas y cerradas.** «Sin responder» marcaba 427 y la clínica contaba
+  menos. La definición era correcta, pero sin estado «cerrada» acumulaba todo lo que alguna
+  vez quedó sin contestar: 83 chats llevaban más de un mes quietos. Además, su número no
+  aplicaba el filtro por agente que sí aplicaba la lista.
+  - Ahora hay **Cerrar/Reabrir** en la cabecera del chat y el archivo «Ver cerradas».
+  - El chat se reabre solo si escribe la paciente o si le contesta la clínica.
+  - Un barrido cierra cada 6 h lo que lleva 30 días sin mensajes (`CONVERSACIONES_CIERRE_DIAS`).
+  - Lista, contadores y Dashboard salen de una sola definición (`estado-conversacion.ts`).
+  - Reglas en `crm-backend-module`, «Abierta / cerrada».
+- **Bajas de promociones que avisa Meta.** Se registra sola la baja cuando la paciente para
+  las promociones desde WhatsApp: por el webhook `user_preferences` o por un fallo 131050.
+  Ni 131050 ni 131049 se reintentan. El chat explica los dos códigos.
+  **Pendiente de OK:** suscribir el campo `user_preferences` en la app de Meta (hoy no está).
+  Sin él solo actúa la red del 131050.
+- **Plantillas de Ventas:** `reactivacion_con_foto` enviada a Meta y pendiente de
+  aprobación. Retirar la vieja `reactivacion_paciente` necesita OK.
+
 ## Actualización del 29 de septiembre de 2026
 
 - **Avisos por línea.** Cada persona decide, línea por línea, si le suenan los

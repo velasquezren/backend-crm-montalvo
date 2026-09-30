@@ -152,6 +152,21 @@ export class ConversacionesController {
     return this.conversacionesService.marcarLeido(id, soloAgenteId, dto.typing ?? false);
   }
 
+  /**
+   * Cerrar = resuelta: sale de las pestañas de trabajo y de sus contadores. Se
+   * reabre sola si la paciente escribe o la clínica le contesta. Mismo permiso
+   * que leer y responder esa conversación.
+   */
+  @Post(':id/cerrar')
+  cerrar(@Param('id') id: string, @CurrentUser() usuario: UsuarioJwt) {
+    return this.conversacionesService.cerrar(id, usuario.sub, alcanceAgente(usuario));
+  }
+
+  @Post(':id/reabrir')
+  reabrir(@Param('id') id: string, @CurrentUser() usuario: UsuarioJwt) {
+    return this.conversacionesService.reabrir(id, alcanceAgente(usuario));
+  }
+
   /** Enviar una plantilla aprobada al paciente de esta conversación. */
   @Post(':id/plantilla')
   enviarPlantilla(

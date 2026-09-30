@@ -17,6 +17,9 @@ import { ConversacionesService } from './conversaciones.service';
 import { CONFIRMACION_BAJA } from './baja-promociones';
 import { LINEA_COMERCIAL_INICIAL } from './acceso-conversacion';
 import { IngestaWhatsappService } from './ingesta-whatsapp.service';
+import { CierreInactividadService } from './cierre-inactividad.service';
+import { KpisService } from '../kpis/kpis.service';
+import type { TabInbox } from './dto/query-conversaciones.dto';
 import { MediaEntranteService } from './media-entrante.service';
 import { CONTENIDO_PIN, TEXTO_UBICACION, UBICACION_CLINICA } from './ubicacion-clinica';
 
@@ -1591,4 +1594,202 @@ describe('búsqueda histórica de mensajes', () => {
   });
 });
 
+});
+
+/**
+ * Abierta / cerrada y lo que cuentan las pestañas. Nació de «me salen 427 sin
+ * responder y no son 427»: el número tiene que ser exactamente lo que aparece
+ * al pulsar la pestaña, y el Dashboard tiene que decir lo mismo.
+ */
+describe('conversaciones cerradas y contadores del inbox', () => {
+  const DIA = 24 * 60 * 60 * 1000;
+
+  async function estado(id: string) {
+    return prisma.conversacion.findUniqueOrThrow({ where: { id }, select: { cerradaEn: true, cerradaPorId: true, updatedAt: true, esperandoRespuesta: true } });
+  }
+
+  const PESTANAS: Array<[TabInbox, 'total' | 'sinAsignar' | 'misChats' | 'sinResponder' | 'cerradas']> = [
+    ['TODAS', 'total'], ['SIN_ASIGNAR', 'sinAsignar'], ['MIS_CHATS', 'misChats'],
+    ['SIN_RESPONDER', 'sinResponder'], ['CERRADAS', 'cerradas'],
+  ];
+
+  it('cada contador es exactamente el total de su pestaña, también con el filtro por agente', async () => {
+    const admin = await crearAgente('admin-c', 'ADMIN');
+    const a = await crearAgente('agente-c');
+    const b = await crearAgente('agente-d');
+    const chats = [
+      await crearChat({ telefono: '+59177000001', agenteConversacion: a.id }),
+      await crearChat({ telefono: '+59177000002', agenteConversacion: b.id }),
+      await crearChat({ telefono: '+59177000003' }),
+      await crearChat({ telefono: '+59177000004', agenteConversacion: a.id }),
+      await crearChat({ telefono: '+59177000005', agenteConversacion: admin.id }),
+    ];
+    await prisma.conversacion.updateMany({ where: { id: { in: chats.slice(0, 4).map(c => c.conversacion.id) } }, data: { esperandoRespuesta: true } });
+    await service.cerrar(chats[3].conversacion.id, admin.id);
+
+    for (const filtro of [{}, { agenteId: a.id }, { soloMios: true }]) {
+      const { contadores } = await service.findAll(undefined, admin.id, filtro);
+      for (const [tab, clave] of PESTANAS) {
+        const { total } = await service.findAll(undefined, admin.id, { ...filtro, tab });
+        expect({ filtro, tab, n: contadores[clave] }).toEqual({ filtro, tab, n: total });
+      }
+    }
+    const { contadores } = await service.findAll(undefined, admin.id, { agenteId: a.id });
+    expect(contadores).toMatchObject({ total: 1, sinResponder: 1, cerradas: 1 });
+  });
+
+  it('una cerrada sale de «Sin responder» y del Dashboard, y queda en «Cerradas»', async () => {
+    const admin = await crearAgente('admin-c', 'ADMIN');
+    await ingesta.procesarEntrante('+59177000011', 'Hola', 'wamid.c1');
+    await ingesta.procesarEntrante('+59177000012', 'Hola', 'wamid.c2');
+    const [uno] = await prisma.conversacion.findMany({ orderBy: { createdAt: 'asc' } });
+    const kpis = new KpisService(prisma);
+    expect((await kpis.resumen('MES', undefined)).ahora.chatsSinResponder).toBe(2);
+
+    await service.cerrar(uno.id, admin.id);
+
+    const sinResponder = await service.findAll(undefined, admin.id, { tab: 'SIN_RESPONDER' });
+    expect(sinResponder.total).toBe(1);
+    expect(sinResponder.datos.map(c => c.id)).not.toContain(uno.id);
+    expect((await service.findAll(undefined, admin.id, { tab: 'CERRADAS' })).datos.map(c => c.id)).toEqual([uno.id]);
+    /* Otra instancia: cada KpisService cachea su resumen. */
+    expect((await new KpisService(prisma).resumen('MES', undefined)).ahora.chatsSinResponder).toBe(sinResponder.total);
+  });
+
+  it('cerrar y reabrir no mueven la hora del chat; cerrar dos veces no cambia quién la cerró', async () => {
+    const admin = await crearAgente('admin-c', 'ADMIN');
+    const otro = await crearAgente('admin-d', 'ADMIN');
+    const { conversacion } = await crearChat({ telefono: '+59177000021' });
+    const hace = new Date(Date.now() - 10 * DIA);
+    await prisma.$executeRaw`UPDATE "Conversacion" SET "updatedAt" = ${hace} WHERE id = ${conversacion.id}`;
+
+    const cerrada = await service.cerrar(conversacion.id, admin.id);
+    expect(cerrada.cerradaPor).toEqual({ id: admin.id, nombre: 'admin-c' });
+    await service.cerrar(conversacion.id, otro.id);
+    expect((await estado(conversacion.id))).toMatchObject({ cerradaPorId: admin.id, updatedAt: hace });
+
+    const reabierta = await service.reabrir(conversacion.id);
+    expect(reabierta).toMatchObject({ cerradaEn: null, cerradaPor: null });
+    expect((await estado(conversacion.id)).updatedAt).toEqual(hace);
+  });
+
+  it('se reabre sola cuando escribe la paciente y cuando contesta la clínica', async () => {
+    const a = await crearAgente('agente-c');
+    await ingesta.procesarEntrante('+59177000031', 'Hola', 'wamid.r1');
+    const conv = await prisma.conversacion.findFirstOrThrow();
+
+    await service.cerrar(conv.id, a.id, a.id);
+    await ingesta.procesarEntrante('+59177000031', '¿Siguen ahí?', 'wamid.r2');
+    expect(await estado(conv.id)).toMatchObject({ cerradaEn: null, cerradaPorId: null, esperandoRespuesta: true });
+
+    await service.cerrar(conv.id, a.id, a.id);
+    await service.enviarMensaje(conv.id, 'Sí, dígame', a.id);
+    expect(await estado(conv.id)).toMatchObject({ cerradaEn: null, esperandoRespuesta: false });
+  });
+
+  it('una agente no puede cerrar un chat que no ve', async () => {
+    const a = await crearAgente('agente-c');
+    const b = await crearAgente('agente-d');
+    const ajena = await crearChat({ telefono: '+59177000041', agenteConversacion: b.id, agenteCliente: b.id });
+
+    await expect(service.cerrar(ajena.conversacion.id, a.id, a.id)).rejects.toBeInstanceOf(NotFoundException);
+    expect((await estado(ajena.conversacion.id)).cerradaEn).toBeNull();
+  });
+
+  it('buscar en «Todas» encuentra también las cerradas; sin buscar, solo abiertas', async () => {
+    const admin = await crearAgente('admin-c', 'ADMIN');
+    const { conversacion } = await crearChat({ telefono: '+59177000051' });
+    await service.cerrar(conversacion.id, admin.id);
+
+    expect((await service.findAll(undefined, admin.id, { tab: 'TODAS' })).total).toBe(0);
+    const encontrada = await service.findAll(undefined, admin.id, { tab: 'TODAS', busqueda: '77000051' });
+    expect(encontrada.datos.map(c => c.id)).toEqual([conversacion.id]);
+    expect(encontrada.datos[0].cerradaEn).not.toBeNull();
+  });
+
+  describe('barrido por inactividad', () => {
+    const barrido = () => new CierreInactividadService(prisma);
+
+    it('cierra por el último MENSAJE, no por updatedAt, y sin tocar la hora del chat', async () => {
+      const ahora = new Date();
+      const viejo = new Date(ahora.getTime() - 40 * DIA);
+      const muerta = await crearChat({ telefono: '+59177000061' });
+      const reasignada = await crearChat({ telefono: '+59177000062' });
+      const viva = await crearChat({ telefono: '+59177000063' });
+      const recien = await crearChat({ telefono: '+59177000064' });
+      for (const c of [muerta, reasignada, viva]) {
+        await prisma.$executeRaw`UPDATE "Conversacion" SET "createdAt" = ${viejo}, "updatedAt" = ${viejo} WHERE id = ${c.conversacion.id}`;
+        await prisma.mensaje.create({ data: { conversacionId: c.conversacion.id, direccion: 'ENTRANTE', contenido: 'hola', createdAt: viejo } });
+      }
+      /* Reasignar mueve updatedAt, pero no es actividad de la paciente. */
+      await prisma.conversacion.update({ where: { id: reasignada.conversacion.id }, data: { updatedAt: ahora } });
+      await prisma.mensaje.create({ data: { conversacionId: viva.conversacion.id, direccion: 'ENTRANTE', contenido: 'sigo', createdAt: new Date(ahora.getTime() - 2 * DIA) } });
+
+      expect(await barrido().cerrarInactivas(ahora)).toBe(2);
+
+      expect(await estado(muerta.conversacion.id)).toMatchObject({ cerradaEn: ahora, cerradaPorId: null, updatedAt: viejo });
+      expect((await estado(reasignada.conversacion.id)).cerradaEn).toEqual(ahora);
+      expect((await estado(viva.conversacion.id)).cerradaEn).toBeNull();
+      expect((await estado(recien.conversacion.id)).cerradaEn).toBeNull();
+      /* Idempotente: una segunda pasada no vuelve a cerrar ni cambia la fecha. */
+      expect(await barrido().cerrarInactivas(new Date(ahora.getTime() + DIA))).toBe(0);
+    });
+
+    it('respeta CONVERSACIONES_CIERRE_DIAS', async () => {
+      const antes = process.env.CONVERSACIONES_CIERRE_DIAS;
+      process.env.CONVERSACIONES_CIERRE_DIAS = '7';
+      try {
+        const ahora = new Date();
+        const { conversacion } = await crearChat({ telefono: '+59177000071' });
+        const hace = new Date(ahora.getTime() - 8 * DIA);
+        await prisma.$executeRaw`UPDATE "Conversacion" SET "createdAt" = ${hace} WHERE id = ${conversacion.id}`;
+        await prisma.mensaje.create({ data: { conversacionId: conversacion.id, direccion: 'ENTRANTE', contenido: 'hola', createdAt: hace } });
+
+        expect(await barrido().cerrarInactivas(ahora)).toBe(1);
+      } finally {
+        process.env.CONVERSACIONES_CIERRE_DIAS = antes;
+      }
+    });
+  });
+
+  describe('bajas de marketing que avisa Meta', () => {
+    it('una plantilla rechazada con 131050 registra la baja y no se reintenta', async () => {
+      const { conversacion, cliente } = await crearChat({ telefono: '+59177000081' });
+      await prisma.mensaje.create({ data: { conversacionId: conversacion.id, direccion: 'SALIENTE', contenido: 'promo', whatsappMsgId: 'wamid.mkt', estadoEnvio: 'ENVIADO', permiteReintento: true } });
+
+      await service.procesarEstadoMensaje('wamid.mkt', 'failed', undefined, undefined, 131050);
+
+      expect((await prisma.cliente.findUniqueOrThrow({ where: { id: cliente.id } })).bajaPromocionesEn).not.toBeNull();
+      expect(await prisma.mensaje.findUniqueOrThrow({ where: { whatsappMsgId: 'wamid.mkt' } })).toMatchObject({ estadoEnvio: 'FALLIDO', codigoErrorEnvio: 131050, proximoIntento: null });
+    });
+
+    it('otro fallo no da de baja a nadie', async () => {
+      const { conversacion, cliente } = await crearChat({ telefono: '+59177000082' });
+      await prisma.mensaje.create({ data: { conversacionId: conversacion.id, direccion: 'SALIENTE', contenido: 'promo', whatsappMsgId: 'wamid.mkt2', estadoEnvio: 'ENVIADO' } });
+
+      await service.procesarEstadoMensaje('wamid.mkt2', 'failed', undefined, undefined, 131049);
+
+      expect((await prisma.cliente.findUniqueOrThrow({ where: { id: cliente.id } })).bajaPromocionesEn).toBeNull();
+    });
+
+    it('user_preferences: stop da de baja, resume la levanta, cada cosa una sola vez en la auditoría', async () => {
+      const { cliente } = await crearChat({ telefono: '+59177000083' });
+
+      expect(await clientesService.preferenciaPromocionesDesdeWhatsapp('+59177000083', false)).toBe(true);
+      expect(await clientesService.preferenciaPromocionesDesdeWhatsapp('+59177000083', false)).toBe(false);
+      expect((await prisma.cliente.findUniqueOrThrow({ where: { id: cliente.id } })).bajaPromocionesEn).not.toBeNull();
+
+      expect(await clientesService.preferenciaPromocionesDesdeWhatsapp('+59177000083', true)).toBe(true);
+      expect(await clientesService.preferenciaPromocionesDesdeWhatsapp('+59177000083', true)).toBe(false);
+      expect((await prisma.cliente.findUniqueOrThrow({ where: { id: cliente.id } })).bajaPromocionesEn).toBeNull();
+
+      const acciones = (await prisma.auditLog.findMany({ where: { entidadId: cliente.id }, orderBy: { createdAt: 'asc' } })).map(l => l.accion);
+      expect(acciones).toEqual(['BAJA_PROMOCIONES', 'ALTA_PROMOCIONES']);
+    });
+
+    it('un número que nunca fue paciente no crea ficha', async () => {
+      expect(await clientesService.preferenciaPromocionesDesdeWhatsapp('+59177000099', false)).toBe(false);
+      expect(await prisma.cliente.count()).toBe(0);
+    });
+  });
 });

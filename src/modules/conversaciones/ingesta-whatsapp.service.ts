@@ -3,6 +3,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Mensaje, OrigenLead, Prisma } from '../../prisma/prisma-client';
 
 import { CONFIRMACION_BAJA, esPedidoDeBaja } from './baja-promociones';
+import { REABRIR } from './estado-conversacion';
 import { enSegundoPlano } from '../../common/fiabilidad/en-segundo-plano';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ClientesService, nombreProvisional } from '../clientes/clientes.service';
@@ -197,7 +198,8 @@ export class IngestaWhatsappService {
         });
         await tx.conversacion.update({
           where: { id: conversacion.id },
-          data: { updatedAt: new Date(), esperandoRespuesta: true },
+          /* Escribió ella: si la conversación estaba cerrada, se reabre. */
+          data: { updatedAt: new Date(), esperandoRespuesta: true, ...REABRIR },
         });
         if (linea.comercial) await this.primerContacto.preparar(
           tx, conversacion.id, creado.id, origenLead, referral?.anuncioId,

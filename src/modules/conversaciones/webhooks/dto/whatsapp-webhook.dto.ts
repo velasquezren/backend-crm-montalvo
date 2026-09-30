@@ -296,6 +296,32 @@ export class WhatsappStatusDto {
   biz_opaque_callback_data?: string;
 }
 
+/**
+ * Cambio de preferencia de marketing (`user_preferences`): la paciente paró o
+ * reanudó las promociones desde «Ofertas y anuncios» de WhatsApp, sin escribir
+ * nada en el chat. «Me interesa / No me interesa» NO lo dispara; solo parar y
+ * reanudar.
+ */
+export class WhatsappPreferenciaDto {
+  @IsOptional()
+  @IsString()
+  wa_id?: string;
+
+  /** Hoy siempre `marketing_messages`. */
+  @IsOptional()
+  @IsString()
+  category?: string;
+
+  /** 'stop' | 'resume' */
+  @IsOptional()
+  @IsString()
+  value?: string;
+
+  @IsOptional()
+  @IsNumber()
+  timestamp?: number;
+}
+
 /** Restricción concreta que Meta impuso a la cuenta (`ACCOUNT_RESTRICTION`). */
 export class WhatsappRestriccionDto {
   /** p. ej. `RESTRICTED_BIZ_INITIATED_MESSAGING` — no se pueden iniciar conversaciones. */
@@ -415,6 +441,12 @@ export class WhatsappValueDto {
   @ValidateNested({ each: true })
   @Type(() => WhatsappStatusDto)
   statuses?: WhatsappStatusDto[];
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => WhatsappPreferenciaDto)
+  user_preferences?: WhatsappPreferenciaDto[];
 }
 
 export class WhatsappChangeDto {
