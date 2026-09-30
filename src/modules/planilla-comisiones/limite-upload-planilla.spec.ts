@@ -13,6 +13,7 @@ import { PlanillaComisionesService } from './planilla-comisiones.service';
 import { ResumenAnualService } from './resumen-anual.service';
 import { VendedorasComisionService } from './vendedoras-comision.service';
 import { CicloPeriodoService } from './ciclo-periodo.service';
+import { ReportesComisionesService } from './reportes-comisiones.service';
 
 /**
  * El tope del Excel se comprobaba DESPUÉS de tener el archivo entero en RAM.
@@ -45,6 +46,7 @@ const vacio = {};
     { provide: ResumenAnualService, useValue: vacio },
     { provide: VendedorasComisionService, useValue: vacio },
     { provide: CicloPeriodoService, useValue: vacio },
+    { provide: ReportesComisionesService, useValue: vacio },
   ],
 })
 class ModuloSoloImportar {}

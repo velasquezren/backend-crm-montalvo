@@ -1,6 +1,6 @@
 import { PassThrough } from 'stream';
 
-import { CalculoComisionesService } from './calculo-comisiones.service';
+import { ReportesComisionesService } from './reportes-comisiones.service';
 import { ExportacionWordService } from './exportacion-word.service';
 import { ExportacionMetricasService } from './exportacion-metricas.service';
 import {
@@ -232,14 +232,7 @@ function montarServicio(
       : { findUnique: async () => ({ nombre: 'Lic. Sara Bueno' }) },
   };
 
-  const calculo = new CalculoComisionesService(
-    prisma as never,
-    {} as never,
-    {} as never,
-    {} as never,
-    {} as never,
-  );
-  return new ExportacionWordService(prisma as never, calculo);
+  return new ExportacionWordService(prisma as never, new ReportesComisionesService(prisma as never));
 }
 
 describe('documento Word generado', () => {
@@ -324,20 +317,14 @@ describe('PDF de métricas', () => {
       },
       resultadoComision: { findMany: async () => resultados },
     };
-    const calculo = new CalculoComisionesService(
-      prisma as never,
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never,
-    );
+    const reportes = new ReportesComisionesService(prisma as never);
 
     const trozos: Buffer[] = [];
     const salida = new PassThrough();
     salida.on('data', c => trozos.push(c as Buffer));
     const cerrado = new Promise<void>(r => salida.on('end', () => r()));
 
-    await new ExportacionMetricasService(prisma as never, calculo).exportar('p1', salida);
+    await new ExportacionMetricasService(prisma as never, reportes).exportar('p1', salida);
     await cerrado;
     return Buffer.concat(trozos);
   }

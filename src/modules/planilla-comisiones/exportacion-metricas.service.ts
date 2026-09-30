@@ -3,7 +3,7 @@ import PDFDocument from 'pdfkit';
 import { Writable } from 'stream';
 
 import { PrismaService } from '../../prisma/prisma.service';
-import { CalculoComisionesService } from './calculo-comisiones.service';
+import { ReportesComisionesService } from './reportes-comisiones.service';
 import {
   armarInforme,
   FilaInforme,
@@ -68,7 +68,7 @@ type Doc = PDFKit.PDFDocument;
 export class ExportacionMetricasService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly calculo: CalculoComisionesService,
+    private readonly reportes: ReportesComisionesService,
   ) {}
 
   async nombreArchivo(periodoId: string): Promise<string> {
@@ -87,7 +87,7 @@ export class ExportacionMetricasService {
     salida: Writable,
     opciones: { incluirOcultas?: boolean } = {},
   ): Promise<void> {
-    const consolidado = await this.calculo.reporteConsolidado(
+    const consolidado = await this.reportes.reporteConsolidado(
       periodoId,
       opciones.incluirOcultas ?? false,
     );
