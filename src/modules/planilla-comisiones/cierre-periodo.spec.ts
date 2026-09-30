@@ -1,5 +1,6 @@
 import { ConflictException } from '@nestjs/common';
 
+import { CicloPeriodoService } from './ciclo-periodo.service';
 import { PlanillaComisionesService } from './planilla-comisiones.service';
 
 /**
@@ -101,7 +102,7 @@ function montar(opciones: Opciones = {}) {
       fn(prisma),
   };
 
-  const servicio = new PlanillaComisionesService(
+  const planilla = new PlanillaComisionesService(
     prisma as never,
     {} as never,
     {} as never,
@@ -109,6 +110,7 @@ function montar(opciones: Opciones = {}) {
     { invalidar: () => undefined } as never,
     { configuracion: async () => ({ modo: 'FIJO', valorFijo: 6.97 }) } as never,
   );
+  const servicio = new CicloPeriodoService(prisma as never, planilla);
 
   return { servicio, actualizaciones, auditorias, borrados, upserts };
 }
