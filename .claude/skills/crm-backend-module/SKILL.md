@@ -254,7 +254,8 @@ Clientes, Conversaciones y Leads (ver commits que arreglan "ownership check").
 pedía ni el service lo aceptaba —, así que cualquier agente podía cambiar el estado o el dueño
 de cualquier lead del sistema. `asignarAgente` además escribía `prisma.cliente`/`prisma.conversacion`
 directamente en vez de llamar a `ClientesService.update()` (que ya hace esa cascada con
-transacción y AuditLog): dos copias del mismo gesto de reasignación, una sin auditoría y que
+transacción y AuditLog; hoy se llama con su nombre, `ClientesService.reasignarAgente()`):
+dos copias del mismo gesto de reasignación, una sin auditoría y que
 solo tocaba ESE lead, no los demás leads abiertos del mismo cliente. La regla corta: si dos
 módulos hacen "lo mismo" al reasignar un agente, uno de los dos es una copia divergente — el
 que no pase por el service del dueño de la tabla es el sospechoso.

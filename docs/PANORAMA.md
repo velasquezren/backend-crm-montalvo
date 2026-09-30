@@ -66,7 +66,7 @@ si añades otra, añádela aquí con su motivo.
 
 | Quién escribe | Tabla ajena | Dónde | Por qué |
 | --- | --- | --- | --- |
-| `modules/clientes` | Lead, Conversacion | `ClientesService.update` y `reclamarSiNoTieneDuena` | Reasignar una paciente mueve a la vez sus leads y sus chats de la línea comercial, en la misma transacción. Deuda: la cascada va escondida dentro de `update` |
+| `modules/clientes` | Lead, Conversacion | `cascadaDeReasignacion` (desde `update`/`reasignarAgente`) y `reclamarSiNoTieneDuena` | Reasignar una paciente mueve a la vez sus leads y sus chats de la línea comercial, en la misma transacción |
 | `modules/usuarios` | Conversacion | `UsuariosService.update`, al quitar líneas o desactivar | Libera los chats que la persona ya no puede atender, en la misma transacción que el cambio de permisos |
 | varios | AuditLog | conversaciones, usuarios, lineas-whatsapp | Escriben la bitácora dentro de su propia transacción cuando el registro tiene que ser atómico con el cambio; fuera de una transacción se usa `AuditService` |
 
