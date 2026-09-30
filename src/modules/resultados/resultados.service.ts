@@ -18,7 +18,7 @@ import { obtenerOCrearConversacion } from '../conversaciones/acceso-conversacion
 import { ConversacionesService } from '../conversaciones/conversaciones.service';
 import { LineasWhatsappService } from '../lineas-whatsapp/lineas-whatsapp.service';
 import { InformePublicado, PortalResultadosClient } from './portal-resultados.client';
-import { QueryResultadosDto } from './dto/query-resultados.dto';
+import { EstadoCola, QueryResultadosDto } from './dto/query-resultados.dto';
 
 /** Una fila de la cola tal y como la ve el asistente. */
 export interface FilaEntrega {
@@ -39,6 +39,16 @@ export interface FilaEntrega {
   aviso: { enviadoEn: Date; estadoMensaje: string | null } | null;
   /** Primera vez que el paciente abrió su informe. Es lo que importa: entregado no es visto. */
   abiertoEn: string | null;
+  /** Su chat en la línea de resultados, si ya existe: a donde contestará. */
+  conversacionId: string | null;
+}
+
+/** Una página de la cola, con lo que necesitan las pestañas para contarse. */
+export interface ColaEntrega extends RespuestaPaginada<FilaEntrega> {
+  /** Total de cada pestaña, sin la búsqueda. */
+  contadores: Record<EstadoCola, number>;
+  /** El conjunto de trabajo superó el tope del portal: la pantalla lo dice. */
+  truncado: boolean;
 }
 
 /** El número es de otra persona —con otro PAC u otro CI—: no se crea ni se vincula. */
@@ -72,23 +82,86 @@ export class ResultadosService {
    * paginación —el total lo da el portal, que no sabe lo que el CRM envió— y
    * además el asistente necesita ver qué ya salió.
    */
-  async pendientes(query: QueryResultadosDto, usuario: UsuarioJwt): Promise<RespuestaPaginada<FilaEntrega>> {
-    await this.permitirLinea(usuario);
-    const { take } = calcularPaginacion(query);
-    const cola = await this.portal.informes({ pagina: query.pagina ?? 1, limite: take });
-    if (!cola.datos.length) return paginar([], cola.total, query);
+  async pendientes(query: QueryResultadosDto, usuario: UsuarioJwt): Promise<ColaEntrega> {
+    const linea = await this.permitirLinea(usuario);
+    const { skip, take } = calcularPaginacion(query);
+    const estado = query.estado ?? 'POR_AVISAR';
 
-    /* Consultas en lote, no por fila. */
+    /* El conjunto de trabajo (vigentes y sin abrir) partido por lo que solo
+       sabe el CRM. Un aviso FALLIDO no cuenta como avisado: el paciente no
+       recibió nada. Una reserva sin mensaje sí: el envío está en vuelo. */
+    const panorama = await this.portal.panorama(query.busqueda);
+    const avisados = new Set(
+      (
+        await this.prisma.avisoResultado.findMany({
+          where: { informeId: { in: panorama.vigentesSinAbrir }, NOT: { mensaje: { estadoEnvio: 'FALLIDO' } } },
+          select: { informeId: true },
+        })
+      ).map(aviso => aviso.informeId),
+    );
+    const porAvisar = panorama.vigentesSinAbrir.filter(id => !avisados.has(id));
+    const esperando = panorama.vigentesSinAbrir.filter(id => avisados.has(id));
+    /* Totales de cada pestaña SIN la búsqueda: un contador que se mueve
+       mientras escribes no sirve para decidir (crm-design-system, «Filtros»). */
+    const contadores: Record<EstadoCola, number> = {
+      POR_AVISAR: porAvisar.length,
+      ESPERANDO: esperando.length,
+      VENCIDOS: panorama.totales.vencidosSinAbrir,
+      ABIERTOS: panorama.totales.abiertos,
+      TODOS: panorama.totales.todos,
+    };
+
+    let informes: InformePublicado[];
+    let total: number;
+    if (estado === 'POR_AVISAR' || estado === 'ESPERANDO') {
+      const coinciden = panorama.coinciden ? new Set(panorama.coinciden) : null;
+      const lista = (estado === 'POR_AVISAR' ? porAvisar : esperando).filter(id => !coinciden || coinciden.has(id));
+      const pagina = lista.slice(skip, skip + take);
+      total = lista.length;
+      informes = pagina.length ? (await this.portal.informes({ ids: pagina, limite: pagina.length })).datos : [];
+    } else {
+      const cola = await this.portal.informes({
+        pagina: query.pagina ?? 1,
+        limite: take,
+        buscar: query.busqueda,
+        ...(estado === 'VENCIDOS' ? { vigente: false, abierto: false } : estado === 'ABIERTOS' ? { abierto: true } : {}),
+      });
+      informes = cola.datos;
+      total = cola.total;
+    }
+
+    return { ...paginar(await this.filas(informes, linea), total, query), contadores, truncado: panorama.truncado };
+  }
+
+  /**
+   * Cada informe con su ficha del CRM, su aviso y su chat. Consultas en lote,
+   * no por fila.
+   *
+   * El chat es el de la línea de RESULTADOS, buscado por (ficha, línea): con
+   * «ir al chat por teléfono», a un admin se le podía abrir el chat comercial
+   * de la misma paciente, que no es donde está el aviso.
+   */
+  private async filas(informes: InformePublicado[], linea: string): Promise<FilaEntrega[]> {
+    if (!informes.length) return [];
     const [reconocidos, avisos] = await Promise.all([
-      this.clientes.reconocerPacientes(cola.datos.map(informe => informe.paciente)),
+      this.clientes.reconocerPacientes(informes.map(informe => informe.paciente)),
       this.prisma.avisoResultado.findMany({
-        where: { informeId: { in: cola.datos.map(informe => informe.informeId) } },
+        where: { informeId: { in: informes.map(informe => informe.informeId) } },
         select: { informeId: true, enviadoEn: true, mensaje: { select: { estadoEnvio: true } } },
       }),
     ]);
     const porInforme = new Map(avisos.map(aviso => [aviso.informeId, aviso]));
+    const fichas = reconocidos.flatMap(r => (r.cliente ? [r.cliente.id] : []));
+    const chats = new Map(
+      (
+        await this.prisma.conversacion.findMany({
+          where: { lineaId: linea, clienteId: { in: fichas } },
+          select: { id: true, clienteId: true },
+        })
+      ).map(chat => [chat.clienteId, chat.id]),
+    );
 
-    const filas = cola.datos.map((informe, i): FilaEntrega => {
+    return informes.map((informe, i): FilaEntrega => {
       const { cliente, via, motivo } = reconocidos[i];
       const aviso = porInforme.get(informe.informeId);
       return {
@@ -103,10 +176,11 @@ export class ResultadosService {
         pacientePortal: informe.paciente,
         aviso: aviso ? { enviadoEn: aviso.enviadoEn, estadoMensaje: aviso.mensaje?.estadoEnvio ?? null } : null,
         abiertoEn: informe.abiertoEn,
+        conversacionId: cliente ? (chats.get(cliente.id) ?? null) : null,
       };
     });
-    return paginar(filas, cola.total, query);
   }
+
 
   /**
    * El enlace con el que la asistente revisa el informe antes de enviarlo.

@@ -753,6 +753,17 @@ salen del portal; del navegador solo viaja el teléfono. `ClientesService` ofrec
 `telefonoDesdeResultados` y `altaDesdeResultados`, con visor `ninguno` (el 409 no nombra a
 nadie). Lo fija `resultados-roles.spec.ts` con el guard real.
 
+**La cola de resultados se filtra donde se corta la página** (2026-09-30). Pestañas
+`POR_AVISAR` / `ESPERANDO` / `VENCIDOS` / `ABIERTOS` / `TODOS` (`ESTADOS_COLA`). Las tres
+últimas las pagina el portal (sus filtros `abierto`, `vigente`, `buscar`). Las dos primeras
+dependen de si se avisó —dato del CRM—, así que el portal da el conjunto de trabajo ENTERO
+(`GET …/informes/panorama`: ids vigentes y sin abrir, acotado por los 30 días del enlace, con
+`truncado` si supera el tope) y el CRM lo parte con `AvisoResultado` y pagina sobre esa lista.
+**Nunca filtres en el CRM una página que ya cortó el portal**: la pestaña diría «no hay más»
+con informes en la siguiente (la cicatriz del inbox, «un corte se lee como un dato»). Un aviso
+FALLIDO cuenta como no avisado. Los contadores van sin la búsqueda. Cada fila trae
+`conversacionId`: el chat de (ficha, línea de resultados), no «el chat por teléfono».
+
 **Un número que ya tiene ficha sin PAC se VINCULA, no se duplica** (2026-09-30). La paciente
 que escribió por WhatsApp antes de ir a la clínica tiene ficha sin PAC; su informe llega con PAC
 y queda «sin vincular». `ClientesService.fichaDelTelefono` clasifica el número frente al

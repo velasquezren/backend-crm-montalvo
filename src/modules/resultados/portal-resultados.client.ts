@@ -1,6 +1,29 @@
 import { ConflictException, Injectable, Logger, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 
 /** Una fila de la cola del portal de resultados. Contrato de su API, no nuestro. */
+/** Filtros de `GET /v1/integraciones/crm/informes`. Ver `docs/api.md` del portal. */
+export interface FiltrosCola {
+  pagina?: number;
+  limite?: number;
+  informeId?: string;
+  /** Hasta 100; el portal los devuelve en este orden. */
+  ids?: string[];
+  /** Nombre, PAC o CI, crudo: el portal escapa los comodines de LIKE. */
+  buscar?: string;
+  abierto?: boolean;
+  vigente?: boolean;
+}
+
+export interface PanoramaCola {
+  totales: { todos: number; abiertos: number; vencidosSinAbrir: number };
+  /** Vigentes y sin abrir, ordenados como la cola. Acotado: el enlace dura 30 días. */
+  vigentesSinAbrir: string[];
+  /** El conjunto superó el tope del portal: la cola lo dice en vez de callarlo. */
+  truncado: boolean;
+  /** Solo con búsqueda: cuáles del conjunto responden a ella. */
+  coinciden?: string[];
+}
+
 export interface InformePublicado {
   informeId: string;
   /**
@@ -69,12 +92,31 @@ export class PortalResultadosClient {
   }
 
   /** Informes publicados. Con `informeId`, solo ese. */
-  async informes(params: { pagina?: number; limite?: number; informeId?: string }): Promise<ColaInformes> {
+  /**
+   * La cola del portal. Los filtros los resuelve el PORTAL, donde se corta la
+   * página: filtrar aquí una página ya cortada haría que una pestaña dijera
+   * «no hay más» con informes en la página siguiente.
+   */
+  async informes(params: FiltrosCola): Promise<ColaInformes> {
     const query = new URLSearchParams();
     if (params.pagina) query.set('pagina', String(params.pagina));
     if (params.limite) query.set('limite', String(params.limite));
     if (params.informeId) query.set('informeId', params.informeId);
+    if (params.ids?.length) query.set('ids', params.ids.join(','));
+    if (params.buscar) query.set('buscar', params.buscar);
+    if (params.abierto !== undefined) query.set('abierto', String(params.abierto));
+    if (params.vigente !== undefined) query.set('vigente', String(params.vigente));
     return this.pedir<ColaInformes>(`/v1/integraciones/crm/informes?${query}`, 'GET');
+  }
+
+  /**
+   * Totales y conjunto de trabajo —ids vigentes y sin abrir, enteros— para las
+   * pestañas. «Por avisar» y «esperando lectura» son ese conjunto partido por
+   * lo que solo sabe el CRM: si ya se avisó. Ver el portal, `panoramaForCrm`.
+   */
+  panorama(buscar?: string): Promise<PanoramaCola> {
+    const query = buscar ? `?${new URLSearchParams({ buscar })}` : '';
+    return this.pedir<PanoramaCola>(`/v1/integraciones/crm/informes/panorama${query}`, 'GET');
   }
 
   /** Extiende 30 días el acceso de un informe publicado; el enlace no cambia. */

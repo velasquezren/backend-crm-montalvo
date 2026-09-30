@@ -75,8 +75,37 @@ beforeAll(async () => {
       res.end(JSON.stringify({ accesoId: informe.accesoId, expiraEn: informe.accesoExpiraEn }));
       return;
     }
-    const pedido = url.searchParams.get('informeId');
-    const datos = pedido ? informesDelPortal.filter(i => i.informeId === pedido) : informesDelPortal;
+    /* Los filtros, como el portal real (probados de verdad en su propia suite):
+       aquí solo hace falta que se comporten igual. */
+    const q = url.searchParams;
+    const buscar = q.get('buscar')?.toLowerCase();
+    const coincide = (i: Record<string, unknown>) => {
+      const p = i.paciente as { nombre: string; pac: string | null; ci: string | null };
+      return !buscar || [p.nombre, p.pac, p.ci].some(v => v?.toLowerCase().includes(buscar));
+    };
+    const vigenteSinAbrir = (i: Record<string, unknown>) => i.accesoVigente === true && !i.abiertoEn;
+    if (url.pathname.endsWith('/informes/panorama')) {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        totales: {
+          todos: informesDelPortal.length,
+          abiertos: informesDelPortal.filter(i => i.abiertoEn).length,
+          vencidosSinAbrir: informesDelPortal.filter(i => !i.accesoVigente && !i.abiertoEn).length,
+        },
+        vigentesSinAbrir: informesDelPortal.filter(vigenteSinAbrir).map(i => i.informeId),
+        truncado: false,
+        ...(buscar ? { coinciden: informesDelPortal.filter(i => vigenteSinAbrir(i) && coincide(i)).map(i => i.informeId) } : {}),
+      }));
+      return;
+    }
+    const ids = q.get('ids')?.split(',');
+    const datos = informesDelPortal
+      .filter(i => !q.get('informeId') || i.informeId === q.get('informeId'))
+      .filter(i => !ids || ids.includes(i.informeId as string))
+      .filter(i => q.get('abierto') === null || Boolean(i.abiertoEn) === (q.get('abierto') === 'true'))
+      .filter(i => q.get('vigente') === null || i.accesoVigente === (q.get('vigente') === 'true'))
+      .filter(coincide);
+    if (ids) datos.sort((a, b) => ids.indexOf(a.informeId as string) - ids.indexOf(b.informeId as string));
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ datos, total: datos.length }));
   });
@@ -192,9 +221,12 @@ describe('entrega de resultados contra Postgres real', () => {
 
     await service.enviar(INFORME, asistente);
 
-    const despues = await service.pendientes({}, asistente);
-    expect(despues.datos[0].aviso).not.toBeNull();
-    expect(despues.datos[0].aviso?.estadoMensaje).toBe('ENVIADO');
+    /* Avisado: sale de «por avisar» y pasa a «esperando lectura», con su aviso. */
+    const porAvisar = await service.pendientes({}, asistente);
+    expect(porAvisar.total).toBe(0);
+    expect(porAvisar.contadores).toMatchObject({ POR_AVISAR: 0, ESPERANDO: 1 });
+    const esperando = await service.pendientes({ estado: 'ESPERANDO' }, asistente);
+    expect(esperando.datos[0].aviso?.estadoMensaje).toBe('ENVIADO');
   });
 
   it('envía el ID de acceso como variable del botón, nunca el código', async () => {
@@ -261,10 +293,12 @@ describe('entrega de resultados contra Postgres real', () => {
     expect(await prisma.avisoResultado.count()).toBe(0);
   });
 
-  it('la cola dice si el paciente ya abrió su informe', async () => {
+  it('la cola dice si el paciente ya abrió su informe, y lo saca de «por avisar»', async () => {
     informesDelPortal[0].abiertoEn = '2026-09-22T15:00:00.000Z';
-    const cola = await service.pendientes({}, asistente);
-    expect(cola.datos[0].abiertoEn).toBe('2026-09-22T15:00:00.000Z');
+    expect((await service.pendientes({}, asistente)).total).toBe(0);
+    const abiertos = await service.pendientes({ estado: 'ABIERTOS' }, asistente);
+    expect(abiertos.datos[0].abiertoEn).toBe('2026-09-22T15:00:00.000Z');
+    expect(abiertos.contadores.ABIERTOS).toBe(1);
   });
 
   /* El enlace venció después de avisar: se extiende y se vuelve a avisar,
@@ -477,5 +511,84 @@ describe('vincular el informe a la ficha que ya tiene ese número', () => {
   it('quien no entrega resultados no vincula', async () => {
     await prisma.cliente.create({ data: { nombre: 'WhatsApp +59170000093', telefono: '+59170000093' } });
     await expect(service.vincularFicha(INFORME, '+59170000093', agente)).rejects.toThrow(NotFoundException);
+  });
+});
+
+/**
+ * Las pestañas de la cola. «Por avisar» y «esperando lectura» dependen de si
+ * se avisó —que solo sabe el CRM—, así que se paginan sobre el conjunto de
+ * trabajo ENTERO que da el portal; filtrar una página ya cortada diría «no hay
+ * más» con informes en la siguiente.
+ */
+describe('la cola por pestañas', () => {
+  const ID = (n: number) => `44444444-4444-4444-8444-00000000000${n}`;
+  const informe = (n: number, extra: Record<string, unknown> = {}) => ({
+    ...informesDelPortal[0], informeId: ID(n), accesoId: `55555555-5555-4555-8555-00000000000${n}`, ...extra,
+  });
+
+  async function avisar(n: number, estadoEnvio: 'ENVIADO' | 'FALLIDO') {
+    const ficha = await prisma.cliente.findUniqueOrThrow({ where: { pac: 'PAC33009' } });
+    const chat = await prisma.conversacion.upsert({
+      where: { clienteId_lineaId: { clienteId: ficha.id, lineaId: LINEA } },
+      create: { clienteId: ficha.id, lineaId: LINEA },
+      update: {},
+    });
+    const mensaje = await prisma.mensaje.create({ data: { conversacionId: chat.id, direccion: 'SALIENTE', contenido: 'aviso', estadoEnvio } });
+    await prisma.avisoResultado.create({
+      data: { informeId: ID(n), clienteId: ficha.id, enviadoPorId: 'a0000000-0000-4000-8000-000000000001', mensajeId: mensaje.id },
+    });
+    return chat.id;
+  }
+
+  beforeEach(async () => {
+    informesDelPortal = [
+      informe(1),                                                  // por avisar
+      informe(2),                                                  // aviso FALLIDO → vuelve a por avisar
+      informe(3),                                                  // avisado → esperando lectura
+      informe(4, { accesoVigente: false }),                        // venció sin abrirse
+      informe(5, { abiertoEn: '2026-09-29T10:00:00.000Z' }),      // abierto
+    ];
+    await avisar(2, 'FALLIDO');
+    await avisar(3, 'ENVIADO');
+  });
+
+  it('cada informe cae en la pestaña de lo que hay que hacer, y los contadores lo dicen', async () => {
+    const cola = await service.pendientes({}, asistente);
+    expect(cola.contadores).toEqual({ POR_AVISAR: 2, ESPERANDO: 1, VENCIDOS: 1, ABIERTOS: 1, TODOS: 5 });
+    /* Un aviso FALLIDO no es un aviso: el paciente no recibió nada. */
+    expect(cola.datos.map(f => f.informeId)).toEqual([ID(1), ID(2)]);
+    expect((await service.pendientes({ estado: 'ESPERANDO' }, asistente)).datos.map(f => f.informeId)).toEqual([ID(3)]);
+    expect((await service.pendientes({ estado: 'VENCIDOS' }, asistente)).datos.map(f => f.informeId)).toEqual([ID(4)]);
+    expect((await service.pendientes({ estado: 'ABIERTOS' }, asistente)).datos.map(f => f.informeId)).toEqual([ID(5)]);
+    expect((await service.pendientes({ estado: 'TODOS' }, asistente)).total).toBe(5);
+  });
+
+  /* La razón de todo el diseño: la página se corta DESPUÉS de filtrar. */
+  it('pagina sobre la lista filtrada: la segunda página existe y el total es el de la pestaña', async () => {
+    const primera = await service.pendientes({ limite: 1 }, asistente);
+    const segunda = await service.pendientes({ limite: 1, pagina: 2 }, asistente);
+    expect([primera.total, primera.totalPaginas]).toEqual([2, 2]);
+    expect(primera.datos.map(f => f.informeId)).toEqual([ID(1)]);
+    expect(segunda.datos.map(f => f.informeId)).toEqual([ID(2)]);
+  });
+
+  it('la búsqueda filtra la pestaña pero no mueve los contadores', async () => {
+    informesDelPortal[1] = informe(2, { paciente: { nombre: 'Rocío Roca', pac: 'PAC33009', ci: null } });
+    const buscado = await service.pendientes({ busqueda: 'rocío' }, asistente);
+    expect(buscado.datos.map(f => f.informeId)).toEqual([ID(2)]);
+    expect(buscado.total).toBe(1);
+    expect(buscado.contadores.POR_AVISAR).toBe(2);
+  });
+
+  /* «Ir al chat» abre el de la línea de resultados, donde está el aviso. */
+  it('cada fila trae su chat de la línea de resultados, o null si todavía no hay', async () => {
+    const chat = (await prisma.conversacion.findFirstOrThrow({ where: { lineaId: LINEA } })).id;
+    const esperando = await service.pendientes({ estado: 'ESPERANDO' }, asistente);
+    expect(esperando.datos[0].conversacionId).toBe(chat);
+
+    await prisma.avisoResultado.deleteMany();
+    await prisma.mensaje.deleteMany({ where: { conversacion: { lineaId: LINEA } } });
+    await prisma.conversacion.deleteMany({ where: { lineaId: LINEA } });
+    expect((await service.pendientes({}, asistente)).datos[0].conversacionId).toBeNull();
   });
 });
