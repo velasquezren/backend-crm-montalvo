@@ -101,16 +101,9 @@ function montar(opciones: Opciones = {}) {
       fn(prisma),
   };
 
-  const audit = {
-    registrar: async (_e: string, _id: string, accion: string, _u: string, datos: unknown) => {
-      auditorias.push({ accion, datos });
-    },
-  };
-
   const servicio = new PlanillaComisionesService(
     prisma as never,
     {} as never,
-    audit as never,
     {} as never,
     { invalidar: () => undefined } as never,
     { invalidar: () => undefined } as never,

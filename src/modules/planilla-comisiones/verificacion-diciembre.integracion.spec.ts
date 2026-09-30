@@ -95,7 +95,6 @@ beforeAll(async () => {
   planilla = new PlanillaComisionesService(
     prisma,
     config,
-    audit,
     new CatalogoClinicoService(prisma),
     { invalidar: () => undefined } as never,
     { invalidar: () => undefined } as never,

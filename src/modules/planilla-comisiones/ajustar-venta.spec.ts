@@ -55,12 +55,6 @@ function montar(opciones: { estadoPeriodo?: string; venta?: VentaFalsa | null } 
     vendedoraComision: { count: async () => 1 },
   };
 
-  const audit = {
-    registrar: async (_e: string, _id: string, accion: string, _u: string, datos: unknown) => {
-      auditorias.push({ accion, datos });
-    },
-  };
-
   /* Qué claves se invalidaron en la caché de analítica. Es lo que separa
      "se recalcula" de "se sigue sirviendo el minuto viejo". */
   const analiticaInvalidada: Array<string | undefined> = [];
@@ -68,7 +62,6 @@ function montar(opciones: { estadoPeriodo?: string; venta?: VentaFalsa | null } 
   const servicio = new PlanillaComisionesService(
     prisma as never,
     {} as never,
-    audit as never,
     { invalidar: () => undefined } as never,
     { invalidar: () => undefined } as never,
     { invalidar: (clave?: string) => analiticaInvalidada.push(clave) } as never,

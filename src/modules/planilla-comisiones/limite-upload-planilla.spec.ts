@@ -11,6 +11,7 @@ import { ExportacionWordService } from './exportacion-word.service';
 import { PlanillaComisionesController } from './planilla-comisiones.controller';
 import { PlanillaComisionesService } from './planilla-comisiones.service';
 import { ResumenAnualService } from './resumen-anual.service';
+import { VendedorasComisionService } from './vendedoras-comision.service';
 
 /**
  * El tope del Excel se comprobaba DESPUÉS de tener el archivo entero en RAM.
@@ -41,6 +42,7 @@ const vacio = {};
     { provide: ExportacionWordService, useValue: vacio },
     { provide: ExportacionMetricasService, useValue: vacio },
     { provide: ResumenAnualService, useValue: vacio },
+    { provide: VendedorasComisionService, useValue: vacio },
   ],
 })
 class ModuloSoloImportar {}

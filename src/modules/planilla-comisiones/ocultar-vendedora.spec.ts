@@ -1,6 +1,6 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 
-import { PlanillaComisionesService } from './planilla-comisiones.service';
+import { VendedorasComisionService } from './vendedoras-comision.service';
 
 /**
  * Ocultar a una vendedora la borra de la planilla que administración firma.
@@ -49,14 +49,10 @@ function montar(opciones: { vendedora?: VendedoraFalsa | null } = {}) {
     },
   };
 
-  const servicio = new PlanillaComisionesService(
+  const servicio = new VendedorasComisionService(
     prisma as never,
-    {} as never,
     audit as never,
-    {} as never,
     { invalidar: () => undefined } as never,
-    { invalidar: () => undefined } as never,
-    { configuracion: async () => ({ modo: 'FIJO', valorFijo: 6.97 }) } as never,
   );
 
   return { servicio, actualizaciones, auditorias };

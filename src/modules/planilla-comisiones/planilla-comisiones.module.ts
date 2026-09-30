@@ -12,6 +12,7 @@ import { ExportacionMetricasService } from './exportacion-metricas.service';
 import { ExportacionWordService } from './exportacion-word.service';
 import { PlanillaComisionesController } from './planilla-comisiones.controller';
 import { PlanillaComisionesService } from './planilla-comisiones.service';
+import { VendedorasComisionService } from './vendedoras-comision.service';
 
 /**
  * Planilla de comisiones — liquidación mensual del equipo comercial a partir
@@ -27,6 +28,7 @@ import { PlanillaComisionesService } from './planilla-comisiones.service';
     ResumenAnualService,
     CatalogoClinicoService,
     PlanillaComisionesService,
+    VendedorasComisionService,
     CalculoComisionesService,
     ConfiguracionComisionesService,
     AnaliticaComisionesService,
