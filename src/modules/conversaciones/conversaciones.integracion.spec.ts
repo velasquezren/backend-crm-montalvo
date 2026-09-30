@@ -12,8 +12,10 @@ import { ServiciosService } from '../servicios/servicios.service';
 import { ContenidoMensaje, WhatsappCloudService } from '../../common/whatsapp/whatsapp-cloud.service';
 import { ConversacionesGateway } from './conversaciones.gateway';
 import { AcuseAutomaticoService } from './acuse-automatico.service';
-import { DespachadorSalienteService } from './despachador-saliente.service';
+import { componentesPlantilla, DespachadorSalienteService } from './despachador-saliente.service';
 import { ConversacionesService } from './conversaciones.service';
+import { CONFIRMACION_BAJA } from './baja-promociones';
+import { LINEA_COMERCIAL_INICIAL } from './acceso-conversacion';
 import { IngestaWhatsappService } from './ingesta-whatsapp.service';
 import { MediaEntranteService } from './media-entrante.service';
 import { CONTENIDO_PIN, TEXTO_UBICACION, UBICACION_CLINICA } from './ubicacion-clinica';
@@ -1012,6 +1014,51 @@ describe('Conversaciones contra Postgres real', () => {
       expect(await esperandoRespuestaDe(conv.id)).toBe(false);
     });
 
+    /* Quien tocó «No me interesa» no recibe más promociones; las citas y los
+       resultados, sí. Se comprueba en el servidor: un selector viejo no puede
+       saltárselo. */
+    it('una plantilla de Marketing no sale a quien se dio de baja; una de Utilidad sí', async () => {
+      const a = await crearAgente('agente-a');
+      await ingesta.procesarEntrante('+59173000031', 'Hola', 'wamid.m1');
+      const conv = await prisma.conversacion.findFirstOrThrow();
+      await prisma.cliente.update({ where: { id: conv.clienteId }, data: { bajaPromocionesEn: new Date('2026-09-30T15:00:00Z') } });
+      jest.spyOn(service['whatsapp'], 'listarPlantillas').mockResolvedValue([
+        { name: 'promo', status: 'APPROVED', category: 'MARKETING', language: 'es', components: [{ type: 'BODY', text: 'Promo del mes' }] },
+        { name: 'cita', status: 'APPROVED', category: 'UTILITY', language: 'es', components: [{ type: 'BODY', text: 'Tu cita es mañana' }] },
+      ]);
+
+      await expect(service.enviarPlantilla(conv.id, { plantilla: 'promo', idioma: 'es', parametros: [] }, a.id))
+        .rejects.toMatchObject({ status: 409, message: expect.stringContaining('no recibir promociones el 30 de septiembre de 2026') });
+      await expect(service.enviarPlantilla(conv.id, { plantilla: 'cita', idioma: 'es', parametros: [] }, a.id)).resolves.toBeTruthy();
+    });
+
+    /* Una cabecera de imagen se exige en CADA envío; el CRM la toma de
+       assets/cabeceras/<plantilla>.jpg. */
+    it('una plantilla con imagen se ofrece y se manda con su imagen, si el CRM la tiene', async () => {
+      const antes = process.env.CRM_URL_PUBLICA;
+      process.env.CRM_URL_PUBLICA = 'https://crm.prueba';
+      try {
+        jest.spyOn(service['whatsapp'], 'listarPlantillas').mockResolvedValue([
+          { name: 'reactivacion_con_foto', status: 'APPROVED', category: 'MARKETING', language: 'es',
+            components: [{ type: 'HEADER', format: 'IMAGE' }, { type: 'BODY', text: 'Hola {{1}}' }] },
+          { name: 'otra_con_foto', status: 'APPROVED', category: 'MARKETING', language: 'es',
+            components: [{ type: 'HEADER', format: 'IMAGE' }, { type: 'BODY', text: 'Hola' }] },
+        ]);
+        const [conFoto, sinFoto] = await service.listarPlantillas(true, LINEA_COMERCIAL_INICIAL);
+        expect(conFoto).toMatchObject({ enviable: true, imagenCabecera: 'https://crm.prueba/publico/cabeceras/reactivacion_con_foto.jpg' });
+        expect(sinFoto).toMatchObject({ enviable: false, imagenCabecera: null });
+
+        /* Y lo que sale hacia Meta lleva la imagen: sin ella rechaza el envío. */
+        const envio = await service['prepararPlantilla'](LINEA_COMERCIAL_INICIAL, { plantilla: 'reactivacion_con_foto', idioma: 'es', parametros: ['María'] });
+        expect(envio.despacho.imagenCabecera).toBe('https://crm.prueba/publico/cabeceras/reactivacion_con_foto.jpg');
+        expect(componentesPlantilla(envio.despacho)[0]).toEqual({
+          type: 'header', parameters: [{ type: 'image', image: { link: 'https://crm.prueba/publico/cabeceras/reactivacion_con_foto.jpg' } }],
+        });
+      } finally {
+        process.env.CRM_URL_PUBLICA = antes;
+      }
+    });
+
     /* El cuarto camino —el acuse automático fuera de horario— se prueba en el
        bloque de más abajo, que es el único que tiene el reloj falso necesario
        para que la clínica esté cerrada: "un domingo, el acuse deja la
@@ -1209,7 +1256,7 @@ describe('Acuse automático fuera de horario', () => {
         undefined,
         undefined,
         undefined,
-        true, // esRespuestaBotonAcuse
+        true, // esRespuestaBoton
       );
       await esperarSalientes(2);
 
@@ -1262,6 +1309,50 @@ describe('Acuse automático fuera de horario', () => {
 
   /* Una sola intención, no un bot: si preguntan dónde queda la clínica, el
      pin nativo de WhatsApp y un aviso de que enseguida atiende una persona. */
+  /**
+   * «No me interesa» en una promoción. Domingo y con el pedido de nombre y edad
+   * activo a propósito: es el peor caso, porque sin esta regla quien pide que
+   * no le escriban recibiría tres mensajes —el acuse fuera de horario, el
+   * pedido de datos y nada que confirme la baja—.
+   */
+  describe('baja de promociones con «No me interesa»', () => {
+    const conTodo = () => conConfig({ AUTORESPUESTA_PEDIDO_DATOS: 'Decinos tu nombre y edad, porfa.' });
+
+    it('registra la baja y SOLO confirma: ni acuse ni pedido de datos', async () => {
+      const s = servicioCon(conTodo(), DOMINGO);
+      await s.procesarEntrante('+59176000031', 'No me interesa', 'wamid.b1', undefined, undefined, undefined, true);
+      await esperarSalientes(1);
+      await new Promise(r => setTimeout(r, 300));
+
+      const ficha = await prisma.cliente.findUniqueOrThrow({ where: { telefono: '+59176000031' } });
+      expect(ficha.bajaPromocionesEn).not.toBeNull();
+      const salientes = await prisma.mensaje.findMany({ where: { direccion: 'SALIENTE' } });
+      expect(salientes.map(m => m.contenido)).toEqual([CONFIRMACION_BAJA]);
+      expect(salientes[0].automatico).toBe(true);
+    });
+
+    it('tocarlo otra vez no vuelve a confirmar ni cambia la fecha', async () => {
+      const s = servicioCon(conTodo(), MARTES);
+      await s.procesarEntrante('+59176000032', 'No me interesa', 'wamid.b2', undefined, undefined, undefined, true);
+      await esperarSalientes(1);
+      const primera = (await prisma.cliente.findUniqueOrThrow({ where: { telefono: '+59176000032' } })).bajaPromocionesEn;
+
+      await s.procesarEntrante('+59176000032', 'No me interesa', 'wamid.b3', undefined, undefined, undefined, true);
+      await new Promise(r => setTimeout(r, 300));
+      expect(await prisma.mensaje.count({ where: { direccion: 'SALIENTE' } })).toBe(1);
+      expect((await prisma.cliente.findUniqueOrThrow({ where: { telefono: '+59176000032' } })).bajaPromocionesEn).toEqual(primera);
+    });
+
+    /* Escrito no cuenta: «no me interesa esa fecha» es una respuesta a la
+       agente, no una baja. Solo el TOQUE del botón lo es. */
+    it('escribirlo, sin tocar el botón, no da de baja a nadie', async () => {
+      const s = servicioCon(conConfig(), MARTES);
+      await s.procesarEntrante('+59176000033', 'No me interesa', 'wamid.b4');
+      await new Promise(r => setTimeout(r, 300));
+      expect((await prisma.cliente.findUniqueOrThrow({ where: { telefono: '+59176000033' } })).bajaPromocionesEn).toBeNull();
+    });
+  });
+
   describe('ubicación de la clínica', () => {
     let enviados: ContenidoMensaje[];
     beforeEach(() => {

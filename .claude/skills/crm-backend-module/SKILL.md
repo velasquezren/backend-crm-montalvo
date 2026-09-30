@@ -753,6 +753,20 @@ salen del portal; del navegador solo viaja el teléfono. `ClientesService` ofrec
 `telefonoDesdeResultados` y `altaDesdeResultados`, con visor `ninguno` (el 409 no nombra a
 nadie). Lo fija `resultados-roles.spec.ts` con el guard real.
 
+**Plantillas con imagen de cabecera: `assets/cabeceras/<nombre de la plantilla>.jpg`**
+(2026-09-30). Meta exige la imagen en CADA envío. `resumirPlantilla` solo marca `enviable`
+una plantilla con cabecera de imagen si el CRM tiene ese archivo, y `prepararPlantilla` la
+adjunta sola. Se sirve en `GET /publico/cabeceras/<plantilla>.jpg` (pública: Meta la
+descarga) bajo `CRM_URL_PUBLICA`; sin esa variable, ninguna plantilla con imagen se ofrece.
+Añadir otra es dejar su archivo con el nombre exacto. Nunca edites una plantilla aprobada
+para ponerle imagen antes de tener su archivo aquí: dejaría de poder enviarse.
+
+**«No me interesa» da de baja de las promociones** (`Cliente.bajaPromocionesEn`). Solo el
+TOQUE de un botón (`esRespuestaBoton`), nunca el texto escrito. La ingesta confirma la baja
+y **no manda nada más** —ni el acuse fuera de horario ni el pedido de nombre y edad—. Con
+baja, el servidor rechaza con 409 las plantillas de Marketing (Utilidad sigue). Se reactiva
+con `recibePromociones: true` en la ficha, y solo si ella lo pide.
+
 **La cola de resultados se filtra donde se corta la página** (2026-09-30). Pestañas
 `POR_AVISAR` / `ESPERANDO` / `VENCIDOS` / `ABIERTOS` / `TODOS` (`ESTADOS_COLA`). Las tres
 últimas las pagina el portal (sus filtros `abierto`, `vigente`, `buscar`). Las dos primeras

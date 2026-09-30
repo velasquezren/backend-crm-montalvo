@@ -155,6 +155,8 @@ const CAMPOS_CLIENTE = {
   telefonoRef: true,
   telefonoOficina: true,
   visitasPrevias: true,
+  /* La ficha y el chat avisan que no quiere promociones. */
+  bajaPromocionesEn: true,
   datosExtra: true,
   createdAt: true,
   updatedAt: true,
@@ -298,6 +300,27 @@ export class ClientesService {
       undefined,
       { alcance: 'ninguno' },
     );
+  }
+
+  /**
+   * La paciente pidió no recibir más promociones (tocó «No me interesa»).
+   * Devuelve `true` solo la primera vez: tocarlo de nuevo no cambia la fecha ni
+   * vuelve a confirmar. Condicionado en el UPDATE, no leído antes: dos webhooks
+   * del mismo toque no la registran dos veces.
+   */
+  async registrarBajaPromociones(clienteId: string): Promise<boolean> {
+    const { count } = await this.prisma.cliente.updateMany({
+      where: { id: clienteId, bajaPromocionesEn: null },
+      data: { bajaPromocionesEn: new Date() },
+    });
+    if (count) await this.audit.registrar('Cliente', clienteId, 'BAJA_PROMOCIONES');
+    return count > 0;
+  }
+
+  /** Desde cuándo no quiere promociones, o null si las acepta. */
+  async bajaDePromociones(clienteId: string): Promise<Date | null> {
+    const cliente = await this.prisma.cliente.findUnique({ where: { id: clienteId }, select: { bajaPromocionesEn: true } });
+    return cliente?.bajaPromocionesEn ?? null;
   }
 
   async telefonoDesdeResultados(clienteId: string, telefono: string, usuarioId: string) {
@@ -588,7 +611,7 @@ export class ClientesService {
     const datosExtraExistentes =
       (guardado?.datosExtra as Prisma.JsonObject | null) ?? {};
 
-    const { empresa, fechaNacimiento, lugarNacimiento, datosExtra, pac, ci, ...restoDto } = dto;
+    const { empresa, fechaNacimiento, lugarNacimiento, datosExtra, pac, ci, recibePromociones, ...restoDto } = dto;
 
     /* `pac` y `ci` solo se tocan si venían en el cuerpo: `undefined` significa
        "no lo mandaron", que no es lo mismo que `null` ("bórralo"). La colisión
@@ -619,6 +642,10 @@ export class ClientesService {
             : {}),
           ...(empresa !== undefined ? { empresaTrabajo: empresa || null } : {}),
           ...(lugarNacimiento !== undefined ? { ciLugar: lugarNacimiento || null } : {}),
+          /* Darla de baja otra vez no mueve la fecha: es la de cuándo lo pidió. */
+          ...(recibePromociones !== undefined
+            ? { bajaPromocionesEn: recibePromociones ? null : (cliente.bajaPromocionesEn ?? new Date()) }
+            : {}),
           datosExtra: nuevosDatosExtra as Prisma.InputJsonValue,
         },
       }),

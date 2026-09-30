@@ -38,6 +38,25 @@ describe('resumirPlantilla', () => {
     expect(conEnlace.enviable).toBe(false);
     expect(cabeceraTexto.enviable).toBe(true);
   });
+
+  /* Una cabecera de imagen se exige en cada envío: con la imagen que tiene el
+     CRM, la plantilla se puede mandar; sin ella, no se ofrece. */
+  it('una cabecera de imagen es enviable solo si el CRM tiene su imagen', () => {
+    const conImagen = meta({ components: [{ type: 'HEADER', format: 'IMAGE' }, { type: 'BODY', text: 'x' }] });
+    const conFoto = resumirPlantilla(conImagen, 'https://crm.prueba/publico/cabeceras/p.jpg');
+    expect(conFoto).toMatchObject({ enviable: true, imagenCabecera: 'https://crm.prueba/publico/cabeceras/p.jpg' });
+    expect(resumirPlantilla(conImagen)).toMatchObject({ enviable: false, imagenCabecera: null });
+    expect(resumirPlantilla(conImagen).motivoNoEnviable).toContain('imagen');
+  });
+
+  /* Meta rechaza una cabecera que la plantilla no tiene: aunque haya archivo,
+     una plantilla sin cabecera de imagen no la lleva. */
+  it('no pone imagen a una plantilla que no la lleva, ni vuelve enviable un video', () => {
+    const url = 'https://crm.prueba/publico/cabeceras/p.jpg';
+    expect(resumirPlantilla(meta({ components: [{ type: 'BODY', text: 'x' }] }), url).imagenCabecera).toBeNull();
+    const video = resumirPlantilla(meta({ components: [{ type: 'HEADER', format: 'VIDEO' }, { type: 'BODY', text: 'x' }] }), url);
+    expect(video).toMatchObject({ enviable: false, imagenCabecera: null });
+  });
 });
 
 describe('validarParametros', () => {

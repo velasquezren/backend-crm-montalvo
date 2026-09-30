@@ -34,6 +34,7 @@ import { ConversacionesGateway } from './conversaciones.gateway';
 import { DespachadorSalienteService, PlantillaADespachar, proximoReintento } from './despachador-saliente.service';
 import { QueryConversacionesDto } from './dto/query-conversaciones.dto';
 import { PlantillaMeta, PlantillaResumen, renderizarPlantilla, resumirPlantilla, validarParametros } from './plantillas-whatsapp';
+import { urlDeCabecera } from './cabeceras-plantilla';
 
 /** Mensajes que trae el detalle inicial de una conversación (más recientes primero, luego se reordenan).
  *  Se acota a 50 para máxima velocidad inicial; los anteriores se cargan por cursor al hacer scroll. */
@@ -319,6 +320,9 @@ export class ConversacionesService {
             ciLugar: true,
             datosExtra: true,
             intereses: { select: { id: true, descripcion: true } },
+            /* El chat avisa que no quiere promociones y el selector apaga las
+               de Marketing. Solo el detalle: el listado no lo necesita. */
+            bajaPromocionesEn: true,
             /* Lo consume `puedeVerConversacion`: sin esto el detalle no puede
                aplicar la misma regla de visibilidad que el listado. */
             agenteId: true,
@@ -934,7 +938,7 @@ export class ConversacionesService {
 
       const resultado = (crudas as PlantillaMeta[])
         .filter(p => p.status === 'APPROVED')
-        .map(resumirPlantilla);
+        .map(p => resumirPlantilla(p, urlDeCabecera(p.name, process.env.CRM_URL_PUBLICA)));
 
       this.cachePlantillas.guardar(clave, resultado);
       return resultado;
@@ -960,6 +964,7 @@ export class ConversacionesService {
   ) {
     const conversacion = await this.obtenerConversacionPropia(conversacionId, soloAgenteId);
     const envio = await this.prepararPlantilla(conversacion.linea.id, dto);
+    await this.verificarPromociones(conversacion.clienteId, envio.categoria);
     return this.registrarPlantilla(conversacion, envio, dto.clientMessageId, agenteId);
   }
 
@@ -1003,6 +1008,8 @@ export class ConversacionesService {
       ? await this.clientesService.findOne(dto.clienteId, soloAgenteId)
       : await this.pacientePorTelefono(dto.telefono ?? '', dto.nombre);
 
+    await this.verificarPromociones(cliente.id, envio.categoria);
+
     /* En una línea comercial la paciente tiene dueña: escribirle a la de otra
        agente es quitársela. Mismo criterio que la ficha (`findOne`). */
     if (linea.comercial && soloAgenteId && cliente.agenteId && cliente.agenteId !== soloAgenteId) {
@@ -1020,6 +1027,22 @@ export class ConversacionesService {
 
     const mensaje = await this.registrarPlantilla(conversacion, envio, dto.clientMessageId, agenteId);
     return { conversacionId: conversacion.id, mensaje };
+  }
+
+  /**
+   * Una promoción no sale a quien pidió no recibirlas. Solo Marketing: citas y
+   * resultados (Utilidad) le siguen llegando, que es lo que ella espera.
+   * Se comprueba en el servidor, no solo en el selector: un selector viejo o
+   * una segunda pestaña no pueden saltárselo.
+   */
+  private async verificarPromociones(clienteId: string, categoria: string): Promise<void> {
+    if (categoria !== 'MARKETING') return;
+    const baja = await this.clientesService.bajaDePromociones(clienteId);
+    if (!baja) return;
+    const fecha = baja.toLocaleDateString('es-BO', { timeZone: 'America/La_Paz', day: 'numeric', month: 'long', year: 'numeric' });
+    throw new ConflictException(
+      `Esta paciente pidió no recibir promociones el ${fecha}. Puedes mandarle plantillas de citas o resultados, no de publicidad.`,
+    );
   }
 
   /** Normaliza el teléfono antes de buscar: es la clave que usará el webhook cuando contesten. */
@@ -1049,8 +1072,9 @@ export class ConversacionesService {
       idioma: plantilla.idioma,
       parametros,
       ...(plantilla.formato === 'NAMED' ? { nombresParametros: plantilla.nombresVariables } : {}),
+      ...(plantilla.imagenCabecera ? { imagenCabecera: plantilla.imagenCabecera } : {}),
     };
-    return { despacho, contenido: renderizarPlantilla(plantilla, parametros) };
+    return { despacho, contenido: renderizarPlantilla(plantilla, parametros), categoria: plantilla.categoria };
   }
 
   private async registrarPlantilla(

@@ -39,6 +39,11 @@ export interface PlantillaResumen {
   formato: 'POSITIONAL' | 'NAMED';
   pie: string | null;
   botones: string[];
+  /**
+   * URL pública de la imagen de cabecera, si la plantilla la lleva y el CRM la
+   * tiene (`assets/cabeceras/`). El selector la muestra y el envío la adjunta.
+   */
+  imagenCabecera: string | null;
   /** false si lleva algo que el chat no sabe rellenar; Meta la rechazaría. */
   enviable: boolean;
   motivoNoEnviable: string | null;
@@ -54,7 +59,11 @@ function nombresEnOrden(texto: string, formato: 'POSITIONAL' | 'NAMED'): string[
   return formato === 'POSITIONAL' ? nombres.sort((a, b) => Number(a) - Number(b)) : nombres;
 }
 
-export function resumirPlantilla(meta: PlantillaMeta): PlantillaResumen {
+/**
+ * `imagenCabecera`: la URL de su imagen si el CRM la tiene (ver
+ * `cabeceras-plantilla.ts`). Una cabecera de imagen sin ella no es enviable.
+ */
+export function resumirPlantilla(meta: PlantillaMeta, imagenCabecera: string | null = null): PlantillaResumen {
   const formato = meta.parameter_format === 'NAMED' ? 'NAMED' : 'POSITIONAL';
   const componente = (tipo: string) => meta.components?.find(c => c.type === tipo);
   const cuerpo = componente('BODY')?.text ?? '';
@@ -63,8 +72,11 @@ export function resumirPlantilla(meta: PlantillaMeta): PlantillaResumen {
   const nombresVariables = nombresEnOrden(cuerpo, formato);
 
   let motivoNoEnviable: string | null = null;
-  if (cabecera && cabecera.format && cabecera.format !== 'TEXT') {
-    motivoNoEnviable = 'Lleva una imagen, video o documento de encabezado: el chat todavía no sabe adjuntarlo.';
+  const conImagen = cabecera?.format === 'IMAGE';
+  if (conImagen && !imagenCabecera) {
+    motivoNoEnviable = 'Lleva una imagen de encabezado que todavía no está cargada en el CRM.';
+  } else if (cabecera && cabecera.format && cabecera.format !== 'TEXT' && !conImagen) {
+    motivoNoEnviable = 'Lleva un video o documento de encabezado: el chat todavía no sabe adjuntarlo.';
   } else if (cabecera?.text && TIENE_VARIABLE.test(cabecera.text)) {
     motivoNoEnviable = 'El encabezado tiene una variable: el chat solo rellena las del cuerpo.';
   } else if (botones.some(b => b.type === 'URL' && TIENE_VARIABLE.test(b.url ?? ''))) {
@@ -81,6 +93,9 @@ export function resumirPlantilla(meta: PlantillaMeta): PlantillaResumen {
     formato,
     pie: componente('FOOTER')?.text ?? null,
     botones: botones.map(b => b.text ?? '').filter(Boolean),
+    /* Solo si la plantilla de verdad la lleva: mandar una cabecera que la
+       plantilla no tiene también la rechaza Meta. */
+    imagenCabecera: conImagen ? imagenCabecera : null,
     enviable: motivoNoEnviable === null,
     motivoNoEnviable,
   };

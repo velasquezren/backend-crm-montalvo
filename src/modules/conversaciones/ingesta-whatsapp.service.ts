@@ -2,6 +2,7 @@ import { LINEA_COMERCIAL_INICIAL, obtenerOCrearConversacion } from './acceso-con
 import { Injectable, Logger } from '@nestjs/common';
 import { Mensaje, OrigenLead, Prisma } from '../../prisma/prisma-client';
 
+import { CONFIRMACION_BAJA, esPedidoDeBaja } from './baja-promociones';
 import { enSegundoPlano } from '../../common/fiabilidad/en-segundo-plano';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ClientesService, nombreProvisional } from '../clientes/clientes.service';
@@ -92,8 +93,12 @@ export class IngestaWhatsappService {
     nombrePerfil?: string,
     media?: MediaEntrante,
     referral?: ReferenciaCampana,
-    /** true = este mensaje entrante es el clic en un botón del acuse fuera de horario (ver `WhatsappWebhookController`). */
-    esRespuestaBotonAcuse = false,
+    /**
+     * true = el mensaje es el TOQUE de un botón —de una plantilla o de un
+     * mensaje interactivo como el acuse—, no algo que la paciente escribió.
+     * Ver `extraerRespuestaBoton` en el webhook.
+     */
+    esRespuestaBoton = false,
     lineaId = LINEA_COMERCIAL_INICIAL,
   ) {
     const linea = await this.prisma.lineaWhatsapp.findUniqueOrThrow({ where: { id: lineaId } });
@@ -227,6 +232,17 @@ export class IngestaWhatsappService {
       texto: contenido,
     });
 
+    /* «No me interesa» en una promoción: se registra la baja y se confirma, y
+       NADA más. Ni el acuse fuera de horario («te atendemos mañana») ni el
+       pedido de nombre y edad tienen sentido para quien acaba de pedir que no
+       le escriban. */
+    if (esRespuestaBoton && esPedidoDeBaja(contenido)) {
+      void enSegundoPlano('baja de promociones', this.logger, () =>
+        this.confirmarBajaPromociones(conversacion.id, cliente.id, cliente.telefono),
+      );
+      return mensaje;
+    }
+
     /* Respuestas automáticas: el acuse fuera de horario (solo línea comercial)
        y la ubicación si la paciente la pide (cualquier línea). Sin `await`,
        como todo lo que habla con Meta: el webhook tiene que responder en
@@ -241,7 +257,7 @@ export class IngestaWhatsappService {
        quedaba en el chat como si el paciente lo hubiera escrito, y ahí se
        cortaba. Esto pide nombre y edad para que quien abra el chat después
        ya sepa con quién habla. */
-    if (linea.comercial && esRespuestaBotonAcuse) {
+    if (linea.comercial && esRespuestaBoton) {
       void enSegundoPlano('pedido de nombre y edad tras el acuse', this.logger, () =>
         this.pedirDatosDelPaciente(conversacion.id, cliente.telefono),
       );
@@ -307,6 +323,23 @@ export class IngestaWhatsappService {
    * fuera de horario. Se identifica por el propio contenido del mensaje —no
    * hace falta una columna nueva para "ya se pidió".
    */
+  /**
+   * Registra la baja de promociones y se la confirma a la paciente. Solo la
+   * primera vez: tocar «No me interesa» de nuevo no vuelve a contestar. La
+   * confirmación es un mensaje libre: ella acaba de escribir, la ventana de 24
+   * horas está abierta.
+   */
+  private async confirmarBajaPromociones(conversacionId: string, clienteId: string, telefono: string): Promise<void> {
+    try {
+      if (!(await this.clientesService.registrarBajaPromociones(clienteId))) return;
+      const [mensaje] = await this.guardarMensajeAutomatico(conversacionId, [CONFIRMACION_BAJA], async () => false) ?? [];
+      if (mensaje) await this.despachador.texto({ mensajeId: mensaje.id, conversacionId, telefono }, CONFIRMACION_BAJA);
+    } catch (error) {
+      /* La entrada ya está guardada; lo que falle aquí no puede tumbarla. */
+      this.logger.error('No se pudo registrar o confirmar la baja de promociones', error);
+    }
+  }
+
   private async pedirDatosDelPaciente(conversacionId: string, telefono: string): Promise<void> {
     const texto = this.acuse.decidirPedidoDatos();
     if (!texto) return; // apagado mientras no exista AUTORESPUESTA_PEDIDO_DATOS

@@ -136,10 +136,11 @@ es cambiar la foto y la variable, no aprobar otra plantilla.
 
 «No me interesa» no es cortesía: una persona que no quiere promociones y no
 tiene cómo decirlo **bloquea o reporta**, y eso baja la calidad del número y
-puede pausar la plantilla. Falta en el CRM tratar esa respuesta como baja.
+puede pausar la plantilla. El CRM ya la registra como baja y la confirma.
 
-Pendiente de código para usarla: el selector de plantillas del chat todavía no
-pide una imagen de cabecera por envío (hoy solo la manda Resultados).
+Pendiente de código para usarla: hoy el chat adjunta la imagen FIJA de cada
+plantilla (`assets/cabeceras/<plantilla>.jpg`). Una campaña con imagen distinta
+por envío necesita que el selector deje elegirla.
 
 ### 3b. `reactivacion_con_foto` — reactivación con la foto de la clínica (propuesta)
 
@@ -148,7 +149,7 @@ extrañamos en Clínica Montalvo»). Misma voz que las plantillas de Ventas
 (voseo).
 
 - **Imagen elegida:** la fachada al atardecer, recortada a 1,91:1
-  (`docs/plantillas/reactivacion-clinica.jpg`, 980×513, 117 KB). Original en
+  (`assets/cabeceras/reactivacion_con_foto.jpg`, 980×513, 117 KB — el nombre del archivo ES el de la plantilla: así la encuentra el CRM al enviarla). Original en
   `CRM/Imagenes Clinica Meta PLantillas/Foto de la Clincia.jpeg`.
   - **Por qué la foto y no el logotipo:** «te extrañamos, volvé a tu control»
     se dice mejor con el edificio que la paciente reconoce, y la luz cálida da
@@ -170,6 +171,11 @@ extrañamos en Clínica Montalvo»). Misma voz que las plantillas de Ventas
 - **Pie:** `Clínica Montalvo · Santa Cruz`
 - **Botones:** Respuesta rápida «Agendar consulta» · Respuesta rápida «No me
   interesa» (más claro que el «Baja» actual; ver §3a sobre por qué importa).
+
+**Enviada a Meta el 2026-09-30 con OK del propietario** (id `28895605540130101`,
+categoría confirmada Marketing). El CRM ya la manda con su imagen y registra «No me
+interesa» como baja (`Cliente.bajaPromocionesEn`): al aprobarse aparece sola en el
+selector del chat. Falta retirar `reactivacion_paciente` cuando la nueva esté aprobada.
 
 **Nueva, no editando la actual.** Una plantilla con cabecera de imagen exige
 mandar la imagen en CADA envío; si se editara `reactivacion_paciente`, el CRM

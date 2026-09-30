@@ -129,6 +129,14 @@ model Cliente {
   categoria CategoriaCliente @default(PROSPECTO)
   agente    Usuario?         @relation("AgenteAsignado", fields: [agenteId], references: [id])
   agenteId  String?
+  /// Cuándo pidió no recibir más promociones (tocó «No me interesa» o «Baja» en
+  /// una plantilla de Marketing). Mientras tenga fecha, el CRM no le manda
+  /// plantillas de Marketing; las de Utilidad —citas, resultados— siguen.
+  ///
+  /// No es cortesía: a quien no quiere promociones y no tiene cómo decirlo le
+  /// queda bloquear o reportar el número, y eso baja su calidad en Meta y puede
+  /// pausar las plantillas de todos.
+  bajaPromocionesEn DateTime?
   /// Identificador del paciente en FileMaker (columna `pk`: Pac1897). Es la MISMA
   /// clave que `VentaImportada.pac`, así que el historial de servicios de un
   /// paciente es un join indexado y no un escaneo sobre JSON.

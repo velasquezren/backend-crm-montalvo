@@ -317,7 +317,7 @@ describe('WhatsappWebhookController', () => {
         undefined,
         undefined,
         undefined,
-        true, "linea-1", // esRespuestaBotonAcuse: dispara el pedido de nombre y edad
+        true, "linea-1", // esRespuestaBoton: dispara el pedido de nombre y edad
       );
     });
 
