@@ -56,31 +56,16 @@ export class PortalResultadosClient {
   }
 
   /**
-   * El PDF de un informe publicado, para revisarlo desde el CRM.
+   * El enlace para revisar un informe publicado en el visor del portal —el
+   * mismo que usa el médico—, firmado y válido 10 minutos.
    *
-   * Pasa por una ruta propia y NO por el enlace del paciente: ese enlace marca
-   * `abiertoEn`, así que si la asistente lo abriera para comprobar el informe,
-   * la fila diría «Abierto por el paciente» y recepción perdería la única
-   * señal que tiene para saber a quién seguir.
+   * El CRM recibe el enlace, nunca el PDF: la asistente lo abre directo en el
+   * portal, que sirve la versión liviana del informe (la misma que recibe la
+   * paciente) sin pasar por aquí. Y no es el enlace del paciente: ese marca
+   * `abiertoEn`, y entonces la fila diría «Abierto por el paciente».
    */
-  async pdf(informeId: string): Promise<Buffer> {
-    const { base, token } = this.configuracion();
-    let respuesta: Response;
-    try {
-      respuesta = await fetch(`${base}/v1/integraciones/crm/informes/${informeId}/pdf`, {
-        headers: { Authorization: `Bearer ${token}` },
-        signal: AbortSignal.timeout(20_000),
-      });
-    } catch (error) {
-      this.logger.error('No se pudo traer el PDF del portal de resultados', error as Error);
-      throw new ServiceUnavailableException('El portal de resultados no responde. Intenta de nuevo en un momento.');
-    }
-    if (respuesta.status === 404) throw new NotFoundException('Ese informe ya no está publicado en el portal.');
-    if (!respuesta.ok) {
-      this.logger.error(`El portal devolvió ${respuesta.status} al pedir el PDF`);
-      throw new ServiceUnavailableException('El portal de resultados no pudo entregar el informe.');
-    }
-    return Buffer.from(await respuesta.arrayBuffer());
+  enlaceRevision(informeId: string): Promise<{ url: string; expiraEn: string }> {
+    return this.pedir(`/v1/integraciones/crm/informes/${informeId}/revision`, 'POST');
   }
 
   /** Informes publicados. Con `informeId`, solo ese. */

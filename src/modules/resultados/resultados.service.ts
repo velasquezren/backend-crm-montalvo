@@ -103,15 +103,14 @@ export class ResultadosService {
   }
 
   /**
-   * El PDF que la asistente revisa antes de enviar.
+   * El enlace con el que la asistente revisa el informe antes de enviarlo.
    *
    * Mismo permiso que la cola: quien no puede entregar resultados tampoco lee
-   * informes. Y lo pide por una ruta que NO marca el informe como abierto por
-   * el paciente.
+   * informes. El enlace NO marca el informe como abierto por el paciente.
    */
-  async pdf(informeId: string, usuario: UsuarioJwt): Promise<Buffer> {
+  async enlaceRevision(informeId: string, usuario: UsuarioJwt): Promise<{ url: string; expiraEn: string }> {
     await this.permitirLinea(usuario);
-    return this.portal.pdf(informeId);
+    return this.portal.enlaceRevision(informeId);
   }
 
   /**

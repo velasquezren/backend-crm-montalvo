@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, ParseUUIDPipe, Patch, Post, Query, StreamableFile } from '@nestjs/common';
+import { Body, Controller, Get, Param, ParseUUIDPipe, Patch, Post, Query } from '@nestjs/common';
 
 import { CurrentUser, UsuarioJwt } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -27,30 +27,17 @@ export class ResultadosController {
   }
 
   /**
-   * El PDF, para comprobar QUÉ informe se va a enviar.
+   * El enlace para comprobar QUÉ informe se va a enviar: la vista del portal,
+   * la misma del médico, abierta directo en el navegador.
    *
-   * Lo sirve el CRM en vez de enlazar al portal porque el enlace del paciente
-   * marca `abiertoEn`: si lo abriera la asistente, la fila diría «Abierto por
-   * el paciente» y esa señal —la que dice a quién hay que seguir— se volvería
-   * mentira.
-   *
-   * Va en un `StreamableFile` y NO devolviendo el Buffer a secas: Nest trata
-   * cualquier objeto devuelto como JSON, y un Buffer se convierte en
-   * `{"type":"Buffer","data":[…]}`. Con la cabecera puesta a mano el navegador
-   * recibía eso creyendo que era un PDF y el visor fallaba — ya pasó.
-   *
-   * `inline` para que se vea en el navegador en vez de descargarse.
+   * Antes el CRM traía el PDF y lo reenviaba: 3-5 MB pasando dos veces por el
+   * servidor y bajando enteros antes de verse nada. Ahora el navegador lo carga
+   * del portal con su propio visor y en la versión liviana. El enlace dura 10
+   * minutos y no marca el informe como abierto por el paciente.
    */
-  @Get(':informeId/pdf')
-  async pdf(
-    @Param('informeId', ParseUUIDPipe) informeId: string,
-    @CurrentUser() usuario: UsuarioJwt,
-  ): Promise<StreamableFile> {
-    const pdf = await this.service.pdf(informeId, usuario);
-    return new StreamableFile(pdf, {
-      type: 'application/pdf',
-      disposition: 'inline; filename="informe.pdf"',
-    });
+  @Post(':informeId/revision')
+  revision(@Param('informeId', ParseUUIDPipe) informeId: string, @CurrentUser() usuario: UsuarioJwt) {
+    return this.service.enlaceRevision(informeId, usuario);
   }
 
   @Post(':informeId/enviar')
