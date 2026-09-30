@@ -4,7 +4,7 @@ Regla de la clínica: **ninguna plantilla se crea, borra ni edita en Meta sin OK
 explícito**. Este documento deja cada una lista para enviarla a revisión con
 un solo paso cuando se dé ese OK.
 
-Estado en Meta al 2026-09-24 (línea «Recepción Clínica Montalvo»):
+Estado en Meta al 2026-09-24 (línea «Recepción Clínica Montalvo»; comprobado sin cambios el 2026-09-30):
 
 | Plantilla | Estado | Uso |
 | --- | --- | --- |
@@ -92,7 +92,63 @@ saludo.
 No requiere cambios: el selector del chat ya soporta variables y botones de
 respuesta rápida.
 
-## 3. Lo que ninguna plantilla arregla sola: el dominio
+## 3. Ventas y publicidad — revisión del 2026-09-30
+
+Estado en Meta (WABA `1011426071679964`, solo lectura): `promo_especialidad`,
+`reactivacion_paciente` y `bienvenida_contacto` aprobadas como **Marketing**,
+ninguna con imagen, calidad aún sin medir. Uso real en 60 días: 9 envíos,
+5 leídos, 1 respuesta. Lo que mueve la factura no son estas plantillas: son
+los ~2.900 mensajes libres al mes de las agentes, que **Meta cobra por mensaje
+desde el 1 de octubre de 2026** (antes eran gratis dentro de las 24 h).
+
+Reglas de Meta que mandan sobre cualquier diseño (documentación oficial,
+«Template categorization» y «Pricing»):
+
+- **No mezclar publicidad en una plantilla de Utilidad.** El contenido mixto
+  es Marketing; hacerlo de forma reiterada lleva a que Meta pase TODAS las
+  plantillas de Utilidad a Marketing durante 7–30 días. El aviso de resultado
+  se queda como Utilidad, con imagen de marca neutra (§1), nunca con una oferta.
+- **Marketing siempre se cobra**, y Meta limita cuántas plantillas de marketing
+  recibe cada persona. Mejor pocas y buenas que muchas.
+- **Lo gratis que queda:** 72 h de mensajes (plantillas incluidas) cuando la
+  paciente llega por un anuncio «Clic a WhatsApp» y se le responde dentro de
+  24 h. Para ventas, es la palanca más barata.
+
+### 3a. `montalvo_consulta_especialidad` — campaña con imagen (propuesta)
+
+Sustituye a `promo_especialidad`. **Una sola plantilla para todas las campañas**:
+la imagen de la cabecera se manda en cada envío, así que cambiar de especialidad
+es cambiar la foto y la variable, no aprobar otra plantilla.
+
+- **Categoría:** Marketing · **Idioma:** `es`
+- **Encabezado:** Imagen (1,91:1, p. ej. 1200×628; foto real de la clínica o
+  de la especialidad, logo pequeño; sin texto largo encima)
+- **Cuerpo** (2 variables):
+  > Hola {{1}}, en Clínica Montalvo tenemos turnos este mes para *{{2}}*.
+  >
+  > Atención con especialistas y tus resultados llegan directo a tu WhatsApp.
+  >
+  > Toca «Agendar consulta» y te reservamos el horario que prefieras.
+  - ejemplos: `{{1}}` = `María`, `{{2}}` = `Ecografía`
+- **Pie:** `Clínica Montalvo · Santa Cruz`
+- **Botones:** Respuesta rápida «Agendar consulta» · Teléfono «Llamar a la
+  clínica» (`+59133581919`) · Respuesta rápida «No me interesa»
+
+«No me interesa» no es cortesía: una persona que no quiere promociones y no
+tiene cómo decirlo **bloquea o reporta**, y eso baja la calidad del número y
+puede pausar la plantilla. Falta en el CRM tratar esa respuesta como baja.
+
+Pendiente de código para usarla: el selector de plantillas del chat todavía no
+pide una imagen de cabecera por envío (hoy solo la manda Resultados).
+
+### 3b. `bienvenida_contacto` es Marketing y no debería usarse para responder
+
+Su texto es un acuse («Un asesor te atenderá»). Si alguien acaba de escribir,
+la ventana de 24 h está abierta y un mensaje libre basta: usar esta plantilla
+ahí es pagar tarifa de marketing por un acuse. El acuse fuera de horario del
+CRM ya va como mensaje libre.
+
+## 4. Lo que ninguna plantilla arregla sola: el dominio
 
 El enlace muestra `resultados.107.175.132.15.nip.io`. Con un dominio propio
 (p. ej. `resultados.clinicamontalvo.com`) el paciente ve el nombre de la clínica
