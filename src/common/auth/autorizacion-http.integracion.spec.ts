@@ -27,6 +27,7 @@ import { LeadsController } from '../../modules/leads/leads.controller';
 import { LeadsService } from '../../modules/leads/leads.service';
 import { ConversacionesController } from '../../modules/conversaciones/conversaciones.controller';
 import { ConversacionesService } from '../../modules/conversaciones/conversaciones.service';
+import { EnvioPlantillasService } from '../../modules/conversaciones/envio-plantillas.service';
 import { ConversacionesGateway } from '../../modules/conversaciones/conversaciones.gateway';
 import { WhatsappCloudService } from '../whatsapp/whatsapp-cloud.service';
 import { DespachadorSalienteService } from '../../modules/conversaciones/despachador-saliente.service';
@@ -49,7 +50,7 @@ const telefonos = { startsWith: '+59170004' };
   providers: [LineasWhatsappService, MemoriaAgenteService, { provide: ConfigService, useValue: new ConfigService({}) },
     { provide: PrismaService, useValue: prisma }, AuditService, AuthService, UsuariosService,
     ClientesService, ServiciosService, ActividadesService, VentasService, LeadsService,
-    ConversacionesService, CatalogoClinicoService,
+    ConversacionesService, EnvioPlantillasService, CatalogoClinicoService,
     { provide: R2Service, useValue: {} }, { provide: PushService, useValue: {} },
     { provide: WhatsappCloudService, useValue: {} }, { provide: DespachadorSalienteService, useValue: {} },
     { provide: ConversacionesGateway, useValue: { emitirActividad: () => undefined } },

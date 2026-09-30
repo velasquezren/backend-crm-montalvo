@@ -14,7 +14,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../../common/audit/audit.service';
 import { ClientesService } from '../clientes/clientes.service';
 import { obtenerOCrearConversacion } from '../conversaciones/acceso-conversacion';
-import { ConversacionesService } from '../conversaciones/conversaciones.service';
+import { EnvioPlantillasService } from '../conversaciones/envio-plantillas.service';
 import { LineasWhatsappService } from '../lineas-whatsapp/lineas-whatsapp.service';
 import { InformePublicado, PortalResultadosClient } from './portal-resultados.client';
 import { QueryResultadosDto } from './dto/query-resultados.dto';
@@ -54,7 +54,7 @@ export class ResultadosService {
     private readonly prisma: PrismaService,
     private readonly portal: PortalResultadosClient,
     private readonly clientes: ClientesService,
-    private readonly conversaciones: ConversacionesService,
+    private readonly plantillas: EnvioPlantillasService,
     private readonly lineas: LineasWhatsappService,
     private readonly audit: AuditService,
   ) {}
@@ -163,7 +163,7 @@ export class ResultadosService {
     try {
       /* Resultados no es tráfico comercial: la conversación no reserva lead. */
       const conversacion = await obtenerOCrearConversacion(this.prisma, cliente.id, linea, false);
-      const mensaje = await this.conversaciones.enviarPlantillaDelSistema(
+      const mensaje = await this.plantillas.enviarPlantillaDelSistema(
         conversacion.id,
         {
           plantilla: this.variable('RESULTADOS_PLANTILLA'),

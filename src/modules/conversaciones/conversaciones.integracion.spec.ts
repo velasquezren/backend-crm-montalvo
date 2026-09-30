@@ -14,6 +14,7 @@ import { ConversacionesGateway } from './conversaciones.gateway';
 import { AcuseAutomaticoService } from './acuse-automatico.service';
 import { DespachadorSalienteService } from './despachador-saliente.service';
 import { ConversacionesService } from './conversaciones.service';
+import { EnvioPlantillasService } from './envio-plantillas.service';
 import { IngestaWhatsappService } from './ingesta-whatsapp.service';
 import { MediaEntranteService } from './media-entrante.service';
 import { CONTENIDO_PIN, TEXTO_UBICACION, UBICACION_CLINICA } from './ubicacion-clinica';
@@ -81,6 +82,7 @@ class R2Espia {
 }
 
 let service: ConversacionesService;
+let plantillas: EnvioPlantillasService;
 let ingesta: IngestaWhatsappService;
 let clientesService: ClientesService;
 let gateway: GatewayEspia;
@@ -133,6 +135,14 @@ beforeEach(async () => {
     whatsappService,
     despachadorService, new LineasWhatsappService(prisma, config), new MemoriaAgenteService(prisma, r2 as unknown as R2Service),
   );
+  plantillas = new EnvioPlantillasService(
+    prisma,
+    clientesService,
+    gateway as unknown as ConversacionesGateway,
+    whatsappService,
+    despachadorService,
+    new LineasWhatsappService(prisma, config),
+  );
   ingesta = new IngestaWhatsappService(
     prisma,
     clientesService,
@@ -150,6 +160,7 @@ beforeEach(async () => {
   jest.spyOn(service['logger'], 'warn').mockImplementation(() => undefined);
   jest.spyOn(service['logger'], 'error').mockImplementation(() => undefined);
   jest.spyOn(service['logger'], 'log').mockImplementation(() => undefined);
+  jest.spyOn(plantillas['logger'], 'error').mockImplementation(() => undefined);
   jest.spyOn(ingesta['logger'], 'error').mockImplementation(() => undefined);
 });
 
@@ -809,9 +820,9 @@ describe('Conversaciones contra Postgres real', () => {
       const linea = '00000000-0000-4000-8000-000000000001';
       try {
         consulta.mockResolvedValue([]);
-        await expect(service.listarPlantillas(true, linea)).resolves.toEqual([]);
+        await expect(plantillas.listarPlantillas(true, linea)).resolves.toEqual([]);
         consulta.mockResolvedValue(null);
-        await expect(service.listarPlantillas(true, linea)).rejects.toMatchObject({ status: 503 });
+        await expect(plantillas.listarPlantillas(true, linea)).rejects.toMatchObject({ status: 503 });
       } finally { consulta.mockRestore(); }
     });
   });
@@ -1040,7 +1051,7 @@ describe('Conversaciones contra Postgres real', () => {
       jest.spyOn(service['whatsapp'], 'listarPlantillas').mockResolvedValue([
         { name: 'saludo', status: 'APPROVED', category: 'UTILITY', language: 'es', components: [{ type: 'BODY', text: 'Buenas tardes' }] },
       ]);
-      await service.enviarPlantilla(conv.id, { plantilla: 'saludo', idioma: 'es', parametros: [] }, a.id);
+      await plantillas.enviarPlantilla(conv.id, { plantilla: 'saludo', idioma: 'es', parametros: [] }, a.id);
 
       expect(await esperandoRespuestaDe(conv.id)).toBe(false);
     });

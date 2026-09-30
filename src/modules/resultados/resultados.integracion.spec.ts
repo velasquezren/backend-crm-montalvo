@@ -7,7 +7,7 @@ import { AuditService } from '../../common/audit/audit.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ClientesService } from '../clientes/clientes.service';
 import { ServiciosService } from '../servicios/servicios.service';
-import { ConversacionesService } from '../conversaciones/conversaciones.service';
+import { EnvioPlantillasService } from '../conversaciones/envio-plantillas.service';
 import { LineasWhatsappService } from '../lineas-whatsapp/lineas-whatsapp.service';
 import { PortalResultadosClient } from './portal-resultados.client';
 import { ResultadosService } from './resultados.service';
@@ -18,7 +18,7 @@ import { ResultadosService } from './resultados.service';
  * quiere comprobar es el cruce por PAC, la reserva contra el doble envío y el
  * permiso por línea, y eso lo decide Postgres.
  *
- * Solo se stubea `ConversacionesService.enviarPlantillaDelSistema`, que es la frontera
+ * Solo se stubea `EnvioPlantillasService.enviarPlantillaDelSistema`, que es la frontera
  * con Meta; que el botón llegue bien al payload lo fija
  * `componentes-plantilla.spec.ts`.
  *
@@ -54,7 +54,7 @@ const conversacionesStub = {
     });
     return mensaje;
   },
-} as unknown as ConversacionesService;
+} as unknown as EnvioPlantillasService;
 
 beforeAll(async () => {
   await prisma.$connect();

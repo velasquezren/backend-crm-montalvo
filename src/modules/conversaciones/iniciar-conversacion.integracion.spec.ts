@@ -7,11 +7,10 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { ClientesService } from '../clientes/clientes.service';
 import { PrimerContactoService } from '../leads/primer-contacto.service';
 import { LineasWhatsappService } from '../lineas-whatsapp/lineas-whatsapp.service';
-import { MemoriaAgenteService } from '../memoria-agente/memoria-agente.service';
 import { ServiciosService } from '../servicios/servicios.service';
 import { AcuseAutomaticoService } from './acuse-automatico.service';
 import { ConversacionesGateway } from './conversaciones.gateway';
-import { ConversacionesService } from './conversaciones.service';
+import { EnvioPlantillasService } from './envio-plantillas.service';
 import { DespachadorSalienteService } from './despachador-saliente.service';
 import { IngestaWhatsappService } from './ingesta-whatsapp.service';
 import { MediaEntranteService } from './media-entrante.service';
@@ -60,7 +59,7 @@ class GatewayMudo {
   notificarEntrante(): void {}
 }
 
-let service: ConversacionesService;
+let service: EnvioPlantillasService;
 let ingesta: IngestaWhatsappService;
 let envios: Array<{ telefono: string; cuerpo: Record<string, unknown> }>;
 
@@ -111,7 +110,7 @@ beforeEach(async () => {
   });
   const lineas = new LineasWhatsappService(prisma, config);
   const despachador = new DespachadorSalienteService(prisma, gateway, r2, whatsapp, lineas);
-  service = new ConversacionesService(prisma, clientes, gateway, r2, whatsapp, despachador, lineas, new MemoriaAgenteService(prisma, r2));
+  service = new EnvioPlantillasService(prisma, clientes, gateway, whatsapp, despachador, lineas);
   ingesta = new IngestaWhatsappService(
     prisma, clientes, gateway, new AcuseAutomaticoService(config), despachador,
     new MediaEntranteService(prisma, gateway, r2, whatsapp, lineas),
