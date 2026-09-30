@@ -61,7 +61,6 @@ beforeEach(async () => {
   planilla = new PlanillaComisionesService(
     prisma,
     new ConfiguracionComisionesService(prisma),
-    new AuditService(prisma),
     new CatalogoClinicoService(prisma),
     { invalidar: () => undefined } as never,
     { invalidar: () => undefined } as never,

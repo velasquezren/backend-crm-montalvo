@@ -51,6 +51,7 @@ import {
   QueryVentasImportadasDto,
 } from './dto/planilla.dto';
 import { PlanillaComisionesService } from './planilla-comisiones.service';
+import { VendedorasComisionService } from './vendedoras-comision.service';
 
 /** Tope del Excel mensual: el VPS tiene poca RAM y un mes real pesa muy por debajo. */
 const TAMANO_MAXIMO_BYTES = 15 * 1024 * 1024;
@@ -95,6 +96,7 @@ export class PlanillaComisionesController {
     private readonly exportacionWord: ExportacionWordService,
     private readonly exportacionMetricas: ExportacionMetricasService,
     private readonly resumenAnual: ResumenAnualService,
+    private readonly vendedoras: VendedorasComisionService,
   ) {}
 
   /* ── Importación y periodos ─────────────────────────────────────────── */
@@ -383,7 +385,7 @@ export class PlanillaComisionesController {
 
   @Get('vendedoras')
   listarVendedoras() {
-    return this.planilla.listarVendedoras();
+    return this.vendedoras.listarVendedoras();
   }
 
   /**
@@ -393,7 +395,7 @@ export class PlanillaComisionesController {
   @Post('vendedoras')
   @Roles('SUPER_ADMIN')
   crearVendedora(@Body() dto: CrearVendedoraDto, @CurrentUser() usuario: UsuarioJwt) {
-    return this.planilla.crearVendedora(dto, usuario.sub);
+    return this.vendedoras.crearVendedora(dto, usuario.sub);
   }
 
   @Patch('vendedoras/:id')
@@ -402,7 +404,7 @@ export class PlanillaComisionesController {
     @Body() dto: ActualizarVendedoraDto,
     @CurrentUser() usuario: UsuarioJwt,
   ) {
-    return this.planilla.actualizarVendedora(id, dto, usuario.sub);
+    return this.vendedoras.actualizarVendedora(id, dto, usuario.sub);
   }
 
   /* ── Panel de configuración ─────────────────────────────────────────── */

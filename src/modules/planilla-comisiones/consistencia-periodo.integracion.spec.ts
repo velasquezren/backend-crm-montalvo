@@ -9,6 +9,7 @@ import { CalculoComisionesService } from './calculo-comisiones.service';
 import { CatalogoClinicoService } from './catalogo-clinico.service';
 import { ConfiguracionComisionesService } from './configuracion-comisiones.service';
 import { PlanillaComisionesService } from './planilla-comisiones.service';
+import { VendedorasComisionService } from './vendedoras-comision.service';
 import { ResumenAnualService } from './resumen-anual.service';
 import { bloquearPeriodo, transaccionFinanciera } from './transaccion-periodo';
 import { ReglaDiccionario } from './clasificador';
@@ -27,7 +28,8 @@ const anual = new ResumenAnualService(prisma, config);
    producción no se cumpliría. */
 const analitica = new AnaliticaComisionesService(prisma);
 const calculo = new CalculoComisionesService(prisma, config, audit, analitica, anual);
-const planilla = new PlanillaComisionesService(prisma, config, audit, new CatalogoClinicoService(prisma), anual, analitica, new TipoCambioService(prisma, audit));
+const planilla = new PlanillaComisionesService(prisma, config, new CatalogoClinicoService(prisma), anual, analitica, new TipoCambioService(prisma, audit));
+const vendedoras = new VendedorasComisionService(prisma, audit, anual);
 let periodoId: string;
 let ventaId: string;
 let administradores: string[];
@@ -294,7 +296,7 @@ it('C: la configuración global y las condiciones de vendedora se fotografían d
   await pausa.llegada;
   try {
     await config.actualizarTarifaServicio('CONSULTA', { pctEmpresa: 0.123, pctPropio: 0.234 });
-    await planilla.actualizarVendedora(anterior.periodo.ventas[0].vendedoraId!, { sueldoBase: 777 }, administradores[0]);
+    await vendedoras.actualizarVendedora(anterior.periodo.ventas[0].vendedoraId!, { sueldoBase: 777 }, administradores[0]);
     pausa.liberar();
     await calculando;
     const congelado = await foto();

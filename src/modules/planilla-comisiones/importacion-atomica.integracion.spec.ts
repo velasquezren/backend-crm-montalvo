@@ -23,7 +23,7 @@ const catalogo = new CatalogoClinicoService(prisma);
 const anual = new ResumenAnualService(prisma, configuracion);
 const analitica = new AnaliticaComisionesService(prisma);
 const planilla = new PlanillaComisionesService(
-  prisma, configuracion, audit, catalogo, anual, analitica, new TipoCambioService(prisma, audit),
+  prisma, configuracion, catalogo, anual, analitica, new TipoCambioService(prisma, audit),
 );
 const PERIODO = { anio: 2031, mes: 1, tipoCambio: 6.97 };
 
