@@ -128,7 +128,7 @@ es cambiar la foto y la variable, no aprobar otra plantilla.
   >
   > Atención con especialistas y tus resultados llegan directo a tu WhatsApp.
   >
-  > Toca «Agendar consulta» y te reservamos el horario que prefieras.
+  > Tocá «Agendar consulta» y te reservamos el horario que prefieras.
   - ejemplos: `{{1}}` = `María`, `{{2}}` = `Ecografía`
 - **Pie:** `Clínica Montalvo · Santa Cruz`
 - **Botones:** Respuesta rápida «Agendar consulta» · Teléfono «Llamar a la
@@ -141,7 +141,42 @@ puede pausar la plantilla. Falta en el CRM tratar esa respuesta como baja.
 Pendiente de código para usarla: el selector de plantillas del chat todavía no
 pide una imagen de cabecera por envío (hoy solo la manda Resultados).
 
-### 3b. `bienvenida_contacto` es Marketing y no debería usarse para responder
+### 3b. `reactivacion_con_foto` — reactivación con la foto de la clínica (propuesta)
+
+Versión con imagen de `reactivacion_paciente` (hoy con cabecera de texto «Te
+extrañamos en Clínica Montalvo»). Misma voz que las plantillas de Ventas
+(voseo).
+
+- **Imagen elegida:** la fachada al atardecer, recortada a 1,91:1
+  (`docs/plantillas/reactivacion-clinica.jpg`, 980×513, 117 KB). Original en
+  `CRM/Imagenes Clinica Meta PLantillas/Foto de la Clincia.jpeg`.
+  - **Por qué la foto y no el logotipo:** «te extrañamos, volvé a tu control»
+    se dice mejor con el edificio que la paciente reconoce, y la luz cálida da
+    cercanía. El logotipo es un rótulo sobre blanco: en la cabecera queda chico
+    y el blanco se funde con la burbuja del chat. La marca ya está en la foto:
+    el letrero de la fachada.
+  - **Por qué el recorte:** a ~360 px (el ancho real en un teléfono) el original
+    pierde el letrero entre cielo, cables y autos; cerrado sobre el edificio se
+    lee, y se conserva la bandera.
+- **Categoría:** Marketing · **Idioma:** `es`
+- **Encabezado:** Imagen
+- **Cuerpo** (1 variable, el nombre):
+  > Hola {{1}}, te extrañamos en Clínica Montalvo.
+  >
+  > Hace un tiempo que no te vemos y queremos seguir acompañándote en tu salud.
+  > Si querés retomar tu control o consulta, tocá «Agendar consulta» y te
+  > buscamos el horario.
+  - ejemplo de `{{1}}`: `María`
+- **Pie:** `Clínica Montalvo · Santa Cruz`
+- **Botones:** Respuesta rápida «Agendar consulta» · Respuesta rápida «No me
+  interesa» (más claro que el «Baja» actual; ver §3a sobre por qué importa).
+
+**Nueva, no editando la actual.** Una plantilla con cabecera de imagen exige
+mandar la imagen en CADA envío; si se editara `reactivacion_paciente`, el CRM
+—que hoy no manda imagen desde el chat— fallaría al enviarla hasta tener ese
+código. La actual se retira cuando la nueva esté aprobada y el CRM la mande.
+
+### 3c. `bienvenida_contacto` es Marketing y no debería usarse para responder
 
 Su texto es un acuse («Un asesor te atenderá»). Si alguien acaba de escribir,
 la ventana de 24 h está abierta y un mensaje libre basta: usar esta plantilla
