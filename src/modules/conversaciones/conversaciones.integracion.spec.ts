@@ -580,6 +580,39 @@ describe('Conversaciones contra Postgres real', () => {
       expect(lead.origen).toBe('INSTAGRAM_LEAD_AD');
     });
 
+    /* Lo que el anuncio deja en la ficha: un interés con su titular (una sola
+       vez aunque vuelva a escribir desde el mismo anuncio) y el contexto de la
+       campaña en `datosExtra.campanaOrigen`, sin pisar el resto del JSON. */
+    it('el anuncio queda en la ficha: un interés por titular y la campaña en datosExtra', async () => {
+      const telefono = '+59172000026';
+      await ingesta.procesarEntrante(telefono, 'Hola', 'wamid.ads6', 'Cuarta', undefined, {
+        ...campana,
+        cuerpo: 'Consulta gratis',
+        clickId: 'clid-1',
+      });
+      const cliente = await prisma.cliente.findUniqueOrThrow({ where: { telefono } });
+      await prisma.cliente.update({
+        where: { id: cliente.id },
+        data: { datosExtra: { ...(cliente.datosExtra as object), notas: 'previa' } },
+      });
+      await ingesta.procesarEntrante(telefono, 'Otra vez', 'wamid.ads7', 'Cuarta', undefined, campana);
+
+      const intereses = await prisma.interes.findMany({ where: { clienteId: cliente.id } });
+      expect(intereses).toHaveLength(1);
+      expect(intereses[0]).toMatchObject({ descripcion: 'Promo Rinoplastia', origen: 'FACEBOOK_LEAD_AD' });
+
+      const final = await prisma.cliente.findUniqueOrThrow({ where: { telefono } });
+      const extra = final.datosExtra as Record<string, unknown>;
+      expect(extra['notas']).toBe('previa');
+      expect(extra['campanaOrigen']).toMatchObject({
+        titular: 'Promo Rinoplastia',
+        anuncioId: anuncio,
+        cuerpo: null,
+        clickId: null,
+      });
+      expect(typeof (extra['campanaOrigen'] as Record<string, unknown>)['fecha']).toBe('string');
+    });
+
     /* Sin `referral` nada cambia: el chat orgánico sigue siendo WHATSAPP_DIRECTO
        y sin anuncio, para que la atribución de campaña no se contamine. */
     it('un chat orgánico no queda atribuido a ninguna campaña', async () => {

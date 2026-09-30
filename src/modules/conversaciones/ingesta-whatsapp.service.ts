@@ -124,49 +124,7 @@ export class IngestaWhatsappService {
       : OrigenLead.WHATSAPP_DIRECTO;
 
     if (linea.comercial && (referral?.titular || referral?.anuncioId || referral?.cuerpo)) {
-      if (referral.titular) {
-        const yaTieneInteres = await this.prisma.interes.findFirst({
-          where: { clienteId: cliente.id, descripcion: referral.titular },
-          select: { id: true },
-        });
-        if (!yaTieneInteres) {
-          await this.prisma.interes.create({
-            data: {
-              clienteId: cliente.id,
-              descripcion: referral.titular,
-              origen: origenLead,
-              agenteId: cliente.agenteId,
-            },
-          });
-        }
-      }
-
-      const datosActuales = (cliente.datosExtra && typeof cliente.datosExtra === 'object'
-        ? cliente.datosExtra
-        : {}) as Record<string, unknown>;
-      await this.prisma.cliente.update({
-        where: { id: cliente.id },
-        data: {
-          datosExtra: {
-            ...datosActuales,
-            /* Los campos nuevos se suman sin migración —`datosExtra` es JSON— y
-               los registros viejos simplemente no los traen: quien los lee ya
-               los trata como opcionales. */
-            campanaOrigen: {
-              titular: referral.titular ?? null,
-              anuncioId: referral.anuncioId ?? null,
-              cuerpo: referral.cuerpo ?? null,
-              origenUrl: referral.origenUrl ?? null,
-              imagenUrl: referral.imagenUrl ?? null,
-              mediaTipo: referral.mediaTipo ?? null,
-              videoUrl: referral.videoUrl ?? null,
-              saludo: referral.saludo ?? null,
-              clickId: referral.clickId ?? null,
-              fecha: new Date().toISOString(),
-            },
-          },
-        },
-      });
+      await this.clientesService.registrarCampanaOrigen(cliente, referral, origenLead);
     }
 
     /* `conversacion.update` bumpea `updatedAt` — sin esto un mensaje entrante
