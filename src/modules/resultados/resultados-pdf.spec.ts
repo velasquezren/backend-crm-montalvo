@@ -52,6 +52,14 @@ describe('GET /resultados/:id/pdf por HTTP', () => {
     expect(r.headers.get('content-disposition')).toContain('inline');
   });
 
+  /* Nest lo pone solo al envolver un Buffer en `StreamableFile`. Sin esa
+     cabecera el navegador no sabe cuánto falta y «Ver el informe» no puede
+     mostrar el porcentaje mientras bajan los 3-5 MB de una ecografía. */
+  it('dice cuánto pesa, para que la pantalla pueda mostrar el progreso', async () => {
+    const r = await fetch(`${base}/resultados/11111111-1111-4111-8111-111111111111/pdf`);
+    expect(r.headers.get('content-length')).toBe(String(PDF.length));
+  });
+
   it('un id que no es UUID se rechaza antes de pedir nada', async () => {
     expect((await fetch(`${base}/resultados/no-es-uuid/pdf`)).status).toBe(400);
   });
