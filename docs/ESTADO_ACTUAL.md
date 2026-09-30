@@ -1,5 +1,17 @@
 # Estado actual
 
+## Decisión pendiente (30 de septiembre de 2026) · dos métodos sin pantalla
+
+En el frontend, `planilla-comisiones.service.ts` tiene `actualizarNivelTipoARA` y
+`actualizarTarifaRa`, que llaman a `PATCH /planilla-comisiones/configuracion/niveles-tipo-a-ra/:nivel`
+y `PATCH /planilla-comisiones/configuracion/tarifas-ra/:id` (SUPER_ADMIN). Los
+endpoints existen y funcionan, pero **ninguna pantalla llama a esos métodos**: hoy
+esos niveles y tarifas solo cambian por fuera de la interfaz.
+Se dejan **a propósito** (punto C3 de la reorganización): falta decidir si se les
+da una pantalla en Configuración o se retiran junto con sus endpoints. No los
+borres sin esa decisión, y ojo con las unidades si se les hace pantalla:
+`pctEmpresa`/`pctPropio` van en puntos porcentuales (ver CLAUDE.md, «Trampas»).
+
 ## Actualización del 3 de octubre de 2026
 
 - **Audiencias y Campañas, un solo módulo y una sola página.** La audiencia no tiene otro
