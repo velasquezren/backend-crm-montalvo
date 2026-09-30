@@ -30,7 +30,7 @@ function contexto<T>(controlador: { prototype: T }, metodo: keyof T, rol: Rol): 
 const guard = new RolesGuard(new Reflector());
 
 describe('la asistente y el guard de roles', () => {
-  it.each(['corregirTelefono', 'crearFicha', 'pendientes', 'enviar'] as const)(
+  it.each(['corregirTelefono', 'crearFicha', 'vincularFicha', 'pendientes', 'enviar'] as const)(
     'pasa por /resultados → %s',
     metodo => {
       expect(guard.canActivate(contexto(ResultadosController, metodo, Rol.ASISTENTE))).toBe(true);

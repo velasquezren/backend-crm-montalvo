@@ -753,6 +753,15 @@ salen del portal; del navegador solo viaja el teléfono. `ClientesService` ofrec
 `telefonoDesdeResultados` y `altaDesdeResultados`, con visor `ninguno` (el 409 no nombra a
 nadie). Lo fija `resultados-roles.spec.ts` con el guard real.
 
+**Un número que ya tiene ficha sin PAC se VINCULA, no se duplica** (2026-09-30). La paciente
+que escribió por WhatsApp antes de ir a la clínica tiene ficha sin PAC; su informe llega con PAC
+y queda «sin vincular». `ClientesService.fichaDelTelefono` clasifica el número frente al
+paciente (`LIBRE` / `VINCULABLE` / `OCUPADO`); `crearFicha` responde 409 con `vinculable` y la
+pantalla pregunta «¿es la misma paciente?» mostrando el nombre; `POST /resultados/:id/vincular`
+le pone el PAC (y el CI si no tenía; el nombre solo si era el provisional). **Nunca en
+automático**: madre e hija comparten WhatsApp, y vincular por teléfono le pegaría el informe de
+la hija a la ficha de la madre. Otro PAC u otro CI = `OCUPADO`, no se toca.
+
 **Un 409 de dato repetido nombra al dueño solo si quien pregunta podría ver esa ficha**
 (`VisorFichas` en `clientes.service.ts`): alcance global, todas; una agente, su cartera; quien
 no entra en Clientes, ninguna. Sin eso, teclear un número le decía a una agente el nombre de

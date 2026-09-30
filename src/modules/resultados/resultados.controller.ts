@@ -72,6 +72,20 @@ export class ResultadosController {
     return this.service.crearFicha(informeId, dto.telefono, usuario);
   }
 
+  /**
+   * El número ya tiene ficha sin PAC y la asistente confirmó que es la misma
+   * paciente: se le pone el PAC del informe. La ficha la busca el servidor por
+   * ese teléfono.
+   */
+  @Post(':informeId/vincular')
+  vincularFicha(
+    @Param('informeId', ParseUUIDPipe) informeId: string,
+    @Body() dto: TelefonoPacienteDto,
+    @CurrentUser() usuario: UsuarioJwt,
+  ) {
+    return this.service.vincularFicha(informeId, dto.telefono, usuario);
+  }
+
   /** El enlace venció: se extiende 30 días y se vuelve a avisar al paciente. */
   @Post(':informeId/renovar-y-enviar')
   renovarYEnviar(

@@ -59,6 +59,28 @@ export type VisorFichas =
   | { readonly alcance: 'cartera'; readonly agenteId: string }
   | { readonly alcance: 'ninguno' };
 
+/**
+ * La ficha que ya usa un teléfono, vista contra el paciente de un informe.
+ *
+ * Existe porque el teléfono es único en el CRM y el informe se reconoce por PAC
+ * o CI: una paciente que escribió por WhatsApp ANTES de ir a la clínica tiene
+ * ficha sin PAC, su informe llega con PAC y queda «sin vincular», y crearle
+ * ficha rebota contra su propio número. Lo correcto es vincular, no duplicar.
+ *
+ * - `LIBRE`: nadie tiene ese número.
+ * - `VINCULABLE`: la ficha no tiene PAC y nada la contradice (sin CI, o el
+ *   mismo CI). Puede ser la paciente — lo decide una persona viendo el nombre.
+ * - `OCUPADO`: tiene otro PAC u otro CI: es otra persona, casi siempre un
+ *   familiar que comparte el WhatsApp. No se toca.
+ *
+ * Nunca se vincula solo: madre e hija con el mismo número es lo corriente, y
+ * vincular por teléfono le pegaría el informe de la hija a la ficha de la madre.
+ */
+export type FichaDelTelefono =
+  | { readonly estado: 'LIBRE' }
+  | { readonly estado: 'VINCULABLE'; readonly id: string; readonly nombre: string; readonly provisional: boolean }
+  | { readonly estado: 'OCUPADO' };
+
 /** El visor que corresponde al alcance de siempre (`alcanceAgente`). */
 function visorDe(soloAgenteId: string | undefined): VisorFichas {
   return soloAgenteId === undefined ? { alcance: 'global' } : { alcance: 'cartera', agenteId: soloAgenteId };
@@ -232,6 +254,52 @@ export class ClientesService {
    * teléfono; queda en la auditoría como cualquier edición. La autorización es
    * de quien llama (el informe es de esa ficha); aquí se decide qué se revela.
    */
+  /** Qué es, frente a este paciente, la ficha que ya usa este teléfono. Ver `FichaDelTelefono`. */
+  async fichaDelTelefono(telefono: string, paciente: { pac: string | null; ci: string | null }): Promise<FichaDelTelefono> {
+    const ficha = await this.prisma.cliente.findUnique({
+      where: { telefono: telefonoCanonico(telefono) },
+      select: { id: true, nombre: true, pac: true, ci: true },
+    });
+    if (!ficha) return { estado: 'LIBRE' };
+    return esVinculable(ficha, paciente)
+      ? { estado: 'VINCULABLE', id: ficha.id, nombre: ficha.nombre, provisional: esNombreProvisional(ficha.nombre) }
+      : { estado: 'OCUPADO' };
+  }
+
+  /**
+   * Le pone a una ficha existente el PAC (y el CI, si no tenía) del paciente de
+   * un informe, después de que la asistente confirmó que es la misma persona.
+   *
+   * Se revalida aquí: entre la pregunta y el «sí» alguien pudo ponerle otro PAC.
+   * El nombre solo se reemplaza si era el provisional «WhatsApp +591…»; uno
+   * escrito por una agente se respeta. Si el PAC ya es de OTRA ficha, el índice
+   * rebota y sale el 409 de siempre, sin nombrar a nadie.
+   */
+  async vincularDesdeResultados(
+    clienteId: string,
+    paciente: { nombre: string; pac: string | null; ci: string | null },
+    usuarioId: string,
+  ) {
+    const ficha = await this.prisma.cliente.findUnique({
+      where: { id: clienteId },
+      select: { nombre: true, pac: true, ci: true },
+    });
+    if (!ficha || !esVinculable(ficha, paciente)) {
+      throw new ConflictException('Esa ficha cambió y ya no se puede vincular. Recarga la cola.');
+    }
+    return this.actualizar(
+      clienteId,
+      {
+        ...(paciente.pac ? { pac: paciente.pac } : {}),
+        ...(paciente.ci && !ficha.ci ? { ci: paciente.ci } : {}),
+        ...(esNombreProvisional(ficha.nombre) ? { nombre: paciente.nombre } : {}),
+      },
+      usuarioId,
+      undefined,
+      { alcance: 'ninguno' },
+    );
+  }
+
   async telefonoDesdeResultados(clienteId: string, telefono: string, usuarioId: string) {
     return this.actualizar(clienteId, { telefono }, usuarioId, undefined, { alcance: 'ninguno' });
   }
@@ -771,6 +839,15 @@ export interface ReconocimientoPaciente {
 }
 
 /** Mayúsculas y sin separadores: `pac-33009`, `PAC 33009` y `PAC33009` son la misma clave. */
+/**
+ * ¿Puede ser esta ficha el paciente del informe? Sin PAC propio, y sin un CI
+ * que diga lo contrario. Comparado en forma canónica, como el reconocimiento.
+ */
+function esVinculable(ficha: { pac: string | null; ci: string | null }, paciente: { ci: string | null }): boolean {
+  if (ficha.pac) return false;
+  return !ficha.ci || !paciente.ci || canonico(ficha.ci) === canonico(paciente.ci);
+}
+
 function canonico(valor: string | null): string | null {
   return valor?.toUpperCase().replace(/[^A-Z0-9]/g, '') || null;
 }

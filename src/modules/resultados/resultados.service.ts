@@ -1,5 +1,6 @@
 import {
   ConflictException,
+  HttpStatus,
   Injectable,
   Logger,
   NotFoundException,
@@ -39,6 +40,11 @@ export interface FilaEntrega {
   /** Primera vez que el paciente abrió su informe. Es lo que importa: entregado no es visto. */
   abiertoEn: string | null;
 }
+
+/** El número es de otra persona —con otro PAC u otro CI—: no se crea ni se vincula. */
+const OCUPADO =
+  'Ese número ya es de otra ficha, con otro PAC o CI: suele ser un familiar que comparte el WhatsApp. ' +
+  'El CRM admite una ficha por número: usa otro número o pide que corrijan las fichas en Clientes.';
 
 /** Por qué un informe no tiene a quién avisar, en las palabras de la asistente. */
 const SIN_FICHA = {
@@ -224,13 +230,62 @@ export class ResultadosService {
   async crearFicha(informeId: string, telefono: string, usuario: UsuarioJwt) {
     await this.permitirLinea(usuario);
     const informe = await this.publicado(informeId);
-    const [{ cliente, motivo }] = await this.clientes.reconocerPacientes([informe.paciente]);
-    /* Entre la cola y el clic alguien pudo darla de alta: no se duplica. */
-    if (cliente) throw new ConflictException('Este paciente ya tiene ficha en el CRM. Recarga la cola.');
-    if (motivo === 'CI_REPETIDO') throw new ConflictException(SIN_FICHA.CI_REPETIDO);
+    await this.sinFichaTodavia(informe);
+    /* Antes de crear, quién tiene ya ese número: si es una ficha sin PAC puede
+       ser ella misma, y lo que toca es vincular, no una segunda ficha. El
+       índice único sigue siendo quien impide el duplicado bajo carrera. */
+    const delTelefono = await this.clientes.fichaDelTelefono(telefono, informe.paciente);
+    if (delTelefono.estado === 'VINCULABLE') {
+      throw new ConflictException({
+        statusCode: HttpStatus.CONFLICT,
+        error: 'Conflict',
+        message: 'Ese número ya tiene una ficha sin PAC. Si es la misma paciente, vincúlala.',
+        campo: 'telefono',
+        /* El nombre es lo que deja decidir si es ella. Solo en este caso: la
+           ficha es de ese número y está por recibir su informe. */
+        vinculable: { nombre: delTelefono.provisional ? null : delTelefono.nombre },
+      });
+    }
+    if (delTelefono.estado === 'OCUPADO') {
+      throw new ConflictException({ statusCode: HttpStatus.CONFLICT, error: 'Conflict', message: OCUPADO, campo: 'telefono' });
+    }
     const ficha = await this.clientes.altaDesdeResultados(informe.paciente, telefono);
     await this.audit.registrar('Cliente', ficha.id, 'FICHA_DESDE_RESULTADOS', usuario.sub, { informeId });
     return { clienteId: ficha.id };
+  }
+
+  /**
+   * Vincula el informe a la ficha que ya tiene ese número, cuando la asistente
+   * confirmó que es la misma paciente: la ficha recibe el PAC (y el CI si no
+   * tenía) y desde ahí la cola la reconoce sola, también en los informes que
+   * lleguen después.
+   *
+   * La ficha la encuentra el servidor por el teléfono —el mismo que ella vio
+   * en la pregunta—, nunca por un id del navegador.
+   */
+  async vincularFicha(informeId: string, telefono: string, usuario: UsuarioJwt) {
+    await this.permitirLinea(usuario);
+    const informe = await this.publicado(informeId);
+    await this.sinFichaTodavia(informe);
+    const delTelefono = await this.clientes.fichaDelTelefono(telefono, informe.paciente);
+    if (delTelefono.estado === 'LIBRE') throw new ConflictException('Ese número no tiene ficha: créala.');
+    if (delTelefono.estado === 'OCUPADO') throw new ConflictException(OCUPADO);
+    await this.clientes.vincularDesdeResultados(delTelefono.id, informe.paciente, usuario.sub);
+    await this.audit.registrar('Cliente', delTelefono.id, 'FICHA_VINCULADA_DESDE_RESULTADOS', usuario.sub, {
+      informeId,
+      pac: informe.paciente.pac,
+    });
+    return { clienteId: delTelefono.id };
+  }
+
+  /**
+   * Para crear o vincular, el informe no puede tener ficha ya: entre la cola y
+   * el clic alguien pudo resolverlo, y seguir duplicaría.
+   */
+  private async sinFichaTodavia(informe: InformePublicado): Promise<void> {
+    const [{ cliente, motivo }] = await this.clientes.reconocerPacientes([informe.paciente]);
+    if (cliente) throw new ConflictException('Este paciente ya tiene ficha en el CRM. Recarga la cola.');
+    if (motivo === 'CI_REPETIDO') throw new ConflictException(SIN_FICHA.CI_REPETIDO);
   }
 
   /**

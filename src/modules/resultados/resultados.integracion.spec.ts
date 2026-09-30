@@ -414,3 +414,68 @@ describe('la asistente corrige la ficha desde el informe', () => {
     await expect(service.corregirTelefono(INFORME, '+59170000091', asistente)).rejects.toThrow(/no tiene ficha/);
   });
 });
+
+/**
+ * La paciente escribió por WhatsApp ANTES de ir a la clínica: tiene ficha con
+ * su número pero sin PAC. Su informe llega de FileMaker con PAC, queda «sin
+ * vincular», y crearle ficha rebotaba contra su propio número. Lo correcto es
+ * VINCULAR —ponerle el PAC a la ficha que ya existe—, y nunca solo: madre e
+ * hija con el mismo WhatsApp es lo corriente.
+ */
+describe('vincular el informe a la ficha que ya tiene ese número', () => {
+  beforeEach(() => {
+    informesDelPortal[0].paciente = { nombre: 'Carla Arauz', pac: 'PAC99999', ci: '4455667' };
+  });
+
+  it('con una ficha provisional sin PAC, pregunta en vez de duplicar; al vincular recibe PAC, CI y nombre', async () => {
+    const provisional = await prisma.cliente.create({ data: { nombre: 'WhatsApp +59170000093', telefono: '+59170000093' } });
+
+    await expect(service.crearFicha(INFORME, '+59170000093', asistente)).rejects.toMatchObject({
+      status: 409,
+      /* Sin nombre que mostrar: el provisional no identifica a nadie. */
+      response: { campo: 'telefono', vinculable: { nombre: null } },
+    });
+    expect(await prisma.cliente.count({ where: { telefono: '+59170000093' } })).toBe(1);
+
+    expect(await service.vincularFicha(INFORME, '+59170000093', asistente)).toEqual({ clienteId: provisional.id });
+    expect(await prisma.cliente.findUniqueOrThrow({ where: { id: provisional.id } })).toMatchObject({
+      nombre: 'Carla Arauz', pac: 'PAC99999', ci: '4455667', telefono: '+59170000093',
+    });
+    /* Y desde ahora la cola la reconoce sola, también en los próximos informes. */
+    expect((await service.pendientes({}, asistente)).datos[0]).toMatchObject({ vinculo: 'PAC', paciente: { id: provisional.id } });
+    expect(await prisma.auditLog.count({ where: { entidadId: provisional.id, accion: 'FICHA_VINCULADA_DESDE_RESULTADOS' } })).toBe(1);
+  });
+
+  it('muestra el nombre de una ficha real para decidir, y al vincular lo respeta', async () => {
+    const ficha = await prisma.cliente.create({ data: { nombre: 'Carla A. (la escribió una agente)', telefono: '+59170000093' } });
+
+    await expect(service.crearFicha(INFORME, '+59170000093', asistente)).rejects.toMatchObject({
+      response: { vinculable: { nombre: 'Carla A. (la escribió una agente)' } },
+    });
+    await service.vincularFicha(INFORME, '+59170000093', asistente);
+    expect(await prisma.cliente.findUniqueOrThrow({ where: { id: ficha.id } })).toMatchObject({
+      nombre: 'Carla A. (la escribió una agente)', pac: 'PAC99999',
+    });
+  });
+
+  /* El número ya es de alguien con su propio PAC: casi siempre un familiar. */
+  it('un número de otra persona, con otro PAC, no se ofrece ni se deja vincular', async () => {
+    await expect(service.crearFicha(INFORME, '+59170000001', asistente)).rejects.toMatchObject({
+      status: 409,
+      response: { campo: 'telefono', message: expect.stringContaining('familiar') },
+    });
+    await expect(service.vincularFicha(INFORME, '+59170000001', asistente)).rejects.toThrow(ConflictException);
+    expect((await prisma.cliente.findUniqueOrThrow({ where: { telefono: '+59170000001' } })).pac).toBe('PAC33009');
+  });
+
+  it('una ficha sin PAC pero con OTRO CI tampoco es ella', async () => {
+    await prisma.cliente.create({ data: { nombre: 'Madre', telefono: '+59170000093', ci: '1112223' } });
+    await expect(service.vincularFicha(INFORME, '+59170000093', asistente)).rejects.toThrow(ConflictException);
+    expect((await prisma.cliente.findUniqueOrThrow({ where: { telefono: '+59170000093' } })).pac).toBeNull();
+  });
+
+  it('quien no entrega resultados no vincula', async () => {
+    await prisma.cliente.create({ data: { nombre: 'WhatsApp +59170000093', telefono: '+59170000093' } });
+    await expect(service.vincularFicha(INFORME, '+59170000093', agente)).rejects.toThrow(NotFoundException);
+  });
+});
