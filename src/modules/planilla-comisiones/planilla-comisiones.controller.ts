@@ -50,6 +50,7 @@ import {
   QueryPeriodosDto,
   QueryVentasImportadasDto,
 } from './dto/planilla.dto';
+import { CicloPeriodoService } from './ciclo-periodo.service';
 import { PlanillaComisionesService } from './planilla-comisiones.service';
 import { VendedorasComisionService } from './vendedoras-comision.service';
 
@@ -97,6 +98,7 @@ export class PlanillaComisionesController {
     private readonly exportacionMetricas: ExportacionMetricasService,
     private readonly resumenAnual: ResumenAnualService,
     private readonly vendedoras: VendedorasComisionService,
+    private readonly ciclo: CicloPeriodoService,
   ) {}
 
   /* ── Importación y periodos ─────────────────────────────────────────── */
@@ -176,12 +178,12 @@ export class PlanillaComisionesController {
   /** Quién aprobó, quién falta y qué impide avanzar. */
   @Get('periodos/:id/revision')
   revision(@Param('id') id: string) {
-    return this.planilla.revision(id);
+    return this.ciclo.revision(id);
   }
 
   @Post('periodos/:id/revision')
   enviarARevision(@Param('id') id: string, @CurrentUser() usuario: UsuarioJwt) {
-    return this.planilla.enviarARevision(id, usuario.sub);
+    return this.ciclo.enviarARevision(id, usuario.sub);
   }
 
   @Post('periodos/:id/aprobar')
@@ -191,7 +193,7 @@ export class PlanillaComisionesController {
     @Body() dto: AprobarPeriodoDto,
     @CurrentUser() usuario: UsuarioJwt,
   ) {
-    return this.planilla.aprobar(id, usuario.sub, dto.comentario);
+    return this.ciclo.aprobar(id, usuario.sub, dto.comentario);
   }
 
   @Post('periodos/:id/rechazar')
@@ -201,7 +203,7 @@ export class PlanillaComisionesController {
     @Body() dto: MotivoPeriodoDto,
     @CurrentUser() usuario: UsuarioJwt,
   ) {
-    return this.planilla.rechazar(id, usuario.sub, dto.motivo);
+    return this.ciclo.rechazar(id, usuario.sub, dto.motivo);
   }
 
   @Post('periodos/:id/reabrir')
@@ -211,19 +213,19 @@ export class PlanillaComisionesController {
     @Body() dto: MotivoPeriodoDto,
     @CurrentUser() usuario: UsuarioJwt,
   ) {
-    return this.planilla.reabrir(id, usuario.sub, dto.motivo);
+    return this.ciclo.reabrir(id, usuario.sub, dto.motivo);
   }
 
   @Post('periodos/:id/pagar')
   @Roles('SUPER_ADMIN')
   registrarPago(@Param('id') id: string, @CurrentUser() usuario: UsuarioJwt) {
-    return this.planilla.registrarPago(id, usuario.sub);
+    return this.ciclo.registrarPago(id, usuario.sub);
   }
 
   @Delete('periodos/:id')
   @Roles('SUPER_ADMIN')
   eliminarPeriodo(@Param('id') id: string, @CurrentUser() usuario: UsuarioJwt) {
-    return this.planilla.eliminarPeriodo(id, usuario.sub);
+    return this.ciclo.eliminarPeriodo(id, usuario.sub);
   }
 
   /* ── Revisión de la clasificación ───────────────────────────────────── */

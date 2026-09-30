@@ -8,6 +8,7 @@ import { AnaliticaComisionesService } from './analitica-comisiones.service';
 import { CalculoComisionesService } from './calculo-comisiones.service';
 import { CatalogoClinicoService } from './catalogo-clinico.service';
 import { ConfiguracionComisionesService } from './configuracion-comisiones.service';
+import { CicloPeriodoService } from './ciclo-periodo.service';
 import { PlanillaComisionesService } from './planilla-comisiones.service';
 import { VendedorasComisionService } from './vendedoras-comision.service';
 import { ResumenAnualService } from './resumen-anual.service';
@@ -30,6 +31,7 @@ const analitica = new AnaliticaComisionesService(prisma);
 const calculo = new CalculoComisionesService(prisma, config, audit, analitica, anual);
 const planilla = new PlanillaComisionesService(prisma, config, new CatalogoClinicoService(prisma), anual, analitica, new TipoCambioService(prisma, audit));
 const vendedoras = new VendedorasComisionService(prisma, audit, anual);
+const ciclo = new CicloPeriodoService(prisma, planilla);
 let periodoId: string;
 let ventaId: string;
 let administradores: string[];
@@ -52,8 +54,8 @@ async function foto() {
 }
 
 async function cerrar() {
-  await planilla.enviarARevision(periodoId, administradores[0]);
-  for (const usuario of administradores) await planilla.aprobar(periodoId, usuario);
+  await ciclo.enviarARevision(periodoId, administradores[0]);
+  for (const usuario of administradores) await ciclo.aprobar(periodoId, usuario);
 }
 
 beforeAll(async () => {
@@ -119,10 +121,10 @@ it('A: pagar y reabrir concurrentes no pueden confirmar ambos', async () => {
     await pausa.pausar();
     return periodo;
   });
-  const reabrir = planilla.reabrir(periodoId, administradores[0], 'Corrección de archivo');
+  const reabrir = ciclo.reabrir(periodoId, administradores[0], 'Corrección de archivo');
   void reabrir.catch(() => undefined);
   await pausa.llegada;
-  const pago = await Promise.allSettled([planilla.registrarPago(periodoId, administradores[1])]);
+  const pago = await Promise.allSettled([ciclo.registrarPago(periodoId, administradores[1])]);
   pausa.liberar();
   const apertura = await Promise.allSettled([reabrir]);
   const respuestas = [...pago, ...apertura];
@@ -137,7 +139,7 @@ it('A: pagar y reabrir concurrentes no pueden confirmar ambos', async () => {
   expect(final.auditoria.filter(a => ['PAGAR', 'REABRIR'].includes(a.accion))).toHaveLength(1);
   if (final.periodo.estado === 'PAGADO') {
     expect(final.periodo.aprobaciones).toHaveLength(2);
-    await expect(planilla.reabrir(periodoId, administradores[0], 'Otro intento')).rejects.toBeInstanceOf(ConflictException);
+    await expect(ciclo.reabrir(periodoId, administradores[0], 'Otro intento')).rejects.toBeInstanceOf(ConflictException);
   } else {
     expect(final.periodo.estado).toBe('CALCULADO');
     expect(final.periodo.pagadoEn).toBeNull();
@@ -147,8 +149,8 @@ it('A: pagar y reabrir concurrentes no pueden confirmar ambos', async () => {
 
 it('B: excluir tras calcular invalida resultados e impide revisar', async () => {
   await planilla.ajustarVenta(ventaId, { comisionable: false, motivoExclusion: 'Devolución' }, administradores[0]);
-  await expect(planilla.enviarARevision(periodoId, administradores[0])).rejects.toBeInstanceOf(ConflictException);
-  await expect(planilla.aprobar(periodoId, administradores[0])).rejects.toBeInstanceOf(ConflictException);
+  await expect(ciclo.enviarARevision(periodoId, administradores[0])).rejects.toBeInstanceOf(ConflictException);
+  await expect(ciclo.aprobar(periodoId, administradores[0])).rejects.toBeInstanceOf(ConflictException);
   const final = await foto();
   expect(final.periodo.estado).toBe('BORRADOR');
   expect(final.periodo.resultados).toEqual([]);
@@ -169,7 +171,7 @@ it('C: un cálculo en curso no sobrescribe la entrada en revisión', async () =>
   const calculando = calculo.calcular(periodoId, administradores[0]);
   void calculando.catch(() => undefined);
   await pausa.llegada;
-  const revision = await Promise.allSettled([planilla.enviarARevision(periodoId, administradores[1])]);
+  const revision = await Promise.allSettled([ciclo.enviarARevision(periodoId, administradores[1])]);
   pausa.liberar();
   const calculado = await Promise.allSettled([calculando]);
   expect([...revision, ...calculado].filter(r => r.status === 'fulfilled')).toHaveLength(1);
@@ -180,24 +182,24 @@ it('C: un cálculo en curso no sobrescribe la entrada en revisión', async () =>
 });
 
 it('D: repetir realmente la aprobación no duplica la firma ni el cierre', async () => {
-  await planilla.enviarARevision(periodoId, administradores[0]);
-  await planilla.aprobar(periodoId, administradores[0], 'Conforme');
+  await ciclo.enviarARevision(periodoId, administradores[0]);
+  await ciclo.aprobar(periodoId, administradores[0], 'Conforme');
   const primera = await foto();
-  await planilla.aprobar(periodoId, administradores[0], 'Conforme');
+  await ciclo.aprobar(periodoId, administradores[0], 'Conforme');
   expect(await foto()).toEqual(primera);
-  await planilla.aprobar(periodoId, administradores[1], 'Conforme');
+  await ciclo.aprobar(periodoId, administradores[1], 'Conforme');
   const cerrado = await foto();
-  await planilla.aprobar(periodoId, administradores[1], 'Conforme');
+  await ciclo.aprobar(periodoId, administradores[1], 'Conforme');
   expect(await foto()).toEqual(cerrado);
   expect(cerrado.periodo.aprobaciones).toHaveLength(2);
   expect(cerrado.auditoria.filter(a => a.accion === 'CERRAR')).toHaveLength(1);
 });
 
 it('D: dos aprobadores concurrentes solo producen un cierre', async () => {
-  await planilla.enviarARevision(periodoId, administradores[0]);
+  await ciclo.enviarARevision(periodoId, administradores[0]);
   const pausa = barrera();
-  const interno = planilla as unknown as { superAdminsActivos(tx?: Prisma.TransactionClient): Promise<Array<{ id: string; nombre: string }>> };
-  const consultar = interno.superAdminsActivos.bind(planilla);
+  const interno = ciclo as unknown as { superAdminsActivos(tx?: Prisma.TransactionClient): Promise<Array<{ id: string; nombre: string }>> };
+  const consultar = interno.superAdminsActivos.bind(ciclo);
   jest.spyOn(interno, 'superAdminsActivos').mockImplementationOnce(async (...args) => {
     await pausa.pausar();
     return consultar(...args);
@@ -207,15 +209,15 @@ it('D: dos aprobadores concurrentes solo producen un cierre', async () => {
     await pausa.pausar();
     return firmas(args);
   })(), { [Symbol.toStringTag]: 'PrismaPromise' as const }));
-  const primera = planilla.aprobar(periodoId, administradores[0]);
+  const primera = ciclo.aprobar(periodoId, administradores[0]);
   void primera.catch(() => undefined);
   await pausa.llegada;
-  const [segunda] = await Promise.allSettled([planilla.aprobar(periodoId, administradores[1])]);
+  const [segunda] = await Promise.allSettled([ciclo.aprobar(periodoId, administradores[1])]);
   pausa.liberar();
   await primera;
   if (segunda.status === 'rejected') {
     expect(segunda.reason).toBeInstanceOf(ConflictException);
-    await planilla.aprobar(periodoId, administradores[1]);
+    await ciclo.aprobar(periodoId, administradores[1]);
   }
   const final = await foto();
   expect(final.periodo.estado).toBe('CERRADO');
@@ -226,7 +228,7 @@ it('D: dos aprobadores concurrentes solo producen un cierre', async () => {
 it('la auditoría obligatoria fallida revierte la reapertura y sus firmas', async () => {
   await cerrar();
   const anterior = await foto();
-  await expect(planilla.reabrir(periodoId, administradores[0], 'F03_FALLO_AUDITORIA'))
+  await expect(ciclo.reabrir(periodoId, administradores[0], 'F03_FALLO_AUDITORIA'))
     .rejects.toThrow('F03: auditoria obligatoria fallida');
   expect(await foto()).toEqual(anterior);
 });
@@ -240,11 +242,11 @@ it('A: cuando el pago toma primero el lock, la reapertura obtiene 409 y PAGADO e
     await pausa.pausar();
     return periodo;
   });
-  const pago = planilla.registrarPago(periodoId, administradores[0]);
+  const pago = ciclo.registrarPago(periodoId, administradores[0]);
   void pago.catch(() => undefined);
   await pausa.llegada;
   try {
-    await expect(planilla.reabrir(periodoId, administradores[1], 'Corrección')).rejects.toMatchObject({ status: 409 });
+    await expect(ciclo.reabrir(periodoId, administradores[1], 'Corrección')).rejects.toMatchObject({ status: 409 });
   } finally { pausa.liberar(); }
   await pago;
   const pagado = await foto();
@@ -252,14 +254,14 @@ it('A: cuando el pago toma primero el lock, la reapertura obtiene 409 y PAGADO e
   expect(pagado.periodo.aprobaciones).toHaveLength(2);
   expect(pagado.periodo.resultados).toHaveLength(1);
   const intentos = [
-    () => planilla.reabrir(periodoId, administradores[0], 'Otra corrección'),
-    () => planilla.registrarPago(periodoId, administradores[0]),
-    () => planilla.rechazar(periodoId, administradores[0], 'Rechazo tardío'),
-    () => planilla.enviarARevision(periodoId, administradores[0]),
-    () => planilla.aprobar(periodoId, administradores[0]),
+    () => ciclo.reabrir(periodoId, administradores[0], 'Otra corrección'),
+    () => ciclo.registrarPago(periodoId, administradores[0]),
+    () => ciclo.rechazar(periodoId, administradores[0], 'Rechazo tardío'),
+    () => ciclo.enviarARevision(periodoId, administradores[0]),
+    () => ciclo.aprobar(periodoId, administradores[0]),
     () => planilla.ajustarVenta(ventaId, { comisionable: true }, administradores[0]),
     () => calculo.calcular(periodoId, administradores[0]),
-    () => planilla.eliminarPeriodo(periodoId, administradores[0]),
+    () => ciclo.eliminarPeriodo(periodoId, administradores[0]),
   ];
   for (const intentar of intentos) {
     await expect(intentar()).rejects.toMatchObject({ status: 409 });
@@ -274,7 +276,7 @@ it('B: incluir, cambiar la selección de planes y reasignar venta exigen un nuev
     expect(invalidado.periodo.estado).toBe('BORRADOR');
     expect(invalidado.periodo.resultados).toEqual([]);
     expect(invalidado.periodo.aprobaciones).toEqual([]);
-    await expect(planilla.enviarARevision(periodoId, administradores[0])).rejects.toMatchObject({ status: 409 });
+    await expect(ciclo.enviarARevision(periodoId, administradores[0])).rejects.toMatchObject({ status: 409 });
     await calculo.calcular(periodoId, administradores[0]);
     expect((await foto()).periodo.estado).toBe('CALCULADO');
   }
@@ -316,14 +318,14 @@ it('C: la configuración global y las condiciones de vendedora se fotografían d
 });
 
 it('D: dos llamadas concurrentes de la misma persona conservan una sola firma y un solo hecho APROBAR', async () => {
-  await planilla.enviarARevision(periodoId, administradores[0]);
+  await ciclo.enviarARevision(periodoId, administradores[0]);
   const respuestas = await Promise.allSettled([
-    planilla.aprobar(periodoId, administradores[0], 'Conforme'),
-    planilla.aprobar(periodoId, administradores[0], 'Conforme'),
+    ciclo.aprobar(periodoId, administradores[0], 'Conforme'),
+    ciclo.aprobar(periodoId, administradores[0], 'Conforme'),
   ]);
   expect(respuestas.some(r => r.status === 'fulfilled')).toBe(true);
   for (const r of respuestas) if (r.status === 'rejected') expect(r.reason.getStatus()).toBe(409);
-  await planilla.aprobar(periodoId, administradores[0], 'Conforme');
+  await ciclo.aprobar(periodoId, administradores[0], 'Conforme');
   const final = await foto();
   expect(final.periodo.estado).toBe('EN_REVISION');
   expect(final.periodo.aprobaciones).toHaveLength(1);
@@ -333,7 +335,7 @@ it('D: dos llamadas concurrentes de la misma persona conservan una sola firma y 
 
 it('una transición o exclusión inválida no modifica ventas, resultados, firmas ni auditoría', async () => {
   const anterior = await foto();
-  await expect(planilla.registrarPago(periodoId, administradores[0])).rejects.toMatchObject({ status: 409 });
+  await expect(ciclo.registrarPago(periodoId, administradores[0])).rejects.toMatchObject({ status: 409 });
   expect(await foto()).toEqual(anterior);
   await expect(planilla.ajustarVenta(ventaId, { comisionable: false }, administradores[0])).rejects.toMatchObject({ status: 400 });
   expect(await foto()).toEqual(anterior);
@@ -367,17 +369,17 @@ it('las tres puertas de metas propias invalidan el cálculo y respetan el cierre
 
 it.each(['CALCULAR', 'CERRAR', 'AJUSTAR', 'PAGAR'])('si falla la auditoría %s se revierte todo el comando', async accion => {
   if (accion === 'CERRAR') {
-    await planilla.enviarARevision(periodoId, administradores[0]);
-    await planilla.aprobar(periodoId, administradores[0]);
+    await ciclo.enviarARevision(periodoId, administradores[0]);
+    await ciclo.aprobar(periodoId, administradores[0]);
   }
   if (accion === 'PAGAR') await cerrar();
   const anterior = await foto();
   await prisma.$executeRaw`INSERT INTO f03_fallos_audit (accion) VALUES (${accion})`;
   const comandos: Record<string, () => Promise<unknown>> = {
     CALCULAR: () => calculo.calcular(periodoId, administradores[0]),
-    CERRAR: () => planilla.aprobar(periodoId, administradores[1]),
+    CERRAR: () => ciclo.aprobar(periodoId, administradores[1]),
     AJUSTAR: () => planilla.ajustarVenta(ventaId, { comisionable: false, motivoExclusion: 'Corrección' }, administradores[0]),
-    PAGAR: () => planilla.registrarPago(periodoId, administradores[0]),
+    PAGAR: () => ciclo.registrarPago(periodoId, administradores[0]),
   };
   await expect(comandos[accion]()).rejects.toThrow('F03: auditoria obligatoria fallida');
   expect(await foto()).toEqual(anterior);
@@ -386,7 +388,7 @@ it.each(['CALCULAR', 'CERRAR', 'AJUSTAR', 'PAGAR'])('si falla la auditoría %s s
 it('reabrir conserva la foto de la liquidación y sus firmas antes de retirarlas', async () => {
   await cerrar();
   const cerrado = await foto();
-  await planilla.reabrir(periodoId, administradores[0], 'Revisar comisión');
+  await ciclo.reabrir(periodoId, administradores[0], 'Revisar comisión');
   const abierto = await foto();
   const evidencia = abierto.auditoria.find(a => a.accion === 'REABRIR')!.cambios as Prisma.JsonObject;
   const anterior = evidencia.anterior as Prisma.JsonObject;
@@ -399,7 +401,7 @@ it('reabrir conserva la foto de la liquidación y sus firmas antes de retirarlas
 });
 
 it('una instantánea anterior a la liberación del lock falla con 409, aunque el estado no haya cambiado', async () => {
-  await planilla.enviarARevision(periodoId, administradores[0]);
+  await ciclo.enviarARevision(periodoId, administradores[0]);
   const pausa = barrera();
   const obsoleta = transaccionFinanciera(prisma, async tx => {
     await tx.periodoComision.findUniqueOrThrow({ where: { id: periodoId } });
@@ -409,7 +411,7 @@ it('una instantánea anterior a la liberación del lock falla con 409, aunque el
   });
   void obsoleta.catch(() => undefined);
   await pausa.llegada;
-  await planilla.aprobar(periodoId, administradores[0]);
+  await ciclo.aprobar(periodoId, administradores[0]);
   const firmado = await foto();
   pausa.liberar();
   await expect(obsoleta).rejects.toMatchObject({ status: 409 });
@@ -428,7 +430,7 @@ it('los comandos de otro periodo pueden avanzar mientras se calcula este mes', a
   void calculando.catch(() => undefined);
   await pausa.llegada;
   try {
-    await expect(planilla.eliminarPeriodo(otro.id, administradores[0])).resolves.toEqual({ eliminado: true });
+    await expect(ciclo.eliminarPeriodo(otro.id, administradores[0])).resolves.toEqual({ eliminado: true });
   } finally { pausa.liberar(); }
   await calculando;
   expect((await foto()).periodo.estado).toBe('CALCULADO');
@@ -490,17 +492,17 @@ it('reclasificar pendientes se excluye con el cálculo e invalida una sola vez p
 });
 
 it('rechazar retira las firmas; editar después obliga a calcular antes de revisar de nuevo', async () => {
-  await planilla.enviarARevision(periodoId, administradores[0]);
-  await planilla.aprobar(periodoId, administradores[0]);
+  await ciclo.enviarARevision(periodoId, administradores[0]);
+  await ciclo.aprobar(periodoId, administradores[0]);
   const revisado = await foto();
-  await planilla.rechazar(periodoId, administradores[1], 'Corregir clasificación');
+  await ciclo.rechazar(periodoId, administradores[1], 'Corregir clasificación');
   const rechazado = await foto();
   expect(rechazado.periodo.estado).toBe('CALCULADO');
   expect(rechazado.periodo.aprobaciones).toEqual([]);
   expect(rechazado.periodo.resultados).toEqual(revisado.periodo.resultados);
   await planilla.ajustarVenta(ventaId, { clasif: 'LAB' }, administradores[1]);
-  await expect(planilla.enviarARevision(periodoId, administradores[0])).rejects.toMatchObject({ status: 409 });
+  await expect(ciclo.enviarARevision(periodoId, administradores[0])).rejects.toMatchObject({ status: 409 });
   await calculo.calcular(periodoId, administradores[0]);
-  await planilla.enviarARevision(periodoId, administradores[0]);
+  await ciclo.enviarARevision(periodoId, administradores[0]);
   expect((await foto()).periodo.aprobaciones).toEqual([]);
 });
