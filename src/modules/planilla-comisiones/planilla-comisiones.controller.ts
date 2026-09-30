@@ -51,6 +51,7 @@ import {
   QueryVentasImportadasDto,
 } from './dto/planilla.dto';
 import { CicloPeriodoService } from './ciclo-periodo.service';
+import { ReportesComisionesService } from './reportes-comisiones.service';
 import { PlanillaComisionesService } from './planilla-comisiones.service';
 import { VendedorasComisionService } from './vendedoras-comision.service';
 
@@ -99,6 +100,7 @@ export class PlanillaComisionesController {
     private readonly resumenAnual: ResumenAnualService,
     private readonly vendedoras: VendedorasComisionService,
     private readonly ciclo: CicloPeriodoService,
+    private readonly reportes: ReportesComisionesService,
   ) {}
 
   /* ── Importación y periodos ─────────────────────────────────────────── */
@@ -352,17 +354,17 @@ export class PlanillaComisionesController {
 
   @Get('periodos/:id/reporte/consolidado')
   reporteConsolidado(@Param('id') id: string, @Query() query: QueryInformeDto) {
-    return this.calculo.reporteConsolidado(id, query.incluirOcultas ?? false);
+    return this.reportes.reporteConsolidado(id, query.incluirOcultas ?? false);
   }
 
   @Get('periodos/:id/reporte/planilla')
   reportePlanilla(@Param('id') id: string) {
-    return this.calculo.reportePlanilla(id);
+    return this.reportes.reportePlanilla(id);
   }
 
   @Get('periodos/:id/reporte/bonos')
   reporteBonos(@Param('id') id: string) {
-    return this.calculo.reporteBonos(id);
+    return this.reportes.reporteBonos(id);
   }
 
   /**
@@ -372,7 +374,7 @@ export class PlanillaComisionesController {
    */
   @Get('periodos/:id/reporte/desglose')
   reporteDesglose(@Param('id') id: string, @Query() query: QueryInformeDto) {
-    return this.calculo.reporteDesglose(id, query.incluirOcultas ?? false);
+    return this.reportes.reporteDesglose(id, query.incluirOcultas ?? false);
   }
 
   @Get('periodos/:periodoId/reporte/vendedora/:vendedoraId')
@@ -380,7 +382,7 @@ export class PlanillaComisionesController {
     @Param('periodoId') periodoId: string,
     @Param('vendedoraId') vendedoraId: string,
   ) {
-    return this.calculo.reportePorVendedora(periodoId, vendedoraId);
+    return this.reportes.reportePorVendedora(periodoId, vendedoraId);
   }
 
   /* ── Vendedoras ─────────────────────────────────────────────────────── */

@@ -2,7 +2,7 @@ import { AreaVendedora } from '../../prisma/prisma-client';
 import { Workbook, Worksheet } from 'exceljs';
 import { PassThrough } from 'stream';
 
-import { CalculoComisionesService } from './calculo-comisiones.service';
+import { ReportesComisionesService } from './reportes-comisiones.service';
 import { ExportacionComisionesService } from './exportacion-comisiones.service';
 
 /**
@@ -162,13 +162,7 @@ function montar(conMarketing = false, ventas: ReturnType<typeof venta>[] = []): 
     },
   };
 
-  const calculo = new CalculoComisionesService(
-    prisma as never,
-    {} as never,
-    {} as never,
-    {} as never,
-    {} as never,
-  );
+  const reportes = new ReportesComisionesService(prisma as never);
 
   /* La analítica es facturación, no personas: sus cifras son las del mes
      COMPLETO (las dos vendedoras) se oculte a quien se oculte. */
@@ -206,7 +200,7 @@ function montar(conMarketing = false, ventas: ReturnType<typeof venta>[] = []): 
     }),
   };
 
-  return new ExportacionComisionesService(prisma as never, analitica as never, calculo as never);
+  return new ExportacionComisionesService(prisma as never, analitica as never, reportes);
 }
 
 /** Genera el .xlsx de verdad y lo vuelve a leer. */

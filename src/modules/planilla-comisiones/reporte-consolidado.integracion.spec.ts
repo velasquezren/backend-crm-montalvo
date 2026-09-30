@@ -2,6 +2,7 @@ import { AuditService } from '../../common/audit/audit.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AnaliticaComisionesService } from './analitica-comisiones.service';
 import { CalculoComisionesService } from './calculo-comisiones.service';
+import { ReportesComisionesService } from './reportes-comisiones.service';
 import { CatalogoClinicoService } from './catalogo-clinico.service';
 import { ConfiguracionComisionesService } from './configuracion-comisiones.service';
 import { PlanillaComisionesService } from './planilla-comisiones.service';
@@ -30,6 +31,7 @@ if (!URL_TEST.includes('/crm_test')) {
 const prisma = new PrismaService(URL_TEST);
 
 let calculo: CalculoComisionesService;
+let reportes: ReportesComisionesService;
 let planilla: PlanillaComisionesService;
 let periodoId: string;
 
@@ -58,6 +60,7 @@ beforeEach(async () => {
     new AnaliticaComisionesService(prisma),
     { invalidar: () => undefined } as never,
   );
+  reportes = new ReportesComisionesService(prisma);
   planilla = new PlanillaComisionesService(
     prisma,
     new ConfiguracionComisionesService(prisma),
@@ -101,7 +104,7 @@ describe('reporteConsolidado contra Postgres real', () => {
     await liquidada('Pe1', 4000, 1000);
     await liquidada('Pe2', 3500, 800);
 
-    const reporte = await calculo.reporteConsolidado(periodoId);
+    const reporte = await reportes.reporteConsolidado(periodoId);
 
     expect(reporte.totales.sueldoBase).toBe(7500);
   });
@@ -110,7 +113,7 @@ describe('reporteConsolidado contra Postgres real', () => {
     await liquidada('Pe1', 4000, 1000);
     await liquidada('Pe2', 3500, 800);
 
-    const { totales } = await calculo.reporteConsolidado(periodoId);
+    const { totales } = await reportes.reporteConsolidado(periodoId);
 
     expect(totales.totalGanado).toBe(totales.totalBob + totales.sueldoBase);
   });
@@ -131,7 +134,7 @@ describe('reporteConsolidado contra Postgres real', () => {
       data: { sueldoBase: 9000 },
     });
 
-    const { totales, filas } = await calculo.reporteConsolidado(periodoId);
+    const { totales, filas } = await reportes.reporteConsolidado(periodoId);
 
     expect(totales.sueldoBase).toBe(4000);
     expect(filas[0].sueldoBase).toBe(4000);
@@ -143,14 +146,14 @@ describe('reporteConsolidado contra Postgres real', () => {
     await liquidada('Pe2', 3500, 800);
     await liquidada('Pe3', 0, 250);
 
-    const { totales, filas } = await calculo.reporteConsolidado(periodoId);
+    const { totales, filas } = await reportes.reporteConsolidado(periodoId);
 
     const sumaFilas = filas.reduce((t, f) => t + f.sueldoBase, 0);
     expect(totales.sueldoBase).toBe(sumaFilas);
   });
 
   it('sin resultados el total es 0 y no NaN', async () => {
-    const { totales } = await calculo.reporteConsolidado(periodoId);
+    const { totales } = await reportes.reporteConsolidado(periodoId);
 
     expect(totales.sueldoBase).toBe(0);
     expect(Number.isNaN(totales.sueldoBase)).toBe(false);

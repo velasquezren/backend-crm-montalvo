@@ -12,6 +12,7 @@ import { ExportacionMetricasService } from './exportacion-metricas.service';
 import { ExportacionWordService } from './exportacion-word.service';
 import { PlanillaComisionesController } from './planilla-comisiones.controller';
 import { CicloPeriodoService } from './ciclo-periodo.service';
+import { ReportesComisionesService } from './reportes-comisiones.service';
 import { PlanillaComisionesService } from './planilla-comisiones.service';
 import { VendedorasComisionService } from './vendedoras-comision.service';
 
@@ -32,6 +33,7 @@ import { VendedorasComisionService } from './vendedoras-comision.service';
     CicloPeriodoService,
     VendedorasComisionService,
     CalculoComisionesService,
+    ReportesComisionesService,
     ConfiguracionComisionesService,
     AnaliticaComisionesService,
     ExportacionComisionesService,

@@ -16,7 +16,7 @@ import {
 } from 'docx';
 
 import { PrismaService } from '../../prisma/prisma.service';
-import { CalculoComisionesService } from './calculo-comisiones.service';
+import { ReportesComisionesService } from './reportes-comisiones.service';
 import {
   armarInforme,
   FilaInforme,
@@ -104,7 +104,7 @@ const COLUMNAS = [
 export class ExportacionWordService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly calculo: CalculoComisionesService,
+    private readonly reportes: ReportesComisionesService,
   ) {}
 
   async nombreArchivo(periodoId: string): Promise<string> {
@@ -122,7 +122,7 @@ export class ExportacionWordService {
     periodoId: string,
     opciones: { incluirOcultas?: boolean } = {},
   ): Promise<Buffer> {
-    const consolidado = await this.calculo.reporteConsolidado(
+    const consolidado = await this.reportes.reporteConsolidado(
       periodoId,
       opciones.incluirOcultas ?? false,
     );

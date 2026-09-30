@@ -10,7 +10,8 @@ import {
   ETIQUETA_CLASIF,
   ETIQUETA_UNIDAD,
 } from './analitica-comisiones.service';
-import { CalculoComisionesService, FotoConfiguracion, LineaDesglose } from './calculo-comisiones.service';
+import { FotoConfiguracion, LineaDesglose } from './calculo-comisiones.service';
+import { ReportesComisionesService } from './reportes-comisiones.service';
 import { redondear } from './clasificador';
 import { esDeMarketing, nombreMes } from './informe-liquidacion';
 import { PlanCandidato, seleccionarPlanesComisionables, ultimoPrimero } from './reglas-calculo';
@@ -112,7 +113,7 @@ export class ExportacionComisionesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly analitica: AnaliticaComisionesService,
-    private readonly calculo: CalculoComisionesService,
+    private readonly reportes: ReportesComisionesService,
   ) {}
 
   /** Nombre del archivo que verá quien lo descargue. */
@@ -164,7 +165,7 @@ export class ExportacionComisionesService {
   async exportar(periodoId: string, salida: Writable, incluirOcultas = false): Promise<void> {
     const [informe, consolidado] = await Promise.all([
       this.analitica.analitica(periodoId),
-      this.calculo.reporteConsolidado(periodoId, incluirOcultas).catch(() => null),
+      this.reportes.reporteConsolidado(periodoId, incluirOcultas).catch(() => null),
     ]);
 
     const libro = new Workbook();
@@ -1344,7 +1345,7 @@ interface PorcionInforme {
 }
 
 type InformeAnalitica = Awaited<ReturnType<AnaliticaComisionesService['analitica']>>;
-type ConsolidadoPeriodo = Awaited<ReturnType<CalculoComisionesService['reporteConsolidado']>>;
+type ConsolidadoPeriodo = Awaited<ReturnType<ReportesComisionesService['reporteConsolidado']>>;
 type FilaConsolidado = ConsolidadoPeriodo['filas'][number];
 
 /**

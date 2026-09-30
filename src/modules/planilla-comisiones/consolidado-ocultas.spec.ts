@@ -1,4 +1,4 @@
-import { CalculoComisionesService } from './calculo-comisiones.service';
+import { ReportesComisionesService } from './reportes-comisiones.service';
 
 /**
  * `reporteConsolidado()` es el ÚNICO sitio donde se decide si una vendedora dada
@@ -95,13 +95,7 @@ function montar() {
     },
   };
 
-  return new CalculoComisionesService(
-    prisma as never,
-    {} as never,
-    {} as never,
-    {} as never,
-    {} as never,
-  );
+  return new ReportesComisionesService(prisma as never);
 }
 
 describe('reporteConsolidado · vendedoras dadas de baja', () => {
