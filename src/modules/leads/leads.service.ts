@@ -363,7 +363,7 @@ export class LeadsService {
       }
     }
 
-    await this.clientesService.update(existe.clienteId, { agenteId }, usuarioId);
+    await this.clientesService.reasignarAgente(existe.clienteId, agenteId, usuarioId);
 
     const lead = await this.prisma.lead.findUniqueOrThrow({
       where: { id },

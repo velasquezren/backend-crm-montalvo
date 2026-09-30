@@ -499,9 +499,52 @@ export class ClientesService {
     return filas[0].agenteId;
   }
 
-  /** `soloAgenteId` — ver la nota de `findOne`: mismo hueco existía en edición. */
+  /**
+   * Edita la ficha. Si `dto.agenteId` viene definido, además **reasigna**: el
+   * cambio de dueña arrastra sus leads y sus chats de línea comercial en la
+   * misma transacción (`cascadaDeReasignacion`). Para reasignar a propósito
+   * desde otro módulo, `reasignarAgente` dice lo mismo con su nombre.
+   *
+   * `soloAgenteId` — ver la nota de `findOne`: mismo hueco existía en edición.
+   */
   async update(id: string, dto: UpdateClienteDto, usuarioId?: string, soloAgenteId?: string) {
     return this.actualizar(id, dto, usuarioId, soloAgenteId, visorDe(soloAgenteId));
+  }
+
+  /**
+   * Cambia la dueña de una paciente, con toda su cascada: la ficha, todos sus
+   * leads y sus chats de las líneas comerciales, en una sola transacción y con
+   * auditoría. `null` la devuelve al pool.
+   *
+   * Es exactamente `update(id, { agenteId })` —misma validación de la agente,
+   * misma transacción, misma línea en la bitácora—: existe para que quien
+   * reasigna (Leads) lo diga con su nombre y no parezca que edita la ficha.
+   * Sin alcance de agente: el permiso lo decide quien llama.
+   */
+  async reasignarAgente(clienteId: string, agenteId: string | null, usuarioId?: string) {
+    return this.update(clienteId, { agenteId }, usuarioId);
+  }
+
+  /**
+   * Lo que arrastra un cambio de dueña, además de la ficha: TODOS los leads
+   * de la paciente y sus chats de líneas comerciales. Las no comerciales
+   * (Recepción, CLIMON) son atención compartida y no tienen dueña.
+   *
+   * Va dentro de la transacción de la edición (`ejecutarActualizacion`). Es
+   * una de las escrituras cruzadas que lista PANORAMA («Quién escribe cada
+   * tabla»).
+   */
+  private cascadaDeReasignacion(clienteId: string, agenteId: string | null): Prisma.PrismaPromise<unknown>[] {
+    return [
+      this.prisma.lead.updateMany({
+        where: { clienteId },
+        data: { agenteId },
+      }),
+      this.prisma.conversacion.updateMany({
+        where: { clienteId, linea: { comercial: true } },
+        data: { agenteId },
+      }),
+    ];
   }
 
   private async actualizar(
@@ -567,18 +610,7 @@ export class ClientesService {
           datosExtra: nuevosDatosExtra as Prisma.InputJsonValue,
         },
       }),
-      [...(dto.agenteId !== undefined
-        ? [
-            this.prisma.lead.updateMany({
-              where: { clienteId: id },
-              data: { agenteId: dto.agenteId },
-            }),
-            this.prisma.conversacion.updateMany({
-              where: { clienteId: id, linea: { comercial: true } },
-              data: { agenteId: dto.agenteId },
-            }),
-          ]
-        : [])],
+      dto.agenteId !== undefined ? this.cascadaDeReasignacion(id, dto.agenteId) : [],
     /* El teléfono va aquí igual que el PAC: sin él, el 409 de un número
        repetido salía sin número y sin dueño («Ya existe un paciente con el
        teléfono .»), que no le sirve a nadie para corregirlo. */
