@@ -1,5 +1,5 @@
 import { BadRequestException, ConflictException, ForbiddenException, HttpStatus, Injectable, NotFoundException } from '@nestjs/common';
-import { CategoriaCliente, EstadoLead, Prisma } from '../../prisma/prisma-client';
+import { CategoriaCliente, EstadoLead, OrigenLead, Prisma } from '../../prisma/prisma-client';
 import { campoDeIndice, candidatosDeChoqueUnico, tablaDelChoque } from '../../prisma/choque-unico';
 
 import { AuditService } from '../../common/audit/audit.service';
@@ -95,6 +95,19 @@ function visorDe(soloAgenteId: string | undefined): VisorFichas {
  * que «ese número es de María Pérez» dice al instante si es la misma persona
  * con ficha duplicada o un número tecleado mal.
  */
+/** Lo que el CRM guarda de un anuncio de Meta. Todos opcionales: Meta manda unos u otros según el anuncio. */
+export interface CampanaOrigen {
+  titular?: string;
+  anuncioId?: string;
+  cuerpo?: string;
+  origenUrl?: string;
+  imagenUrl?: string;
+  mediaTipo?: string;
+  videoUrl?: string;
+  saludo?: string;
+  clickId?: string;
+}
+
 const MENSAJE_UNICO: Record<string, (valor: string, duenio?: string) => string> = {
   telefono: (valor, duenio) =>
     duenio ? `El teléfono ${valor} ya es de ${duenio}.` : `Ya existe un paciente con el teléfono ${valor}.`,
@@ -813,6 +826,67 @@ export class ClientesService {
       leadsReclamados: leads.count,
     });
     return true;
+  }
+
+  /**
+   * Deja en la ficha lo que trajo un anuncio de Meta (Click-to-WhatsApp):
+   * un interés con el titular del anuncio —una sola vez por titular— y el
+   * contexto de la campaña en `datosExtra.campanaOrigen`, sin pisar el resto
+   * del JSON.
+   *
+   * Lo llama la ingesta del webhook de WhatsApp. Vivía allí y escribía
+   * `Interes` y `Cliente` directamente; es de este módulo porque son sus
+   * tablas (ver «Quién escribe cada tabla» en PANORAMA). Confía en quien
+   * llama: la ingesta no tiene sesión ni alcance de agente.
+   */
+  async registrarCampanaOrigen(
+    cliente: { id: string; agenteId: string | null; datosExtra: Prisma.JsonValue | null },
+    campana: CampanaOrigen,
+    origen: OrigenLead,
+  ): Promise<void> {
+    if (campana.titular) {
+      const yaTieneInteres = await this.prisma.interes.findFirst({
+        where: { clienteId: cliente.id, descripcion: campana.titular },
+        select: { id: true },
+      });
+      if (!yaTieneInteres) {
+        await this.prisma.interes.create({
+          data: {
+            clienteId: cliente.id,
+            descripcion: campana.titular,
+            origen,
+            agenteId: cliente.agenteId,
+          },
+        });
+      }
+    }
+
+    const datosActuales = (cliente.datosExtra && typeof cliente.datosExtra === 'object'
+      ? cliente.datosExtra
+      : {}) as Record<string, unknown>;
+    await this.prisma.cliente.update({
+      where: { id: cliente.id },
+      data: {
+        datosExtra: {
+          ...datosActuales,
+          /* Los campos nuevos se suman sin migración —`datosExtra` es JSON— y
+             los registros viejos simplemente no los traen: quien los lee ya
+             los trata como opcionales. */
+          campanaOrigen: {
+            titular: campana.titular ?? null,
+            anuncioId: campana.anuncioId ?? null,
+            cuerpo: campana.cuerpo ?? null,
+            origenUrl: campana.origenUrl ?? null,
+            imagenUrl: campana.imagenUrl ?? null,
+            mediaTipo: campana.mediaTipo ?? null,
+            videoUrl: campana.videoUrl ?? null,
+            saludo: campana.saludo ?? null,
+            clickId: campana.clickId ?? null,
+            fecha: new Date().toISOString(),
+          },
+        },
+      },
+    });
   }
 
   /** RF-23 — registra una consulta que no derivó en venta, sin exponer la tabla a otros módulos. */
