@@ -845,6 +845,10 @@ nadie). Lo fija `resultados-roles.spec.ts` con el guard real.
 una plantilla con cabecera de imagen si el CRM tiene ese archivo, y `prepararPlantilla` la
 adjunta sola. Se sirve en `GET /publico/cabeceras/<plantilla>.jpg` (pública: Meta la
 descarga) bajo `CRM_URL_PUBLICA`; sin esa variable, ninguna plantilla con imagen se ofrece.
+Esa ruta responde `Cross-Origin-Resource-Policy: cross-origin`: el `same-origin` de Helmet
+hacía que el navegador del CRM (otro dominio, Vercel) bloqueara la imagen en la vista previa
+—a la paciente le llegaba bien— (2026-10-01). Cualquier recurso que el frontend muestre con
+`<img>` directo desde esta API necesita lo mismo.
 Añadir otra es dejar su archivo con el nombre exacto. Nunca edites una plantilla aprobada
 para ponerle imagen antes de tener su archivo aquí: dejaría de poder enviarse.
 
