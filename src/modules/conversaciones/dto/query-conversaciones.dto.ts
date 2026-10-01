@@ -39,7 +39,7 @@ export class QueryConversacionesDto extends PaginationDto {
   tab?: TabInbox;
 
   /**
-   * Busca por nombre o teléfono de la paciente sobre el conjunto COMPLETO, no
+   * Busca por nombre, teléfono, PAC o CI de la paciente sobre el conjunto COMPLETO, no
    * sobre lo que el navegador tenga cargado. El tope de 200 no es decorativo:
    * el `contains` va contra índices GIN trigram, y una cadena larguísima solo
    * sirve para hacer trabajar a Postgres de más.
@@ -49,7 +49,12 @@ export class QueryConversacionesDto extends PaginationDto {
   @MaxLength(200)
   busqueda?: string;
 
-  /** Filtro del admin por agente asignado. */
+  /**
+   * Filtro del admin por agente asignado; acota todas las pestañas (ver
+   * `whereAgente`). El frontend nunca lo manda junto con `soloMios`: son
+   * opciones del mismo selector (`AlcanceInbox`). Si llegaran juntos se
+   * combinan con AND, que acota y nunca amplía.
+   */
   @IsOptional()
   @IsUUID()
   agenteId?: string;

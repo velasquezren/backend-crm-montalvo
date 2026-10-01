@@ -1638,6 +1638,22 @@ describe('conversaciones cerradas y contadores del inbox', () => {
     expect(contadores).toMatchObject({ total: 1, sinResponder: 1, cerradas: 1 });
   });
 
+  /* La fila decía «Ana» con el chat en «Sin asignar»: afirmaba un responsable
+     que no existía, y el chat no salía al filtrar por Ana. `agente` es quien
+     atiende; la dueña de la paciente viaja aparte, en `cliente.agente`. */
+  it('un chat libre no presenta a la dueña de la paciente como su responsable', async () => {
+    const admin = await crearAgente('admin-e', 'ADMIN');
+    const ana = await crearAgente('agente-ana');
+    const { conversacion } = await crearChat({ telefono: '+59177000021', agenteCliente: ana.id });
+
+    const libres = await service.findAll(undefined, admin.id, { tab: 'SIN_ASIGNAR' });
+    expect(libres.datos).toEqual([
+      expect.objectContaining({ id: conversacion.id, agente: null, cliente: expect.objectContaining({ agente: { id: ana.id, nombre: ana.nombre } }) }),
+    ]);
+    expect((await service.findAll(undefined, admin.id, { agenteId: ana.id })).total).toBe(0);
+    expect((await service.findOne(conversacion.id)).agente).toBeNull();
+  });
+
   it('una cerrada sale de «Sin responder» y del Dashboard, y queda en «Cerradas»', async () => {
     const admin = await crearAgente('admin-c', 'ADMIN');
     await ingesta.procesarEntrante('+59177000011', 'Hola', 'wamid.c1');

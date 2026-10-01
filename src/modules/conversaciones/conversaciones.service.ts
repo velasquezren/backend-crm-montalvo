@@ -346,7 +346,8 @@ export class ConversacionesService {
     );
     return {
       ...conversacion,
-      agente: conversacion.agente ?? (conversacion.linea.comercial ? conversacion.cliente?.agente : null) ?? null,
+      /* `agente` es quien atiende el chat, sin caer a la dueña de la paciente:
+         ver `aFilaDeInbox`. */
       cliente: conversacion.linea.comercial ? conversacion.cliente : { ...conversacion.cliente, datosExtra: null, intereses: [], agente: null, agenteId: null },
       mensajes,
     };

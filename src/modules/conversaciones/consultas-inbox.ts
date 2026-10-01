@@ -147,7 +147,12 @@ export function whereBusqueda(texto: string | undefined): Prisma.ConversacionWhe
   };
 }
 
-/** Filtro del admin por agente asignado (solo aplica en la pestaña TODAS). */
+/**
+ * Filtro del admin por agente asignado. Es ALCANCE (va en `whereAlcanceInbox`):
+ * acota todas las pestañas y sus contadores, no solo «Todas». El frontend lo
+ * soltaba al cambiar de pestaña, y el número de «Sin responder» con una agente
+ * elegida no era lo que aparecía al pulsarla.
+ */
 export function whereAgente(agenteId: string | undefined): Prisma.ConversacionWhereInput | undefined {
   return agenteId ? { agenteId } : undefined;
 }
@@ -215,10 +220,7 @@ export const SELECT_INBOX = {
 export type FilaCruda = Prisma.ConversacionGetPayload<{ select: typeof SELECT_INBOX }>;
 
 /** Una fila del inbox tal como la consume el frontend. */
-export type ConversacionDeInbox = Omit<FilaCruda, '_count'> & {
-  agente: { id: string; nombre: string } | null;
-  noLeidosCount: number;
-};
+export type ConversacionDeInbox = Omit<FilaCruda, '_count'> & { noLeidosCount: number };
 
 /** Los números de las cuatro pestañas del inbox. */
 export interface ContadoresInbox {
@@ -231,20 +233,25 @@ export interface ContadoresInbox {
 }
 
 /**
- * Normaliza una fila cruda: expone el contador de no leídos con nombre propio y
- * resuelve el agente mostrado.
+ * Normaliza una fila cruda: expone el contador de no leídos con nombre propio.
  *
- * El `?? cliente.agente` no es cosmético: una conversación del pool que atiende
- * cualquiera sigue perteneciendo a la dueña de la paciente, y es la razón por la
- * que `whereVisibilidad` la deja ver. Sin esta línea, la fila aparecería como
- * "sin asignar" para quien sí es su dueña.
+ * `agente` es quien ATIENDE el chat (`Conversacion.agenteId`) y nada más. La
+ * dueña de la paciente (su cartera) viaja aparte, en `cliente.agente`, y solo
+ * en líneas comerciales.
+ *
+ * Hasta el 2026-09-30 un chat libre mostraba como `agente` a la dueña de la
+ * paciente. La fila decía «Ana» mientras el chat estaba en «Sin asignar», no
+ * salía al filtrar por Ana, y cualquiera podía contestarlo y quedárselo: la
+ * etiqueta afirmaba un responsable que no existía. Además el envío optimista
+ * del navegador, al ver un `agente`, no reflejaba que quien contestó se lo
+ * había quedado. Ver `crm-conversaciones`, «Quién atiende y de quién es la
+ * paciente».
  */
 export function aFilaDeInbox(fila: FilaCruda): ConversacionDeInbox {
   const { _count, ...resto } = fila;
   return {
     ...resto,
     cliente: fila.linea.comercial ? fila.cliente : { ...fila.cliente, agente: null },
-    agente: fila.agente ?? (fila.linea.comercial ? fila.cliente?.agente : null) ?? null,
     noLeidosCount: _count.mensajes,
   };
 }

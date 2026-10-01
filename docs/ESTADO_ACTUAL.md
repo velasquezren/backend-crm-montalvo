@@ -6,7 +6,20 @@
   menos. La definición era correcta, pero sin estado «cerrada» acumulaba todo lo que alguna
   vez quedó sin contestar: 83 chats llevaban más de un mes quietos. Además, su número no
   aplicaba el filtro por agente que sí aplicaba la lista.
-  - Ahora hay **Cerrar/Reabrir** en la cabecera del chat y el archivo «Ver cerradas».
+  - Ahora hay **Cerrar/Reabrir** en la cabecera del chat y el interruptor «Cerradas» en
+    la cabecera del inbox.
+  - **La barra del inbox, reordenada (misma noche).** El filtro de agente solo valía en
+    «Todas»: con una agente elegida, el número de «Sin responder» era el de ella, pero al
+    pulsarla la lista traía los de todo el equipo. Además «Todo/Míos» y los chips de
+    agente se podían encender a la vez y daban vacío. Ahora son un solo selector
+    (`AlcanceInbox`) junto al de línea, que acota todas las pestañas. Sin cambios de
+    contrato en el backend. Detalle en `crm-conversaciones`, «La barra del inbox».
+  - **Un chat libre ya no dice el nombre de la dueña como si la atendiera.** `agente` es
+    solo quien atiende; la dueña de la paciente va en `cliente.agente` y se ve como
+    «Sin asignar · paciente de Ana». Sigue libre a propósito (decisión del propietario:
+    que ninguna paciente de Ventas quede sin respuesta). En producción no había ningún
+    chat abierto en ese caso; sí puede pasar con una paciente registrada en Clientes
+    antes de escribir. `crm-conversaciones`, «Quién atiende y de quién es la paciente».
   - El chat se reabre solo si escribe la paciente o si le contesta la clínica.
   - Un barrido cierra cada 6 h lo que lleva 30 días sin mensajes (`CONVERSACIONES_CIERRE_DIAS`).
   - Lista, contadores y Dashboard salen de una sola definición (`estado-conversacion.ts`).
