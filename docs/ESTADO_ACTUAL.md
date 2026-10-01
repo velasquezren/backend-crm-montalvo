@@ -1,5 +1,19 @@
 # Estado actual
 
+## Revisión local del 1 de octubre de 2026
+
+Después de contrastar `origin/main`, se corrigieron la recuperación y
+concurrencia del envío de campañas, validación del DTO, lectura acotada del
+último mensaje del inbox, manejo de errores del formulario y programación en
+hora de La Paz. Se añadieron controles de tipos de tests y workflows de calidad.
+Cambios **locales, pendientes de publicación**, sin nuevas migraciones ni envíos
+reales. Evidencia, medición y límites en
+[auditoria-2026-10-01](auditoria-2026-10-01.md).
+
+La confirmación de audiencia comprueba cantidad, no identidad exacta del conjunto.
+La reutilización de mensajes persistidos evita despachos duplicados en los casos
+probados; no equivale a garantizar entrega externa exactamente una vez.
+
 ## Actualización del 30 de septiembre de 2026
 
 - **La categoría del paciente, por su valor real.** Salía solo de las 22 ventas del CRM:

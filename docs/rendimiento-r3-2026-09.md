@@ -628,6 +628,13 @@ SUPER_ADMIN y 2 AGENTE, o sea que el camino normal va sin filtro de visibilidad.
 
 ### HALLAZGO · el `take: 1` de los mensajes NO llega a SQL
 
+> **Resuelto en código local, 2026-10-01:** `lectura-mensajes-inbox.ts` usa
+> `LATERAL … LIMIT 1` sobre IDs autorizados. En 50 chats × 500 mensajes,
+> la lectura devuelve 50 filas en lugar de 25.000 (mediana local 0,51 ms frente
+> a 38,04 ms). Es medición sintética de SQL/materialización, no latencia HTTP
+> productiva. Reproducción y límites en [auditoria-2026-10-01](auditoria-2026-10-01.md).
+> Lo que sigue conserva la evidencia del diagnóstico original.
+
 Capturando el SQL exacto que emite Prisma:
 
 ```sql

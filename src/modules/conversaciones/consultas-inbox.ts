@@ -185,30 +185,6 @@ export const SELECT_INBOX = {
     },
   },
   agente: { select: { id: true, nombre: true } },
-  mensajes: {
-    /* `automatico` viaja aunque el listado no lo pinte: es lo que permite
-       al inbox distinguir "ya le contestó alguien" de "solo salió el
-       acuse fuera de horario". */
-    select: {
-      id: true,
-      contenido: true,
-      direccion: true,
-      estadoEnvio: true,
-      codigoErrorEnvio: true,
-      tipo: true,
-      automatico: true,
-      createdAt: true,
-      /* La fila del inbox pinta el nombre del archivo para un DOCUMENTO
-         (`ultimo.mediaNombre || ultimo.contenido || 'Documento'`) y este select
-         no lo traía: la vista previa caía SIEMPRE al respaldo y la agente veía
-         "Documento" a secas en vez de "resultados-laboratorio.pdf". No lo
-         detectaba nada porque el campo es opcional en el modelo del frontend —
-         `undefined` es un valor válido, no un error. */
-      mediaNombre: true,
-    },
-    orderBy: { createdAt: 'desc' },
-    take: 1,
-  },
   _count: {
     select: {
       mensajes: {
@@ -221,7 +197,10 @@ export const SELECT_INBOX = {
 export type FilaCruda = Prisma.ConversacionGetPayload<{ select: typeof SELECT_INBOX }>;
 
 /** Una fila del inbox tal como la consume el frontend. */
-export type ConversacionDeInbox = Omit<FilaCruda, '_count'> & { noLeidosCount: number };
+export type MensajeDeInbox = Pick<Prisma.MensajeGetPayload<Record<string, never>>,
+  'id' | 'contenido' | 'direccion' | 'estadoEnvio' | 'codigoErrorEnvio' | 'tipo' | 'automatico' | 'createdAt' | 'mediaNombre'>;
+
+export type ConversacionDeInbox = Omit<FilaCruda, '_count'> & { noLeidosCount: number; mensajes: MensajeDeInbox[] };
 
 /** Los números de las cuatro pestañas del inbox. */
 export interface ContadoresInbox {
@@ -248,12 +227,13 @@ export interface ContadoresInbox {
  * había quedado. Ver `crm-conversaciones`, «Quién atiende y de quién es la
  * paciente».
  */
-export function aFilaDeInbox(fila: FilaCruda): ConversacionDeInbox {
+export function aFilaDeInbox(fila: FilaCruda, ultimo?: MensajeDeInbox): ConversacionDeInbox {
   const { _count, ...resto } = fila;
   return {
     ...resto,
     cliente: fila.linea.comercial ? fila.cliente : { ...fila.cliente, agente: null },
     noLeidosCount: _count.mensajes,
+    mensajes: ultimo ? [ultimo] : [],
   };
 }
 

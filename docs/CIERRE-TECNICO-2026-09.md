@@ -1,5 +1,10 @@
 # Cierre técnico — septiembre de 2026
 
+> **Actualización local 2026-10-01.** La deuda del último mensaje del inbox se
+> corrigió con límite SQL por chat; también se reforzó la recuperación de campañas.
+> Ver [auditoria-2026-10-01](auditoria-2026-10-01.md). Las mediciones y estados
+> productivos de este cierre siguen siendo una foto histórica.
+
 > **Actualización 2026-09-23.** Esta es la foto del 18/09. Después llegaron el
 > portal de Resultados en el mismo servidor, los roles `ASISTENTE` y
 > recepción compartida, y el dashboard medido sobre mensajes. El mapa vigente

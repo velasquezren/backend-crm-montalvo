@@ -364,6 +364,26 @@ describe('El permiso sigue mandando por encima de cualquier filtro', () => {
 });
 
 describe('Refresco de una sola fila para el tiempo real', () => {
+  it('lista un solo mensaje de un historial largo, desempata como el detalle y conserva archivos y no leídos', async () => {
+    const [conHistoria, vacia] = await sembrarConversaciones(2);
+    const fecha = new Date('2026-10-01T14:00:00Z');
+    await prisma.mensaje.createMany({ data: Array.from({ length: 1_000 }, (_, i) => ({
+      id: `inbox-${String(i).padStart(4, '0')}`, conversacionId: conHistoria,
+      direccion: 'ENTRANTE' as const, contenido: `Mensaje ${i}`, createdAt: fecha,
+      tipo: 'DOCUMENTO' as const, mediaNombre: `resultado-${i}.pdf`,
+    })) });
+    const pagina = await service.findAll(undefined, admin.id, {});
+    const fila = pagina.datos.find(c => c.id === conHistoria)!;
+    expect(fila.mensajes).toHaveLength(1);
+    expect(fila.mensajes[0]).toMatchObject({ id: 'inbox-0999', mediaNombre: 'resultado-999.pdf', automatico: false });
+    expect(fila.noLeidosCount).toBe(1_000);
+    expect(pagina.datos.find(c => c.id === vacia)?.mensajes).toEqual([]);
+    const refresco = await service.resumenParaInbox(conHistoria, undefined, admin.id, {});
+    expect(refresco.conversacion?.mensajes).toEqual(fila.mensajes);
+    const detalle = await service.findOne(conHistoria);
+    expect(detalle.mensajes.at(-1)?.id).toBe(fila.mensajes[0].id);
+  });
+
   it('devuelve la conversación cuando sigue encajando en la vista activa', async () => {
     const ids = await sembrarConversaciones(3);
 

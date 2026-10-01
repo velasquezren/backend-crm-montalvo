@@ -656,11 +656,14 @@ cierre de esta sección).
   (~500/mes; tabla entera: 1.287), no es un listado de API. `reporteConsolidado`
   suma en JS sobre las ~5 filas que ya devuelve: trivial, no vale moverlo.
   Cerrado: no re-auditar sin una razón nueva.
-- **Exportación y parseo de Excel** — verificado el 2026-08-21:
-  `exportacion-comisiones.service.ts` ya escribe en **streaming** por lotes de
-  1.000 filas (el libro nunca se materializa entero en memoria). Queda como
-  candidato a `worker_thread` solo si el parseo de importación se vuelve
-  perceptible con planillas mucho más grandes.
+- **Exportación y parseo de Excel** — corregido al contrastar código el
+  2026-10-01: `exportacion-comisiones.service.ts` lee PostgreSQL por lotes de
+  1.000 filas, pero usa `new Workbook()` y materializa el libro completo.
+  Eso **no es streaming de Excel**; las mediciones y el límite están en el
+  skill frontend `crm-finanzas` §8e y en el comentario del service. Evaluar
+  `WorkbookWriter` si crecen las exportaciones, preservando hojas, estilos y
+  resultados. `worker_thread` solo si el parseo bloquea el event loop medido;
+  no sustituye el control de memoria del libro.
 - **Pool del adaptador `pg`**: diez conexiones configuradas en `PrismaService`.
   Cualquier cambio futuro exige medir contención real; ver §2. El antiguo
   `connection_limit=25` ya no describe la aplicación.

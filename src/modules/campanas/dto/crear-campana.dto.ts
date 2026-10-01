@@ -1,14 +1,16 @@
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
   ArrayMaxSize,
   ArrayMinSize,
   IsArray,
   IsBoolean,
   IsDateString,
+  IsDefined,
   IsEnum,
   IsIn,
   IsInt,
   IsNumber,
+  IsObject,
   IsOptional,
   IsString,
   IsUUID,
@@ -22,6 +24,8 @@ import {
 
 import { CategoriaCliente } from '../../../prisma/prisma-client';
 
+const recortar = ({ value }: { value: unknown }): unknown => typeof value === 'string' ? value.trim() : value;
+
 /** Una variable de la plantilla: el nombre de la paciente o un texto fijo. Ver `VariableCampana`. */
 export class VariableCampanaDto {
   @IsIn(['NOMBRE', 'TEXTO'])
@@ -29,6 +33,7 @@ export class VariableCampanaDto {
 
   /** Con `NOMBRE`: lo que va si la ficha no tiene nombre de verdad. */
   @ValidateIf((v: VariableCampanaDto) => v.tipo === 'NOMBRE')
+  @Transform(recortar)
   @IsString()
   @MinLength(1)
   @MaxLength(60)
@@ -36,6 +41,7 @@ export class VariableCampanaDto {
 
   /** Con `TEXTO`: el mismo valor para todas. */
   @ValidateIf((v: VariableCampanaDto) => v.tipo === 'TEXTO')
+  @Transform(recortar)
   @IsString()
   @MinLength(1)
   @MaxLength(200)
@@ -59,6 +65,7 @@ export class FiltroCampanaDto {
 }
 
 export class CrearCampanaDto {
+  @Transform(recortar)
   @IsString()
   @MinLength(3)
   @MaxLength(120)
@@ -70,11 +77,13 @@ export class CrearCampanaDto {
   @IsString()
   @MinLength(1)
   @MaxLength(512)
+  @Transform(recortar)
   plantilla!: string;
 
   @IsString()
   @MinLength(2)
   @MaxLength(20)
+  @Transform(recortar)
   idioma!: string;
 
   @IsArray()
@@ -83,6 +92,8 @@ export class CrearCampanaDto {
   @Type(() => VariableCampanaDto)
   variables!: VariableCampanaDto[];
 
+  @IsDefined()
+  @IsObject()
   @ValidateNested()
   @Type(() => FiltroCampanaDto)
   filtro!: FiltroCampanaDto;

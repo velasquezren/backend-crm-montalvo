@@ -124,7 +124,7 @@ beforeEach(async () => {
       return Response.json({ url: 'https://media.f06.invalid/temporal?firma=no-persistir' }, { status: respuestas.origen });
     }
     if (url.startsWith('https://media.f06.invalid/')) {
-      return new Response(cuerpoDescarga, {
+      return new Response(typeof cuerpoDescarga === 'string' ? cuerpoDescarga : new Uint8Array(cuerpoDescarga), {
         status: respuestas.descarga,
         headers: respuestas.grande ? { 'content-length': String(MAX_BYTES_MEDIA + 1) } : {},
       });
@@ -328,7 +328,8 @@ describe('F06-R1: PostgreSQL real y transportes externos controlados', () => {
   it('fallo al guardar el trabajo revierte Mensaje y conserva 503 + aislamiento del lote', async () => {
     const s = ingesta();
     const controller = new WhatsappWebhookController(config, {} as ConversacionesService, s,
-      {} as AlertasWhatsappService, new LineasWhatsappService(prisma, config));
+      {} as AlertasWhatsappService, new LineasWhatsappService(prisma, config),
+      new ClientesService(prisma, new AuditService(prisma), new ServiciosService(prisma), categoriasDePrueba(prisma)));
     jest.spyOn(controller['logger'], 'error').mockImplementation(() => undefined);
     const payload = { entry: [{ changes: [{ value: {
       metadata: { phone_number_id: PHONE },

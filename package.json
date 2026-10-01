@@ -10,6 +10,7 @@
     "check:build": "node scripts/verificar-build.mjs",
     "test:build": "node --test scripts/verificar-build.test.mjs",
     "check:skills": "node scripts/verificar-skills.mjs",
+    "check:tests": "tsc -p tsconfig.tests.json",
     "start": "nest start",
     "start:dev": "nest start --watch",
     "prisma:generate": "prisma generate",

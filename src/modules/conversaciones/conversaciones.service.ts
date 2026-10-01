@@ -35,6 +35,7 @@ import { QueryConversacionesDto } from './dto/query-conversaciones.dto';
 import { PlantillaMeta, PlantillaResumen, renderizarPlantilla, resumirPlantilla, validarParametros } from './plantillas-whatsapp';
 import { urlDeCabecera } from './cabeceras-plantilla';
 import { REABRIR } from './estado-conversacion';
+import { ultimosMensajesDeInbox } from './lectura-mensajes-inbox';
 
 /** Mensajes que trae el detalle inicial de una conversación (más recientes primero, luego se reordenan).
  *  Se acota a 50 para máxima velocidad inicial; los anteriores se cargan por cursor al hacer scroll. */
@@ -195,11 +196,11 @@ export class ConversacionesService {
     const dto = { pagina: query.pagina, limite: query.limite ?? POR_PAGINA_INBOX };
     const { skip, take } = calcularPaginacion(dto);
 
-    /* Página y total en un solo viaje, como manda `crm-backend-module`. */
+    /* Página y total en la misma transacción. */
     const [conversaciones, total] = await this.prisma.$transaction([
       this.prisma.conversacion.findMany({
         where,
-        orderBy: { updatedAt: 'desc' },
+        orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
         select: SELECT_INBOX,
         skip,
         take,
@@ -207,8 +208,9 @@ export class ConversacionesService {
       this.prisma.conversacion.count({ where }),
     ]);
 
+    const ultimos = await ultimosMensajesDeInbox(this.prisma, conversaciones.map(c => c.id));
     return {
-      ...paginar(conversaciones.map(aFilaDeInbox), total, dto),
+      ...paginar(conversaciones.map(c => aFilaDeInbox(c, ultimos.get(c.id))), total, dto),
       contadores: await this.contadoresInbox(query, soloAgenteId, usuarioId),
     };
   }
@@ -222,7 +224,7 @@ export class ConversacionesService {
    * la pestaña "Sin responder" mostraría "0" mientras estás dentro de ella
    * habiendo escrito algo en el buscador.
    *
-   * Cinco `count` en una sola transacción: un viaje a la base, no cinco.
+   * Cinco `count` en una sola transacción, con el mismo alcance.
    */
   private async contadoresInbox(
     query: QueryConversacionesDto,
@@ -273,8 +275,9 @@ export class ConversacionesService {
       select: SELECT_INBOX,
     });
 
+    const ultimos = await ultimosMensajesDeInbox(this.prisma, fila ? [fila.id] : []);
     return {
-      conversacion: fila ? aFilaDeInbox(fila) : null,
+      conversacion: fila ? aFilaDeInbox(fila, ultimos.get(fila.id)) : null,
       contadores: await this.contadoresInbox(query, soloAgenteId, usuarioId),
     };
   }

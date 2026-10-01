@@ -8,7 +8,7 @@ skills—. Es lo que hace falta para ubicarse antes de tocar nada.
 `src/modules/` no aparece aquí o si aquí se cita uno que ya no existe. Las
 listas del manifiesto se pudrieron justo por no tener eso.
 
-Actualizado el **2026-09-30**.
+Actualizado el **2026-10-01** (cambios locales; publicación no verificada).
 
 ## Los tres productos
 
@@ -119,16 +119,18 @@ Verificado por HTTP el 2026-09-22 con una cuenta de cada caso.
 
 Lo que se sabe y se decidió no cambiar todavía, con su motivo:
 
-1. **El último mensaje por conversación del inbox** se elige en JavaScript sobre
-   todos los mensajes de la página (`take: 1` no limita por conversación en
-   Prisma). Hoy ~3 ms; crece con la tabla `Mensaje`. Señal para actuar: inbox
-   sostenido por encima de ~150 ms de servidor.
-2. **Preflight por conversación** al abrir un chat. Sin medición de navegador
+1. **Preflight por conversación** al abrir un chat. Sin medición de navegador
    que diga que se nota.
-3. **`x-force-reload`**: el frontend sabe recargar la PWA con esa cabecera y el
+2. **`x-force-reload`**: el frontend sabe recargar la PWA con esa cabecera y el
    backend nunca la emite. Palanca de emergencia sin usar.
-4. **`Lead.estado` no se reconcilia** al corregir `Venta.leadId`. La atribución
+3. **`Lead.estado` no se reconcilia** al corregir `Venta.leadId`. La atribución
    se lee de `Venta.leadId`; el estado del lead casi nunca se mueve a mano.
+
+Resuelto en código local el 2026-10-01: el último mensaje del inbox se limita en
+PostgreSQL con `LATERAL … LIMIT 1`, para los IDs ya autorizados de la página.
+Las campañas recuperan reservas en cada vuelta con bloqueo por paciente y
+reutilizan el mensaje persistido. Evidencia y límites en
+[auditoria-2026-10-01](auditoria-2026-10-01.md).
 
 Resuelto el 2026-09-30 y fuera de esta lista: la categoría del paciente no
 caducaba y salía solo de las ventas del CRM. Ahora se calcula por valor

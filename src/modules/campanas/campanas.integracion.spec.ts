@@ -162,6 +162,128 @@ describe('crear una campaña', () => {
 });
 
 describe('el envío', () => {
+  it('dos workers no se roban una reserva viva mientras Meta responde', async () => {
+    await paciente('Ana', 4_000);
+    await campanas.crear(datosCampana(1), duenoId, AHORA);
+    let avisar!: () => void;
+    let liberar!: () => void;
+    const inicio = new Promise<void>(resolve => { avisar = resolve; });
+    const respuesta = new Promise<void>(resolve => { liberar = resolve; });
+    jest.spyOn(whatsapp, 'enviar').mockImplementationOnce(async telefono => {
+      envios.push(telefono);
+      avisar();
+      await respuesta;
+      return { estado: 'ENVIADO', metaMsgId: 'wamid.concurrente' };
+    });
+    const primero = envio.procesar(AHORA);
+    try {
+      await inicio;
+      const segundo = new CampanasEnvioService(prisma, campanas['conversaciones']);
+      expect(await segundo.procesar(AHORA)).toBe(0);
+      expect(envios).toHaveLength(1);
+    } finally {
+      liberar();
+      await primero;
+    }
+    expect(await prisma.campanaDestinatario.findFirstOrThrow()).toMatchObject({ estado: 'ENVIADO' });
+  });
+
+  it('cancelar durante una validación fallida no deja pendientes ni cambia CANCELADA a PAUSADA', async () => {
+    await paciente('Ana', 4_000);
+    const creada = await campanas.crear(datosCampana(1), duenoId, AHORA);
+    let avisar!: () => void;
+    let liberar!: () => void;
+    const inicio = new Promise<void>(resolve => { avisar = resolve; });
+    const respuesta = new Promise<void>(resolve => { liberar = resolve; });
+    campanas['conversaciones']['cachePlantillas'].invalidar();
+    jest.spyOn(whatsapp, 'listarPlantillas').mockImplementationOnce(async () => {
+      avisar();
+      await respuesta;
+      return [];
+    });
+    const vuelta = envio.procesar(AHORA);
+    try {
+      await inicio;
+      await campanas.cancelar(creada.id, duenoId);
+    } finally {
+      liberar();
+      await vuelta;
+    }
+    expect(await prisma.campana.findUniqueOrThrow({ where: { id: creada.id } })).toMatchObject({ estado: 'CANCELADA' });
+    expect(await prisma.campanaDestinatario.findFirstOrThrow()).toMatchObject({ estado: 'OMITIDO' });
+    expect(envios).toHaveLength(0);
+  });
+
+  it('el cupo limita también las omisiones: no recorre toda una campaña en una vuelta', async () => {
+    await Promise.all(Array.from({ length: 21 }, (_, i) => paciente(`Paciente ${i}`, 4_000)));
+    await campanas.crear(datosCampana(21), duenoId, AHORA);
+    await prisma.cliente.updateMany({ data: { bajaPromocionesEn: AHORA } });
+    expect(await envio.procesar(AHORA)).toBe(0);
+    expect(await prisma.campanaDestinatario.count({ where: { estado: 'PENDIENTE' } })).toBe(1);
+    expect(await prisma.campanaDestinatario.count({ where: { estado: 'OMITIDO' } })).toBe(20);
+    await envio.procesar(AHORA);
+    expect(await prisma.campana.findFirstOrThrow()).toMatchObject({ estado: 'TERMINADA' });
+  });
+
+  it('recupera una reserva interrumpida en la siguiente vuelta, sin reiniciar el backend', async () => {
+    await paciente('Ana', 4_000);
+    await campanas.crear(datosCampana(1), duenoId, AHORA);
+    await prisma.campanaDestinatario.updateMany({ data: { estado: 'ENVIANDO' } });
+
+    expect(await envio.procesar(AHORA)).toBe(1);
+    expect(envios).toHaveLength(1);
+    expect(await prisma.campanaDestinatario.findFirstOrThrow()).toMatchObject({ estado: 'ENVIADO' });
+  });
+
+  it('si falla enlazar el mensaje ya enviado, lo recupera sin otro WhatsApp ni falso fallo', async () => {
+    await paciente('Ana', 4_000);
+    await campanas.crear(datosCampana(1), duenoId, AHORA);
+    // Fallar la confirmación REAL de PostgreSQL, después del despacho a Meta.
+    await prisma.$executeRawUnsafe(`CREATE FUNCTION crm_test_fallo_enlace() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN IF NEW.estado = 'ENVIADO' THEN RAISE EXCEPTION 'Fallo transitorio al enlazar'; END IF; RETURN NEW; END $$`);
+    try {
+      await prisma.$executeRawUnsafe(`CREATE TRIGGER crm_test_fallo_enlace BEFORE UPDATE ON "CampanaDestinatario"
+        FOR EACH ROW EXECUTE FUNCTION crm_test_fallo_enlace()`);
+      await envio.procesar(AHORA);
+    } finally {
+      await prisma.$executeRawUnsafe('DROP TRIGGER IF EXISTS crm_test_fallo_enlace ON "CampanaDestinatario"');
+      await prisma.$executeRawUnsafe('DROP FUNCTION crm_test_fallo_enlace()');
+    }
+    expect(await prisma.campanaDestinatario.findFirstOrThrow()).toMatchObject({ estado: 'ENVIANDO' });
+    expect(await envio.procesar(AHORA)).toBe(1);
+    expect(envios).toHaveLength(1);
+    expect(await prisma.campanaDestinatario.findFirstOrThrow()).toMatchObject({ estado: 'ENVIADO', mensajeId: expect.any(String) });
+  });
+
+  it('un fallo al comprobar otra campaña no deja la reserva bloqueada ni impide las siguientes', async () => {
+    await paciente('Ana', 4_000);
+    await paciente('Beto', 9_000);
+    await campanas.crear(datosCampana(2), duenoId, AHORA);
+    const fallo = jest.spyOn(prisma.mensaje, 'findFirst').mockRejectedValueOnce(new Error('Base temporalmente indisponible'));
+
+    expect(await envio.procesar(AHORA)).toBe(1);
+    fallo.mockRestore();
+    expect(await envio.procesar(AHORA)).toBe(1);
+    expect(envios).toHaveLength(2);
+  });
+
+  it('recuperar el enlace de un envío anterior no lo omite por una baja posterior', async () => {
+    const ana = await paciente('Ana', 4_000);
+    await campanas.crear(datosCampana(1), duenoId, AHORA);
+    const destino = await prisma.campanaDestinatario.findFirstOrThrow();
+    const { mensajeId } = await campanas['conversaciones'].enviarPlantillaDeCampana({
+      clienteId: ana.id, lineaId: LINEA, plantilla: 'promo_octubre', idioma: 'es',
+      parametros: ['Ana', 'x'], clientMessageId: claveDeEnvio(destino.id),
+    });
+    await prisma.cliente.update({ where: { id: ana.id }, data: { bajaPromocionesEn: AHORA } });
+    await prisma.campanaDestinatario.update({ where: { id: destino.id }, data: { estado: 'ENVIANDO' } });
+
+    // De noche solo se concilia un envío existente; no se despacha otro.
+    expect(await envio.procesar(DE_NOCHE)).toBe(1);
+    expect(await prisma.campanaDestinatario.findFirstOrThrow()).toMatchObject({ estado: 'ENVIADO', mensajeId });
+    expect(envios).toHaveLength(1);
+  });
+
   it('espera al horario, manda en orden y personaliza; no toca el chat', async () => {
     const ana = await paciente('ana pérez', 4_000);
     const beto = await paciente('Beto Rojas', 9_000);
