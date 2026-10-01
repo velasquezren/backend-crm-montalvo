@@ -8,7 +8,8 @@ skills—. Es lo que hace falta para ubicarse antes de tocar nada.
 `src/modules/` no aparece aquí o si aquí se cita uno que ya no existe. Las
 listas del manifiesto se pudrieron justo por no tener eso.
 
-Actualizado el **2026-10-01** (cambios locales; publicación no verificada).
+Actualizado el **2026-10-01**. Backend y frontend publicados y verificados;
+versiones y evidencias en [auditoria-2026-10-01](auditoria-2026-10-01.md).
 
 ## Los tres productos
 
@@ -125,8 +126,12 @@ Lo que se sabe y se decidió no cambiar todavía, con su motivo:
    backend nunca la emite. Palanca de emergencia sin usar.
 3. **`Lead.estado` no se reconcilia** al corregir `Venta.leadId`. La atribución
    se lee de `Venta.leadId`; el estado del lead casi nunca se mueve a mano.
+4. **Dependencias heredadas:** `npm audit --omit=dev` reporta 21 entradas
+   (10 altas, 10 moderadas y 1 baja; ninguna crítica). No equivale a 21 fallos
+   explotables comprobados, pero requiere remediación y verificación propias;
+   varios cambios propuestos son mayores y `xlsx` no tiene solución en npm.
 
-Resuelto en código local el 2026-10-01: el último mensaje del inbox se limita en
+Resuelto y desplegado el 2026-10-01: el último mensaje del inbox se limita en
 PostgreSQL con `LATERAL … LIMIT 1`, para los IDs ya autorizados de la página.
 Las campañas recuperan reservas en cada vuelta con bloqueo por paciente y
 reutilizan el mensaje persistido. Evidencia y límites en

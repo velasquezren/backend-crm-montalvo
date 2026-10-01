@@ -1,10 +1,11 @@
 # Revisión del CRM — 1 de octubre de 2026
 
-Entrega local sobre `main`: backend `cd5208e28ffb041f450fbeb49c8f98f4bc095adf`
+Revisión sobre `main`: backend `cd5208e28ffb041f450fbeb49c8f98f4bc095adf`
 y frontend `12ba1535e4062e80577ac941aa66ec0f9ccd6f22`. Se ejecutó `git fetch origin` en ambos repositorios:
 los HEAD locales coincidían con `origin/main` antes de editar. Los últimos
 cambios incorporan categoría por valor, audiencias, campañas, cierre de chats
-y filtro Gold. No se publicó ni desplegó esta entrega.
+y filtro Gold. La entrega se publicó y desplegó después de las comprobaciones
+locales; versiones y evidencia productiva constan más abajo.
 
 ## Documentación y criterio de revisión
 
@@ -82,7 +83,7 @@ sus fixtures. No copia pacientes reales ni trunca tablas.
 | Entry point backend, test:build | 9/9 |
 | Typecheck incluyendo tests | Correcto en ambos repositorios |
 | Arranque del módulo backend compilado, con configuración ficticia | health 200, login vacío 400, inbox/campañas/finanzas sin sesión 401 |
-| YAML de workflows | Parseo y estructura básicos correctos; ejecución GitHub pendiente |
+| Workflows | Parseo local correcto; backend y frontend aprobados en GitHub |
 
 El bundle inicial final del frontend es **408,36 kB bruto / 108,13 kB
 transferido**, dentro de los presupuestos de producción. No se atribuye a esta
@@ -93,9 +94,11 @@ con Excel reales** si faltan CRM_EXCELS_2025_DIR/CRM_EXCELS_2026_DIR. Los conteo
 anteriores no prueban conciliación contra esos archivos privados. No se
 modificaron fórmulas ni clasificaciones.
 
-Las tres migraciones ya versionadas de categoría manual, categoría de plantilla
-y campañas se aplicaron exclusivamente a `crm_test`. Esta entrega no introduce
-migraciones nuevas. Meta y R2 están simulados en sus fronteras de integración.
+Para las integraciones se aplicaron a `crm_test` las tres migraciones ya
+versionadas de categoría manual, categoría de plantilla y campañas. Producción
+ya tenía sus 62 migraciones aplicadas; `migrate deploy` confirmó que no había
+pendientes. Esta entrega no introduce migraciones. Meta y R2 están simulados
+en sus fronteras de integración; no se enviaron mensajes de prueba en producción.
 
 ## Calidad en GitHub
 
@@ -105,11 +108,58 @@ entry point. Permisos `contents: read`, sin credenciales productivas, con límit
 de tiempo y cancelación de ejecuciones obsoletas. El frontend verifica enums
 contra un SHA explícito del backend; actualizar ese SHA cuando cambie el schema.
 
-Los comandos se comprobaron localmente. **El workflow aún no se ha ejecutado en
-GitHub**: requiere publicar los archivos. No se cambiaron protección de ramas,
+Las acciones checkout y setup-node están fijadas a sus SHA oficiales de v7.
+La primera ejecución del frontend encontró que un checkout parcial del backend
+dejaba ausente `src/`, necesario para `check:skills`. Se reprodujo el fallo
+en una exportación limpia y se corrigió usando el checkout completo del SHA
+fijado; la siguiente ejecución aprobó. No se cambiaron protección de ramas,
 configuración de Vercel ni recetas de despliegue. Añadir un workflow no bloquea
 por sí solo una publicación automática: la protección correspondiente se
 configura en GitHub/Vercel por separado.
+
+## Publicación y comprobación productiva
+
+Verificada el 2026-10-01 a las 16:55 UTC:
+
+| Componente | Versión de código y resultado |
+| --- | --- |
+| Backend | `6b5a01831ab51a9bb718e5ba297738d1710ec2c4`; npm ci, Prisma generate, build y comprobación del entry point correctos |
+| Frontend | `8f44036404e077547038b3e8f333b5403dec2501`; sello incluido en el JavaScript servido por Vercel |
+| CI backend | [Ejecución aprobada](https://github.com/velasquezren/backend-crm-montalvo/actions/runs/36887478486) |
+| CI frontend | [Ejecución aprobada después de corregir el checkout](https://github.com/velasquezren/frontend-crm-montalvo/actions/runs/36895300308) |
+| Interfaz HTTPS | 93 archivos JS/CSS con SHA-1 coincidente con ngsw.json; login, conversaciones y campañas resuelven la SPA |
+| PWA | ngsw.json con `public, max-age=0, must-revalidate` |
+| API HTTPS | health 200 con status/baseDatos ok; login vacío 400; inbox, campañas y periodos sin sesión 401 |
+| CORS | Origen de Vercel admitido y `Access-Control-Allow-Credentials: true` |
+| Servicio | PID 235246 estable durante más de 20 minutos, NRestarts=0; artefacto compilado antes del reinicio |
+
+El respaldo previo vive solo en el servidor, en
+`/root/backups-crm/predeploy-20261001-160341`: dump PostgreSQL en formato custom
+de **4.763.582 bytes**, validado con `pg_restore --list`, más artefacto y
+configuración anteriores, con permisos privados. Esta validación comprueba el
+archivo y su catálogo; no equivale a haber ensayado una restauración completa.
+El commit anterior era `cd5208e28ffb041f450fbeb49c8f98f4bc095adf`.
+
+SHA-256 de `dist/main.js` publicado:
+`305194372af8a4a7cb19e7d7c9b2b08cabf262bdc8d73229365f9bc1ee422b50`.
+Un commit posterior que actualice solo documentación puede avanzar HEAD sin
+alterar este artefacto ni requerir otro reinicio; la versión de código es la
+indicada en la tabla.
+
+### Dependencias: pendiente de seguridad identificado
+
+`npm audit --omit=dev --json`, ejecutado sin modificar el lockfile, reporta
+**21 entradas: 10 altas, 10 moderadas, 1 baja y ninguna crítica**. Son entradas
+del árbol de dependencias, con avisos propagados a sus dependientes; no prueban
+21 vulnerabilidades independientes explotables en las rutas del CRM.
+
+Entre las entradas altas aparecen `xlsx`, `multer`, `engine.io`, `lodash`,
+`brace-expansion` y dependencias de herramientas Prisma. npm no ofrece solución
+para `xlsx`; propone cambios mayores, incluidos retrocesos de versión, para
+otras cadenas. La entrega no aplica `npm audit fix --force` ni altera versiones.
+Hace falta analizar cada advisory, su alcance efectivo en el CRM, actualizar
+compatibles y tratar las sustituciones/migraciones con sus regresiones propias.
+Las pruebas funcionales aprobadas no cierran este pendiente de seguridad.
 
 ## Investigación de bandejas y Meta
 
@@ -157,8 +207,11 @@ No se reescribió la exportación financiera sin una necesidad medida.
    transacciones existentes. No se ocultó ni se cambió el driver en esta entrega;
    requiere revisión antes de pasar a pg 9.
 6. No se realizaron pruebas visuales en navegador, carga productiva, cambios
-   de infraestructura ni envíos reales. La regla local del repositorio excluye
+   de arquitectura de infraestructura ni envíos de prueba. Se desplegaron los
+   artefactos y se comprobó HTTPS. La regla local del repositorio excluye
    navegador; las comprobaciones UI son de DOM/HTTP en TestBed.
+7. Los avisos de dependencias descritos arriba siguen abiertos. No se declara
+   seguridad completa por haber aprobado unitarias, integraciones y el despliegue.
 
 Estos límites acotan la entrega: no se declara «cero deuda técnica» ni una
 certificación de seguridad/UX completa de todas las líneas del sistema.

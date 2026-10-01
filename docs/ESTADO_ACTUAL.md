@@ -1,14 +1,23 @@
 # Estado actual
 
-## Revisión local del 1 de octubre de 2026
+## Revisión y despliegue del 1 de octubre de 2026
 
 Después de contrastar `origin/main`, se corrigieron la recuperación y
 concurrencia del envío de campañas, validación del DTO, lectura acotada del
 último mensaje del inbox, manejo de errores del formulario y programación en
 hora de La Paz. Se añadieron controles de tipos de tests y workflows de calidad.
-Cambios **locales, pendientes de publicación**, sin nuevas migraciones ni envíos
-reales. Evidencia, medición y límites en
+Publicado el código del backend `6b5a018` y el frontend `8f44036`. Ambos controles
+de calidad aprobaron en GitHub. Backend compilado en el VPS y reiniciado;
+Vercel sirve el sello `8f44036`, con 93 assets JS/CSS verificados contra el
+manifest PWA. Health y base de datos OK, login vacío 400, rutas protegidas sin
+sesión 401 y CORS con credenciales correcto. Respaldo privado predespliegue
+verificado; no había migraciones pendientes. No se enviaron mensajes de prueba.
+Evidencia, medición y límites en
 [auditoria-2026-10-01](auditoria-2026-10-01.md).
+
+La comprobación adicional de dependencias productivas reportó 21 entradas en
+npm audit (10 altas, 10 moderadas, 1 baja), todavía pendientes de remediación.
+Esta publicación no certifica ausencia de deuda ni vulnerabilidades.
 
 La confirmación de audiencia comprueba cantidad, no identidad exacta del conjunto.
 La reutilización de mensajes persistidos evita despachos duplicados en los casos
