@@ -96,6 +96,7 @@ export class KpisService {
       ventasPorAgente,
       topServicios,
       chatsSinResponder,
+      chatsGoldSinResponder,
       leadsHoy,
       ultimasVentas,
       ultimosLeads,
@@ -123,6 +124,11 @@ export class KpisService {
          dashboard y el inbox dan dos números distintos, nadie cree a ninguno. */
       this.prisma.conversacion.count({
         where: { AND: [whereAccesoConversacion(soloAgenteId), SIN_RESPONDER] },
+      }),
+      /* Las Gold entre ellas: las que más valen no pueden esperar. Mismo where
+         que el inbox con «★ Gold» en «Sin responder». */
+      this.prisma.conversacion.count({
+        where: { AND: [whereAccesoConversacion(soloAgenteId), SIN_RESPONDER, { cliente: { categoria: 'GOLD' } }] },
       }),
       this.prisma.lead.count({
         where: { ...leadsDelAlcance, createdAt: { gte: inicioDelDiaClinica(ahora) } },
@@ -198,6 +204,7 @@ export class KpisService {
       /* Lo que pide acción AHORA. No depende del periodo elegido. */
       ahora: {
         chatsSinResponder,
+        chatsGoldSinResponder,
         leadsHoy,
       },
       embudo: {

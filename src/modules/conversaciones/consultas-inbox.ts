@@ -85,6 +85,7 @@ export function whereAlcanceInbox(
     query.soloMios ? whereSoloMios(usuarioId) : undefined,
     whereAgente(query.agenteId),
     query.lineaId ? { lineaId: query.lineaId } : undefined,
+    query.categoria ? { cliente: { categoria: query.categoria } } : undefined,
   );
 }
 

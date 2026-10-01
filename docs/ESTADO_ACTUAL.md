@@ -52,6 +52,17 @@
     simple) y costo = entregados × la tarifa con que se lanzó.
   - Pendiente: la Marketing Messages API de Meta (entrega optimizada y métricas de clic);
     hoy sale por la Cloud API, como el resto.
+- **Revisión de UX de todo lo anterior (1 de octubre).**
+  - Dashboard: los primeros 3 días de «Este mes» avisa que hay pocos datos y ofrece «Ver el
+    mes anterior». El 1 a las 00:09 salía todo en cero y se reportó como que no traía datos.
+  - **Gold que espera respuesta:** el Dashboard dice cuántas pacientes Gold esperan (solo
+    si hay alguna) y enlaza al inbox con el filtro «Gold» puesto. El filtro, junto al
+    buscador, es alcance (`categoria` en `QueryConversacionesDto`): acota lista y contadores.
+  - Clientes: los chips de categoría muestran su total (del servidor).
+  - Audiencias: «Elegibles hoy» desglosa las categorías ELEGIDAS (decía siempre Gold y
+    Silver), el embudo muestra el total excluido y «Crear campaña» dice por qué no se puede.
+  - Campañas: barra de avance, y aviso de que una campaña «Enviando» fuera de horario
+    espera a las 9:00 (parecía trabada).
 - **`npm run test:build` fallaba en `main`** (4 de 9) desde que `check:skills` exige
   `docs/PANORAMA.md`: la prueba compila una copia del repo y no lo copiaba. El build real
   pasaba; la suite decía lo contrario. Ahora lo copia: 9/9.

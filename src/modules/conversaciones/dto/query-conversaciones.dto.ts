@@ -1,7 +1,8 @@
 import { Transform } from 'class-transformer';
-import { IsBoolean, IsIn, IsOptional, IsString, IsUUID, MaxLength } from 'class-validator';
+import { IsBoolean, IsEnum, IsIn, IsOptional, IsString, IsUUID, MaxLength } from 'class-validator';
 
 import { PaginationDto } from '../../../common/dto/pagination.dto';
+import { CategoriaCliente } from '../../../prisma/prisma-client';
 
 /** Pestañas del inbox. Espejo de `FiltroInbox` en el frontend. */
 export const TABS_INBOX = ['TODAS', 'SIN_RESPONDER', 'SIN_ASIGNAR', 'MIS_CHATS', 'CERRADAS'] as const;
@@ -58,4 +59,13 @@ export class QueryConversacionesDto extends PaginationDto {
   @IsOptional()
   @IsUUID()
   agenteId?: string;
+
+  /**
+   * Solo las pacientes de esta categoría («★ Gold» del inbox, y el enlace del
+   * Dashboard «Gold esperando respuesta»). Es alcance, como la línea: acota
+   * también los contadores.
+   */
+  @IsOptional()
+  @IsEnum(CategoriaCliente)
+  categoria?: CategoriaCliente;
 }

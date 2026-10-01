@@ -1676,6 +1676,21 @@ describe('conversaciones cerradas y contadores del inbox', () => {
     expect((await new KpisService(prisma).resumen('MES', undefined)).ahora.chatsSinResponder).toBe(sinResponder.total);
   });
 
+  /* «★ Gold» del inbox y «Gold esperan respuesta» del Dashboard: el mismo
+     número, y los contadores de las pestañas acotados igual que la lista. */
+  it('el filtro Gold acota lista, contadores y Dashboard por igual', async () => {
+    const admin = await crearAgente('admin-g', 'ADMIN');
+    await ingesta.procesarEntrante('+59177000021', 'Hola', 'wamid.g1');
+    await ingesta.procesarEntrante('+59177000022', 'Hola', 'wamid.g2');
+    const gold = await prisma.cliente.findFirstOrThrow({ where: { telefono: { endsWith: '77000021' } } });
+    await prisma.cliente.update({ where: { id: gold.id }, data: { categoria: 'GOLD' } });
+
+    const soloGold = await service.findAll(undefined, admin.id, { tab: 'SIN_RESPONDER', categoria: 'GOLD' });
+    expect(soloGold.datos.map(c => c.cliente.id)).toEqual([gold.id]);
+    expect(soloGold.contadores).toMatchObject({ total: 1, sinResponder: 1 });
+    expect((await new KpisService(prisma).resumen('MES', undefined)).ahora).toMatchObject({ chatsSinResponder: 2, chatsGoldSinResponder: 1 });
+  });
+
   it('cerrar y reabrir no mueven la hora del chat; cerrar dos veces no cambia quién la cerró', async () => {
     const admin = await crearAgente('admin-c', 'ADMIN');
     const otro = await crearAgente('admin-d', 'ADMIN');
