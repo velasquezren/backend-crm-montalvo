@@ -125,6 +125,14 @@ const MENSAJE_UNICO: Record<string, (valor: string, duenio?: string) => string> 
  * que mirar primero si el listado se vuelve lento — y la razón por la que no
  * debe crecer con datos nuevos: lo que haga falta de verdad va a su columna.
  */
+const CATEGORIAS_CLIENTE = Object.values(CategoriaCliente);
+
+/** Los números de la cabecera de Clientes, sobre todo lo que el usuario puede ver. */
+export interface ResumenClientes {
+  porCategoria: Record<CategoriaCliente, number>;
+  sinAsignar: number;
+}
+
 const CAMPOS_CLIENTE = {
   id: true,
   nombre: true,
@@ -406,9 +414,10 @@ export class ClientesService {
        teléfono o el email, y buscar "%" devolvía los 15.000+ pacientes
        recorriendo entero el índice trigram. */
     const busqueda = terminoBusqueda(query.busqueda);
+    const alcance: Prisma.ClienteWhereInput = soloAgenteId ? { OR: [{ agenteId: soloAgenteId }, { agenteId: null }] } : {};
     const where: Prisma.ClienteWhereInput = {
       categoria: query.categoria,
-      ...(soloAgenteId ? { OR: [{ agenteId: soloAgenteId }, { agenteId: null }] } : {}),
+      ...alcance,
       ...(busqueda
         ? {
             AND: {
@@ -426,8 +435,8 @@ export class ClientesService {
 
     const { skip, take } = calcularPaginacion(query);
 
-    /* Una sola ida a la base: página + total, en paralelo. */
-    const [datos, total] = await this.prisma.$transaction([
+    /* Una sola ida a la base: página, total y los números de la cabecera. */
+    const [datos, total, sinAsignar, ...porCategoria] = await this.prisma.$transaction([
       this.prisma.cliente.findMany({
         where,
         /* Por defecto lo recién tocado primero; el usuario puede cambiarlo
@@ -442,6 +451,18 @@ export class ClientesService {
         take,
       }),
       this.prisma.cliente.count({ where }),
+      /* Los números de la cabecera, sobre TODO lo que el usuario puede ver: ni
+         el chip de categoría ni el buscador los mueven (crm-design-system,
+         «Filtros»). Se contaban en el navegador sobre las 25 filas de la
+         página, así que «Pacientes Gold» decía cuántas había en esa página. */
+      /* «Sin asignar» como lo pinta la tabla: sin dueña en la ficha ni agente en
+         su chat comercial (`agenteEfectivo`, más abajo). */
+      this.prisma.cliente.count({
+        where: { AND: [alcance, { agenteId: null, conversaciones: { none: { linea: { comercial: true }, agenteId: { not: null } } } }] },
+      }),
+      /* Un `count` por categoría y no un `groupBy`: cuatro, por el índice de
+         `categoria`, y con tipos que no se pierden dentro de `$transaction`. */
+      ...CATEGORIAS_CLIENTE.map(categoria => this.prisma.cliente.count({ where: { AND: [alcance, { categoria }] } })),
     ]);
 
     const datosMapeados = datos.map(cli => {
@@ -454,7 +475,13 @@ export class ClientesService {
       };
     });
 
-    return paginar(datosMapeados, total, query);
+    const resumen: ResumenClientes = {
+      porCategoria: { GOLD: 0, SILVER: 0, BRONZE: 0, PROSPECTO: 0 },
+      sinAsignar,
+    };
+    CATEGORIAS_CLIENTE.forEach((categoria, i) => (resumen.porCategoria[categoria] = porCategoria[i]));
+
+    return { ...paginar(datosMapeados, total, query), resumen };
   }
 
   /**

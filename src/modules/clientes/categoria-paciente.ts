@@ -1,4 +1,4 @@
-import { CategoriaCliente } from '../../prisma/prisma-client';
+import { CategoriaCliente, Prisma } from '../../prisma/prisma-client';
 
 /*
  * Cuánto vale una paciente: la regla de Gold / Silver / Bronze / Prospecto.
@@ -48,4 +48,43 @@ export function categoriaPorValor({ gastoRecienteUsd, compras }: ValorPaciente):
   if (gastoRecienteUsd >= UMBRAL_SILVER_USD) return CategoriaCliente.SILVER;
   if (compras > 0) return CategoriaCliente.BRONZE;
   return CategoriaCliente.PROSPECTO;
+}
+
+/** El comienzo de la ventana de gasto. */
+export function inicioDeVentana(ahora: Date): Date {
+  return new Date(ahora.getTime() - VENTANA_DIAS * 24 * 60 * 60 * 1000);
+}
+
+/**
+ * Las dos CTE que agregan el valor de cada paciente, para usar tras un `WITH`:
+ *
+ *  - `filemaker` por `pac`: lo importado de FileMaker, en dólares y tal como
+ *    viene; solo cuentan las líneas con precio.
+ *  - `crm` por `clienteId`: las ventas GANADAS del CRM, de Bs a dólares con
+ *    el tipo de cambio que se le pasa.
+ *
+ * Cada una da `reciente` (gasto en la ventana), `compras` y `ultima` (fecha
+ * de la última compra). La comparten la categoría y Audiencias: si cada uno
+ * sumara a su manera, una paciente Gold en su ficha podría no serlo en una
+ * audiencia.
+ */
+export function valorDePacientesSql(desde: Date, tipoCambio: number): Prisma.Sql {
+  return Prisma.sql`
+    filemaker AS (
+      SELECT v.pac,
+             SUM(v.precio) FILTER (WHERE v.fecha >= ${desde}) AS reciente,
+             COUNT(*) AS compras,
+             MAX(v.fecha) AS ultima
+      FROM "VentaImportada" v
+      WHERE v.pac IS NOT NULL AND v.precio > 0
+      GROUP BY v.pac
+    ), crm AS (
+      SELECT "clienteId",
+             SUM(monto) FILTER (WHERE "createdAt" >= ${desde}) / ${tipoCambio} AS reciente,
+             COUNT(*) AS compras,
+             MAX("createdAt") AS ultima
+      FROM "Venta"
+      WHERE estado = 'GANADA'
+      GROUP BY "clienteId"
+    )`;
 }

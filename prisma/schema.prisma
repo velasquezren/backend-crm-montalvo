@@ -444,6 +444,12 @@ model Mensaje {
   /// escribió el fin de semana. La automatización habría empeorado, en silencio,
   /// justo el problema que venía a resolver.
   automatico     Boolean          @default(false)
+  /// Si salió como plantilla, su categoría en Meta (`MARKETING`, `UTILITY`…);
+  /// null en todo lo demás. Es lo que permite no mandarle otra campaña a quien
+  /// acaba de recibir una (Audiencias): Meta limita cuántas plantillas de
+  /// marketing recibe cada persona, y a quien no las lee le llegan menos.
+  /// Desde el 2026-09-30: lo anterior quedó sin marcar.
+  plantillaCategoria String?    @db.VarChar(20)
   createdAt      DateTime         @default(now())
 
   @@index([conversacionId, createdAt])

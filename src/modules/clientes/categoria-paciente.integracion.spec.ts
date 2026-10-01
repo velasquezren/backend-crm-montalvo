@@ -31,7 +31,14 @@ beforeAll(async () => {
   await prisma.$connect();
 });
 
+/* Sin dejar ventas ni usuarios: una venta que sobrevive a su suite bloquea el
+   borrado de usuarios de la siguiente (`Venta_agenteId_fkey` es RESTRICT). */
 afterAll(async () => {
+  await prisma.venta.deleteMany();
+  await prisma.ventaImportada.deleteMany();
+  await prisma.periodoComision.deleteMany();
+  await prisma.cliente.deleteMany();
+  await prisma.usuario.deleteMany();
   await prisma.$disconnect();
 });
 

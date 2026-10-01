@@ -61,6 +61,11 @@ beforeEach(async () => {
      borrarla, la primera que pase a AUTOMATICO deja a las siguientes leyendo un
      modo que no pusieron. */
   await prisma.configuracionTipoCambio.deleteMany();
+  /* Lo mismo que el `afterAll`: `Actividad` y `Venta` antes que `Usuario`. Una
+     venta que dejó OTRA suite bloqueaba este borrado y tumbaba las 12 pruebas,
+     según el orden en que Jest corriera los archivos (2026-09-30). */
+  await prisma.actividad.deleteMany();
+  await prisma.venta.deleteMany();
   await prisma.usuario.deleteMany();
 
   const usuario = await prisma.usuario.create({

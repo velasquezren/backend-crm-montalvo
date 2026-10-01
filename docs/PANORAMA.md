@@ -34,6 +34,7 @@ Los dos primeros comparten servidor y Postgres (bases separadas) y se hablan
 | `modules/memoria-agente` | Biblioteca personal de textos y archivos (30 MB) para el chat | Todos |
 | `modules/actividades` | Recordatorios y calendario de seguimiento, con push | Todos (operativos sin leads) |
 | `modules/clientes` | Fichas de pacientes (≈16.000, importadas de FileMaker), PAC, y su categoría por valor —calculada con FileMaker + CRM, o fijada a mano por SUPER_ADMIN—; reconoce pacientes de otros sistemas | AGENTE+ |
+| `modules/audiencias` | A quién mandarle una campaña hoy: cruza la categoría por valor con si conviene escribirle (sin baja, con celular, sin campaña de marketing reciente, si ya conversó). Solo lee; no envía | ADMIN+ |
 | `modules/leads` | Embudo comercial, Lead Ads de Meta (`/webhooks/meta`) y alta presencial | AGENTE+ |
 | `modules/ventas` | Registro de ventas, catálogo, atribución al lead de origen | AGENTE+ (estado: ADMIN) |
 | `modules/kpis` | Números del dashboard, medidos sobre los mensajes | AGENTE+ |
@@ -78,6 +79,7 @@ si añades otra, añádela aquí con su motivo.
 | Entrega de Resultados | `/resultados` | ASISTENTE, ADMIN+ |
 | Clientes y Pacientes | `/clientes` | AGENTE+ |
 | Leads y Prospectos | `/leads` | AGENTE+ |
+| Audiencias | `/audiencias` | ADMIN+ |
 | Ventas | `/ventas` | AGENTE+ |
 | Finanzas & Comisiones | `/finanzas` (liquidación, desempeño, analítica, anual) | ADMIN+ |
 | Historial de Servicios | `/servicios` | ADMIN+ |

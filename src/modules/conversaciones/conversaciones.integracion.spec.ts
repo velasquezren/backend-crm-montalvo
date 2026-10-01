@@ -1034,6 +1034,9 @@ describe('Conversaciones contra Postgres real', () => {
       await expect(service.enviarPlantilla(conv.id, { plantilla: 'promo', idioma: 'es', parametros: [] }, a.id))
         .rejects.toMatchObject({ status: 409, message: expect.stringContaining('no recibir promociones el 30 de septiembre de 2026') });
       await expect(service.enviarPlantilla(conv.id, { plantilla: 'cita', idioma: 'es', parametros: [] }, a.id)).resolves.toBeTruthy();
+      /* Queda su categoría: Audiencias distingue una campaña de un aviso de cita. */
+      expect(await prisma.mensaje.findFirstOrThrow({ where: { direccion: 'SALIENTE' }, select: { plantillaCategoria: true } }))
+        .toEqual({ plantillaCategoria: 'UTILITY' });
     });
 
     /* Una cabecera de imagen se exige en CADA envío; el CRM la toma de

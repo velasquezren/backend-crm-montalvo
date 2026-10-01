@@ -1015,12 +1015,20 @@ export class ConversacionesService {
    */
   async enviarPlantillaDelSistema(
     conversacionId: string,
-    envio: { plantilla: string; idioma: string; boton?: string; imagenCabecera?: string; contenido: string },
+    envio: {
+      plantilla: string;
+      idioma: string;
+      boton?: string;
+      imagenCabecera?: string;
+      contenido: string;
+      /** Su categoría en Meta. El aviso de resultados es Utilidad: no lleva publicidad. */
+      categoria?: string;
+    },
     agenteId: string,
   ) {
     const conversacion = await this.obtenerConversacionPropia(conversacionId);
-    const { contenido, ...despacho } = envio;
-    return this.registrarPlantilla(conversacion, { despacho, contenido }, undefined, agenteId);
+    const { contenido, categoria = 'UTILITY', ...despacho } = envio;
+    return this.registrarPlantilla(conversacion, { despacho, contenido, categoria }, undefined, agenteId);
   }
 
   /**
@@ -1117,7 +1125,7 @@ export class ConversacionesService {
 
   private async registrarPlantilla(
     conversacion: { id: string; clienteId: string; linea: { comercial: boolean }; cliente: { telefono: string } },
-    { despacho, contenido }: { despacho: PlantillaADespachar; contenido: string },
+    { despacho, contenido, categoria }: { despacho: PlantillaADespachar; contenido: string; categoria: string },
     clientMessageId: string | undefined,
     agenteId: string,
   ) {
@@ -1133,6 +1141,9 @@ export class ConversacionesService {
             estadoEnvio: 'ENVIADO',
             permiteReintento: false,
             clientMessageId: clientMessageId ?? null,
+            /* Audiencias no le manda otra campaña a quien acaba de recibir una:
+               sin esto no sabría cuál fue de marketing. */
+            plantillaCategoria: categoria,
           },
         }),
         /* Mismo criterio que `enviarMensaje`: reclamar solo si está en el pool

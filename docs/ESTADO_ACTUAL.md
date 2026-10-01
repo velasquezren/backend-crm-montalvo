@@ -16,8 +16,25 @@
     siguiente venta la pisaba. La migración fijó las dos que se habían puesto a mano.
   - Sello dorado (`--color-gold`, latón, el único tono fuera de la paleta: aprobado por
     el propietario) en la fila del inbox y en las fichas.
-  - Regla y umbrales en `clientes/categoria-paciente.ts`; pendientes de fase 2:
-    vista «Audiencias» para campañas.
+  - Regla y umbrales en `clientes/categoria-paciente.ts`.
+  - **Los números de la cabecera de Clientes eran de la página.** «Pacientes Gold»,
+    «Prospectos» y «Sin asignar» se contaban en el navegador sobre las 25 filas cargadas;
+    con 15 Gold habría dicho 0 o 1. Ahora los cuenta el servidor sobre todo lo visible
+    (`ResumenClientes`), sin moverse con el chip ni la búsqueda.
+- **Audiencias (`/audiencias`, ADMIN+).** A quién mandarle una campaña hoy: cruza la
+  categoría por valor con si conviene escribirle. Deja fuera, en este orden y contando a
+  cada una por su primer motivo, a quien pidió la baja, a quien no tiene celular con
+  WhatsApp (fijos de FileMaker, +1), a quien recibió una plantilla de marketing en el
+  plazo elegido (30 días por defecto) y, si se pide, a quien nunca nos escribió. Muestra
+  el embudo, las elegibles de más a menos gasto y el costo máximo con una tarifa
+  editable ($0,055 de partida, `META_COSTOS.md`). **Solo lee: no envía.**
+  - Para saber qué fue campaña, `Mensaje.plantillaCategoria` guarda la categoría de cada
+    plantilla enviada desde hoy (el aviso de resultados, `UTILITY`). Lo anterior no está
+    marcado: las campañas viejas no cuentan como recientes.
+  - Una sola consulta materializada: con las 16.000 Prospecto son ~1,2 s; Gold y Silver,
+    al instante. Detalle en `modules/audiencias/audiencias.service.ts`.
+  - Pendiente (fase 3): el envío masivo desde la audiencia —cola con ritmo, tope de
+    frecuencia, métricas por campaña— y, si conviene, la Marketing Messages API de Meta.
 
 - **Conversaciones abiertas y cerradas.** «Sin responder» marcaba 427 y la clínica contaba
   menos. La definición era correcta, pero sin estado «cerrada» acumulaba todo lo que alguna

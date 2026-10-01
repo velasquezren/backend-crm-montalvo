@@ -148,6 +148,18 @@ aplica `CategoriaPacienteService`:
   `planilla-comisiones` conozca a Clientes, y una Gold que deja de comprar baja sola),
   y en el acto una sola al guardar una venta o cambiar el PAC.
 
+**El valor se suma en UN sitio:** `valorDePacientesSql()` (mismo archivo) son las CTE
+`filemaker` y `crm` que usan la categoría y Audiencias. Si cada uno sumara a su manera,
+una paciente Gold en su ficha podría no serlo en una audiencia.
+
+**Audiencias (`modules/audiencias`) solo lee.** El embudo cuenta a cada paciente por su
+PRIMER motivo de exclusión (`MOTIVOS_EXCLUSION`, en orden), así que los números suman
+exactamente el total; resumen y página salen de la misma CTE `MATERIALIZED`, en una
+sentencia, y el total que se pagina es el «elegibles» del resumen. «Campaña reciente» se
+lee de `Mensaje.plantillaCategoria = 'MARKETING'`: **si añades un camino que mande
+plantillas, guarda su categoría**, o Audiencias le volverá a escribir a quien acaba de
+recibir una.
+
 **Cicatriz:** se calculaba solo con las ventas del CRM —22 en total— y nunca caducaba:
 16.294 de 16.318 fichas eran Prospecto, la categoría no servía para decidir nada y nadie
 lo notaba porque no fallaba, solo no decía nada.

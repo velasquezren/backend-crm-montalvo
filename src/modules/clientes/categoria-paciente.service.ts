@@ -5,7 +5,7 @@ import { enSegundoPlano } from '../../common/fiabilidad/en-segundo-plano';
 import { CategoriaCliente, Prisma } from '../../prisma/prisma-client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { TipoCambioService } from '../tipo-cambio/tipo-cambio.service';
-import { categoriaPorValor, VENTANA_DIAS } from './categoria-paciente';
+import { categoriaPorValor, inicioDeVentana, valorDePacientesSql } from './categoria-paciente';
 
 /** Cada cuánto se recalculan todas. Recoge las planillas importadas y la ventana que avanza. */
 const INTERVALO_MS = 6 * 60 * 60 * 1000;
@@ -86,25 +86,10 @@ export class CategoriaPacienteService implements OnModuleInit, OnModuleDestroy {
    */
   async recalcular(clienteId?: string, db: Db = this.prisma, ahora = new Date()): Promise<number> {
     const { tipoCambio } = await this.tipoCambio.vigente();
-    const desde = new Date(ahora.getTime() - VENTANA_DIAS * 24 * 60 * 60 * 1000);
     const soloUna = clienteId ? Prisma.sql`AND c.id = ${clienteId}` : Prisma.empty;
 
     const filas = await db.$queryRaw<FilaValor[]>`
-      WITH filemaker AS (
-        SELECT v.pac,
-               SUM(v.precio) FILTER (WHERE v.fecha >= ${desde}) AS reciente,
-               COUNT(*) AS compras
-        FROM "VentaImportada" v
-        WHERE v.pac IS NOT NULL AND v.precio > 0
-        GROUP BY v.pac
-      ), crm AS (
-        SELECT "clienteId",
-               SUM(monto) FILTER (WHERE "createdAt" >= ${desde}) / ${tipoCambio} AS reciente,
-               COUNT(*) AS compras
-        FROM "Venta"
-        WHERE estado = 'GANADA'
-        GROUP BY "clienteId"
-      )
+      WITH ${valorDePacientesSql(inicioDeVentana(ahora), tipoCambio)}
       SELECT c.id, c.categoria,
              COALESCE(f.reciente, 0) + COALESCE(r.reciente, 0) AS gasto_reciente_usd,
              COALESCE(f.compras, 0) + COALESCE(r.compras, 0) AS compras

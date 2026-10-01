@@ -145,6 +145,26 @@ describe('ClientesService.findAll — orden por columna', () => {
   });
 });
 
+/* «Pacientes Gold» se contaba en el navegador sobre las 25 filas de la página:
+   con 15 Gold, decía cuántas había en esa página. */
+describe('ClientesService.findAll — números de la cabecera', () => {
+  it('cuentan todo lo visible, sin moverse con el chip, la búsqueda ni la página', async () => {
+    const ana = await prisma.usuario.create({ data: { nombre: 'Ana', email: 'ana@test.local', passwordHash: 'x' } });
+    await cliente('Gold uno', '+59170000001', 'GOLD');
+    await cliente('Gold dos', '+59170000002', 'GOLD');
+    await cliente('Prospecto', '+59170000003');
+    await prisma.cliente.create({ data: { nombre: 'De Ana', telefono: '+59170000004', categoria: 'GOLD', agenteId: ana.id } });
+    const otra = await prisma.usuario.create({ data: { nombre: 'Otra', email: 'otra@test.local', passwordHash: 'x' } });
+    await prisma.cliente.create({ data: { nombre: 'De otra', telefono: '+59170000005', agenteId: otra.id } });
+
+    const esperado = { porCategoria: { GOLD: 3, SILVER: 0, BRONZE: 0, PROSPECTO: 2 }, sinAsignar: 3 };
+    expect((await service.findAll({ limite: 1 })).resumen).toEqual(esperado);
+    expect((await service.findAll({ categoria: 'PROSPECTO', busqueda: 'zzz' })).resumen).toEqual(esperado);
+    /* Una agente cuenta lo suyo y el pool, nunca lo de otra. */
+    expect((await service.findAll({}, ana.id)).resumen).toEqual({ porCategoria: { GOLD: 3, SILVER: 0, BRONZE: 0, PROSPECTO: 1 }, sinAsignar: 3 });
+  });
+});
+
 describe('ClientesService.reconocerPacientes — PAC con separadores', () => {
   it('«PRUEBA-7761» del portal encuentra la ficha «PRUEBA-7761», escrito como sea', async () => {
     const ficha = await prisma.cliente.create({ data: { nombre: 'Sara Bueno', telefono: '+59177617699', pac: 'PRUEBA-7761' } });
