@@ -11,6 +11,7 @@ import { ConversacionesService } from '../conversaciones/conversaciones.service'
 import { LineasWhatsappService } from '../lineas-whatsapp/lineas-whatsapp.service';
 import { PortalResultadosClient } from './portal-resultados.client';
 import { ResultadosService } from './resultados.service';
+import { categoriasDePrueba } from '../clientes/categorias.de-prueba';
 
 /**
  * Contra PostgreSQL real (`crm_test` en el :5433 local) y contra un portal de
@@ -171,7 +172,7 @@ beforeEach(async () => {
   ];
 
   const audit = new AuditService(prisma);
-  const clientes = new ClientesService(prisma, audit, new ServiciosService(prisma) as ServiciosService);
+  const clientes = new ClientesService(prisma, audit, new ServiciosService(prisma) as ServiciosService, categoriasDePrueba(prisma));
   const lineas = new LineasWhatsappService(prisma, new ConfigService());
   service = new ResultadosService(prisma, new PortalResultadosClient(), clientes, conversacionesStub, lineas, audit);
 });

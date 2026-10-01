@@ -23,6 +23,8 @@ import { AuthController } from "../auth/auth.controller";
 import { UsuariosService } from "../usuarios/usuarios.service";
 import { UsuariosController } from "../usuarios/usuarios.controller";
 import { ClientesService } from "../clientes/clientes.service";
+import { CategoriaPacienteService } from "../clientes/categoria-paciente.service";
+import { TipoCambioService } from "../tipo-cambio/tipo-cambio.service";
 import { ClientesController } from "../clientes/clientes.controller";
 import { ServiciosService } from "../servicios/servicios.service";
 import { MemoriaAgenteService } from "../memoria-agente/memoria-agente.service";
@@ -77,6 +79,8 @@ const r2 = {
     AuthService,
     UsuariosService,
     ClientesService,
+    CategoriaPacienteService,
+    TipoCambioService,
     ActividadesService,
     ServiciosService,
     AuditService,

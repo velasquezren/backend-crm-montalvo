@@ -16,6 +16,7 @@ import { DespachadorSalienteService } from './despachador-saliente.service';
 import { IngestaWhatsappService } from './ingesta-whatsapp.service';
 import { MediaEntranteService } from './media-entrante.service';
 import { PlantillaMeta } from './plantillas-whatsapp';
+import { categoriasDePrueba } from '../clientes/categorias.de-prueba';
 
 /**
  * Escribirle primero a alguien desde cualquier línea — `iniciarConversacion`.
@@ -101,7 +102,7 @@ beforeEach(async () => {
   const config = new ConfigService({ TOKEN_PRUEBA_INICIAR: 'token' });
   const gateway = new GatewayMudo() as unknown as ConversacionesGateway;
   const r2 = {} as R2Service;
-  const clientes = new ClientesService(prisma, new AuditService(prisma), new ServiciosService(prisma));
+  const clientes = new ClientesService(prisma, new AuditService(prisma), new ServiciosService(prisma), categoriasDePrueba(prisma));
   const whatsapp = new WhatsappCloudService();
   envios = [];
   jest.spyOn(whatsapp, 'listarPlantillas').mockResolvedValue(PLANTILLAS);

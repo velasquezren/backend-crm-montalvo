@@ -2,6 +2,23 @@
 
 ## Actualización del 30 de septiembre de 2026
 
+- **La categoría del paciente, por su valor real.** Salía solo de las 22 ventas del CRM:
+  16.294 de 16.318 fichas eran Prospecto y había 2 Gold. Ahora suma las ventas de
+  FileMaker tal como se importan (por PAC) y las del CRM (Bs → $ al tipo pactado):
+  Gold desde $3.500 en 12 meses (≈ el 10 % que más gasta y el 41 % de la facturación),
+  Silver desde $1.000, Bronze si compró alguna vez. Con los datos de hoy: 15 Gold,
+  32 Silver, 75 Bronze. El techo es el maestro de pacientes (solo 101 de los 548
+  pacientes con ventas en FileMaker tienen ficha): al completar la importación, sube solo.
+  - Se recalcula cada 6 h (recoge planillas nuevas y la ventana que avanza; antes una
+    Gold no caducaba nunca) y en el acto al registrar una venta o cambiar el PAC.
+  - **Solo SUPER_ADMIN la fija a mano** (`PUT /clientes/:id/categoria`); fijada, el
+    cálculo no la toca. Antes cualquier agente la cambiaba editando la ficha y la
+    siguiente venta la pisaba. La migración fijó las dos que se habían puesto a mano.
+  - Sello dorado (`--color-gold`, latón, el único tono fuera de la paleta: aprobado por
+    el propietario) en la fila del inbox y en las fichas.
+  - Regla y umbrales en `clientes/categoria-paciente.ts`; pendientes de fase 2:
+    vista «Audiencias» para campañas.
+
 - **Conversaciones abiertas y cerradas.** «Sin responder» marcaba 427 y la clínica contaba
   menos. La definición era correcta, pero sin estado «cerrada» acumulaba todo lo que alguna
   vez quedó sin contestar: 83 chats llevaban más de un mes quietos. Además, su número no

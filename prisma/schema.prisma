@@ -94,6 +94,7 @@ model Usuario {
   /// Solo un SUPER_ADMIN puede asignarlo.
   codigo                String?                @unique @db.VarChar(40)
   clientes              Cliente[]              @relation("AgenteAsignado")
+  categoriasFijadas     Cliente[]              @relation("CategoriaFijadaPor")
   intereses             Interes[]
   leads                 Lead[]
   conversaciones        Conversacion[]  @relation("ConversacionAgente")
@@ -127,7 +128,15 @@ model Cliente {
   nombre    String
   telefono  String           @unique
   email     String?
+  /// La categoría que ve todo el CRM (inbox, fichas, filtros). Es la calculada
+  /// por valor —ver `clientes/categoria-paciente.ts`— salvo que esté fijada a
+  /// mano: entonces manda la fijada y el cálculo no la toca.
   categoria CategoriaCliente @default(PROSPECTO)
+  /// Cuándo la fijó a mano un SUPER_ADMIN, o null si es automática. Volver a
+  /// null la devuelve al cálculo, que la recalcula en el acto.
+  categoriaFijadaEn    DateTime?
+  categoriaFijadaPor   Usuario?  @relation("CategoriaFijadaPor", fields: [categoriaFijadaPorId], references: [id])
+  categoriaFijadaPorId String?
   agente    Usuario?         @relation("AgenteAsignado", fields: [agenteId], references: [id])
   agenteId  String?
   /// Cuándo pidió no recibir más promociones (tocó «No me interesa» o «Baja» en

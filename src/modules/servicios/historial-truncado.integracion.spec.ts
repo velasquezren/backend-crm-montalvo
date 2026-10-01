@@ -2,6 +2,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../../common/audit/audit.service';
 import { ClientesService } from '../clientes/clientes.service';
 import { ServiciosService } from './servicios.service';
+import { categoriasDePrueba } from '../clientes/categorias.de-prueba';
 
 /**
  * F10.2 · qué pasa cuando el historial de un paciente pasa del tope.
@@ -155,7 +156,7 @@ describe('F10.2 · historial desde la ficha del cliente, tope de 200', () => {
     });
     await historialDe('PAC-FICHA', 220);
 
-    const clientes = new ClientesService(prisma, new AuditService(prisma), servicios);
+    const clientes = new ClientesService(prisma, new AuditService(prisma), servicios, categoriasDePrueba(prisma));
     const resultado = await clientes.historialServicios(cliente.id);
     const enBase = await prisma.ventaImportada.count({ where: { pac: 'PAC-FICHA' } });
 

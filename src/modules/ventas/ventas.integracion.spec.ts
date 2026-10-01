@@ -7,6 +7,7 @@ import { ClientesService } from '../clientes/clientes.service';
 import { LeadsService } from '../leads/leads.service';
 import { ServiciosService } from '../servicios/servicios.service';
 import { VentasService } from './ventas.service';
+import { categoriasDePrueba } from '../clientes/categorias.de-prueba';
 
 /**
  * Pruebas contra el Postgres de verdad (`crm_test` en el :5433 local).
@@ -76,8 +77,8 @@ beforeEach(async () => {
   const audit = new AuditService(prisma);
   service = new VentasService(
     prisma,
-    new ClientesService(prisma, audit, new ServiciosService(prisma)),
-    new LeadsService(prisma, new ClientesService(prisma, audit, new ServiciosService(prisma))),
+    new ClientesService(prisma, audit, new ServiciosService(prisma), categoriasDePrueba(prisma)),
+    new LeadsService(prisma, new ClientesService(prisma, audit, new ServiciosService(prisma), categoriasDePrueba(prisma))),
     audit,
     r2 as unknown as R2Service,
   );
@@ -346,7 +347,7 @@ describe('VentasService contra Postgres real', () => {
       await service.create({ ...ventaBase(), clientRequestId: clave }, agenteId);
       expect(await prisma.venta.count()).toBe(1);
       expect((await prisma.lead.findUniqueOrThrow({ where: { id: lead.id } })).estado).toBe('CONVERTIDO');
-      expect((await prisma.cliente.findUniqueOrThrow({ where: { id: clienteId } })).categoria).toBe('SILVER');
+      expect((await prisma.cliente.findUniqueOrThrow({ where: { id: clienteId } })).categoria).toBe('BRONZE');
     });
   });
 
@@ -379,19 +380,21 @@ describe('VentasService contra Postgres real', () => {
     });
   });
 
+  /* `ventaBase` son 1.200 Bs (≈ $172): por valor es Bronze —compró, pero
+     lejos de los $1.000 de Silver—. Ver `clientes/categoria-paciente.ts`. */
   describe('categoría del paciente al corregir el estado', () => {
     const categoria = async () =>
       (await prisma.cliente.findUniqueOrThrow({ where: { id: clienteId } })).categoria;
 
     it('una venta anulada deja de contar: el paciente vuelve a su categoría real', async () => {
       const venta = await service.create(ventaBase(), agenteId);
-      expect(await categoria()).toBe('SILVER');
+      expect(await categoria()).toBe('BRONZE');
 
       await service.cambiarEstado(venta.id, 'PERDIDA', agenteId, 'Pago rechazado');
       expect(await categoria()).toBe('PROSPECTO');
 
       await service.cambiarEstado(venta.id, 'GANADA', agenteId);
-      expect(await categoria()).toBe('SILVER');
+      expect(await categoria()).toBe('BRONZE');
     });
 
     /* Sin transacción, el estado quedaba cambiado y el reintento caía en «sin

@@ -3,6 +3,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { ClientesService } from '../clientes/clientes.service';
 import { ServiciosService } from '../servicios/servicios.service';
 import { LeadsService } from './leads.service';
+import { categoriasDePrueba } from '../clientes/categorias.de-prueba';
 
 /**
  * Contra PostgreSQL real (`crm_test` en el :5433 local) — ver `clientes.integracion.spec.ts`.
@@ -43,7 +44,7 @@ beforeEach(async () => {
   await prisma.venta.deleteMany();
   await prisma.cliente.deleteMany();
   await prisma.usuario.deleteMany();
-  service = new LeadsService(prisma, new ClientesService(prisma, new AuditService(prisma), new ServiciosService(prisma)));
+  service = new LeadsService(prisma, new ClientesService(prisma, new AuditService(prisma), new ServiciosService(prisma), categoriasDePrueba(prisma)));
 });
 
 async function usuario(nombre: string, email: string) {

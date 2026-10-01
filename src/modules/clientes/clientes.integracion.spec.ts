@@ -2,6 +2,7 @@ import { AuditService } from '../../common/audit/audit.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ServiciosService } from '../servicios/servicios.service';
 import { ClientesService } from './clientes.service';
+import { categoriasDePrueba } from './categorias.de-prueba';
 
 /**
  * Contra PostgreSQL real (`crm_test` en el :5433 local). El orden de un listado
@@ -36,7 +37,7 @@ beforeEach(async () => {
   await prisma.venta.deleteMany();
   await prisma.cliente.deleteMany();
   await prisma.usuario.deleteMany();
-  service = new ClientesService(prisma, new AuditService(prisma), new ServiciosService(prisma));
+  service = new ClientesService(prisma, new AuditService(prisma), new ServiciosService(prisma), categoriasDePrueba(prisma));
 });
 
 async function cliente(nombre: string, telefono: string, categoria: 'GOLD' | 'PROSPECTO' = 'PROSPECTO') {

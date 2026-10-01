@@ -11,6 +11,7 @@ import { WhatsappCloudService } from '../../common/whatsapp/whatsapp-cloud.servi
 import { ConversacionesGateway } from './conversaciones.gateway';
 import { DespachadorSalienteService } from './despachador-saliente.service';
 import { ConversacionesService } from './conversaciones.service';
+import { categoriasDePrueba } from '../clientes/categorias.de-prueba';
 
 /**
  * El inbox por encima del viejo tope de 500, contra un PostgreSQL DE VERDAD.
@@ -92,7 +93,7 @@ beforeEach(async () => {
   const gateway = new GatewayEspia();
   const r2 = new R2Espia();
   const config = new ConfigService({});
-  const clientesService = new ClientesService(prisma, new AuditService(prisma), new ServiciosService(prisma));
+  const clientesService = new ClientesService(prisma, new AuditService(prisma), new ServiciosService(prisma), categoriasDePrueba(prisma));
   const whatsapp = new WhatsappCloudService();
 
   service = new ConversacionesService(

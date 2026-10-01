@@ -8,7 +8,7 @@ skills—. Es lo que hace falta para ubicarse antes de tocar nada.
 `src/modules/` no aparece aquí o si aquí se cita uno que ya no existe. Las
 listas del manifiesto se pudrieron justo por no tener eso.
 
-Actualizado el **2026-09-23**.
+Actualizado el **2026-09-30**.
 
 ## Los tres productos
 
@@ -33,7 +33,7 @@ Los dos primeros comparten servidor y Postgres (bases separadas) y se hablan
 | `modules/plantillas-agente` | Respuestas rápidas personales (atajos con «/») | Todos |
 | `modules/memoria-agente` | Biblioteca personal de textos y archivos (30 MB) para el chat | Todos |
 | `modules/actividades` | Recordatorios y calendario de seguimiento, con push | Todos (operativos sin leads) |
-| `modules/clientes` | Fichas de pacientes (≈16.000, importadas de FileMaker), categoría, PAC; reconoce pacientes de otros sistemas | AGENTE+ |
+| `modules/clientes` | Fichas de pacientes (≈16.000, importadas de FileMaker), PAC, y su categoría por valor —calculada con FileMaker + CRM, o fijada a mano por SUPER_ADMIN—; reconoce pacientes de otros sistemas | AGENTE+ |
 | `modules/leads` | Embudo comercial, Lead Ads de Meta (`/webhooks/meta`) y alta presencial | AGENTE+ |
 | `modules/ventas` | Registro de ventas, catálogo, atribución al lead de origen | AGENTE+ (estado: ADMIN) |
 | `modules/kpis` | Números del dashboard, medidos sobre los mensajes | AGENTE+ |
@@ -125,11 +125,11 @@ Lo que se sabe y se decidió no cambiar todavía, con su motivo:
    backend nunca la emite. Palanca de emergencia sin usar.
 4. **`Lead.estado` no se reconcilia** al corregir `Venta.leadId`. La atribución
    se lee de `Venta.leadId`; el estado del lead casi nunca se mueve a mano.
-5. **La categoría del paciente no caduca sola.** Se recalcula al registrar o
-   cambiar el estado de una venta (o con el botón de la ficha), así que un
-   GOLD que no vuelve a comprar sigue en GOLD pasados los 90 días hasta el
-   siguiente evento. Señal para actuar: que la categoría se use para decidir
-   campañas o precios.
+
+Resuelto el 2026-09-30 y fuera de esta lista: la categoría del paciente no
+caducaba y salía solo de las ventas del CRM. Ahora se calcula por valor
+(FileMaker + CRM, 12 meses) cada 6 h y se puede fijar a mano; ver
+`clientes/categoria-paciente.ts`.
 
 Resuelto el 2026-09-23 y fuera de esta lista: el tipo de adjunto saliente se
 decidía por la extensión (ahora por `mediaMime`); el texto que acompañaba a una

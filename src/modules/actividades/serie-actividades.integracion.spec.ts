@@ -3,6 +3,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { ClientesService } from '../clientes/clientes.service';
 import { ServiciosService } from '../servicios/servicios.service';
 import { ActividadesService } from './actividades.service';
+import { categoriasDePrueba } from '../clientes/categorias.de-prueba';
 
 /**
  * A5.1 · las ocurrencias de una repetición comparten identidad de serie.
@@ -41,7 +42,7 @@ beforeEach(async () => {
   await prisma.usuario.deleteMany();
 
   const servicios = new ServiciosService(prisma);
-  const clientes = new ClientesService(prisma, new AuditService(prisma), servicios);
+  const clientes = new ClientesService(prisma, new AuditService(prisma), servicios, categoriasDePrueba(prisma));
   service = new ActividadesService(
     prisma,
     clientes,

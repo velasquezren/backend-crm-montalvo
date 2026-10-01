@@ -10,6 +10,7 @@ import { ConversacionesGateway } from '../conversaciones/conversaciones.gateway'
 import { ServiciosService } from '../servicios/servicios.service';
 import { ActividadesService } from './actividades.service';
 import { RepetirActividadDto } from './dto/create-actividad.dto';
+import { categoriasDePrueba } from '../clientes/categorias.de-prueba';
 
 /**
  * Contra PostgreSQL real (`crm_test` en el :5433 local) — ver `leads.integracion.spec.ts`.
@@ -61,6 +62,7 @@ beforeEach(async () => {
     prisma,
     new AuditService(prisma),
     new ServiciosService(prisma),
+    categoriasDePrueba(prisma),
   );
   push = new PushService(prisma, new ConfigService({}));
   service = new ActividadesService(prisma, clientesService, push, realtimeGatewayStub);

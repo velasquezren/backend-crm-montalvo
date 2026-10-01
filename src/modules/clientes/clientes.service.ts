@@ -8,6 +8,7 @@ import { normalizarTelefono } from '../../common/telefono/telefono';
 import { calcularPaginacion, construirOrden, paginar } from '../../common/dto/pagination.dto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ServiciosService } from '../servicios/servicios.service';
+import { CategoriaPacienteService } from './categoria-paciente.service';
 import { CreateClienteDto } from './dto/create-cliente.dto';
 import { CreateInteresDto } from './dto/create-interes.dto';
 import { QueryClienteDto } from './dto/query-cliente.dto';
@@ -130,6 +131,8 @@ const CAMPOS_CLIENTE = {
   telefono: true,
   email: true,
   categoria: true,
+  /* Para que la ficha diga «fijada a mano» o «automática». */
+  categoriaFijadaEn: true,
   agenteId: true,
   agente: { select: { id: true, nombre: true } },
   conversaciones: {
@@ -168,6 +171,7 @@ export class ClientesService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly serviciosService: ServiciosService,
+    private readonly categorias: CategoriaPacienteService,
   ) {}
 
   /**
@@ -371,7 +375,7 @@ export class ClientesService {
     const pacNormalizado = pac ? pac.trim().toUpperCase() : null;
 
     try {
-      return await this.prisma.cliente.create({
+      const creado = await this.prisma.cliente.create({
         data: {
           ...restoDto,
           pac: pacNormalizado,
@@ -382,6 +386,9 @@ export class ClientesService {
           datosExtra: Object.keys(datosExtraCombinados).length > 0 ? (datosExtraCombinados as Prisma.InputJsonValue) : undefined,
         },
       });
+      /* Con PAC trae su historial de FileMaker: puede nacer ya Gold. */
+      if (pacNormalizado) creado.categoria = await this.actualizarCategoria(creado.id);
+      return creado;
     } catch (error: unknown) {
       await this.traducirChoqueUnico(error, { telefono: dto.telefono, pac: pacNormalizado }, visor);
       throw error;
@@ -695,6 +702,11 @@ export class ClientesService {
     visor);
 
     await this.audit.registrar('Cliente', id, 'ACTUALIZADO', usuarioId, { ...dto });
+    /* El PAC la une a su historial de FileMaker (también al vincularla desde
+       Resultados): su valor cambió, y su categoría con él. */
+    if (pacData.pac !== undefined && pacData.pac !== cliente.pac) {
+      actualizado.categoria = await this.actualizarCategoria(id);
+    }
     return actualizado;
   }
 
@@ -797,12 +809,9 @@ export class ClientesService {
   }
 
   /**
-   * RF-21 — recalcula la categoría del cliente según su historial de ventas ganadas.
-   * Regla por defecto (ajustable por un admin a futuro, RF-22):
-   *   GOLD   ≥ 3 ventas ganadas o monto acumulado ≥ 10 000 Bs en los últimos 90 días
-   *   SILVER 1-2 ventas ganadas
-   *   BRONZE cliente con ventas pero fuera de la ventana de 90 días
-   *   PROSPECTO sin ventas ganadas
+   * Recalcula la categoría de una paciente con su valor real —FileMaker más el
+   * CRM, ver `categoria-paciente.ts`— y la devuelve. Si está fijada a mano,
+   * no la toca y devuelve la fijada.
    *
    * `tx`: Ventas la llama dentro de la transacción que guarda la venta, para
    * que la venta y su categoría se confirmen juntas o no se confirme ninguna.
@@ -813,39 +822,9 @@ export class ClientesService {
     tx?: Prisma.TransactionClient,
   ): Promise<CategoriaCliente> {
     if (soloAgenteId) await this.findOne(clienteId, soloAgenteId);
-    return tx
-      ? this.recategorizar(tx, clienteId)
-      : this.prisma.$transaction(nueva => this.recategorizar(nueva, clienteId));
-  }
-
-  private async recategorizar(tx: Prisma.TransactionClient, clienteId: string): Promise<CategoriaCliente> {
-    const hace90Dias = new Date();
-    hace90Dias.setDate(hace90Dias.getDate() - 90);
-
-    /* Se agrega en SQL en vez de traer todas las ventas del cliente a memoria
-       para filtrarlas y sumarlas en JS: la base solo devuelve 3 números.
-       En serie y no con `Promise.all`: una transacción es UNA conexión, y `pg`
-       desaconseja encolarle consultas simultáneas. */
-    const recientes = await tx.venta.aggregate({
-      where: { clienteId, estado: 'GANADA', createdAt: { gte: hace90Dias } },
-      _count: true,
-      _sum: { monto: true },
-    });
-    const historicas = await tx.venta.count({ where: { clienteId, estado: 'GANADA' } });
-
-    const cantidadReciente = recientes._count;
-    const montoReciente = Number(recientes._sum.monto ?? 0);
-
-    let categoria: CategoriaCliente = 'PROSPECTO';
-    if (cantidadReciente >= 3 || montoReciente >= 10_000) {
-      categoria = 'GOLD';
-    } else if (cantidadReciente >= 1) {
-      categoria = 'SILVER';
-    } else if (historicas >= 1) {
-      categoria = 'BRONZE';
-    }
-
-    await tx.cliente.update({ where: { id: clienteId }, data: { categoria } });
+    const db = tx ?? this.prisma;
+    await this.categorias.recalcular(clienteId, db);
+    const { categoria } = await db.cliente.findUniqueOrThrow({ where: { id: clienteId }, select: { categoria: true } });
     return categoria;
   }
 

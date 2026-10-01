@@ -9,6 +9,8 @@
     "test",
     "dist",
     "**/*spec.ts",
+    // Ayudas que solo usan las suites (p. ej. `categorias.de-prueba.ts`).
+    "**/*.de-prueba.ts",
     "prisma.config.ts"
   ]
 }

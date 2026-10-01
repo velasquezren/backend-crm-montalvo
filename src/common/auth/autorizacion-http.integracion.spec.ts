@@ -18,6 +18,8 @@ import { UsuariosController } from '../../modules/usuarios/usuarios.controller';
 import { UsuariosService } from '../../modules/usuarios/usuarios.service';
 import { ClientesController } from '../../modules/clientes/clientes.controller';
 import { ClientesService } from '../../modules/clientes/clientes.service';
+import { CategoriaPacienteService } from '../../modules/clientes/categoria-paciente.service';
+import { TipoCambioService } from '../../modules/tipo-cambio/tipo-cambio.service';
 import { ServiciosService } from '../../modules/servicios/servicios.service';
 import { ActividadesController } from '../../modules/actividades/actividades.controller';
 import { ActividadesService } from '../../modules/actividades/actividades.service';
@@ -48,7 +50,7 @@ const telefonos = { startsWith: '+59170004' };
   controllers: [AuthController, UsuariosController, ClientesController, ActividadesController, VentasController, LeadsController, ConversacionesController],
   providers: [LineasWhatsappService, MemoriaAgenteService, { provide: ConfigService, useValue: new ConfigService({}) },
     { provide: PrismaService, useValue: prisma }, AuditService, AuthService, UsuariosService,
-    ClientesService, ServiciosService, ActividadesService, VentasService, LeadsService,
+    ClientesService, CategoriaPacienteService, TipoCambioService, ServiciosService, ActividadesService, VentasService, LeadsService,
     ConversacionesService, CatalogoClinicoService,
     { provide: R2Service, useValue: {} }, { provide: PushService, useValue: {} },
     { provide: WhatsappCloudService, useValue: {} }, { provide: DespachadorSalienteService, useValue: {} },
@@ -302,6 +304,21 @@ describe('F04 · operaciones sobre pacientes', () => {
   it.each(['propio', 'pool'] as const)('permite registrar interés y recalcular categoría de paciente %s', async tipo => {
     expect((await http('agente', 'POST', `/clientes/${clientes[tipo]}/intereses`, { descripcion: 'F04 consulta', origen: 'PRESENCIAL' })).status).toBe(201);
     expect((await http('agente', 'POST', `/clientes/${clientes[tipo]}/recalcular-categoria`, {})).status).toBe(201);
+  });
+  /* Las agentes son ADMIN para cooperar en el chat; la categoría decide a
+     quién va una campaña y solo la fija el propietario. */
+  it('solo SUPER_ADMIN fija la categoría; una agente no la cuela editando la ficha', async () => {
+    const ruta = `/clientes/${clientes.propio}/categoria`;
+    await rechazada('agente', 'PUT', ruta, { categoria: 'GOLD' }, 403);
+    await rechazada('admin', 'PUT', ruta, { categoria: 'GOLD' }, 403);
+    await rechazada('super', 'PUT', ruta, { categoria: 'PLATINO' }, 400);
+    expect((await http('admin', 'PATCH', `/clientes/${clientes.propio}`, { categoria: 'GOLD' })).status).toBe(200);
+    expect((await prisma.cliente.findUniqueOrThrow({ where: { id: clientes.propio } })).categoria).not.toBe('GOLD');
+
+    const fijada = await http('super', 'PUT', ruta, { categoria: 'GOLD' });
+    expect(fijada.status).toBe(200);
+    expect(fijada.body).toMatchObject({ categoria: 'GOLD', categoriaFijadaPor: { id: ids.super } });
+    expect((await http('super', 'PUT', ruta, { categoria: null })).body).toMatchObject({ categoria: 'PROSPECTO', categoriaFijadaEn: null });
   });
   it('ventas rechaza paciente ajeno antes de crear venta o convertir leads', async () => {
     await rechazada('agente', 'POST', '/ventas', { clienteId: clientes.ajeno, producto: 'F04 consulta', monto: 100 }, 404);

@@ -17,6 +17,7 @@ import { IngestaWhatsappService } from './ingesta-whatsapp.service';
 import { MediaEntranteService, MAX_BYTES_MEDIA } from './media-entrante.service';
 import { WhatsappWebhookController } from './webhooks/whatsapp-webhook.controller';
 import { PLAZO_MEDIA_MS } from './politica-media-entrante';
+import { categoriasDePrueba } from '../clientes/categorias.de-prueba';
 
 // Únicas bases admitidas por estas fixtures; red externa sustituida por fetch.
 const URL_TEST = 'postgresql://crm_app:crm_dev_local@127.0.0.1:5433/crm_test';
@@ -54,7 +55,7 @@ function worker(db = prisma, almacenamiento = new R2Service(config)) {
 }
 
 function ingesta(s = worker()) {
-  const clientes = new ClientesService(prisma, new AuditService(prisma), new ServiciosService(prisma));
+  const clientes = new ClientesService(prisma, new AuditService(prisma), new ServiciosService(prisma), categoriasDePrueba(prisma));
   return new IngestaWhatsappService(prisma,
     clientes,
     gateway as unknown as ConversacionesGateway, new AcuseAutomaticoService(config),

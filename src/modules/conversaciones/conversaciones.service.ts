@@ -297,6 +297,8 @@ export class ConversacionesService {
             telefono: true,
             email: true,
             categoria: true,
+            /* El control de categoría de la ficha dice si está fijada a mano. */
+            categoriaFijadaEn: true,
             pac: true,
             ci: true,
             fechaNacimiento: true,

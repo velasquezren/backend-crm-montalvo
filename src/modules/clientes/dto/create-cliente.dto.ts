@@ -1,8 +1,6 @@
-import { CategoriaCliente } from '../../../prisma/prisma-client';
 import {
   IsDateString,
   IsEmail,
-  IsEnum,
   IsObject,
   IsOptional,
   IsPhoneNumber,
@@ -27,9 +25,10 @@ export class CreateClienteDto {
   @IsEmail()
   email?: string;
 
-  @IsOptional()
-  @IsEnum(CategoriaCliente)
-  categoria?: CategoriaCliente;
+  /* Sin `categoria`: la calcula el valor de la paciente y solo un SUPER_ADMIN
+     la fija, por `PUT /clientes/:id/categoria`. Estaba aquí y cualquier agente
+     podía cambiarla al editar la ficha; la siguiente venta la pisaba. Si un
+     cliente viejo la sigue mandando, `whitelist` la descarta. */
 
   /**
    * `null` admitido a propósito: desasignar es una operación real (devolver el

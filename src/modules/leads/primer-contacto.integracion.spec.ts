@@ -9,6 +9,7 @@ import { AcuseAutomaticoService } from '../conversaciones/acuse-automatico.servi
 import { DespachadorSalienteService } from '../conversaciones/despachador-saliente.service';
 import { MediaEntranteService } from '../conversaciones/media-entrante.service';
 import { PrimerContactoService } from './primer-contacto.service';
+import { categoriasDePrueba } from '../clientes/categorias.de-prueba';
 
 // Base desechable fija: nunca se toma DATABASE_URL del entorno.
 const URL = 'postgresql://crm_app:crm_dev_local@127.0.0.1:5433/crm_test';
@@ -21,7 +22,7 @@ const TELEFONO = '+59178062001';
 const gateway = { notificarEntrante: jest.fn(), emitirActividad: jest.fn() };
 
 function clientes(db = prisma) {
-  return new ClientesService(db, new AuditService(db), new ServiciosService(db));
+  return new ClientesService(db, new AuditService(db), new ServiciosService(db), categoriasDePrueba(db));
 }
 function worker(db = prisma) {
   const s = new PrimerContactoService(db, clientes(db));

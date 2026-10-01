@@ -22,6 +22,7 @@ import { KpisService } from '../kpis/kpis.service';
 import type { TabInbox } from './dto/query-conversaciones.dto';
 import { MediaEntranteService } from './media-entrante.service';
 import { CONTENIDO_PIN, TEXTO_UBICACION, UBICACION_CLINICA } from './ubicacion-clinica';
+import { categoriasDePrueba } from '../clientes/categorias.de-prueba';
 
 /**
  * Pruebas contra un PostgreSQL DE VERDAD (`crm_test` en el :5433 local), con
@@ -119,7 +120,7 @@ beforeEach(async () => {
   /* ConfigService real y vacío: sin credenciales de Meta, los envíos a la Cloud
      API cortan antes del fetch. Es el comportamiento real documentado. */
   const config = new ConfigService({});
-  clientesService = new ClientesService(prisma, new AuditService(prisma), new ServiciosService(prisma));
+  clientesService = new ClientesService(prisma, new AuditService(prisma), new ServiciosService(prisma), categoriasDePrueba(prisma));
   const whatsappService = new WhatsappCloudService();
   /* Un solo despachador, compartido — igual que en producción, donde es un
      provider singleton que Nest inyecta en los dos services. */

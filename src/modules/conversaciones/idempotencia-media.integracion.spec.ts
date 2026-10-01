@@ -11,6 +11,7 @@ import { ServiciosService } from '../servicios/servicios.service';
 import { ConversacionesGateway } from './conversaciones.gateway';
 import { ConversacionesService } from './conversaciones.service';
 import { DespachadorSalienteService } from './despachador-saliente.service';
+import { categoriasDePrueba } from '../clientes/categorias.de-prueba';
 
 /**
  * R2.2 — idempotencia del envío CON ADJUNTO, contra PostgreSQL de verdad.
@@ -126,7 +127,7 @@ beforeEach(async () => {
 
   service = new ConversacionesService(
     prisma,
-    new ClientesService(prisma, new AuditService(prisma), new ServiciosService(prisma)),
+    new ClientesService(prisma, new AuditService(prisma), new ServiciosService(prisma), categoriasDePrueba(prisma)),
     gateway as unknown as ConversacionesGateway,
     r2 as unknown as R2Service,
     new WhatsappCloudService(),
