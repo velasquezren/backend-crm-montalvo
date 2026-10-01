@@ -7,6 +7,9 @@ import { inicioDeVentana, valorDePacientesSql } from '../clientes/categoria-paci
 import { TipoCambioService } from '../tipo-cambio/tipo-cambio.service';
 import { CATEGORIAS_POR_DEFECTO, DIAS_SIN_CAMPANA_POR_DEFECTO, QueryAudienciaDto } from './dto/query-audiencia.dto';
 
+/** Quiénes forman la audiencia: lo de `QueryAudienciaDto` sin la paginación. */
+export type FiltroAudiencia = Pick<QueryAudienciaDto, 'categorias' | 'diasSinCampana' | 'soloConversaron'>;
+
 /**
  * Por qué una paciente de las categorías elegidas queda fuera de la audiencia,
  * en el orden en que se aplica: cuenta el PRIMER motivo, así los números del
@@ -134,11 +137,27 @@ export class AudienciasService {
   }
 
   /**
+   * Las elegibles de la audiencia, TODAS y de más a menos gasto, para
+   * congelarla en una campaña. Misma CTE que `segmentar`: lo que se manda es
+   * exactamente lo que se vio. Pide una de más que el tope para que quien
+   * llama sepa que se pasó, en vez de cortar callado.
+   */
+  async idsElegibles(filtro: FiltroAudiencia, tope: number, ahora = new Date()): Promise<string[]> {
+    const base = await this.baseSql(filtro, ahora);
+    const filas = await this.prisma.$queryRaw<{ id: string }[]>`
+      WITH ${base}
+      SELECT id FROM audiencia WHERE motivo IS NULL
+      ORDER BY gasto DESC, nombre ASC, id ASC
+      LIMIT ${tope + 1}`;
+    return filas.map(f => f.id);
+  }
+
+  /**
    * La audiencia completa como CTE `audiencia`: una fila por paciente de las
    * categorías elegidas, con su valor, sus señales de WhatsApp y el primer
    * motivo por el que queda fuera (`null` = elegible).
    */
-  private async baseSql(query: QueryAudienciaDto, ahora: Date): Promise<Prisma.Sql> {
+  private async baseSql(query: FiltroAudiencia, ahora: Date): Promise<Prisma.Sql> {
     const { tipoCambio } = await this.tipoCambio.vigente();
     const categorias = query.categorias?.length ? query.categorias : [...CATEGORIAS_POR_DEFECTO];
     const dias = query.diasSinCampana ?? DIAS_SIN_CAMPANA_POR_DEFECTO;
@@ -168,7 +187,9 @@ export class AudienciasService {
                  WHERE k."clienteId" = c.id AND m.direccion = 'ENTRANTE') AS converso,
                (SELECT m."leidoEn" IS NOT NULL
                   FROM "Conversacion" k JOIN "Mensaje" m ON m."conversacionId" = k.id
-                 WHERE k."clienteId" = c.id AND m.direccion = 'SALIENTE' AND m.automatico = false
+                 WHERE k."clienteId" = c.id AND m.direccion = 'SALIENTE'
+                   /* Lo que mandó una persona o una campaña; no el acuse ni la ubicación. */
+                   AND (m.automatico = false OR m."plantillaCategoria" IS NOT NULL)
                  ORDER BY m."createdAt" DESC LIMIT 1) AS leyo_ultimo
         FROM "Cliente" c
         LEFT JOIN filemaker f ON f.pac = c.pac

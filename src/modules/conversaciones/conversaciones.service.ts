@@ -1032,6 +1032,101 @@ export class ConversacionesService {
   }
 
   /**
+   * Una plantilla de CAMPAÑA (`modules/campanas`): un envío masivo, no una
+   * persona atendiendo un chat. Comparte con `enviarPlantilla` todo lo que
+   * valida —línea conectada, plantilla aprobada, variables, baja de
+   * promociones (409)— y NO tiene ninguno de sus efectos de atención:
+   *
+   *  - no asigna el chat ni la paciente a quien la lanzó: si respondiera,
+   *    contesta quien esté en la línea, como con cualquier mensaje entrante;
+   *  - no reabre un chat cerrado ni mueve `updatedAt`: quinientos envíos no
+   *    pueden inundar «Todas» ni reordenar la bandeja; la respuesta sí la
+   *    reabre, por la ingesta;
+   *  - no saca a nadie de «Sin responder»: una promoción no contesta lo que
+   *    la paciente preguntó (`automatico: true`, como el acuse);
+   *  - un chat nuevo nace CERRADO: no es trabajo hasta que ella escriba.
+   *
+   * Solo Marketing: una plantilla de Utilidad no puede llevar publicidad.
+   * `clientMessageId` es la clave de idempotencia del destinatario: si el
+   * barrido se cae entre guardar y marcar, el reintento devuelve el mismo
+   * mensaje y no le manda —ni cobra— otro.
+   *
+   * Espera el despacho a Meta (a diferencia del chat, nadie espera la
+   * respuesta): así el ritmo de la campaña es el real.
+   */
+  async enviarPlantillaDeCampana(envio: {
+    clienteId: string;
+    lineaId: string;
+    plantilla: string;
+    idioma: string;
+    parametros: string[];
+    clientMessageId: string;
+  }): Promise<{ mensajeId: string }> {
+    const linea = await this.lineas.porId(envio.lineaId);
+    if (!this.lineas.credenciales(linea)) {
+      throw new BadRequestException(`La línea «${linea.nombre}» no está conectada a WhatsApp: desde ella no se puede escribir.`);
+    }
+    const preparada = await this.prepararPlantilla(linea.id, {
+      plantilla: envio.plantilla,
+      idioma: envio.idioma,
+      parametros: envio.parametros,
+      clientMessageId: envio.clientMessageId,
+    });
+    if (preparada.categoria !== 'MARKETING') {
+      throw new BadRequestException(
+        `«${envio.plantilla}» no es de Marketing: una campaña solo manda plantillas de Marketing, y una de Utilidad no puede llevar publicidad.`,
+      );
+    }
+    await this.verificarPromociones(envio.clienteId, preparada.categoria);
+
+    const { telefono } = await this.prisma.cliente.findUniqueOrThrow({ where: { id: envio.clienteId }, select: { telefono: true } });
+    const conversacionId = await this.conversacionParaCampana(envio.clienteId, linea.id);
+
+    let mensaje;
+    try {
+      mensaje = await this.prisma.mensaje.create({
+        data: {
+          conversacionId,
+          direccion: 'SALIENTE',
+          contenido: preparada.contenido,
+          estadoEnvio: 'ENVIADO',
+          permiteReintento: false,
+          automatico: true,
+          clientMessageId: envio.clientMessageId,
+          plantillaCategoria: preparada.categoria,
+        },
+      });
+    } catch (error) {
+      const yaCreado = await this.recuperarEnvioDuplicado(error, conversacionId, envio.clientMessageId);
+      if (!yaCreado) throw error;
+      return { mensajeId: yaCreado.id };
+    }
+
+    this.gateway.emitirActividad(conversacionId);
+    await enSegundoPlano(`envío de la campaña con ${envio.plantilla} a Meta`, this.logger, () =>
+      this.despachador.plantilla({ mensajeId: mensaje.id, conversacionId, telefono }, preparada.despacho),
+    );
+    return { mensajeId: mensaje.id };
+  }
+
+  /**
+   * El chat de la paciente en esa línea; si no lo tenía, uno nuevo y CERRADO
+   * (ver `enviarPlantillaDeCampana`). Si la ingesta lo crea a la vez, el
+   * índice único rebota y se usa el suyo.
+   */
+  private async conversacionParaCampana(clienteId: string, lineaId: string): Promise<string> {
+    const clave = { clienteId_lineaId: { clienteId, lineaId } };
+    const existente = await this.prisma.conversacion.findUnique({ where: clave, select: { id: true } });
+    if (existente) return existente.id;
+    try {
+      return (await this.prisma.conversacion.create({ data: { clienteId, lineaId, cerradaEn: new Date() }, select: { id: true } })).id;
+    } catch (error) {
+      if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2002') throw error;
+      return (await this.prisma.conversacion.findUniqueOrThrow({ where: clave, select: { id: true } })).id;
+    }
+  }
+
+  /**
    * Escribirle primero a alguien, desde la línea que se elija: una paciente de
    * la base o un número nuevo. Siempre con plantilla (ver `IniciarConversacionDto`).
    *

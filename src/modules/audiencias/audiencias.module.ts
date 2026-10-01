@@ -8,5 +8,6 @@ import { AudienciasService } from './audiencias.service';
   imports: [TipoCambioModule],
   controllers: [AudienciasController],
   providers: [AudienciasService],
+  exports: [AudienciasService],
 })
 export class AudienciasModule {}

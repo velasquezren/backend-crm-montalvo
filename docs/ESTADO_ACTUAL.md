@@ -33,8 +33,28 @@
     marcado: las campañas viejas no cuentan como recientes.
   - Una sola consulta materializada: con las 16.000 Prospecto son ~1,2 s; Gold y Silver,
     al instante. Detalle en `modules/audiencias/audiencias.service.ts`.
-  - Pendiente (fase 3): el envío masivo desde la audiencia —cola con ritmo, tope de
-    frecuencia, métricas por campaña— y, si conviene, la Marketing Messages API de Meta.
+- **Campañas (`/campanas`; lanzar y controlar: SUPER_ADMIN).** Desde una audiencia se
+  crea una campaña con una plantilla de **Marketing** (las de Utilidad no pueden llevar
+  publicidad): la audiencia se congela —si cambió mientras se miraba, 409 con el número
+  nuevo—, sale de más a menos gasto, 20 cada 15 s y solo de 9:00 a 20:00 en La Paz, con
+  tope de 2.000 pacientes. Antes de cada envío se vuelve a mirar la baja y otra campaña
+  reciente (quedan OMITIDAS con el motivo). Si la plantilla o la línea dejan de servir,
+  se PAUSA sola con el motivo.
+  - **No se comporta como una agente escribiendo:** no asigna el chat ni la paciente, no
+    reabre ni reordena la bandeja, no saca a nadie de «Sin responder», y un chat nuevo
+    nace cerrado. Lo que la reabre es la respuesta de la paciente.
+  - **Nadie recibe dos veces:** cada destinataria tiene su clave de envío (índice único
+    de `Mensaje.clientMessageId`); tras una caída se reintenta y se recupera el mismo
+    mensaje. La prueba encontró que el chequeo de «otra campaña reciente» veía el mensaje
+    de la propia campaña y la omitía: corregido.
+  - Métricas sobre los mensajes: entregados, leídos, rechazos de Meta (131049 aparte),
+    respondieron en 7 días, bajas, compraron en 30 días (FileMaker + CRM, atribución
+    simple) y costo = entregados × la tarifa con que se lanzó.
+  - Pendiente: la Marketing Messages API de Meta (entrega optimizada y métricas de clic);
+    hoy sale por la Cloud API, como el resto.
+- **`npm run test:build` fallaba en `main`** (4 de 9) desde que `check:skills` exige
+  `docs/PANORAMA.md`: la prueba compila una copia del repo y no lo copiaba. El build real
+  pasaba; la suite decía lo contrario. Ahora lo copia: 9/9.
 
 - **Conversaciones abiertas y cerradas.** «Sin responder» marcaba 427 y la clínica contaba
   menos. La definición era correcta, pero sin estado «cerrada» acumulaba todo lo que alguna

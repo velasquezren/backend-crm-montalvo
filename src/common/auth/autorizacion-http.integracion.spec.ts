@@ -21,6 +21,8 @@ import { ClientesService } from '../../modules/clientes/clientes.service';
 import { CategoriaPacienteService } from '../../modules/clientes/categoria-paciente.service';
 import { AudienciasController } from '../../modules/audiencias/audiencias.controller';
 import { AudienciasService } from '../../modules/audiencias/audiencias.service';
+import { CampanasController } from '../../modules/campanas/campanas.controller';
+import { CampanasService } from '../../modules/campanas/campanas.service';
 import { TipoCambioService } from '../../modules/tipo-cambio/tipo-cambio.service';
 import { ServiciosService } from '../../modules/servicios/servicios.service';
 import { ActividadesController } from '../../modules/actividades/actividades.controller';
@@ -49,11 +51,11 @@ const telefonos = { startsWith: '+59170004' };
 /** Transporte Nest real. Solo las salidas externas no usadas tienen dobles. */
 @Module({
   imports: [JwtModule.register({ secret: 'secreto-ficticio-f04-solo-tests', signOptions: { expiresIn: '15m' } })],
-  controllers: [AuthController, UsuariosController, ClientesController, AudienciasController, ActividadesController, VentasController, LeadsController, ConversacionesController],
+  controllers: [AuthController, UsuariosController, ClientesController, AudienciasController, CampanasController, ActividadesController, VentasController, LeadsController, ConversacionesController],
   providers: [LineasWhatsappService, MemoriaAgenteService, { provide: ConfigService, useValue: new ConfigService({}) },
     { provide: PrismaService, useValue: prisma }, AuditService, AuthService, UsuariosService,
     ClientesService, CategoriaPacienteService, TipoCambioService, ServiciosService, ActividadesService, VentasService, LeadsService,
-    ConversacionesService, CatalogoClinicoService, AudienciasService,
+    ConversacionesService, CatalogoClinicoService, AudienciasService, CampanasService,
     { provide: R2Service, useValue: {} }, { provide: PushService, useValue: {} },
     { provide: WhatsappCloudService, useValue: {} }, { provide: DespachadorSalienteService, useValue: {} },
     { provide: ConversacionesGateway, useValue: { emitirActividad: () => undefined } },
@@ -330,6 +332,20 @@ describe('F04 · operaciones sobre pacientes', () => {
     expect(r.status).toBe(200);
     expect(r.body).toMatchObject({ resumen: { excluidas: { SIN_CONVERSAR: expect.any(Number) } }, total: expect.any(Number) });
     expect(Array.isArray(r.body.datos)).toBe(true);
+  });
+  /* Una campaña escribe a cientos de pacientes y se paga: administración la
+     ve, solo el propietario la lanza o la controla. */
+  it('campañas: la agente no entra, administración solo mira, SUPER_ADMIN lanza', async () => {
+    const datos = {
+      nombre: 'Prueba', lineaId: '00000000-0000-4000-8000-000000000001', plantilla: 'x', idioma: 'es', variables: [],
+      filtro: { categorias: ['GOLD'], diasSinCampana: 30, soloConversaron: false }, tarifaUsd: 0.055, elegiblesVistas: 1,
+    };
+    await rechazada('agente', 'GET', '/campanas', undefined, 403);
+    expect((await http('admin', 'GET', '/campanas')).status).toBe(200);
+    await rechazada('admin', 'POST', '/campanas', datos, 403);
+    await rechazada('admin', 'POST', '/campanas/00000000-0000-4000-8000-000000000099/pausar', {}, 403);
+    await rechazada('super', 'POST', '/campanas', { ...datos, tarifaUsd: 5, variables: [{ tipo: 'TEXTO' }] }, 400);
+    await rechazada('super', 'POST', '/campanas/00000000-0000-4000-8000-000000000099/cancelar', {}, 404);
   });
   it('ventas rechaza paciente ajeno antes de crear venta o convertir leads', async () => {
     await rechazada('agente', 'POST', '/ventas', { clienteId: clientes.ajeno, producto: 'F04 consulta', monto: 100 }, 404);

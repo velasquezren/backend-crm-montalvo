@@ -39,6 +39,12 @@ test('npm run build conserva el entrypoint en builds limpios y consecutivos', as
     'package.json', 'nest-cli.json', 'tsconfig.json', 'tsconfig.build.json']) {
     cpSync(join(proyecto, ruta), join(raiz, ruta), { recursive: true });
   }
+  /* `check:skills` exige que PANORAMA nombre cada módulo. Sin copiarlo, esta
+     prueba fallaba en `main` con «falta docs/PANORAMA.md» desde que existe esa
+     comprobación (encontrado el 2026-10-01): el build de verdad pasaba y esta
+     suite decía lo contrario. Solo ese archivo; el resto de docs/ no se lee. */
+  mkdirSync(join(raiz, 'docs'));
+  copyFileSync(join(proyecto, 'docs', 'PANORAMA.md'), join(raiz, 'docs', 'PANORAMA.md'));
   symlinkSync(join(proyecto, 'node_modules'), join(raiz, 'node_modules'), 'dir');
 
   const ejecutarBuild = () => {

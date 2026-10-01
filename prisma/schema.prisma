@@ -111,6 +111,7 @@ model Usuario {
   createdAt             DateTime               @default(now())
   updatedAt             DateTime               @updatedAt
   avisosResultado       AvisoResultado[]
+  campanas              Campana[]
 }
 
 model SesionUsuario {
@@ -193,6 +194,7 @@ model Cliente {
   conversaciones Conversacion[]
   ventas         Venta[]
   actividades    Actividad[]
+  campanas       CampanaDestinatario[]
   createdAt      DateTime       @default(now())
   updatedAt      DateTime       @updatedAt
   // `Cliente_saldoTotal_idx` es parcial (`WHERE "saldoTotal" > 0`) y el lenguaje de
@@ -291,6 +293,7 @@ model LineaWhatsapp {
   usuarios       AccesoLineaWhatsapp[]
   silencios      SilencioLinea[]
   conversaciones Conversacion[]
+  campanas       Campana[]
 }
 
 model AccesoLineaWhatsapp {
@@ -458,6 +461,7 @@ model Mensaje {
   /// pesa y evita recorrer la tabla de mensajes entera cada minuto.
   @@index([proximoIntento])
   avisoResultado AvisoResultado?
+  destinatarioCampana CampanaDestinatario?
 }
 
 /// Una recuperación por mensaje. CHECK en SQL: estados internos, fuera de la API.
@@ -1381,4 +1385,85 @@ model AvisoResultado {
   enviadoEn    DateTime @default(now())
 
   @@index([clienteId, enviadoEn])
+}
+
+/// En qué punto está una campaña. Ver `modules/campanas`.
+enum EstadoCampana {
+  /// Creada con fecha futura: el envío empieza solo a esa hora.
+  PROGRAMADA
+  /// Saliendo, a ritmo y dentro del horario de envío.
+  ENVIANDO
+  /// La detuvo una persona, o el sistema porque la plantilla o la línea dejaron de servir.
+  PAUSADA
+  /// Ya no le queda nadie pendiente.
+  TERMINADA
+  /// Detenida para siempre: las pendientes no saldrán.
+  CANCELADA
+}
+
+/// Qué pasó con una paciente de la campaña. La ENTREGA y la LECTURA no se
+/// copian aquí: se leen del `Mensaje`, que las actualiza el webhook de Meta.
+enum EstadoDestinatario {
+  PENDIENTE
+  /// Se está enviando ahora mismo: lo reserva el barrido para no mandarle dos veces.
+  ENVIANDO
+  /// El mensaje se guardó y salió hacia Meta (`mensajeId`).
+  ENVIADO
+  /// No se le mandó: pidió la baja o recibió otra campaña después de crearla.
+  OMITIDO
+  /// No se pudo crear el envío (`error`).
+  FALLIDO
+}
+
+/// Un envío masivo de una plantilla de Marketing a una audiencia
+/// (`modules/campanas`). La audiencia se congela al crearla: es exactamente
+/// la que se vio, contó y aprobó, aunque después cambien las categorías.
+model Campana {
+  id          String        @id @default(uuid())
+  nombre      String        @db.VarChar(120)
+  linea       LineaWhatsapp @relation(fields: [lineaId], references: [id])
+  lineaId     String
+  plantilla   String        @db.VarChar(512)
+  idioma      String        @db.VarChar(20)
+  /// De dónde sale cada variable de la plantilla, en el orden de Meta
+  /// (`VariableCampana[]`: el nombre de la paciente o un texto fijo).
+  variables   Json
+  /// El filtro de Audiencias con que se armó, para saber después a quién fue.
+  filtro      Json
+  /// Dólares por plantilla entregada con que se estimó el costo.
+  tarifaUsd   Decimal       @db.Decimal(8, 4)
+  estado      EstadoCampana
+  /// Por qué la pausó el sistema (plantilla retirada, línea desconectada).
+  motivoPausa String?       @db.VarChar(300)
+  programadaPara DateTime
+  creadaPor   Usuario       @relation(fields: [creadaPorId], references: [id])
+  creadaPorId String
+  createdAt   DateTime      @default(now())
+  terminadaEn DateTime?
+  destinatarios CampanaDestinatario[]
+
+  @@index([estado, programadaPara])
+  @@index([createdAt])
+}
+
+model CampanaDestinatario {
+  id         String             @id @default(uuid())
+  campana    Campana            @relation(fields: [campanaId], references: [id], onDelete: Cascade)
+  campanaId  String
+  cliente    Cliente            @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  clienteId  String
+  /// Su puesto en la audiencia, de más a menos gasto: las que más valen
+  /// reciben primero, y si la campaña se pausa a medias ya les llegó.
+  orden      Int
+  estado     EstadoDestinatario @default(PENDIENTE)
+  /// El mensaje del CRM que la llevó: de ahí salen entrega, lectura y respuesta.
+  mensaje    Mensaje?           @relation(fields: [mensajeId], references: [id], onDelete: SetNull)
+  mensajeId  String?            @unique
+  /// Por qué no salió (OMITIDO o FALLIDO).
+  motivo     String?            @db.VarChar(300)
+  enviadoEn  DateTime?
+
+  /// Una paciente, una vez por campaña: es lo que impide mandarle dos.
+  @@unique([campanaId, clienteId])
+  @@index([campanaId, estado, orden])
 }

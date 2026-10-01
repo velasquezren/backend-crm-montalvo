@@ -160,6 +160,22 @@ lee de `Mensaje.plantillaCategoria = 'MARKETING'`: **si añades un camino que ma
 plantillas, guarda su categoría**, o Audiencias le volverá a escribir a quien acaba de
 recibir una.
 
+**Campañas (`modules/campanas`) mandan por `enviarPlantillaDeCampana`, nunca por
+`enviarPlantilla`.** El envío del chat está hecho para una persona atendiendo: asigna el
+chat y la paciente a quien escribe, reabre, mueve `updatedAt` y saca de «Sin responder».
+Una campaña lanzada por el propietario dejaría cientos de chats a su nombre, inundaría
+«Todas» y escondería a quien esperaba respuesta. El camino de campaña comparte las
+validaciones (línea, plantilla, variables, baja) y ninguno de esos efectos; el mensaje
+va `automatico: true` y un chat nuevo nace cerrado.
+
+- **Idempotencia:** `claveDeEnvio(destinatarioId)` como `clientMessageId`. Tras una caída
+  la fila vuelve a PENDIENTE (`onModuleInit`) y el reintento recupera el mismo mensaje.
+  **Todo chequeo previo al envío tiene que excluir el mensaje de la propia
+  destinataria**: «otra campaña reciente» lo veía y la omitía.
+- **Pausa sola** ante un 400/503 de Conversaciones (plantilla retirada, línea caída):
+  vale para todas, seguir solo apila fallos. Un fallo de una sola paciente es FALLIDO.
+- Las métricas no se copian: se cuentan sobre `Mensaje` (lo marca el webhook).
+
 **Cicatriz:** se calculaba solo con las ventas del CRM —22 en total— y nunca caducaba:
 16.294 de 16.318 fichas eran Prospecto, la categoría no servía para decidir nada y nadie
 lo notaba porque no fallaba, solo no decía nada.
