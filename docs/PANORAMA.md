@@ -35,8 +35,7 @@ Los dos primeros comparten servidor y Postgres (bases separadas) y se hablan
 | `modules/memoria-agente` | Biblioteca personal de textos y archivos (30 MB) para el chat | Todos |
 | `modules/actividades` | Recordatorios y calendario de seguimiento, con push | Todos (operativos sin leads) |
 | `modules/clientes` | Fichas de pacientes (≈16.000, importadas de FileMaker), PAC, y su categoría por valor —calculada con FileMaker + CRM, o fijada a mano por SUPER_ADMIN—; reconoce pacientes de otros sistemas | AGENTE+ |
-| `modules/audiencias` | A quién mandarle una campaña hoy: cruza la categoría por valor con si conviene escribirle (sin baja, con celular, sin campaña de marketing reciente, si ya conversó). Solo lee; no envía | ADMIN+ |
-| `modules/campanas` | Envío masivo de una plantilla de Marketing a una audiencia congelada, a ritmo (80/min) y de 9:00 a 20:00 en La Paz, con sus métricas (entregó, leyó, respondió, compró, costo) | Ver: ADMIN+ · lanzar y controlar: SUPER_ADMIN |
+| `modules/campanas` | Campañas de Marketing de punta a punta. **Audiencia** (`GET /campanas/audiencia`, solo lee): a quién mandarle hoy, cruzando la categoría por valor con si conviene escribirle (sin baja, con celular, sin campaña reciente, si ya conversó). **Envío**: una plantilla de Marketing a esa audiencia congelada, a ritmo (80/min) y de 9:00 a 20:00 en La Paz, con sus métricas (entregó, leyó, respondió, compró, costo) | Ver: ADMIN+ · lanzar y controlar: SUPER_ADMIN |
 | `modules/leads` | Embudo comercial, Lead Ads de Meta (`/webhooks/meta`) y alta presencial | AGENTE+ |
 | `modules/ventas` | Registro de ventas, catálogo, atribución al lead de origen | AGENTE+ (estado: ADMIN) |
 | `modules/kpis` | Números del dashboard, medidos sobre los mensajes | AGENTE+ |
@@ -81,8 +80,7 @@ si añades otra, añádela aquí con su motivo.
 | Entrega de Resultados | `/resultados` | ASISTENTE, ADMIN+ |
 | Clientes y Pacientes | `/clientes` | AGENTE+ |
 | Leads y Prospectos | `/leads` | AGENTE+ |
-| Audiencias | `/audiencias` | ADMIN+ (crear campaña: SUPER_ADMIN) |
-| Campañas | `/campanas` | ADMIN+ (pausar, reanudar, cancelar: SUPER_ADMIN) |
+| Campañas (pestañas «Campañas» y «Audiencia») | `/campanas` | ADMIN+ (crear, pausar, reanudar, cancelar: SUPER_ADMIN) |
 | Ventas | `/ventas` | AGENTE+ |
 | Finanzas & Comisiones | `/finanzas` (liquidación, desempeño, analítica, anual) | ADMIN+ |
 | Historial de Servicios | `/servicios` | ADMIN+ |

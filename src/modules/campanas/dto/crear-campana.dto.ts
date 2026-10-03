@@ -48,7 +48,7 @@ export class VariableCampanaDto {
   texto?: string;
 }
 
-/** La audiencia, con los mismos campos que `GET /audiencias`. */
+/** La audiencia, con los mismos campos que `GET /campanas/audiencia`. */
 export class FiltroCampanaDto {
   @IsArray()
   @ArrayMinSize(1)

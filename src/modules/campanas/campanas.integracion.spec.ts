@@ -4,7 +4,7 @@ import { AuditService } from '../../common/audit/audit.service';
 import type { R2Service } from '../../common/storage/r2.service';
 import { WhatsappCloudService } from '../../common/whatsapp/whatsapp-cloud.service';
 import { PrismaService } from '../../prisma/prisma.service';
-import { AudienciasService } from '../audiencias/audiencias.service';
+import { AudienciasService } from './audiencias.service';
 import { categoriasDePrueba } from '../clientes/categorias.de-prueba';
 import { ClientesService } from '../clientes/clientes.service';
 import { ConversacionesGateway } from '../conversaciones/conversaciones.gateway';

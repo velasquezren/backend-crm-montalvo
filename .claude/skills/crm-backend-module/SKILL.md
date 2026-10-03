@@ -152,7 +152,14 @@ aplica `CategoriaPacienteService`:
 `filemaker` y `crm` que usan la categoría y Audiencias. Si cada uno sumara a su manera,
 una paciente Gold en su ficha podría no serlo en una audiencia.
 
-**Audiencias (`modules/audiencias`) solo lee.** El embudo cuenta a cada paciente por su
+**Campañas es UN módulo (`modules/campanas`), con la audiencia dentro** (2026-10-03).
+La audiencia nació como módulo y pantalla aparte, pero no tiene otro uso que armar una
+campaña: `AudienciasService` es un provider más del módulo y su ruta es
+`GET /campanas/audiencia`, declarada antes de `:id` (Express casa en orden y, después,
+«audiencia» se leería como el id de una campaña). Si algo más necesita segmentar
+pacientes, se exporta el service; no se le devuelve su módulo.
+
+**La audiencia solo lee.** El embudo cuenta a cada paciente por su
 PRIMER motivo de exclusión (`MOTIVOS_EXCLUSION`, en orden), así que los números suman
 exactamente el total; resumen y página salen de la misma CTE `MATERIALIZED`, en una
 sentencia, y el total que se pagina es el «elegibles» del resumen. «Campaña reciente» se

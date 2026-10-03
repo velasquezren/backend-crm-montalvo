@@ -1,5 +1,18 @@
 # Estado actual
 
+## Actualización del 3 de octubre de 2026
+
+- **Audiencias y Campañas, un solo módulo y una sola página.** La audiencia no tiene otro
+  uso que lanzar una campaña, y estaban en dos entradas del menú y dos módulos.
+  - Servidor: `modules/campanas` con `AudienciasService` dentro. La ruta pasa de
+    `GET /audiencias` a `GET /campanas/audiencia`, declarada antes de `:id`; una prueba de
+    autorización lo fija.
+  - Interfaz: `/campanas` con dos pestañas, «Campañas» y «Audiencia», en la URL con `?tab=`.
+    Cada pestaña se monta al visitarla y conserva sus filtros. «Crear campaña» está en
+    «Audiencia» y lleva a la ficha de la campaña creada. `/audiencias` redirige a la pestaña.
+  - Las clases que apartan una pestaña sin desmontarla (`.crm-pestana-panel-oculta`)
+    pasaron de Finanzas a `styles.css` para que las compartan las dos.
+
 ## Revisión y despliegue del 1 de octubre de 2026
 
 Después de contrastar `origin/main`, se corrigieron la recuperación y
@@ -55,7 +68,7 @@ probados; no equivale a garantizar entrega externa exactamente una vez.
     plantilla enviada desde hoy (el aviso de resultados, `UTILITY`). Lo anterior no está
     marcado: las campañas viejas no cuentan como recientes.
   - Una sola consulta materializada: con las 16.000 Prospecto son ~1,2 s; Gold y Silver,
-    al instante. Detalle en `modules/audiencias/audiencias.service.ts`.
+    al instante. Detalle en `modules/campanas/audiencias.service.ts`.
 - **Campañas (`/campanas`; lanzar y controlar: SUPER_ADMIN).** Desde una audiencia se
   crea una campaña con una plantilla de **Marketing** (las de Utilidad no pueden llevar
   publicidad): la audiencia se congela —si cambió mientras se miraba, 409 con el número

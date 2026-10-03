@@ -4,10 +4,10 @@ import { AuditService } from '../../common/audit/audit.service';
 import { calcularPaginacion, paginar } from '../../common/dto/pagination.dto';
 import { EstadoCampana, Prisma } from '../../prisma/prisma-client';
 import { PrismaService } from '../../prisma/prisma.service';
-import { AudienciasService } from '../audiencias/audiencias.service';
 import { ConversacionesService } from '../conversaciones/conversaciones.service';
 import { validarParametros } from '../conversaciones/plantillas-whatsapp';
 import { TipoCambioService } from '../tipo-cambio/tipo-cambio.service';
+import { AudienciasService } from './audiencias.service';
 import {
   MAXIMO_DESTINATARIOS,
   parametrosPara,

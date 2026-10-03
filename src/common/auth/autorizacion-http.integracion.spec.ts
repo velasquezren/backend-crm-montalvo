@@ -19,8 +19,7 @@ import { UsuariosService } from '../../modules/usuarios/usuarios.service';
 import { ClientesController } from '../../modules/clientes/clientes.controller';
 import { ClientesService } from '../../modules/clientes/clientes.service';
 import { CategoriaPacienteService } from '../../modules/clientes/categoria-paciente.service';
-import { AudienciasController } from '../../modules/audiencias/audiencias.controller';
-import { AudienciasService } from '../../modules/audiencias/audiencias.service';
+import { AudienciasService } from '../../modules/campanas/audiencias.service';
 import { CampanasController } from '../../modules/campanas/campanas.controller';
 import { CampanasService } from '../../modules/campanas/campanas.service';
 import { TipoCambioService } from '../../modules/tipo-cambio/tipo-cambio.service';
@@ -51,7 +50,7 @@ const telefonos = { startsWith: '+59170004' };
 /** Transporte Nest real. Solo las salidas externas no usadas tienen dobles. */
 @Module({
   imports: [JwtModule.register({ secret: 'secreto-ficticio-f04-solo-tests', signOptions: { expiresIn: '15m' } })],
-  controllers: [AuthController, UsuariosController, ClientesController, AudienciasController, CampanasController, ActividadesController, VentasController, LeadsController, ConversacionesController],
+  controllers: [AuthController, UsuariosController, ClientesController, CampanasController, ActividadesController, VentasController, LeadsController, ConversacionesController],
   providers: [LineasWhatsappService, MemoriaAgenteService, { provide: ConfigService, useValue: new ConfigService({}) },
     { provide: PrismaService, useValue: prisma }, AuditService, AuthService, UsuariosService,
     ClientesService, CategoriaPacienteService, TipoCambioService, ServiciosService, ActividadesService, VentasService, LeadsService,
@@ -325,10 +324,10 @@ describe('F04 · operaciones sobre pacientes', () => {
     expect((await http('super', 'PUT', ruta, { categoria: null })).body).toMatchObject({ categoria: 'PROSPECTO', categoriaFijadaEn: null });
   });
   /* Una audiencia lista a pacientes de toda la clínica: ADMIN+, y valida lo que filtra. */
-  it('audiencias es de administración y rechaza una categoría que no existe', async () => {
-    await rechazada('agente', 'GET', '/audiencias', undefined, 403);
-    await rechazada('admin', 'GET', '/audiencias?categorias=PLATINO', undefined, 400);
-    const r = await http('admin', 'GET', '/audiencias?categorias=GOLD,PROSPECTO&diasSinCampana=7&soloConversaron=true');
+  it('la audiencia de una campaña es de administración y rechaza una categoría que no existe', async () => {
+    await rechazada('agente', 'GET', '/campanas/audiencia', undefined, 403);
+    await rechazada('admin', 'GET', '/campanas/audiencia?categorias=PLATINO', undefined, 400);
+    const r = await http('admin', 'GET', '/campanas/audiencia?categorias=GOLD,PROSPECTO&diasSinCampana=7&soloConversaron=true');
     expect(r.status).toBe(200);
     expect(r.body).toMatchObject({ resumen: { excluidas: { SIN_CONVERSAR: expect.any(Number) } }, total: expect.any(Number) });
     expect(Array.isArray(r.body.datos)).toBe(true);

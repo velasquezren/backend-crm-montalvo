@@ -2,19 +2,34 @@ import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
 
 import { CurrentUser, UsuarioJwt } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { AudienciasService } from './audiencias.service';
 import { CampanasService } from './campanas.service';
 import { CrearCampanaDto } from './dto/crear-campana.dto';
+import { QueryAudienciaDto } from './dto/query-audiencia.dto';
 import { QueryCampanasDto, QueryDestinatariosDto } from './dto/query-campanas.dto';
 
 /**
- * Campañas: administración las ve; solo SUPER_ADMIN las lanza y las controla.
- * Las agentes son ADMIN para cooperar en el chat, y una campaña escribe a
- * cientos de pacientes y se paga.
+ * Campañas: administración las ve —con su audiencia—; solo SUPER_ADMIN las
+ * lanza y las controla. Las agentes son ADMIN para cooperar en el chat, y una
+ * campaña escribe a cientos de pacientes y se paga.
  */
 @Controller('campanas')
 @Roles('ADMIN')
 export class CampanasController {
-  constructor(private readonly campanas: CampanasService) {}
+  constructor(
+    private readonly campanas: CampanasService,
+    private readonly audiencias: AudienciasService,
+  ) {}
+
+  /**
+   * Quiénes recibirían una campaña hoy, con el embudo de por qué el resto no.
+   * Va ANTES de `:id`: Express casa las rutas en el orden en que se declaran,
+   * y declarada después «audiencia» se leería como el id de una campaña.
+   */
+  @Get('audiencia')
+  audiencia(@Query() query: QueryAudienciaDto) {
+    return this.audiencias.segmentar(query);
+  }
 
   @Get()
   listar(@Query() query: QueryCampanasDto) {
