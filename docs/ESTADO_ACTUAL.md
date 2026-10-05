@@ -1,11 +1,14 @@
 # Estado actual
 
-## Menú de atención y emergencias — 5 de octubre de 2026 · LOCAL, SIN DESPLEGAR
+## Menú de atención y emergencias — 5 de octubre de 2026 · EN GITHUB, SIN DESPLEGAR
 
 Cada línea puede recibir a la paciente con un menú de opciones configurable en **Líneas
 WhatsApp → Menú**: hablar con una persona (prioridad alta), **es una emergencia
 (prioridad crítica, nueva)**, solicitar una cita, información, ubicación y promociones.
-Diseño: [menu-atencion](menu-atencion.md). Sin commit, push ni despliegue.
+Diseño: [menu-atencion](menu-atencion.md). **Dónde está:** backend en `main` (sin desplegar
+al servidor); frontend en la rama **`menu-atencion`**, NO en `main`, porque `main` lo publica
+Vercel al instante y el editor necesita el backend nuevo. Orden para salir: desplegar el
+backend (con respaldo y `migrate deploy`) y después pasar la rama a `main`.
 
 - Migración `20261005170920_menu_atencion`: valor `EMERGENCIA` del enum **antes** de
   `SOLICITUD_EXPLICITA` (su orden es la prioridad) y la tabla `MenuAtencion`. Aditiva.
