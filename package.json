@@ -84,6 +84,9 @@
     "collectCoverageFrom": [
       "**/*.ts"
     ],
-    "testEnvironment": "node"
+    "testEnvironment": "node",
+    "setupFiles": [
+      "<rootDir>/../test/aislamiento-pruebas.cjs"
+    ]
   }
 }
