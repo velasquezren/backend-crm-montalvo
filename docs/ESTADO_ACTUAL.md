@@ -1,5 +1,81 @@
 # Estado actual
 
+## Cierre de la atención humana — 5 de octubre de 2026 · LISTA PARA DESPLEGAR, NO DESPLEGADA
+
+Commits locales, **sin push ni despliegue**; `WHATSAPP_INTERACCIONES` queda **apagada**.
+Diseño: [atencion-humana](atencion-humana.md). Capturas reales en `capturas-atencion-humana/`
+(carpeta hermana de los repos, fuera de git).
+
+**Qué se cerró.** Constancia de resolución en `AuditLog` y en la misma transacción (resolver y cerrar el chat con la
+solicitud viva); pedido explícito por texto con una lista cerrada de frases; el límite de la IA documentado;
+aislamiento de las pruebas (`test/aislamiento-pruebas.cjs`: sin `.env`, sin credenciales, solo base `*_test`
+local, ninguna conexión que no sea loopback); y lo que apareció al validar con un navegador real (Chrome 151, datos
+sintéticos, dos sesiones): la agente que no reclama un chat del pool ahora se entera y lo suelta, la tarjeta del
+inbox, el fallo sin red que borraba el hilo, `aria-live` en los avisos y el tamaño del botón «Contexto».
+
+**El CRM NO detecta urgencias ni asuntos médicos.** Es requisito obligatorio, no hecho, antes de activar cualquier
+IA autónoma (ver «Antes de activar la IA» en el diseño). No se debe afirmar lo contrario.
+
+### Verificación hecha
+
+| Qué | Resultado |
+|---|---|
+| Backend: build (con `check:skills`), `check:tests`, unitarias, `test:build` | OK · 770 · 9/9 |
+| Integración, PostgreSQL 16 recién creado, 64 migraciones desde cero, bajo la guarda de aislamiento | 38 suites · 746 |
+| Frontend: build sin advertencias, `check:tests`, pruebas | OK · 552 |
+| Migraciones sobre una base en el estado de producción (62) con datos | 2 aplican, datos intactos, columnas nuevas nulas, `migrate diff` sin deriva |
+| **Código anterior (`77ccd58`) contra el esquema nuevo** | health, login, 400/401, inbox, detalle, cerrar/reabrir: OK |
+| SQL de retroceso del esquema (abajo) | aplica, conserva los datos; las migraciones se pueden volver a aplicar |
+| Frontend nuevo contra respuestas con la forma del backend de hoy | sin pestaña ni errores, 7 conversaciones, el chat abre |
+| Bandera APAGADA, navegador real y webhook firmado | misma visibilidad compartida (24/24), sin pestaña ni insignias, el pedido por texto **no** crea solicitud ni pausa ni mensajes |
+| Bandera ENCENDIDA, navegador real | ver capturas: orden, contadores, toma simultánea y 409, liberar, resolver, vacío, sin red, reconexión, 390 px, teclado, permisos, comercial, administrador |
+
+### Plan de despliegue (pendiente de orden)
+
+Hoy: servidor en `77ccd58` con 62 migraciones; **Vercel ya sirve el frontend `14cc283`** (se despliega solo con el
+push) y se comprobó que tolera al backend de hoy. BD de producción: 48 MB, ~1.200 conversaciones, 23 GB libres.
+
+1. Empujar primero el backend (los commits de esta fase), después el frontend: Vercel despliega solo.
+2. En `/opt/crm-backend`: respaldo `pg_dump "$DATABASE_URL" | gzip > /root/backup-crm-$(date +%Y%m%d-%H%M%S).sql.gz`
+   y comprobar `gzip -t` y tamaño (~4,6 MB); `git pull --ff-only origin main`; `npm install`;
+   `npx prisma migrate deploy` (2 migraciones aditivas: tabla nueva, 6 columnas nulas, un enum, un índice, una FK);
+   `npx prisma generate`; `npm run build`; `systemctl restart crm_backend.service`.
+3. Comprobar: `systemctl is-active`, `journalctl` sin errores, `/health`, login vacío → 400, periodos sin token → 401,
+   y en el CRM real que el inbox carga igual, con `contadores.esperandoHumano = 0` y sin pestaña «Atención».
+4. **No activar** `WHATSAPP_INTERACCIONES`. Para activarla más adelante hacen falta, a la vez, `WHATSAPP_INTERACCIONES_KEY`
+   (32 bytes en base64, del gestor de secretos), `WHATSAPP_INTERACCIONES=on` y `WHATSAPP_INTERACCIONES_RETENCION=on`,
+   y el catálogo de Flows sigue vacío a propósito.
+
+**Revertir.** Código: volver a `77ccd58`, `npm run build`, reiniciar; es compatible con el esquema nuevo (verificado),
+así que **no hace falta tocar la base**. Solo si se quisiera quitar también el esquema:
+
+```sql
+BEGIN;
+ALTER TABLE "Conversacion" DROP CONSTRAINT "Conversacion_atencionTomadaPorId_fkey";
+DROP INDEX "Conversacion_atencionSolicitadaEn_idx";
+ALTER TABLE "Conversacion" DROP COLUMN "atencionMensajeId", DROP COLUMN "atencionMotivo", DROP COLUMN "atencionSolicitadaEn",
+  DROP COLUMN "atencionTomadaEn", DROP COLUMN "atencionTomadaPorId", DROP COLUMN "automatizacionPausadaEn";
+DROP TYPE "MotivoAtencion";
+DROP TABLE "InteraccionMensaje";
+DELETE FROM _prisma_migrations WHERE migration_name IN ('20261004232556_interacciones_meta', '20261005010718_atencion_humana');
+COMMIT;
+```
+
+Restaurar el respaldo es el último recurso (pierde lo escrito después de tomarlo).
+
+### Riesgos pendientes
+
+- Sin la bandera nada cambia para el personal, pero **las respuestas de la paciente a botones seguirán sin llegar como
+  solicitud** hasta activarla; eso es una decisión de negocio, no técnica.
+- El inbox hace ahora dos conteos más (índice existente): medir `GET /conversaciones` tras el despliegue
+  (`scripts/medir-inbox-local.mjs`; el umbral es 150 ms).
+- Quien pierde la vista de un chat por una causa distinta de tomar (p. ej. contestar un chat del pool sin tomarlo) sigue
+  recibiendo el aviso solo en el refresco de respaldo de 60 s: `tambienA` existe y se puede usar allí.
+- El contraste del color «info» del sistema de diseño (texto verde sobre fondo claro, ~2,4:1) y los chips deshabilitados de
+  las opciones ofrecidas no cumplen WCAG AA; son del sistema de diseño y de la fase anterior, no se tocaron.
+- `npm audit` sigue con 21 avisos en dependencias productivas (10 altas): no se tocó.
+- El webhook `user` de la app de Meta apunta a un host antiguo y `flows`/`user_preferences` no están suscritos.
+
 ## Integración local de interacciones Meta, fase 2 — 4 de octubre de 2026
 
 El webhook, la ingesta transaccional, el despachador/reintentos y el historial Angular
