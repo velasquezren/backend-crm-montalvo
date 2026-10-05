@@ -9,8 +9,13 @@ import {
   ServiceUnavailableException,
   Post,
   Query,
+  Req,
+  RawBodyRequest,
   UseGuards,
 } from '@nestjs/common';
+import type { Request } from 'express';
+import { interaccionesHabilitadas } from '../interacciones-integracion';
+import { objeto } from '../../../common/whatsapp/interacciones/respuesta-interactiva';
 import { ConfigService } from '@nestjs/config';
 import { SkipThrottle } from '@nestjs/throttler';
 
@@ -162,19 +167,22 @@ export class WhatsappWebhookController {
      un 2xx que su documentación no promete es apostar gratis: si algún día lo
      trata como fallo, reintenta y acaba desactivando la suscripción. */
   @HttpCode(200)
-  async recibir(@Body() payload: WhatsappWebhookDto): Promise<{ received: true }> {
+  async recibir(@Body() payload: WhatsappWebhookDto, @Req() req?: RawBodyRequest<Request>): Promise<{ received: true }> {
     // Confirmar solo después de persistir. Fallos parciales devuelven 503:
     // Meta reintenta el lote y whatsappMsgId deduplica lo ya guardado.
-    await this.procesarWebhook(payload);
+    // El guard ya verificó estos bytes. El DTO sigue validando el perímetro;
+    // el original firmado evita perder campos desconocidos por whitelist.
+    await this.procesarWebhook(payload, interaccionesHabilitadas() && req?.rawBody ? JSON.parse(req.rawBody.toString('utf8')) as unknown : undefined);
     return { received: true };
   }
 
   /** Procesa cada elemento por separado y devuelve 503 si alguno no pudo
    *  persistirse. Un número receptor desconocido NO es eso: se descarta con
    *  200, porque su reintento nunca podría entrar. */
-  async procesarWebhook(payload: WhatsappWebhookDto): Promise<void> {
+  async procesarWebhook(payload: WhatsappWebhookDto, original?: unknown): Promise<void> {
     let fallos = 0;
     const cambios = payload.entry?.flatMap(e => e.changes ?? []) ?? [];
+    const originales = mensajesOriginales(original);
 
     for (const cambio of cambios) {
       /* Avisos de plataforma (restricciones, baneos, estado de plantillas).
@@ -244,7 +252,7 @@ export class WhatsappWebhookController {
       let procesados = 0;
       for (const mensaje of cambio.value?.messages ?? []) {
         try {
-          if (await this.procesarMensaje(cambio.value?.contacts, mensaje, lineaId)) {
+          if (await this.procesarMensaje(cambio.value?.contacts, mensaje, lineaId, originales.get(`${metadata?.phone_number_id}:${mensaje.id}`))) {
             procesados++;
           }
         } catch (error) {
@@ -308,11 +316,19 @@ export class WhatsappWebhookController {
     contactos: WhatsappContactDto[] | undefined,
     mensaje: WhatsappMessageDto,
     lineaId: string,
+    original?: unknown,
   ): Promise<boolean> {
     if (!mensaje.from || !mensaje.id) return false;
     const contacto = contactos?.find(c => c.wa_id === mensaje.from);
     const respuestaBoton = extraerRespuestaBoton(mensaje);
     const media = extraerMedia(mensaje);
+    if (interaccionesHabilitadas() && (mensaje.type === 'interactive' || mensaje.type === 'button' || (mensaje.type !== 'text' && !media))) {
+      await this.ingesta.procesarEntrante(
+        `+${mensaje.from}`, 'Interacción recibida; pendiente de revisión.', mensaje.id,
+        contacto?.profile?.name?.trim() || undefined, undefined, extraerReferral(mensaje), false, lineaId, original ?? mensaje,
+      );
+      return true;
+    }
     const texto = mensaje.type === 'text' ? mensaje.text?.body : respuestaBoton ?? media?.caption ?? (media ? '' : undefined);
     if (texto === undefined || texto === null) return false;
     await this.ingesta.procesarEntrante(
@@ -321,4 +337,23 @@ export class WhatsappWebhookController {
     );
     return true;
   }
+}
+
+/** No confiar en claves aportadas en el mensaje para decidir la línea receptora. */
+function mensajesOriginales(raw: unknown): Map<string, unknown> {
+  const resultado = new Map<string, unknown>();
+  const entries = objeto(raw)?.['entry'];
+  if (!Array.isArray(entries)) return resultado;
+  for (const entry of entries) {
+    const changes = objeto(entry)?.['changes'];
+    if (!Array.isArray(changes)) continue;
+    for (const change of changes) {
+      const value = objeto(objeto(change)?.['value']);
+      const phoneId = objeto(value?.['metadata'])?.['phone_number_id'];
+      const messages = value?.['messages'];
+      if (!Array.isArray(messages)) continue;
+      for (const message of messages) resultado.set(`${String(phoneId)}:${String(objeto(message)?.['id'])}`, message);
+    }
+  }
+  return resultado;
 }

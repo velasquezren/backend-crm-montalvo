@@ -1,0 +1,58 @@
+{
+  "version": "7.3",
+  "screens": [
+    {
+      "id": "INTERES",
+      "title": "DEMO · Interés",
+      "terminal": true,
+      "success": true,
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          {
+            "type": "TextBody",
+            "text": "Demostración sin promociones reales. Registrar interés no reserva una cita ni autoriza campañas futuras."
+          },
+          {
+            "type": "Form",
+            "name": "interes",
+            "children": [
+              {
+                "type": "Dropdown",
+                "name": "promocion",
+                "label": "Promoción de ejemplo",
+                "required": true,
+                "data-source": [
+                  {
+                    "id": "DEMO_PROMOTION",
+                    "title": "Promoción DEMO sin precio"
+                  }
+                ]
+              },
+              {
+                "type": "OptIn",
+                "name": "contacto",
+                "label": "Solicito contacto sobre este interés.",
+                "required": true
+              },
+              {
+                "type": "Footer",
+                "label": "Simular interés",
+                "on-click-action": {
+                  "name": "complete",
+                  "payload": {
+                    "tipo": "INTERES_PROMOCION",
+                    "flow_version": "interes-promocion.v1",
+                    "demo": true,
+                    "promocion": "${form.promocion}",
+                    "contacto": "${form.contacto}"
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

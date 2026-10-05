@@ -3,6 +3,7 @@ import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/commo
 import { enSegundoPlano } from '../../common/fiabilidad/en-segundo-plano';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ERRORES_WHATSAPP_PERMANENTES } from '../../common/whatsapp/error-envio';
+import { interaccionesHabilitadas, purgarInteracciones } from './interacciones-integracion';
 
 import { DespachadorSalienteService, proximoReintento } from './despachador-saliente.service';
 
@@ -93,6 +94,7 @@ export class ReintentoSalienteService implements OnModuleInit, OnModuleDestroy {
    */
   async barrerEnviosPendientes(): Promise<number> {
     const ahora = new Date();
+    if (interaccionesHabilitadas() || process.env['WHATSAPP_INTERACCIONES_RETENCION'] === 'on') await purgarInteracciones(this.prisma);
 
     // Limpia también filas antiguas que un webhook haya vuelto a agendar.
     await this.prisma.mensaje.updateMany({
@@ -107,7 +109,7 @@ export class ReintentoSalienteService implements OnModuleInit, OnModuleDestroy {
     });
 
     const pendientes = await this.prisma.mensaje.findMany({
-      where: { estadoEnvio: 'FALLIDO', permiteReintento: true, intentosEnvio: { lt: 3 }, proximoIntento: { lte: ahora } },
+      where: { estadoEnvio: 'FALLIDO', permiteReintento: true, intentosEnvio: { lt: 3 }, proximoIntento: { lte: ahora }, ...(interaccionesHabilitadas() ? {} : { interaccion: { is: null } }) },
       select: {
         id: true,
         conversacionId: true,

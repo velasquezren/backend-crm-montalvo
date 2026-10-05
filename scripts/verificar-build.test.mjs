@@ -42,9 +42,12 @@ test('npm run build conserva el entrypoint en builds limpios y consecutivos', as
   /* `check:skills` exige que PANORAMA nombre cada módulo. Sin copiarlo, esta
      prueba fallaba en `main` con «falta docs/PANORAMA.md» desde que existe esa
      comprobación (encontrado el 2026-10-01): el build de verdad pasaba y esta
-     suite decía lo contrario. Solo ese archivo; el resto de docs/ no se lee. */
+     suite decía lo contrario. Se añade abajo únicamente el material de Flows
+     que también valida ahora la compuerta de build. */
   mkdirSync(join(raiz, 'docs'));
   copyFileSync(join(proyecto, 'docs', 'PANORAMA.md'), join(raiz, 'docs', 'PANORAMA.md'));
+  // El build valida también los borradores de Flows; solo fixtures sintéticos.
+  cpSync(join(proyecto, 'docs', 'whatsapp-interacciones', 'flows'), join(raiz, 'docs', 'whatsapp-interacciones', 'flows'), { recursive: true });
   symlinkSync(join(proyecto, 'node_modules'), join(raiz, 'node_modules'), 'dir');
 
   const ejecutarBuild = () => {

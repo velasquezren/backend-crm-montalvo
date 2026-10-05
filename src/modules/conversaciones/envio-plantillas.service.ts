@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+
 import {
   BadRequestException,
   ConflictException,
@@ -23,6 +25,7 @@ import { EnviarPlantillaDto } from './dto/enviar-plantilla.dto';
 import { IniciarConversacionDto } from './dto/iniciar-conversacion.dto';
 import { obtenerConversacionPropia, recuperarEnvioDuplicado } from './envio-comun';
 import { REABRIR } from './estado-conversacion';
+import { datosOferta, interaccionesHabilitadas, OfertaInteraccion } from './interacciones-integracion';
 import { PlantillaMeta, PlantillaResumen, renderizarPlantilla, resumirPlantilla, validarParametros } from './plantillas-whatsapp';
 
 /**
@@ -329,7 +332,10 @@ export class EnvioPlantillasService {
       );
     }
     const parametros = validarParametros(plantilla, dto.parametros ?? []);
+    const respuestasRapidas = interaccionesHabilitadas() && dto.clientMessageId
+      ? plantilla.respuestasRapidas?.map(b => ({ ...b, id: `TPL_${createHash('sha256').update(`${plantilla.nombre}:${plantilla.idioma}:${b.indice}`).digest('hex').slice(0,32)}` })) : undefined;
     const despacho: PlantillaADespachar = {
+      ...(respuestasRapidas?.length ? { respuestasRapidas } : {}),
       plantilla: plantilla.nombre,
       idioma: plantilla.idioma,
       parametros,
@@ -346,6 +352,10 @@ export class EnvioPlantillasService {
     agenteId: string,
   ) {
     const conversacionId = conversacion.id;
+    const oferta: OfertaInteraccion | undefined = despacho.respuestasRapidas?.length ? {
+      mensaje: { tipo: 'texto', cuerpo: contenido }, telefono: conversacion.cliente.telefono,
+      respuestasPlantilla: despacho.respuestasRapidas.map(b => ({ id: b.id, titulo: b.titulo })),
+    } : undefined;
     let mensaje;
     try {
       [mensaje] = await this.prisma.$transaction([
@@ -357,6 +367,7 @@ export class EnvioPlantillasService {
             estadoEnvio: 'ENVIADO',
             permiteReintento: false,
             clientMessageId: clientMessageId ?? null,
+            ...(oferta && clientMessageId ? { interaccion: { create: datosOferta(oferta, clientMessageId) } } : {}),
             /* Audiencias no le manda otra campaña a quien acaba de recibir una:
                sin esto no sabría cuál fue de marketing. */
             plantillaCategoria: categoria,

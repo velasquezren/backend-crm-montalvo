@@ -39,6 +39,7 @@ export interface PlantillaResumen {
   formato: 'POSITIONAL' | 'NAMED';
   pie: string | null;
   botones: string[];
+  respuestasRapidas?: { indice: number; titulo: string }[];
   /**
    * URL pública de la imagen de cabecera, si la plantilla la lleva y el CRM la
    * tiene (`assets/cabeceras/`). El selector la muestra y el envío la adjunta.
@@ -93,6 +94,7 @@ export function resumirPlantilla(meta: PlantillaMeta, imagenCabecera: string | n
     formato,
     pie: componente('FOOTER')?.text ?? null,
     botones: botones.map(b => b.text ?? '').filter(Boolean),
+    respuestasRapidas: botones.flatMap((b, indice) => b.type === 'QUICK_REPLY' && b.text ? [{ indice, titulo: b.text }] : []),
     /* Solo si la plantilla de verdad la lleva: mandar una cabecera que la
        plantilla no tiene también la rechaza Meta. */
     imagenCabecera: conImagen ? imagenCabecera : null,

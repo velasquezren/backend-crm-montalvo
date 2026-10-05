@@ -384,6 +384,20 @@ model Conversacion {
   @@index([esperandoRespuesta, updatedAt])
 }
 
+/// Datos privados separados: jamás incluir esta relación completa en respuestas HTTP.
+model InteraccionMensaje {
+  mensajeId    String   @id
+  mensaje      Mensaje  @relation(fields: [mensajeId], references: [id], onDelete: Cascade)
+  privado      String?  // AES-256-GCM, retención 7 días; no logs ni API
+  vista        Json     // Proyección construida por servidor, no response_json
+  estado       String   @db.VarChar(32)
+  consumidaPor String?
+  venceEn      DateTime
+  purgarEn     DateTime
+
+  @@index([purgarEn])
+}
+
 model Mensaje {
   primerContacto PrimerContactoWhatsapp?
   id             String           @id @default(uuid())
@@ -422,6 +436,7 @@ model Mensaje {
   mediaAlto      Int?
   /// Trabajo interno; no se incluye en lecturas REST.
   trabajoMedia   TrabajoMediaEntrante?
+  interaccion    InteraccionMensaje?
   /// Solo aplica a SALIENTE — el paciente no tiene "estado de entrega" hacia nosotros.
   /// Ticks estilo WhatsApp: ENVIADO al crear, luego lo actualiza la respuesta de Meta
   /// (FALLIDO) o el webhook de `statuses` (ENTREGADO/LEIDO).

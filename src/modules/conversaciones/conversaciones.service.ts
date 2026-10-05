@@ -1,3 +1,4 @@
+import { estadoDeIntentoAnterior, verificarIntencion, datosOferta, OfertaInteraccion, prepararOferta, proyectarInteracciones } from './interacciones-integracion';
 import { MemoriaAgenteService } from '../memoria-agente/memoria-agente.service';
 import { whereAccesoConversacion as whereVisibilidad, SELECT_LINEA } from './acceso-conversacion';
 import {
@@ -327,7 +328,7 @@ export class ConversacionesService {
       /* `agente` es quien atiende el chat, sin caer a la dueña de la paciente:
          ver `aFilaDeInbox`. */
       cliente: conversacion.linea.comercial ? conversacion.cliente : { ...conversacion.cliente, datosExtra: null, intereses: [], agente: null, agenteId: null },
-      mensajes,
+      mensajes: await proyectarInteracciones(this.prisma, mensajes),
     };
   }
 
@@ -376,12 +377,12 @@ export class ConversacionesService {
     });
     mensajes.reverse();
 
-    return Promise.all(
+    return proyectarInteracciones(this.prisma, await Promise.all(
       mensajes.map(async m => ({
         ...m,
         mediaUrl: m.mediaKey ? await this.r2.urlFirmada(m.mediaKey) : null,
       })),
-    );
+    ));
   }
 
   /**
@@ -535,6 +536,7 @@ export class ConversacionesService {
     agenteId: string,
     adjunto?: AdjuntoMensaje,
     clientMessageId?: string,
+    oferta?: OfertaInteraccion,
   ) {
       return this.prisma.$transaction([
         this.prisma.mensaje.create({
@@ -542,7 +544,11 @@ export class ConversacionesService {
             conversacionId,
             direccion: 'SALIENTE',
             contenido,
-            estadoEnvio: 'ENVIADO',
+            estadoEnvio: oferta ? 'FALLIDO' : 'ENVIADO',
+            ...(oferta && clientMessageId ? {
+              proximoIntento: new Date(),
+              interaccion: { create: datosOferta(oferta, clientMessageId) },
+            } : {}),
             clientMessageId: clientMessageId ?? null,
             /* Se guarda la CLAVE, no la URL: el detalle firma una nueva en cada
                carga y la burbuja no caduca. Ver el comentario de `mediaKey` en
@@ -582,9 +588,13 @@ export class ConversacionesService {
     soloAgenteId?: string,
     adjunto?: AdjuntoMensaje,
     clientMessageId?: string,
+    interaccion?: unknown,
   ) {
     const conversacion = await obtenerConversacionPropia(this.prisma, conversacionId, soloAgenteId);
     await this.verificarVentana24h(conversacionId);
+    if (interaccion !== undefined && (!clientMessageId || adjunto?.mediaKey)) throw new BadRequestException('Una interacción exige clientMessageId y no admite adjunto');
+    const oferta = interaccion === undefined ? undefined : prepararOferta(interaccion, conversacion.cliente.telefono);
+    if (oferta) contenido = oferta.mensaje.cuerpo;
     if (adjunto?.mediaKey) {
       const propia = await this.memoria.archivoPropio(agenteId, adjunto.mediaKey);
       const delChat = propia ? null : await this.prisma.mensaje.findFirst({ where: { mediaKey: adjunto.mediaKey, conversacionId }, select: { mediaAncho: true, mediaAlto: true } });
@@ -621,7 +631,7 @@ export class ConversacionesService {
      */
     let mensaje;
     try {
-      [mensaje] = await this.crearMensajeSaliente(conversacionId, contenido, agenteId, adjunto, clientMessageId);
+      [mensaje] = await this.crearMensajeSaliente(conversacionId, contenido, agenteId, adjunto, clientMessageId, oferta);
     } catch (error) {
       const yaCreado = await recuperarEnvioDuplicado(this.prisma, this.logger, error, conversacionId, clientMessageId);
       if (!yaCreado) throw error;
@@ -635,6 +645,7 @@ export class ConversacionesService {
        * Una fila, un despacho. La idempotencia de base de datos sin la del
        * efecto externo no serviría de nada.
        */
+      if (oferta && clientMessageId) await verificarIntencion(this.prisma, yaCreado.id, clientMessageId, oferta);
       return { ...yaCreado, clienteTelefono: conversacion.cliente.telefono };
     }
 
@@ -671,7 +682,7 @@ export class ConversacionesService {
        se corrige en segundo plano y empuja un segundo aviso por WebSocket
        para actualizar el tick sin que el agente tenga que refrescar. */
     void enSegundoPlano(`envío del mensaje ${mensaje.id} a Meta`, this.logger, () =>
-      this.despachador.texto(
+      oferta ? this.despachador.interaccion({ mensajeId: mensaje.id, conversacionId, telefono: conversacion.cliente.telefono }) : this.despachador.texto(
         { mensajeId: mensaje.id, conversacionId, telefono: conversacion.cliente.telefono },
         contenido,
         adjunto?.mediaKey
@@ -769,6 +780,7 @@ export class ConversacionesService {
       }, select: { id: true } });
       if (!reconocido) return;
     }
+    if (await estadoDeIntentoAnterior(this.prisma, referencia, whatsappMsgId)) return;
     let mensaje = await this.prisma.mensaje.findUnique({ where: { whatsappMsgId } });
 
     if (!mensaje && referencia) {

@@ -132,7 +132,7 @@ export class ConversacionesController {
       mediaKey: dto.mediaKey,
       mediaMime: dto.mediaMime,
       mediaNombre: dto.mediaNombre,
-    }, dto.clientMessageId);
+    }, dto.clientMessageId, dto.interaccion);
   }
 
   /** El pin de ubicación de la clínica (Maps/Waze de un toque). Dentro de la ventana de 24 h. */

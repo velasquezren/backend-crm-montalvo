@@ -74,7 +74,17 @@ export class WhatsappInteractiveReplyDto {
  * respuesta (`button_reply`) o selección de lista (`list_reply`). El texto que
  * eligió el cliente viene en `.title`.
  */
+export class WhatsappFlowReplyDto {
+  @IsOptional() @IsString() name?: string;
+  @IsOptional() @IsString() body?: string;
+  @IsOptional() @IsString() response_json?: string;
+}
+
 export class WhatsappInteractiveDto {
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => WhatsappFlowReplyDto)
+  nfm_reply?: WhatsappFlowReplyDto;
   /** 'button_reply' | 'list_reply' */
   @IsOptional()
   @IsString()
@@ -165,7 +175,15 @@ export class WhatsappReferralDto {
   welcome_message?: WhatsappWelcomeMessageDto;
 }
 
+export class WhatsappContextDto {
+  @IsOptional() @IsString() id?: string;
+  @IsOptional() @IsString() from?: string;
+}
+
 export class WhatsappMessageDto {
+  @IsOptional() @IsString() timestamp?: string;
+  @IsOptional() @ValidateNested() @Type(() => WhatsappContextDto)
+  context?: WhatsappContextDto;
   @IsOptional()
   @IsString()
   from?: string;
