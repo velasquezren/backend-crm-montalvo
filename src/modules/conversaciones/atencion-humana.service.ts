@@ -2,7 +2,7 @@ import { ConflictException, ForbiddenException, Injectable } from '@nestjs/commo
 
 import { AuditService } from '../../common/audit/audit.service';
 import { PrismaService } from '../../prisma/prisma.service';
-import { estadoDeAtencion, EstadoAtencion } from './atencion-humana';
+import { auditarResolucion, bloquearSolicitudViva, estadoDeAtencion, EstadoAtencion } from './atencion-humana';
 import { ConversacionesGateway } from './conversaciones.gateway';
 import { obtenerConversacionPropia } from './envio-comun';
 
@@ -102,12 +102,17 @@ export class AtencionHumanaService {
    */
   async resolver(id: string, usuarioId: string, soloAgenteId?: string): Promise<EstadoDeAtencion> {
     await obtenerConversacionPropia(this.prisma, id, soloAgenteId);
-    const resueltas = await this.prisma.$executeRaw`
-      UPDATE "Conversacion" SET "atencionSolicitadaEn" = NULL, "atencionMotivo" = NULL, "atencionMensajeId" = NULL,
-        "atencionTomadaEn" = NULL, "atencionTomadaPorId" = NULL
-      WHERE id = ${id} AND "atencionSolicitadaEn" IS NOT NULL`;
-    if (!resueltas) throw new ConflictException('Esta solicitud ya estaba resuelta.');
-    await this.audit.registrar('Conversacion', id, 'ATENCION_RESUELTA', usuarioId);
+    const resuelta = await this.prisma.$transaction(async tx => {
+      const viva = await bloquearSolicitudViva(tx, id);
+      if (!viva) return false;
+      await tx.$executeRaw`
+        UPDATE "Conversacion" SET "atencionSolicitadaEn" = NULL, "atencionMotivo" = NULL, "atencionMensajeId" = NULL,
+          "atencionTomadaEn" = NULL, "atencionTomadaPorId" = NULL
+        WHERE id = ${id}`;
+      await auditarResolucion(tx, id, usuarioId, viva, 'RESOLVER', new Date());
+      return true;
+    });
+    if (!resuelta) throw new ConflictException('Esta solicitud ya estaba resuelta.');
     this.gateway.emitirActividad(id);
     return this.estado(id);
   }

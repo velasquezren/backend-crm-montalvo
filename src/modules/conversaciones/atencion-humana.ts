@@ -143,6 +143,41 @@ export async function registrarSolicitudAtencion(
   return nueva;
 }
 
+/* ── Pedir una persona escribiendo ──────────────────────────────────── */
+
+/**
+ * Frases COMPLETAS con las que una paciente pide a una persona. Cuenta solo si
+ * el mensaje entero es una de ellas —con los saludos y cortesías de siempre—:
+ * «quiero hablar con una persona» sí; «no quiero hablar con una persona que me
+ * cobre más» no, y «hablar con recepción sobre mi cita del martes» tampoco.
+ *
+ * Esto NO detecta urgencias ni asuntos médicos y no pretende hacerlo: lo que no
+ * esté en esta lista cerrada no genera solicitud. Ver «Antes de activar la IA»
+ * en docs/atencion-humana.md.
+ */
+const PEDIR_PERSONA = new RegExp(
+  '^(?:(?:hola|buenas|buenos dias|buenas tardes|buenas noches)\\s+)?(?:por favor\\s+)?' +
+  '(?:(?:quiero|quisiera|necesito|deseo|me gustaria|puedo|podria|podrian|podemos)\\s+)?' +
+  '(?:hablar|comunicarme|contactar|chatear)\\s+con\\s+' +
+  '(?:un[ao]?\\s+persona(?:\\s+real)?|alguien(?:\\s+de\\s+la\\s+clinica)?|un\\s+humano|un\\s+asesor|una\\s+asesora|' +
+  'un\\s+operador|una\\s+operadora|un\\s+agente|una\\s+agente|(?:la\\s+)?recepcion|(?:la|una)\\s+recepcionista)' +
+  '(?:\\s+por\\s+favor)?$',
+);
+
+function sinAdornos(texto: string): string {
+  return texto
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[¿?¡!.,;:]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** ¿Lo que escribió, entero, es una de las frases de pedir a una persona? */
+export function esPedidoDePersona(texto: string): boolean {
+  return texto.length <= 120 && PEDIR_PERSONA.test(sinAdornos(texto));
+}
+
 /* ── Contexto del traspaso ──────────────────────────────────────────── */
 
 /** Un dato que la paciente eligió en un Flow aprobado, ya con su etiqueta. */
@@ -265,4 +300,61 @@ export async function contextoDeAtencion(
       : null,
     ultimoMensaje: ultimo && ultimo.id !== origen?.id ? { contenido: ultimo.contenido, createdAt: ultimo.createdAt } : null,
   };
+}
+
+/* ── Resolución: quién, cuándo y cuánto esperó ──────────────────────── */
+
+/** La solicitud que está viva, leída con la fila bloqueada: nadie la cambia entre leerla y resolverla. */
+export interface SolicitudViva {
+  solicitadaEn: Date;
+  motivo: MotivoAtencion;
+  tomadaEn: Date | null;
+  tomadaPorId: string | null;
+}
+
+export async function bloquearSolicitudViva(tx: Prisma.TransactionClient, conversacionId: string): Promise<SolicitudViva | null> {
+  const filas = await tx.$queryRaw<SolicitudViva[]>`
+    SELECT "atencionSolicitadaEn" AS "solicitadaEn", "atencionMotivo" AS "motivo",
+           "atencionTomadaEn" AS "tomadaEn", "atencionTomadaPorId" AS "tomadaPorId"
+    FROM "Conversacion"
+    WHERE id = ${conversacionId} AND "atencionSolicitadaEn" IS NOT NULL
+    FOR UPDATE`;
+  return filas[0] ?? null;
+}
+
+/**
+ * Deja constancia de que una solicitud terminó, en la MISMA transacción que la
+ * borra de la conversación: si la bitácora no se escribe, la solicitud tampoco
+ * se resuelve. La conversación solo guarda la solicitud viva, así que esta fila
+ * de `AuditLog` es el único registro de cuánto esperó y de quién la atendió.
+ *
+ * `via` distingue «Resolver» de cerrar el chat con la solicitud todavía viva.
+ */
+export async function auditarResolucion(
+  tx: Prisma.TransactionClient,
+  conversacionId: string,
+  usuarioId: string,
+  viva: SolicitudViva,
+  via: 'RESOLVER' | 'CIERRE',
+  resueltaEn: Date,
+): Promise<void> {
+  const segundos = (desde: Date, hasta: Date) => Math.max(0, Math.round((hasta.getTime() - desde.getTime()) / 1000));
+  await tx.auditLog.create({
+    data: {
+      entidad: 'Conversacion',
+      entidadId: conversacionId,
+      accion: 'ATENCION_RESUELTA',
+      usuarioId,
+      cambios: {
+        via,
+        motivo: viva.motivo,
+        solicitadaEn: viva.solicitadaEn.toISOString(),
+        tomadaEn: viva.tomadaEn?.toISOString() ?? null,
+        tomadaPorId: viva.tomadaPorId,
+        resueltaEn: resueltaEn.toISOString(),
+        esperaSegundos: segundos(viva.solicitadaEn, viva.tomadaEn ?? resueltaEn),
+        atencionSegundos: viva.tomadaEn ? segundos(viva.tomadaEn, resueltaEn) : null,
+      },
+    },
+  });
 }

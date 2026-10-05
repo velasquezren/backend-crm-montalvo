@@ -1,4 +1,4 @@
-import { estadoDeAtencion, motivoDeRespuesta, prioridadDeMotivo, subeMotivo } from './atencion-humana';
+import { esPedidoDePersona, estadoDeAtencion, motivoDeRespuesta, prioridadDeMotivo, subeMotivo } from './atencion-humana';
 
 describe('reglas de atención humana', () => {
   it.each([
@@ -38,5 +38,43 @@ describe('reglas de atención humana', () => {
     expect(estadoDeAtencion({ atencionSolicitadaEn: null, atencionTomadaEn: null })).toBeNull();
     expect(estadoDeAtencion({ atencionSolicitadaEn: t, atencionTomadaEn: null })).toBe('ESPERANDO');
     expect(estadoDeAtencion({ atencionSolicitadaEn: t, atencionTomadaEn: t })).toBe('EN_ATENCION');
+  });
+});
+
+describe('pedir a una persona escribiendo', () => {
+  it.each([
+    'Quiero hablar con una persona',
+    'quiero hablar con una persona.',
+    '¿Puedo hablar con alguien?',
+    'Hola, quiero hablar con alguien de la clínica',
+    'necesito hablar con recepción',
+    'Hablar con un humano',
+    'hablar con una persona real por favor',
+    'Buenas tardes, quisiera hablar con una asesora',
+    'ME GUSTARÍA HABLAR CON UN AGENTE',
+  ])('«%s» es un pedido', texto => {
+    expect(esPedidoDePersona(texto)).toBe(true);
+  });
+
+  it.each([
+    'no quiero hablar con una persona que me cobre más',
+    'quiero hablar con una persona sobre mi cita del martes',
+    'hablar con recepción sobre mi cita',
+    'quiero hablar con una persona o con un robot',
+    'quiero bajar de peso',
+    'me duele mucho el pecho',
+    'persona',
+    'humano',
+    'hola',
+    '',
+    'quiero hablar con una persona'.repeat(10),
+  ])('«%s» no lo es', texto => {
+    expect(esPedidoDePersona(texto)).toBe(false);
+  });
+
+  it('no detecta urgencias ni asuntos médicos: no es un clasificador', () => {
+    for (const texto of ['necesito ayuda urgente', 'es una emergencia', 'me siento muy mal', 'sangrado después de la cirugía']) {
+      expect(esPedidoDePersona(texto)).toBe(false);
+    }
   });
 });

@@ -58,6 +58,16 @@ asignación comercial.
 | Cualquier otra interacción, o una sin correlación / inválida / desconocida | `REVISION` |
 | Segundo toque de la misma oferta (`DUPLICADA`) | ninguna acción nueva |
 
+**Pedir a una persona escribiendo.** Además del botón, una paciente puede escribir
+una frase inequívoca («quiero hablar con una persona», «necesito hablar con
+recepción»). Cuenta solo si el mensaje **entero** es una de las frases de una lista
+cerrada (`esPedidoDePersona`), con saludos y cortesías; «no quiero hablar con una
+persona que me cobre más» o «hablar con recepción sobre mi cita» no cuentan. Nace la
+misma solicitud `SOLICITUD_EXPLICITA`, en la misma transacción del mensaje y con la
+misma pausa de la automatización. Con `WHATSAPP_INTERACCIONES` apagada no hace nada.
+Es un reconocimiento de frases, no un clasificador: lo que no esté en la lista no
+genera solicitud, y la lista no incluye nada médico.
+
 Hoy no hay ninguna automatización que continúe una selección, así que toda
 respuesta interactiva necesita a una persona: ninguna queda olvidada. Una
 respuesta fuera de contexto no ejecuta nada; solo deja la solicitud de
@@ -75,6 +85,15 @@ de inicio no se toca. Si estaba tomada, sigue tomada.
 | `POST …/atencion/resolver` | quien puede ver el chat | solicitada |
 | `POST …/automatizacion/reanudar` | quien puede ver el chat | pausada y sin solicitud viva |
 
+- **Resolver deja constancia.** La conversación solo guarda la solicitud viva: al
+  resolverla (o al cerrar el chat con ella viva) se borra de `Conversacion` y se
+  escribe, **en la misma transacción**, una fila `ATENCION_RESUELTA` en `AuditLog` con
+  `via` (`RESOLVER` o `CIERRE`), `motivo`, `solicitadaEn`, `tomadaEn`, `tomadaPorId`,
+  `resueltaEn`, `esperaSegundos` (hasta que la tomaron, o hasta resolverla si nadie)
+  y `atencionSegundos`. Si esa fila no se escribe, la solicitud no se resuelve. No hay
+  columna `resueltaEn` en la conversación: sería un dato que la siguiente solicitud
+  borra, y el registro ya vive en la bitácora. De dos resoluciones simultáneas gana
+  una (la fila se bloquea antes de leerla).
 - Contestar desde el chat (texto o plantilla) toma una solicitud en espera, en
   la misma transacción del mensaje.
 - Cerrar la conversación la resuelve. El barrido de inactividad **no** cierra
@@ -114,3 +133,36 @@ que la paciente pidió y es una sola vez.
   clasificador, y esta fase no usa ninguno.
 - IA: no hay LLM. El punto de entrada futuro es `guardarMensajeAutomatico`, que
   ya respeta la pausa.
+
+## Antes de activar la IA: requisito obligatorio
+
+**Hoy el CRM NO detecta urgencias médicas ni mensajes sensibles, y no debe decirse
+que lo hace.** Lo único que genera una solicitud de atención humana es un evento
+explícito: tocar un botón o una lista, completar un Flow aprobado, o escribir
+entera una de las frases cerradas de arriba. La prioridad `CRITICA` existe en el
+contrato y ninguna regla la produce.
+
+Un mensaje como «me siento muy mal», «sangro después de la cirugía» o «es una
+emergencia» escrito con otras palabras **no** crea solicitud, **no** pausa la
+automatización y **no** sube en el inbox: llega como cualquier mensaje. Mientras no
+haya automatización autónoma eso lo ve una persona en la bandeja normal, como
+siempre; el día que una IA conteste por su cuenta, dejaría de ser cierto.
+
+Por eso, **antes de activar cualquier respuesta autónoma de IA** son obligatorios,
+y no están hechos:
+
+1. Un criterio **aprobado por la clínica** de qué es un asunto médico sensible y qué
+   es una posible emergencia. No lo inventa el equipo técnico ni se deduce de
+   palabras sueltas.
+2. Su detección, con el método que ese criterio permita (reglas aprobadas o un
+   clasificador evaluado con casos reales), y la prueba de que **ante la duda
+   deriva a una persona**, nunca contesta.
+3. Qué se le dice a la paciente ante una posible emergencia: orientación para
+   buscar servicios de emergencia, aprobada por la clínica, sin diagnosticar ni
+   prometer atención inmediata por WhatsApp.
+4. Que la IA no pueda enviar nada en un chat con solicitud viva ni pausado
+   (`guardarMensajeAutomatico` ya lo respeta: es el único punto de entrada).
+5. La regla que produzca `CRITICA`, con un criterio definido, o que siga sin
+   existir.
+
+Hasta que existan, la IA solo puede preparar borradores para una persona.

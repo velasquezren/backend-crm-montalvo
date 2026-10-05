@@ -535,6 +535,45 @@ describe('N · un automático en curso cuando alguien pide una persona', () => {
   });
 });
 
+describe('Pedir a una persona escribiendo', () => {
+  it('una frase inequívoca crea la misma solicitud que el botón, y la automatización se calla', async () => {
+    await webhook([texto('Quiero hablar con una persona')]);
+    await reposo();
+    const c = await conversacion();
+    expect(c.atencionMotivo).toBe('SOLICITUD_EXPLICITA');
+    expect(c.atencionSolicitadaEn).not.toBeNull();
+    expect(c.automatizacionPausadaEn).not.toBeNull();
+    expect(await automaticos()).toBe(0);
+  });
+
+  it('cualquier otro texto no genera solicitud: no es un clasificador', async () => {
+    for (const cuerpo of ['hola', 'quiero hablar con una persona sobre mi cita', 'me duele mucho el pecho', 'es una emergencia']) {
+      await webhook([texto(cuerpo)]);
+    }
+    await reposo();
+    const c = await conversacion();
+    expect(c.atencionSolicitadaEn).toBeNull();
+    expect(c.automatizacionPausadaEn).toBeNull();
+  });
+
+  it('con la función apagada el mismo texto no cambia nada', async () => {
+    process.env['WHATSAPP_INTERACCIONES'] = 'off';
+    await webhook([texto('Quiero hablar con una persona')]);
+    await reposo();
+    const c = await conversacion();
+    expect(c.atencionSolicitadaEn).toBeNull();
+    expect(c.automatizacionPausadaEn).toBeNull();
+  });
+
+  it('repetirlo no mueve el reloj ni duplica nada', async () => {
+    await webhook([texto('quiero hablar con alguien')]);
+    const primera = (await conversacion()).atencionSolicitadaEn!;
+    await new Promise(r => setTimeout(r, 30));
+    await webhook([texto('hablar con una persona')]);
+    expect((await conversacion()).atencionSolicitadaEn!.getTime()).toBe(primera.getTime());
+  });
+});
+
 describe('Resolver, cerrar y reanudar', () => {
   it('resolver la saca de «Atención»; la automatización solo vuelve con una reanudación explícita', async () => {
     const oferta = await ofrecerBotones();
@@ -547,6 +586,50 @@ describe('Resolver, cerrar y reanudar', () => {
 
     expect((await http(`/conversaciones/${chat}/automatizacion/reanudar`, 'POST')).body).toMatchObject({ automatizacionPausadaEn: null });
     expect(await prisma.auditLog.count({ where: { entidadId: chat, accion: { in: ['ATENCION_RESUELTA', 'AUTOMATIZACION_REANUDADA'] } } })).toBe(2);
+  });
+
+  it('resolver deja constancia con quién, cuándo y cuánto esperó, en la misma transacción', async () => {
+    const oferta = await ofrecerBotones();
+    await webhook([toque(oferta.whatsappMsgId!)]);
+    const antes = await conversacion();
+    await http(`/conversaciones/${chat}/atencion/tomar`, 'POST', usuarios.rec1.token);
+    await http(`/conversaciones/${chat}/atencion/resolver`, 'POST', usuarios.rec2.token);
+
+    const huellas = await prisma.auditLog.findMany({ where: { entidadId: chat, accion: 'ATENCION_RESUELTA' } });
+    expect(huellas).toHaveLength(1);
+    expect(huellas[0].usuarioId).toBe(usuarios.rec2.id);
+    expect(huellas[0].cambios).toMatchObject({
+      via: 'RESOLVER', motivo: 'SOLICITUD_EXPLICITA', tomadaPorId: usuarios.rec1.id,
+      solicitadaEn: antes.atencionSolicitadaEn!.toISOString(),
+    });
+    const c = huellas[0].cambios as { resueltaEn: string; esperaSegundos: number; atencionSegundos: number };
+    expect(new Date(c.resueltaEn).getTime()).toBeGreaterThanOrEqual(antes.atencionSolicitadaEn!.getTime());
+    expect(c.esperaSegundos).toBeGreaterThanOrEqual(0);
+    expect(c.atencionSegundos).toBeGreaterThanOrEqual(0);
+  });
+
+  it('dos resolver a la vez dejan una sola constancia', async () => {
+    const oferta = await ofrecerBotones();
+    await webhook([toque(oferta.whatsappMsgId!)]);
+    const r = await Promise.all([
+      http(`/conversaciones/${chat}/atencion/resolver`, 'POST', usuarios.rec1.token),
+      http(`/conversaciones/${chat}/atencion/resolver`, 'POST', usuarios.rec2.token),
+    ]);
+    expect(r.map(x => x.status).sort()).toEqual([201, 409]);
+    expect(await prisma.auditLog.count({ where: { entidadId: chat, accion: 'ATENCION_RESUELTA' } })).toBe(1);
+  });
+
+  it('cerrar con la solicitud viva también deja constancia, y cerrar sin solicitud no', async () => {
+    await http(`/conversaciones/${chat}/cerrar`, 'POST');
+    expect(await prisma.auditLog.count({ where: { entidadId: chat, accion: 'ATENCION_RESUELTA' } })).toBe(0);
+    await http(`/conversaciones/${chat}/reabrir`, 'POST');
+
+    const oferta = await ofrecerBotones();
+    await webhook([toque(oferta.whatsappMsgId!)]);
+    await http(`/conversaciones/${chat}/cerrar`, 'POST');
+    const huellas = await prisma.auditLog.findMany({ where: { entidadId: chat, accion: 'ATENCION_RESUELTA' } });
+    expect(huellas).toHaveLength(1);
+    expect(huellas[0].cambios).toMatchObject({ via: 'CIERRE', motivo: 'SOLICITUD_EXPLICITA' });
   });
 
   it('cerrar el chat resuelve la solicitud; el barrido de inactividad no cierra una pendiente', async () => {

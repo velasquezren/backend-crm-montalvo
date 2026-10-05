@@ -31,7 +31,7 @@ import { obtenerConversacionPropia, recuperarEnvioDuplicado } from './envio-comu
 import { DespachadorSalienteService, proximoReintento } from './despachador-saliente.service';
 import { QueryConversacionesDto } from './dto/query-conversaciones.dto';
 import { REABRIR } from './estado-conversacion';
-import { contextoDeAtencion, ESPERANDO_HUMANO, ORDEN_ATENCION } from './atencion-humana';
+import { auditarResolucion, bloquearSolicitudViva, contextoDeAtencion, ESPERANDO_HUMANO, ORDEN_ATENCION } from './atencion-humana';
 import { ultimosMensajesDeInbox } from './lectura-mensajes-inbox';
 
 /** Mensajes que trae el detalle inicial de una conversación (más recientes primero, luego se reordenan).
@@ -455,11 +455,18 @@ export class ConversacionesService {
    */
   async cerrar(id: string, usuarioId: string, soloAgenteId?: string) {
     await obtenerConversacionPropia(this.prisma, id, soloAgenteId);
-    await this.prisma.$executeRaw`
-      UPDATE "Conversacion" SET "cerradaEn" = ${new Date()}, "cerradaPorId" = ${usuarioId},
-        "atencionSolicitadaEn" = NULL, "atencionMotivo" = NULL, "atencionMensajeId" = NULL,
-        "atencionTomadaEn" = NULL, "atencionTomadaPorId" = NULL
-      WHERE id = ${id} AND "cerradaEn" IS NULL`;
+    const ahora = new Date();
+    await this.prisma.$transaction(async tx => {
+      /* Cerrar con una solicitud de atención viva la resuelve: queda constancia
+         de cuánto esperó, en la misma transacción que la borra. */
+      const viva = await bloquearSolicitudViva(tx, id);
+      const cerradas = await tx.$executeRaw`
+        UPDATE "Conversacion" SET "cerradaEn" = ${ahora}, "cerradaPorId" = ${usuarioId},
+          "atencionSolicitadaEn" = NULL, "atencionMotivo" = NULL, "atencionMensajeId" = NULL,
+          "atencionTomadaEn" = NULL, "atencionTomadaPorId" = NULL
+        WHERE id = ${id} AND "cerradaEn" IS NULL`;
+      if (viva && cerradas) await auditarResolucion(tx, id, usuarioId, viva, 'CIERRE', ahora);
+    });
     this.gateway.emitirActividad(id);
     return this.estadoDe(id);
   }

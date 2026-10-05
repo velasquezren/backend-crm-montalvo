@@ -4,7 +4,7 @@ import { Mensaje, MotivoAtencion, OrigenLead, Prisma } from '../../prisma/prisma
 
 import { CONFIRMACION_BAJA, esPedidoDeBaja } from './baja-promociones';
 import { REABRIR } from './estado-conversacion';
-import { CANDADO_AUTOMATICOS, motivoDeRespuesta, registrarSolicitudAtencion } from './atencion-humana';
+import { CANDADO_AUTOMATICOS, esPedidoDePersona, motivoDeRespuesta, registrarSolicitudAtencion } from './atencion-humana';
 import { enSegundoPlano } from '../../common/fiabilidad/en-segundo-plano';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ClientesService, nombreProvisional } from '../clientes/clientes.service';
@@ -165,6 +165,12 @@ export class IngestaWhatsappService {
              también. Un refresco, una desconexión o un reinicio no la pierden. */
           const motivo = motivoDeRespuesta(resultado);
           if (motivo && await registrarSolicitudAtencion(tx, conversacion.id, motivo, creado.id, this.ahora())) solicitud = motivo;
+        } else if (!media && !esRespuestaBoton && interaccionesHabilitadas() && esPedidoDePersona(contenido)) {
+          /* Escribió, entera, una frase inequívoca de pedir a una persona
+             («quiero hablar con alguien»). Misma solicitud que el botón, en la
+             misma transacción. Lo demás que escriba no genera nada: esto no
+             clasifica mensajes, solo reconoce una lista cerrada de frases. */
+          if (await registrarSolicitudAtencion(tx, conversacion.id, 'SOLICITUD_EXPLICITA', creado.id, this.ahora())) solicitud = 'SOLICITUD_EXPLICITA';
         }
         await tx.conversacion.update({
           where: { id: conversacion.id },

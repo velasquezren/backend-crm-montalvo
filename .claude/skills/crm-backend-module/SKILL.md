@@ -146,6 +146,14 @@ Diseño completo en el [diseño de atención humana](../../../docs/atencion-huma
   `guardarMensajeAutomatico`**, o la paciente que pidió una persona recibe una máquina.
 - Resolver no levanta la pausa; solo `POST …/automatizacion/reanudar`, auditado y sin
   solicitud viva. Cerrar resuelve. El barrido de inactividad no cierra una solicitud viva.
+- **Resolver y cerrar con la solicitud viva dejan constancia en `AuditLog`
+  (`ATENCION_RESUELTA`) en la MISMA transacción** que borra la solicitud
+  (`bloquearSolicitudViva` + `auditarResolucion`): la conversación solo guarda la viva, así
+  que esa fila es el único registro de cuánto esperó y quién la atendió. No añadas una
+  columna `resueltaEn`: la siguiente solicitud la borraría.
+- **El texto libre solo cuenta si el mensaje ENTERO es una frase de la lista cerrada**
+  (`esPedidoDePersona`) y con la bandeja de interacciones encendida. No es un clasificador
+  y no detecta urgencias: ver «Antes de activar la IA» en el diseño antes de ampliarla.
 
 ## Categoría del paciente: valor, no actividad (2026-09-30)
 
