@@ -1,6 +1,10 @@
-import { IsOptional, IsString, IsUUID, MaxLength, MinLength } from 'class-validator';
+import { IsObject, IsOptional, IsString, IsUUID, MaxLength, MinLength } from 'class-validator';
 
 export class EnviarMensajeDto {
+  /** Validación discriminada en el servicio, opt-in y sin proveedor nuevo. */
+  @IsOptional()
+  @IsObject()
+  interaccion?: Record<string, unknown>;
   /**
    * 4096 es el máximo que acepta WhatsApp para un mensaje de texto: más largo
    * lo rechaza Meta y el mensaje queda FALLIDO después de haberse guardado y

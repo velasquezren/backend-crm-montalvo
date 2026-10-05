@@ -1,0 +1,23 @@
+{
+  "versionLocal": 1,
+  "estado": "SOLO_LOCAL",
+  "jsonVersion": "7.3",
+  "fechaRevision": "2026-10-04",
+  "archivos": [
+    "solicitud-cita.v1.json",
+    "interes-promocion.v1.json"
+  ],
+  "ambientes": {
+    "desarrollo": {
+      "wabaId": null,
+      "flowIds": {}
+    },
+    "produccion": {
+      "wabaId": null,
+      "flowIds": {},
+      "habilitado": false
+    }
+  },
+  "validacionMeta": "PENDIENTE",
+  "previewMeta": "NO_CREADA"
+}

@@ -1,6 +1,8 @@
 import { AdjuntoSaliente, contenidoAdjunto } from './contenido-adjunto';
 import { LineasWhatsappService } from '../lineas-whatsapp/lineas-whatsapp.service';
 import { Injectable, Logger } from '@nestjs/common';
+import { botonPlantilla } from '../../common/whatsapp/interacciones/mensaje-interactivo';
+import { cifrarInteraccion, contenidoOferta, descifrarInteraccion, interaccionesHabilitadas, OfertaInteraccion } from './interacciones-integracion';
 import { permiteReintentarError } from '../../common/whatsapp/error-envio';
 
 import { R2Service } from '../../common/storage/r2.service';
@@ -41,6 +43,7 @@ export interface Destino {
  */
 export function componentesPlantilla(dto: PlantillaADespachar): Array<Record<string, unknown>> {
   return [
+    ...(dto.respuestasRapidas?.map(b => botonPlantilla(b.indice, { tipo: 'quick_reply', id: b.id })) ?? []),
     /* El encabezado va primero. Una plantilla aprobada con imagen de cabecera
        la exige en CADA envío: sin ella Meta rechaza el mensaje entero. */
     ...(dto.imagenCabecera
@@ -66,6 +69,7 @@ export function componentesPlantilla(dto: PlantillaADespachar): Array<Record<str
 
 /** Lo que hace falta para armar un `template` de Meta. */
 export interface PlantillaADespachar {
+  respuestasRapidas?: { indice: number; id: string; titulo: string }[];
   plantilla: string;
   idioma: string;
   parametros?: string[];
@@ -119,6 +123,10 @@ export class DespachadorSalienteService {
 
   /** Texto del agente, con adjunto opcional guardado en R2. */
   async texto(destino: Destino, contenido: string, adjunto?: AdjuntoSaliente): Promise<void> {
+    if (interaccionesHabilitadas() && await this.prisma.interaccionMensaje.findUnique({ where: { mensajeId: destino.mensajeId }, select: { mensajeId: true } })) {
+      await this.interaccion(destino);
+      return;
+    }
     /* Con adjunto se firma una URL NUEVA aquí mismo. Reutilizar la que devolvió
        la subida sería jugársela: si el mensaje se reintenta pasados 15 minutos,
        Meta descargaría un enlace ya caducado y el paciente no recibiría nada. */
@@ -142,6 +150,45 @@ export class DespachadorSalienteService {
   }
 
   /** Acuse con botonera de respuesta rápida. Degrada a texto plano si Meta lo rechaza. */
+  async interaccion(destino: Destino): Promise<void> {
+    if (!interaccionesHabilitadas()) return;
+    const fila = await this.prisma.mensaje.findFirst({ where: { id: destino.mensajeId, conversacionId: destino.conversacionId }, include: { interaccion: true, conversacion: { select: { cliente: { select: { telefono: true } } } } } });
+    if (!fila?.interaccion || !fila.clientMessageId) return;
+    const i = fila.interaccion;
+    if (!i.privado || i.venceEn.getTime() < Date.now()) {
+      await this.prisma.mensaje.updateMany({ where: { id: fila.id, estadoEnvio: 'FALLIDO' }, data: { proximoIntento: null, permiteReintento: false } });
+      return;
+    }
+    const oferta = descifrarInteraccion(i.privado, fila.clientMessageId) as OfertaInteraccion;
+    if (oferta.telefono !== destino.telefono || oferta.telefono !== fila.conversacion.cliente.telefono) {
+      await this.prisma.mensaje.updateMany({ where: { id: fila.id, estadoEnvio: 'FALLIDO' }, data: { proximoIntento: null, permiteReintento: false } });
+      return;
+    }
+    const contenido = contenidoOferta(oferta);
+    const ultimo = await this.prisma.mensaje.findFirst({ where: { conversacionId: destino.conversacionId, direccion: 'ENTRANTE' }, orderBy: { createdAt: 'desc' }, select: { createdAt: true } });
+    if (!ultimo || Date.now() - ultimo.createdAt.getTime() >= 86_400_000) {
+      await this.prisma.mensaje.updateMany({ where: { id: fila.id, estadoEnvio: 'FALLIDO' }, data: { proximoIntento: null } });
+      return;
+    }
+    const cuenta = await this.lineas.cuentaDeConversacion(destino.conversacionId);
+    // Antes del efecto externo: una caída de proceso no permite un reenvío ciego.
+    const reclamado = await this.prisma.$transaction(async tx => {
+      const claim = await tx.mensaje.updateMany({ where: { id: fila.id, estadoEnvio: 'FALLIDO', permiteReintento: true, whatsappMsgId: fila.whatsappMsgId, intentosEnvio: fila.intentosEnvio, proximoIntento: fila.proximoIntento }, data: { estadoEnvio: 'INCIERTO', proximoIntento: null, whatsappMsgId: null } });
+      if (!claim.count) return false;
+      if (fila.whatsappMsgId) {
+        await tx.interaccionMensaje.update({ where: { mensajeId: fila.id }, data: { privado: cifrarInteraccion({ ...oferta, metaIdsAnteriores: [...(oferta.metaIdsAnteriores ?? []), fila.whatsappMsgId] }, fila.clientMessageId!) } });
+      }
+      return true;
+    });
+    if (!reclamado) return;
+    const resultado = await this.whatsapp.enviar(destino.telefono, contenido, fila.id, cuenta);
+    await this.registrarResultadoEnvio({ ...destino, reintento: false }, resultado);
+    if (resultado.estado === 'NO_SALIO') {
+      await this.prisma.mensaje.updateMany({ where: { id: fila.id, estadoEnvio: 'FALLIDO', permiteReintento: true, proximoIntento: { not: null } }, data: { proximoIntento: proximoReintento(fila.intentosEnvio + 1) } });
+    }
+  }
+
+  /** Acuse legacy: no cambia cuando la integración está apagada. */
   async botones(destino: Destino, texto: string, botones: string[]): Promise<void> {
     const resultado = await this.whatsapp.enviar(
       destino.telefono,

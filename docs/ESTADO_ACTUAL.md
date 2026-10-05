@@ -1,5 +1,42 @@
 # Estado actual
 
+## Integración local de interacciones Meta, fase 2 — 4 de octubre de 2026
+
+El webhook, la ingesta transaccional, el despachador/reintentos y el historial Angular
+ya tienen integración local, apagada salvo `WHATSAPP_INTERACCIONES=on`.
+La migración `20261004232556_interacciones_meta` se probó únicamente en PostgreSQL
+descartable. Originales/snapshots cifrados separados del historial; correlación por
+conversación/línea/paciente/mensaje/opción/versión/vigencia, sin ejecutar acciones.
+
+El MCP oficial fue registrado, pero falta consentimiento OAuth del propietario.
+El catálogo de Flows publicados permanece vacío. No se hizo push, deploy ni envío
+real. Antes de producción revisar migración, clave independiente, retención y
+activación por separado. Informe y reproducción: [FASE-2.md](whatsapp-interacciones/FASE-2.md).
+
+La preparación que se describe a continuación corresponde a la fase 1 previa.
+
+## Preparación local de WhatsApp Flows — 4 de octubre de 2026
+
+**Sin publicar ni activar.** [Informe, límites y autorización pendiente](whatsapp-interacciones/README.md).
+Tipos/validadores, parsers de respuestas interactivas y estados, contratos futuros,
+simulador sin efectos, estimador sin tarifas inventadas y dos borradores Flow JSON 7.3.
+Preview Angular aislado y desactivado; no está montado en el hilo ni compositor.
+El build backend valida los borradores locales; no equivale a validación oficial de Meta.
+
+No se modificaron webhook, DTOs operativos, ingesta, despachador, permisos, esquema ni
+asignaciones. `Mensaje` no dispone de almacenamiento estructurado para interacciones:
+la conexión al historial y su persistencia quedan pendientes de un cambio específico.
+No basta con encender una bandera. No hay IA, nuevos endpoints ni integración de citas.
+
+Meta Social Technologies MCP permitió consultar aplicaciones y suscripciones de CRM Montalvo.
+WhatsApp Business Tools MCP no expone herramientas en la sesión; portafolio empresarial
+sin consentimiento. WABAs/números/plantillas actuales pendientes de inventario autenticado.
+No se enviaron mensajes ni se realizaron escrituras remotas.
+
+Validación: 223 tests backend, 155 frontend, 5 de Flows y 9 de build; ambos builds
+y controles de tipos de tests aprobados. Solo fixtures/mocks; sin bases reales ni envíos.
+Los cambios permanecen locales, sin commits, push o despliegue.
+
 ## Actualización del 3 de octubre de 2026
 
 - **Audiencias y Campañas, un solo módulo y una sola página.** La audiencia no tiene otro

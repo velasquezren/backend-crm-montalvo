@@ -8,6 +8,7 @@ import { enSegundoPlano } from '../../common/fiabilidad/en-segundo-plano';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ClientesService, nombreProvisional } from '../clientes/clientes.service';
 import { PrimerContactoService } from '../leads/primer-contacto.service';
+import { guardarRespuesta, interaccionesHabilitadas } from './interacciones-integracion';
 import { AcuseAutomaticoService } from './acuse-automatico.service';
 import { ConversacionesGateway } from './conversaciones.gateway';
 import { DespachadorSalienteService } from './despachador-saliente.service';
@@ -101,6 +102,7 @@ export class IngestaWhatsappService {
      */
     esRespuestaBoton = false,
     lineaId = LINEA_COMERCIAL_INICIAL,
+    interaccionOriginal?: unknown,
   ) {
     const linea = await this.prisma.lineaWhatsapp.findUniqueOrThrow({ where: { id: lineaId } });
     if (whatsappMsgId) {
@@ -196,6 +198,9 @@ export class IngestaWhatsappService {
             ...(media ? { trabajoMedia: { create: { mediaId: media.mediaId } } } : {}),
           },
         });
+        if (interaccionOriginal !== undefined && interaccionesHabilitadas()) {
+          await guardarRespuesta(tx, creado.id, conversacion.id, telefono, interaccionOriginal);
+        }
         await tx.conversacion.update({
           where: { id: conversacion.id },
           /* Escribió ella: si la conversación estaba cerrada, se reabre. */
@@ -233,6 +238,10 @@ export class IngestaWhatsappService {
       clienteNombre: cliente.nombre,
       texto: contenido,
     });
+
+    // Las selecciones nuevas son datos para la persona que atiende. Nunca
+    // disparar automáticos/opt-out por títulos no confiables de un botón.
+    if (interaccionOriginal !== undefined && interaccionesHabilitadas()) return mensaje;
 
     /* «No me interesa» en una promoción: se registra la baja y se confirma, y
        NADA más. Ni el acuse fuera de horario («te atendemos mañana») ni el
