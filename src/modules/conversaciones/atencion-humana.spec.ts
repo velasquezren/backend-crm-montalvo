@@ -1,0 +1,42 @@
+import { estadoDeAtencion, motivoDeRespuesta, prioridadDeMotivo, subeMotivo } from './atencion-humana';
+
+describe('reglas de atención humana', () => {
+  it.each([
+    [{ estado: 'CORRELACIONADA', seleccionId: 'TALK_TO_HUMAN' }, 'SOLICITUD_EXPLICITA'],
+    [{ estado: 'CADUCADA', seleccionId: 'TALK_TO_HUMAN' }, 'SOLICITUD_EXPLICITA'],
+    [{ estado: 'CORRELACIONADA', seleccionId: 'BOOK_APPOINTMENT' }, 'SOLICITUD_CITA'],
+    [{ estado: 'CORRELACIONADA', propositoFlow: 'SOLICITUD_CITA' }, 'SOLICITUD_CITA'],
+    [{ estado: 'CORRELACIONADA', seleccionId: 'VIEW_SERVICES' }, 'REVISION'],
+    [{ estado: 'NO_CORRELACIONADA' }, 'REVISION'],
+    [{ estado: 'INVALIDA' }, 'REVISION'],
+    [{ estado: 'DESCONOCIDA' }, 'REVISION'],
+    [{ estado: 'DUPLICADA', seleccionId: 'TALK_TO_HUMAN' }, null],
+  ])('%j → %s', (r, esperado) => {
+    expect(motivoDeRespuesta(r)).toBe(esperado);
+  });
+
+  it('un id que no salió de nuestra oferta nunca es un pedido explícito', () => {
+    /* `seleccionId` solo lo pone `guardarRespuesta` tras correlacionar; sin él, revisión. */
+    expect(motivoDeRespuesta({ estado: 'NO_CORRELACIONADA', seleccionId: 'TALK_TO_HUMAN' })).toBe('REVISION');
+  });
+
+  it('la prioridad sale del motivo y ninguna regla produce CRITICA', () => {
+    expect(prioridadDeMotivo('SOLICITUD_EXPLICITA')).toBe('ALTA');
+    expect(prioridadDeMotivo('SOLICITUD_CITA')).toBe('NORMAL');
+    expect(prioridadDeMotivo('REVISION')).toBe('NORMAL');
+  });
+
+  it('una solicitud viva solo sube de motivo', () => {
+    expect(subeMotivo(null, 'REVISION')).toBe(true);
+    expect(subeMotivo('REVISION', 'SOLICITUD_EXPLICITA')).toBe(true);
+    expect(subeMotivo('SOLICITUD_EXPLICITA', 'SOLICITUD_CITA')).toBe(false);
+    expect(subeMotivo('SOLICITUD_CITA', 'SOLICITUD_CITA')).toBe(false);
+  });
+
+  it('el estado sale de las fechas', () => {
+    const t = new Date();
+    expect(estadoDeAtencion({ atencionSolicitadaEn: null, atencionTomadaEn: null })).toBeNull();
+    expect(estadoDeAtencion({ atencionSolicitadaEn: t, atencionTomadaEn: null })).toBe('ESPERANDO');
+    expect(estadoDeAtencion({ atencionSolicitadaEn: t, atencionTomadaEn: t })).toBe('EN_ATENCION');
+  });
+});
