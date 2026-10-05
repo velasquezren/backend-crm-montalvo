@@ -8,10 +8,9 @@ import { AudienciasService } from './audiencias.service';
 import { categoriasDePrueba } from '../clientes/categorias.de-prueba';
 import { ClientesService } from '../clientes/clientes.service';
 import { ConversacionesGateway } from '../conversaciones/conversaciones.gateway';
-import { ConversacionesService } from '../conversaciones/conversaciones.service';
+import { EnvioPlantillasService } from '../conversaciones/envio-plantillas.service';
 import { DespachadorSalienteService } from '../conversaciones/despachador-saliente.service';
 import { LineasWhatsappService } from '../lineas-whatsapp/lineas-whatsapp.service';
-import { MemoriaAgenteService } from '../memoria-agente/memoria-agente.service';
 import { ServiciosService } from '../servicios/servicios.service';
 import { TipoCambioService } from '../tipo-cambio/tipo-cambio.service';
 import { CampanasEnvioService, claveDeEnvio } from './campanas-envio.service';
@@ -102,9 +101,9 @@ beforeEach(async () => {
   });
   const lineas = new LineasWhatsappService(prisma, config);
   const despachador = new DespachadorSalienteService(prisma, gateway, r2, whatsapp, lineas);
-  const conversaciones = new ConversacionesService(prisma, clientes, gateway, r2, whatsapp, despachador, lineas, new MemoriaAgenteService(prisma, r2));
-  campanas = new CampanasService(prisma, audit, new AudienciasService(prisma, tipoCambio), conversaciones, tipoCambio);
-  envio = new CampanasEnvioService(prisma, conversaciones);
+  const plantillas = new EnvioPlantillasService(prisma, clientes, gateway, whatsapp, despachador, lineas);
+  campanas = new CampanasService(prisma, audit, new AudienciasService(prisma, tipoCambio), plantillas, tipoCambio);
+  envio = new CampanasEnvioService(prisma, plantillas);
   jest.spyOn(envio['logger'], 'warn').mockImplementation(() => undefined);
   jest.spyOn(envio['logger'], 'error').mockImplementation(() => undefined);
 });
@@ -178,7 +177,7 @@ describe('el envío', () => {
     const primero = envio.procesar(AHORA);
     try {
       await inicio;
-      const segundo = new CampanasEnvioService(prisma, campanas['conversaciones']);
+      const segundo = new CampanasEnvioService(prisma, campanas['plantillas']);
       expect(await segundo.procesar(AHORA)).toBe(0);
       expect(envios).toHaveLength(1);
     } finally {
@@ -195,7 +194,7 @@ describe('el envío', () => {
     let liberar!: () => void;
     const inicio = new Promise<void>(resolve => { avisar = resolve; });
     const respuesta = new Promise<void>(resolve => { liberar = resolve; });
-    campanas['conversaciones']['cachePlantillas'].invalidar();
+    campanas['plantillas']['cachePlantillas'].invalidar();
     jest.spyOn(whatsapp, 'listarPlantillas').mockImplementationOnce(async () => {
       avisar();
       await respuesta;
@@ -271,7 +270,7 @@ describe('el envío', () => {
     const ana = await paciente('Ana', 4_000);
     await campanas.crear(datosCampana(1), duenoId, AHORA);
     const destino = await prisma.campanaDestinatario.findFirstOrThrow();
-    const { mensajeId } = await campanas['conversaciones'].enviarPlantillaDeCampana({
+    const { mensajeId } = await campanas['plantillas'].enviarPlantillaDeCampana({
       clienteId: ana.id, lineaId: LINEA, plantilla: 'promo_octubre', idioma: 'es',
       parametros: ['Ana', 'x'], clientMessageId: claveDeEnvio(destino.id),
     });
@@ -335,7 +334,7 @@ describe('el envío', () => {
     await paciente('Ana', 4_000);
     const creada = await campanas.crear(datosCampana(1), duenoId, AHORA);
     jest.spyOn(whatsapp, 'listarPlantillas').mockResolvedValue([]);
-    campanas['conversaciones']['cachePlantillas'].invalidar();
+    campanas['plantillas']['cachePlantillas'].invalidar();
 
     await envio.procesar(AHORA);
     const pausada = await campanas.detalle(creada.id);
@@ -350,7 +349,7 @@ describe('el envío', () => {
       clienteId: ana.id, lineaId: LINEA, plantilla: 'promo_octubre', idioma: 'es',
       parametros: ['Ana', 'x'], clientMessageId: claveDeEnvio(destino.id),
     };
-    const uno = await campanas['conversaciones'].enviarPlantillaDeCampana(pedido);
+    const uno = await campanas['plantillas'].enviarPlantillaDeCampana(pedido);
     /* Se cayó entre guardar y marcar: la fila vuelve a la cola y se reintenta. */
     expect(await envio.procesar(AHORA)).toBe(1);
     expect((await prisma.campanaDestinatario.findFirstOrThrow()).mensajeId).toBe(uno.mensajeId);

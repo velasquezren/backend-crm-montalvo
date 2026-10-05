@@ -12,7 +12,7 @@ import { ResultadosService } from './resultados.service';
  * en el mismo servidor, detrás de loopback— y las conversaciones del CRM.
  *
  * No toca las tablas de otros dominios: pide clientes a `ClientesService`,
- * envía por `ConversacionesService` y comprueba la línea con
+ * envía por `EnvioPlantillasService` y comprueba la línea con
  * `LineasWhatsappService`. Lo único que persiste por su cuenta es
  * `AvisoResultado`, que es suyo.
  */

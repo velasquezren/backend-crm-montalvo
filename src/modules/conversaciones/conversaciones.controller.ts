@@ -3,6 +3,7 @@ import { alcanceAgente } from '../../common/auth/roles';
 import { CurrentUser, UsuarioJwt } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { ConversacionesService } from './conversaciones.service';
+import { EnvioPlantillasService } from './envio-plantillas.service';
 import { AsignarAgenteDto } from './dto/asignar-agente.dto';
 import { EnviarMensajeDto } from './dto/enviar-mensaje.dto';
 import { EnviarPlantillaDto } from './dto/enviar-plantilla.dto';
@@ -16,7 +17,10 @@ import { QueryMensajesAnterioresDto } from './dto/query-mensajes-anteriores.dto'
 @Roles('RECEPCION')
 @Controller('conversaciones')
 export class ConversacionesController {
-  constructor(private readonly conversacionesService: ConversacionesService) {}
+  constructor(
+    private readonly conversacionesService: ConversacionesService,
+    private readonly plantillas: EnvioPlantillasService,
+  ) {}
 
   /**
    * El alcance por rol y el interruptor "solo míos" van por parámetros
@@ -59,13 +63,13 @@ export class ConversacionesController {
    */
   @Post('iniciar')
   iniciar(@Body() dto: IniciarConversacionDto, @CurrentUser() usuario: UsuarioJwt) {
-    return this.conversacionesService.iniciarConversacion(dto, usuario.sub, alcanceAgente(usuario));
+    return this.plantillas.iniciarConversacion(dto, usuario.sub, alcanceAgente(usuario));
   }
 
   /** Plantillas aprobadas de la WABA — para el selector al escribir fuera de la ventana de 24h. */
   @Get('meta/plantillas')
   listarPlantillas(@CurrentUser() usuario: UsuarioJwt, @Query('refresh') refresh?: string, @Query('lineaId') lineaId?: string) {
-    return this.conversacionesService.listarPlantillas(refresh === 'true', lineaId, alcanceAgente(usuario));
+    return this.plantillas.listarPlantillas(refresh === 'true', lineaId, alcanceAgente(usuario));
   }
 
   /** Agentes activos — alimenta los desplegables y lectura de agente asignado en CRM. */
@@ -175,7 +179,7 @@ export class ConversacionesController {
     @CurrentUser() usuario: UsuarioJwt,
   ) {
     const soloAgenteId = alcanceAgente(usuario);
-    return this.conversacionesService.enviarPlantilla(id, dto, usuario.sub, soloAgenteId);
+    return this.plantillas.enviarPlantilla(id, dto, usuario.sub, soloAgenteId);
   }
 
   /** Asignar agente a conversación — solo ADMIN. */

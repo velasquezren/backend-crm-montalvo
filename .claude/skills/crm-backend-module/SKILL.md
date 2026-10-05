@@ -167,8 +167,8 @@ lee de `Mensaje.plantillaCategoria = 'MARKETING'`: **si añades un camino que ma
 plantillas, guarda su categoría**, o Audiencias le volverá a escribir a quien acaba de
 recibir una.
 
-**Campañas (`modules/campanas`) mandan por `enviarPlantillaDeCampana`, nunca por
-`enviarPlantilla`.** El envío del chat está hecho para una persona atendiendo: asigna el
+**Campañas (`modules/campanas`) mandan por `EnvioPlantillasService.enviarPlantillaDeCampana`,
+nunca por `enviarPlantilla`.** El envío del chat está hecho para una persona atendiendo: asigna el
 chat y la paciente a quien escribe, reabre, mueve `updatedAt` y saca de «Sin responder».
 Una campaña lanzada por el propietario dejaría cientos de chats a su nombre, inundaría
 «Todas» y escondería a quien esperaba respuesta. El camino de campaña comparte las

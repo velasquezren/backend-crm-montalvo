@@ -14,6 +14,7 @@ import { ConversacionesGateway } from './conversaciones.gateway';
 import { AcuseAutomaticoService } from './acuse-automatico.service';
 import { componentesPlantilla, DespachadorSalienteService } from './despachador-saliente.service';
 import { ConversacionesService } from './conversaciones.service';
+import { EnvioPlantillasService } from './envio-plantillas.service';
 import { CONFIRMACION_BAJA } from './baja-promociones';
 import { LINEA_COMERCIAL_INICIAL } from './acceso-conversacion';
 import { IngestaWhatsappService } from './ingesta-whatsapp.service';
@@ -87,6 +88,7 @@ class R2Espia {
 }
 
 let service: ConversacionesService;
+let plantillas: EnvioPlantillasService;
 let ingesta: IngestaWhatsappService;
 let clientesService: ClientesService;
 let gateway: GatewayEspia;
@@ -139,6 +141,14 @@ beforeEach(async () => {
     whatsappService,
     despachadorService, new LineasWhatsappService(prisma, config), new MemoriaAgenteService(prisma, r2 as unknown as R2Service),
   );
+  plantillas = new EnvioPlantillasService(
+    prisma,
+    clientesService,
+    gateway as unknown as ConversacionesGateway,
+    whatsappService,
+    despachadorService,
+    new LineasWhatsappService(prisma, config),
+  );
   ingesta = new IngestaWhatsappService(
     prisma,
     clientesService,
@@ -156,6 +166,7 @@ beforeEach(async () => {
   jest.spyOn(service['logger'], 'warn').mockImplementation(() => undefined);
   jest.spyOn(service['logger'], 'error').mockImplementation(() => undefined);
   jest.spyOn(service['logger'], 'log').mockImplementation(() => undefined);
+  jest.spyOn(plantillas['logger'], 'error').mockImplementation(() => undefined);
   jest.spyOn(ingesta['logger'], 'error').mockImplementation(() => undefined);
 });
 
@@ -815,9 +826,9 @@ describe('Conversaciones contra Postgres real', () => {
       const linea = '00000000-0000-4000-8000-000000000001';
       try {
         consulta.mockResolvedValue([]);
-        await expect(service.listarPlantillas(true, linea)).resolves.toEqual([]);
+        await expect(plantillas.listarPlantillas(true, linea)).resolves.toEqual([]);
         consulta.mockResolvedValue(null);
-        await expect(service.listarPlantillas(true, linea)).rejects.toMatchObject({ status: 503 });
+        await expect(plantillas.listarPlantillas(true, linea)).rejects.toMatchObject({ status: 503 });
       } finally { consulta.mockRestore(); }
     });
   });
@@ -1046,7 +1057,7 @@ describe('Conversaciones contra Postgres real', () => {
       jest.spyOn(service['whatsapp'], 'listarPlantillas').mockResolvedValue([
         { name: 'saludo', status: 'APPROVED', category: 'UTILITY', language: 'es', components: [{ type: 'BODY', text: 'Buenas tardes' }] },
       ]);
-      await service.enviarPlantilla(conv.id, { plantilla: 'saludo', idioma: 'es', parametros: [] }, a.id);
+      await plantillas.enviarPlantilla(conv.id, { plantilla: 'saludo', idioma: 'es', parametros: [] }, a.id);
 
       expect(await esperandoRespuestaDe(conv.id)).toBe(false);
     });
@@ -1064,9 +1075,9 @@ describe('Conversaciones contra Postgres real', () => {
         { name: 'cita', status: 'APPROVED', category: 'UTILITY', language: 'es', components: [{ type: 'BODY', text: 'Tu cita es mañana' }] },
       ]);
 
-      await expect(service.enviarPlantilla(conv.id, { plantilla: 'promo', idioma: 'es', parametros: [] }, a.id))
+      await expect(plantillas.enviarPlantilla(conv.id, { plantilla: 'promo', idioma: 'es', parametros: [] }, a.id))
         .rejects.toMatchObject({ status: 409, message: expect.stringContaining('no recibir promociones el 30 de septiembre de 2026') });
-      await expect(service.enviarPlantilla(conv.id, { plantilla: 'cita', idioma: 'es', parametros: [] }, a.id)).resolves.toBeTruthy();
+      await expect(plantillas.enviarPlantilla(conv.id, { plantilla: 'cita', idioma: 'es', parametros: [] }, a.id)).resolves.toBeTruthy();
       /* Queda su categoría: Audiencias distingue una campaña de un aviso de cita. */
       expect(await prisma.mensaje.findFirstOrThrow({ where: { direccion: 'SALIENTE' }, select: { plantillaCategoria: true } }))
         .toEqual({ plantillaCategoria: 'UTILITY' });
@@ -1084,12 +1095,12 @@ describe('Conversaciones contra Postgres real', () => {
           { name: 'otra_con_foto', status: 'APPROVED', category: 'MARKETING', language: 'es',
             components: [{ type: 'HEADER', format: 'IMAGE' }, { type: 'BODY', text: 'Hola' }] },
         ]);
-        const [conFoto, sinFoto] = await service.listarPlantillas(true, LINEA_COMERCIAL_INICIAL);
+        const [conFoto, sinFoto] = await plantillas.listarPlantillas(true, LINEA_COMERCIAL_INICIAL);
         expect(conFoto).toMatchObject({ enviable: true, imagenCabecera: 'https://crm.prueba/publico/cabeceras/reactivacion_con_foto.jpg' });
         expect(sinFoto).toMatchObject({ enviable: false, imagenCabecera: null });
 
         /* Y lo que sale hacia Meta lleva la imagen: sin ella rechaza el envío. */
-        const envio = await service['prepararPlantilla'](LINEA_COMERCIAL_INICIAL, { plantilla: 'reactivacion_con_foto', idioma: 'es', parametros: ['María'] });
+        const envio = await plantillas['prepararPlantilla'](LINEA_COMERCIAL_INICIAL, { plantilla: 'reactivacion_con_foto', idioma: 'es', parametros: ['María'] });
         expect(envio.despacho.imagenCabecera).toBe('https://crm.prueba/publico/cabeceras/reactivacion_con_foto.jpg');
         expect(componentesPlantilla(envio.despacho)[0]).toEqual({
           type: 'header', parameters: [{ type: 'image', image: { link: 'https://crm.prueba/publico/cabeceras/reactivacion_con_foto.jpg' } }],

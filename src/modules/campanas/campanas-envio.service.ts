@@ -13,7 +13,7 @@ import { ZONA_CLINICA } from '../../common/fechas/zona-clinica';
 import { enSegundoPlano } from '../../common/fiabilidad/en-segundo-plano';
 import { PrismaService } from '../../prisma/prisma.service';
 import { Prisma } from '../../prisma/prisma-client';
-import { ConversacionesService } from '../conversaciones/conversaciones.service';
+import { EnvioPlantillasService } from '../conversaciones/envio-plantillas.service';
 import { dentroDeHorario, INTERVALO_ENVIO_MS, LOTE_POR_VUELTA, parametrosPara, VariableCampana } from './campana';
 
 interface FiltroGuardado {
@@ -49,7 +49,7 @@ export class CampanasEnvioService implements OnModuleInit, OnModuleDestroy {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly conversaciones: ConversacionesService,
+    private readonly plantillas: EnvioPlantillasService,
   ) {}
 
   onModuleInit(): void {
@@ -185,7 +185,7 @@ export class CampanasEnvioService implements OnModuleInit, OnModuleDestroy {
 
       let mensajeId: string;
       try {
-        ({ mensajeId } = await this.conversaciones.enviarPlantillaDeCampana({
+        ({ mensajeId } = await this.plantillas.enviarPlantillaDeCampana({
           clienteId, lineaId: d.campana.lineaId, plantilla: d.campana.plantilla, idioma: d.campana.idioma,
           parametros: parametrosPara(d.campana.variables as unknown as VariableCampana[], d.cliente.nombre),
           clientMessageId: clave,

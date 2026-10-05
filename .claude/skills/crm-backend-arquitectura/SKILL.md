@@ -459,7 +459,12 @@ núcleo y siguen valiendo) o de la escala real de §3. Si una te parece
   se llevó solo la ingesta (`procesarEntrante`, get-or-create de conversación,
   acuse fuera de horario) — único llamador: el controller del webhook. Mismo
   comportamiento, mismas queries, verificado con la suite de integración contra
-  Postgres real antes de tocar producción.
+  Postgres real antes de tocar producción. Con el mismo criterio salieron
+  después (2026-09-30) las plantillas de WhatsApp —listar, enviar, las del
+  sistema, las de campaña y «Nuevo chat»— a `modules/conversaciones/envio-plantillas.service.ts`,
+  y las consultas puras del inbox a `modules/conversaciones/consultas-inbox.ts`.
+  Lo que comparten el envío de texto y el de plantillas vive en
+  `modules/conversaciones/envio-comun.ts`.
 - **WebSocket para "algo cambió", REST para los datos** — el gateway nunca
   manda el dato en el payload del socket, solo avisa; evita que el escopado por
   rol tenga que reimplementarse en el canal de WebSocket.

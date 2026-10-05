@@ -29,6 +29,7 @@ import { ClientesController } from "../clientes/clientes.controller";
 import { ServiciosService } from "../servicios/servicios.service";
 import { MemoriaAgenteService } from "../memoria-agente/memoria-agente.service";
 import { ConversacionesService } from "../conversaciones/conversaciones.service";
+import { EnvioPlantillasService } from "../conversaciones/envio-plantillas.service";
 import { ConversacionesController } from "../conversaciones/conversaciones.controller";
 import { ConversacionesGateway } from "../conversaciones/conversaciones.gateway";
 import { DespachadorSalienteService } from "../conversaciones/despachador-saliente.service";
@@ -86,6 +87,7 @@ const r2 = {
     AuditService,
     MemoriaAgenteService,
     ConversacionesService,
+    EnvioPlantillasService,
     ConversacionesGateway,
     DespachadorSalienteService,
     MediaEntranteService,

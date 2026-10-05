@@ -4,7 +4,7 @@ import { AuditService } from '../../common/audit/audit.service';
 import { calcularPaginacion, paginar } from '../../common/dto/pagination.dto';
 import { EstadoCampana, Prisma } from '../../prisma/prisma-client';
 import { PrismaService } from '../../prisma/prisma.service';
-import { ConversacionesService } from '../conversaciones/conversaciones.service';
+import { EnvioPlantillasService } from '../conversaciones/envio-plantillas.service';
 import { validarParametros } from '../conversaciones/plantillas-whatsapp';
 import { TipoCambioService } from '../tipo-cambio/tipo-cambio.service';
 import { AudienciasService } from './audiencias.service';
@@ -97,13 +97,13 @@ export class CampanasService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly audiencias: AudienciasService,
-    private readonly conversaciones: ConversacionesService,
+    private readonly plantillas: EnvioPlantillasService,
     private readonly tipoCambio: TipoCambioService,
   ) {}
 
   async crear(dto: CrearCampanaDto, usuarioId: string, ahora = new Date()) {
     const variables = this.validarVariables(dto.variables);
-    const plantilla = (await this.conversaciones.listarPlantillas(false, dto.lineaId)).find(
+    const plantilla = (await this.plantillas.listarPlantillas(false, dto.lineaId)).find(
       p => p.nombre === dto.plantilla && p.idioma === dto.idioma,
     );
     if (!plantilla) {
