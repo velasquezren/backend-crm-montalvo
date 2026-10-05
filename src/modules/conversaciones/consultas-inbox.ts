@@ -4,6 +4,8 @@ import { terminoBusqueda } from '../../common/dto/busqueda';
 import { SELECT_LINEA, whereAccesoConversacion } from './acceso-conversacion';
 import { QueryConversacionesDto, TabInbox } from './dto/query-conversaciones.dto';
 import { ABIERTA, SIN_RESPONDER } from './estado-conversacion';
+import { CON_ATENCION, EN_ATENCION, ESPERANDO_HUMANO, EstadoAtencion, estadoDeAtencion, PrioridadAtencion, prioridadDeMotivo } from './atencion-humana';
+import { MotivoAtencion } from '../../prisma/prisma-client';
 
 /*
  * Las piezas de consulta del inbox: filtros (`where`), columnas de una fila y
@@ -59,6 +61,9 @@ export function whereTab(
       return SIN_RESPONDER;
     case 'CERRADAS':
       return { cerradaEn: { not: null } };
+    case 'ATENCION':
+      /* Una solicitud viva siempre es de una abierta: cerrar la resuelve. */
+      return CON_ATENCION;
     default:
       /* «Todas» son las abiertas... salvo cuando se BUSCA: quien busca a una
          paciente quiere encontrarla, esté su chat abierto o cerrado. */
@@ -114,6 +119,8 @@ export function wherePestanas(usuarioId: string) {
     misChats: whereTab('MIS_CHATS', usuarioId)!,
     sinResponder: whereTab('SIN_RESPONDER', usuarioId)!,
     cerradas: whereTab('CERRADAS', usuarioId)!,
+    esperandoHumano: ESPERANDO_HUMANO,
+    enAtencion: EN_ATENCION,
   } satisfies Record<keyof ContadoresInbox, Prisma.ConversacionWhereInput>;
 }
 
@@ -173,6 +180,11 @@ export const SELECT_INBOX = {
   esperandoRespuesta: true,
   /* Para marcar «Cerrada» en una fila que trajo la búsqueda. */
   cerradaEn: true,
+  /* Atención humana: la fila la muestra sin abrir el chat. */
+  atencionSolicitadaEn: true,
+  atencionMotivo: true,
+  atencionTomadaEn: true,
+  atencionTomadaPor: { select: { id: true, nombre: true } },
   cliente: {
     select: {
       id: true,
@@ -200,7 +212,38 @@ export type FilaCruda = Prisma.ConversacionGetPayload<{ select: typeof SELECT_IN
 export type MensajeDeInbox = Pick<Prisma.MensajeGetPayload<Record<string, never>>,
   'id' | 'contenido' | 'direccion' | 'estadoEnvio' | 'codigoErrorEnvio' | 'tipo' | 'automatico' | 'createdAt' | 'mediaNombre'>;
 
-export type ConversacionDeInbox = Omit<FilaCruda, '_count'> & { noLeidosCount: number; mensajes: MensajeDeInbox[] };
+/** La solicitud de atención humana tal como la ve el inbox; `null` si no hay ninguna viva. */
+export interface AtencionDeFila {
+  estado: EstadoAtencion;
+  motivo: MotivoAtencion;
+  prioridad: PrioridadAtencion;
+  /** Desde cuándo espera. No se reinicia: es el reloj de la tarjeta. */
+  solicitadaEn: Date;
+  tomadaEn: Date | null;
+  tomadaPor: { id: string; nombre: string } | null;
+}
+
+type ColumnasAtencion = 'atencionSolicitadaEn' | 'atencionMotivo' | 'atencionTomadaEn' | 'atencionTomadaPor';
+
+export type ConversacionDeInbox = Omit<FilaCruda, '_count' | ColumnasAtencion> & {
+  noLeidosCount: number;
+  mensajes: MensajeDeInbox[];
+  atencion: AtencionDeFila | null;
+};
+
+/** Las columnas de atención, en la forma que consume el frontend. Una sola regla de estado y prioridad. */
+export function atencionDeFila(c: Pick<FilaCruda, ColumnasAtencion>): AtencionDeFila | null {
+  const estado = estadoDeAtencion(c);
+  if (!estado || !c.atencionSolicitadaEn || !c.atencionMotivo) return null;
+  return {
+    estado,
+    motivo: c.atencionMotivo,
+    prioridad: prioridadDeMotivo(c.atencionMotivo),
+    solicitadaEn: c.atencionSolicitadaEn,
+    tomadaEn: c.atencionTomadaEn,
+    tomadaPor: c.atencionTomadaPor,
+  };
+}
 
 /** Los números de las cuatro pestañas del inbox. */
 export interface ContadoresInbox {
@@ -210,6 +253,10 @@ export interface ContadoresInbox {
   misChats: number;
   sinResponder: number;
   cerradas: number;
+  /** Pidieron una persona y nadie la tomó todavía. */
+  esperandoHumano: number;
+  /** Solicitudes que alguien está atendiendo. Juntas con la anterior son la pestaña «Atención». */
+  enAtencion: number;
 }
 
 /**
@@ -228,9 +275,10 @@ export interface ContadoresInbox {
  * paciente».
  */
 export function aFilaDeInbox(fila: FilaCruda, ultimo?: MensajeDeInbox): ConversacionDeInbox {
-  const { _count, ...resto } = fila;
+  const { _count, atencionSolicitadaEn, atencionMotivo, atencionTomadaEn, atencionTomadaPor, ...resto } = fila;
   return {
     ...resto,
+    atencion: atencionDeFila({ atencionSolicitadaEn, atencionMotivo, atencionTomadaEn, atencionTomadaPor }),
     cliente: fila.linea.comercial ? fila.cliente : { ...fila.cliente, agente: null },
     noLeidosCount: _count.mensajes,
     mensajes: ultimo ? [ultimo] : [],

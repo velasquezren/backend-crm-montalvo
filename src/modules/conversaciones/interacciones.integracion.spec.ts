@@ -26,6 +26,7 @@ import { PrimerContactoService } from '../leads/primer-contacto.service';
 import { MemoriaAgenteService } from '../memoria-agente/memoria-agente.service';
 import { ConversacionesService } from './conversaciones.service';
 import { EnvioPlantillasService } from './envio-plantillas.service';
+import { AtencionHumanaService } from './atencion-humana.service';
 import { ConversacionesController } from './conversaciones.controller';
 import { ConversacionesGateway } from './conversaciones.gateway';
 import { IngestaWhatsappService } from './ingesta-whatsapp.service';
@@ -48,7 +49,7 @@ const config = new ConfigService({ META_APP_SECRET: secretoSintetico, UBICACION_
   providers: [
     { provide: PrismaService, useValue: prisma }, { provide: ConfigService, useValue: config },
     AuditService, AuthService, UsuariosService, ClientesService, CategoriaPacienteService, ServiciosService, TipoCambioService,
-    LineasWhatsappService, PrimerContactoService, MemoriaAgenteService, ConversacionesService, EnvioPlantillasService,
+    LineasWhatsappService, PrimerContactoService, MemoriaAgenteService, ConversacionesService, EnvioPlantillasService, AtencionHumanaService,
     ConversacionesGateway, IngestaWhatsappService, AcuseAutomaticoService, DespachadorSalienteService,
     ReintentoSalienteService, MetaSignatureGuard,
     { provide: WhatsappCloudService, useValue: transporte },

@@ -25,6 +25,7 @@ import { EnviarPlantillaDto } from './dto/enviar-plantilla.dto';
 import { IniciarConversacionDto } from './dto/iniciar-conversacion.dto';
 import { obtenerConversacionPropia, recuperarEnvioDuplicado } from './envio-comun';
 import { REABRIR } from './estado-conversacion';
+import { ESPERANDO_HUMANO } from './atencion-humana';
 import { datosOferta, interaccionesHabilitadas, OfertaInteraccion } from './interacciones-integracion';
 import { PlantillaMeta, PlantillaResumen, renderizarPlantilla, resumirPlantilla, validarParametros } from './plantillas-whatsapp';
 
@@ -378,6 +379,11 @@ export class EnvioPlantillasService {
         this.prisma.conversacion.updateMany({
           where: { id: conversacionId, agenteId: null, linea: { comercial: true } },
           data: { agenteId },
+        }),
+        /* Mismo criterio que `enviarMensaje`: contestar una solicitud en espera es tomarla. */
+        this.prisma.conversacion.updateMany({
+          where: { id: conversacionId, ...ESPERANDO_HUMANO },
+          data: { atencionTomadaEn: new Date(), atencionTomadaPorId: agenteId },
         }),
         this.prisma.conversacion.update({
           where: { id: conversacionId },

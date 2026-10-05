@@ -1,9 +1,10 @@
 import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
-import { alcanceAgente } from '../../common/auth/roles';
+import { alcanceAgente, tieneAlcanceGlobal } from '../../common/auth/roles';
 import { CurrentUser, UsuarioJwt } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { ConversacionesService } from './conversaciones.service';
 import { EnvioPlantillasService } from './envio-plantillas.service';
+import { AtencionHumanaService } from './atencion-humana.service';
 import { AsignarAgenteDto } from './dto/asignar-agente.dto';
 import { EnviarMensajeDto } from './dto/enviar-mensaje.dto';
 import { EnviarPlantillaDto } from './dto/enviar-plantilla.dto';
@@ -20,6 +21,7 @@ export class ConversacionesController {
   constructor(
     private readonly conversacionesService: ConversacionesService,
     private readonly plantillas: EnvioPlantillasService,
+    private readonly atencion: AtencionHumanaService,
   ) {}
 
   /**
@@ -164,6 +166,31 @@ export class ConversacionesController {
   @Post(':id/cerrar')
   cerrar(@Param('id') id: string, @CurrentUser() usuario: UsuarioJwt) {
     return this.conversacionesService.cerrar(id, usuario.sub, alcanceAgente(usuario));
+  }
+
+  /**
+   * Atención humana (docs/atencion-humana.md). Mismo permiso que leer y
+   * responder la conversación; la regla de cada transición vive en
+   * `AtencionHumanaService`.
+   */
+  @Post(':id/atencion/tomar')
+  tomarAtencion(@Param('id') id: string, @CurrentUser() usuario: UsuarioJwt) {
+    return this.atencion.tomar(id, usuario.sub, alcanceAgente(usuario));
+  }
+
+  @Post(':id/atencion/liberar')
+  liberarAtencion(@Param('id') id: string, @CurrentUser() usuario: UsuarioJwt) {
+    return this.atencion.liberar(id, usuario.sub, tieneAlcanceGlobal(usuario.rol), alcanceAgente(usuario));
+  }
+
+  @Post(':id/atencion/resolver')
+  resolverAtencion(@Param('id') id: string, @CurrentUser() usuario: UsuarioJwt) {
+    return this.atencion.resolver(id, usuario.sub, alcanceAgente(usuario));
+  }
+
+  @Post(':id/automatizacion/reanudar')
+  reanudarAutomatizacion(@Param('id') id: string, @CurrentUser() usuario: UsuarioJwt) {
+    return this.atencion.reanudarAutomatizacion(id, usuario.sub, alcanceAgente(usuario));
   }
 
   @Post(':id/reabrir')

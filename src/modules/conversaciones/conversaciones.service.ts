@@ -31,6 +31,7 @@ import { obtenerConversacionPropia, recuperarEnvioDuplicado } from './envio-comu
 import { DespachadorSalienteService, proximoReintento } from './despachador-saliente.service';
 import { QueryConversacionesDto } from './dto/query-conversaciones.dto';
 import { REABRIR } from './estado-conversacion';
+import { contextoDeAtencion, ESPERANDO_HUMANO, ORDEN_ATENCION } from './atencion-humana';
 import { ultimosMensajesDeInbox } from './lectura-mensajes-inbox';
 
 /** Mensajes que trae el detalle inicial de una conversación (más recientes primero, luego se reordenan).
@@ -174,7 +175,9 @@ export class ConversacionesService {
     const [conversaciones, total] = await this.prisma.$transaction([
       this.prisma.conversacion.findMany({
         where,
-        orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
+        /* «Atención» es la única vista que no ordena por actividad: ahí manda
+           quién espera, con qué prioridad y desde cuándo (`ORDEN_ATENCION`). */
+        orderBy: query.tab === 'ATENCION' ? ORDEN_ATENCION : [{ updatedAt: 'desc' }, { id: 'desc' }],
         select: SELECT_INBOX,
         skip,
         take,
@@ -213,15 +216,17 @@ export class ConversacionesService {
     const contar = (pestana: Prisma.ConversacionWhereInput) =>
       this.prisma.conversacion.count({ where: combinar(alcance, pestana) });
 
-    const [total, sinAsignar, misChats, sinResponder, cerradas] = await this.prisma.$transaction([
+    const [total, sinAsignar, misChats, sinResponder, cerradas, esperandoHumano, enAtencion] = await this.prisma.$transaction([
       contar(pestanas.total),
       contar(pestanas.sinAsignar),
       contar(pestanas.misChats),
       contar(pestanas.sinResponder),
       contar(pestanas.cerradas),
+      contar(pestanas.esperandoHumano),
+      contar(pestanas.enAtencion),
     ]);
 
-    return { total, sinAsignar, misChats, sinResponder, cerradas };
+    return { total, sinAsignar, misChats, sinResponder, cerradas, esperandoHumano, enAtencion };
   }
 
 
@@ -296,6 +301,8 @@ export class ConversacionesService {
         agente: { select: { id: true, nombre: true } },
         /* El aviso «cerrada por X / por inactividad» del chat. */
         cerradaPor: { select: { id: true, nombre: true } },
+        /* El bloque de atención humana: «En atención por Ana». */
+        atencionTomadaPor: { select: { id: true, nombre: true } },
         /* Se traen las más recientes primero (para poder acotar con `take`)
            y se reordenan a ascendente en memoria — invertir 300 elementos
            es despreciable frente a traer un historial sin límite. */
@@ -325,6 +332,8 @@ export class ConversacionesService {
     );
     return {
       ...conversacion,
+      /* Ya con el acceso comprobado arriba: el contexto se lee acotado a este chat. */
+      atencion: await contextoDeAtencion(this.prisma, conversacion.id, conversacion),
       /* `agente` es quien atiende el chat, sin caer a la dueña de la paciente:
          ver `aFilaDeInbox`. */
       cliente: conversacion.linea.comercial ? conversacion.cliente : { ...conversacion.cliente, datosExtra: null, intereses: [], agente: null, agenteId: null },
@@ -447,7 +456,9 @@ export class ConversacionesService {
   async cerrar(id: string, usuarioId: string, soloAgenteId?: string) {
     await obtenerConversacionPropia(this.prisma, id, soloAgenteId);
     await this.prisma.$executeRaw`
-      UPDATE "Conversacion" SET "cerradaEn" = ${new Date()}, "cerradaPorId" = ${usuarioId}
+      UPDATE "Conversacion" SET "cerradaEn" = ${new Date()}, "cerradaPorId" = ${usuarioId},
+        "atencionSolicitadaEn" = NULL, "atencionMotivo" = NULL, "atencionMensajeId" = NULL,
+        "atencionTomadaEn" = NULL, "atencionTomadaPorId" = NULL
       WHERE id = ${id} AND "cerradaEn" IS NULL`;
     this.gateway.emitirActividad(id);
     return this.estadoDe(id);
@@ -570,6 +581,12 @@ export class ConversacionesService {
         this.prisma.conversacion.updateMany({
           where: { id: conversacionId, agenteId: null, linea: { comercial: true } },
           data: { agenteId },
+        }),
+        /* Contestar una solicitud en espera es tomarla: «En atención por» quien
+           escribió. No toca `agenteId` (eso lo decide la línea de arriba). */
+        this.prisma.conversacion.updateMany({
+          where: { id: conversacionId, ...ESPERANDO_HUMANO },
+          data: { atencionTomadaEn: new Date(), atencionTomadaPorId: agenteId },
         }),
         this.prisma.conversacion.update({
           where: { id: conversacionId },
