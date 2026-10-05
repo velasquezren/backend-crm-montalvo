@@ -315,9 +315,14 @@ if (!existsSync(HERMANO)) {
   console.log('· Repo del frontend no encontrado — se omiten las rutas cruzadas.');
 }
 
+/* Skills de terceros copiados tal cual (ver CLAUDE.md, «Skills de terceros»): no
+   describen este código, así que no se contrastan con él. La lista es explícita
+   para que un skill PROPIO no se salte la verificación por accidente. */
+const TERCEROS = new Set(['prisma-client-api', 'supabase-postgres-best-practices']);
+
 for (const nombre of readdirSync(SKILLS)) {
   const archivo = join(SKILLS, nombre, 'SKILL.md');
-  if (!existsSync(archivo)) continue;
+  if (!existsSync(archivo) || TERCEROS.has(nombre)) continue;
 
   const texto = readFileSync(archivo, 'utf8');
   verificarRutas(nombre, texto);

@@ -39,6 +39,25 @@ carga además `crm-backend-arquitectura`: infraestructura real del servidor,
 escala real de datos, cómo desplegar paso a paso, y dónde mirar para
 rendimiento sin inventar problemas que no existen a esta escala.
 
+## Skills de terceros
+
+Además de los propios, `.claude/skills/` trae dos skills oficiales copiados tal cual
+(no se editan: se reemplazan por la versión nueva de su repositorio):
+
+- `prisma-client-api` — de [prisma/skills](https://github.com/prisma/skills), escrito
+  para Prisma 7.
+- `supabase-postgres-best-practices` — de
+  [supabase/agent-skills](https://github.com/supabase/agent-skills): índices, bloqueos,
+  paginación y conexiones de Postgres.
+
+**Si contradicen a este repo, manda este repo** (este archivo, `crm-backend-module` y
+`crm-backend-arquitectura`). Dos casos conocidos: aquí las tablas usan los nombres de
+Prisma entre comillas (`"Conversacion"`), así que su regla de identificadores en
+minúscula no aplica; y no hay RLS: los permisos los pone NestJS. Los tipos se importan
+del barril `src/prisma/prisma-client.ts`, no de donde indique el skill. No se usa
+`prisma-cli` a propósito: enseña `migrate reset` y `db push`, que borran datos.
+`check:skills` no los contrasta con el código (lista `TERCEROS`).
+
 ## Instalación y arranque local (Linux / macOS)
 
 Clonar ambos repositorios como hermanos. Entorno comprobado: Node 22.23.2 y
