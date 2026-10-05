@@ -1,12 +1,62 @@
 {
-  "versionLocal": 1,
-  "estado": "SOLO_LOCAL",
+  "versionLocal": 2,
+  "estado": "BORRADOR_EN_META",
   "jsonVersion": "7.3",
-  "fechaRevision": "2026-10-04",
+  "fechaRevision": "2026-10-05",
   "archivos": [
     "solicitud-cita.v1.json",
     "interes-promocion.v1.json"
   ],
+  "flows": {
+    "solicitud-cita.v1.json": {
+      "nombreMeta": "montalvo_solicitud_cita_v1",
+      "categorias": [
+        "APPOINTMENT_BOOKING"
+      ],
+      "contrato": {
+        "version": "solicitud-cita.v1",
+        "pantalla": "MOTIVO",
+        "proposito": "SOLICITUD_CITA",
+        "etiquetas": {
+          "especialidad": "Especialidad",
+          "cuando": "Cuándo",
+          "horario": "Horario"
+        }
+      },
+      "pendientes": [
+        "La clínica confirma las especialidades ofrecidas (hoy: Ginecología, Maternidad y Reproducción asistida, tomadas de las áreas de la planilla real) antes de publicar."
+      ],
+      "borradorMeta": {
+        "linea": "Recepción Clínica Montalvo",
+        "wabaId": "1110803964711622",
+        "flowId": "1637177818205081",
+        "estado": "DRAFT",
+        "creado": "2026-10-05"
+      }
+    },
+    "interes-promocion.v1.json": {
+      "nombreMeta": "montalvo_interes_promocion_v1",
+      "categorias": [
+        "LEAD_GENERATION"
+      ],
+      "contrato": {
+        "version": "interes-promocion.v1",
+        "pantalla": "INTERES",
+        "etiquetas": {
+          "contacto": "Contacto",
+          "horario": "Horario"
+        }
+      },
+      "pendientes": [],
+      "borradorMeta": {
+        "linea": "Ventas y publicidad Montalvo",
+        "wabaId": "1011426071679964",
+        "flowId": "4291693104383978",
+        "estado": "DRAFT",
+        "creado": "2026-10-05"
+      }
+    }
+  },
   "ambientes": {
     "desarrollo": {
       "wabaId": null,
@@ -18,6 +68,6 @@
       "habilitado": false
     }
   },
-  "validacionMeta": "PENDIENTE",
-  "previewMeta": "NO_CREADA"
+  "validacionMeta": "SIN_ERRORES_2026-10-05",
+  "previewMeta": "CREADA_VENCE_2026-11-04"
 }

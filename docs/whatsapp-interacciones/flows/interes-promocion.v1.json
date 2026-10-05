@@ -3,53 +3,53 @@
   "screens": [
     {
       "id": "INTERES",
-      "title": "DEMO · Interés",
+      "title": "Quiero más información",
       "terminal": true,
       "success": true,
+      "data": {},
       "layout": {
         "type": "SingleColumnLayout",
         "children": [
           {
             "type": "TextBody",
-            "text": "Demostración sin promociones reales. Registrar interés no reserva una cita ni autoriza campañas futuras."
+            "text": "Cuéntanos cómo y cuándo prefieres que te contactemos, y una persona del equipo te dará la información."
           },
           {
-            "type": "Form",
-            "name": "interes",
-            "children": [
-              {
-                "type": "Dropdown",
-                "name": "promocion",
-                "label": "Promoción de ejemplo",
-                "required": true,
-                "data-source": [
-                  {
-                    "id": "DEMO_PROMOTION",
-                    "title": "Promoción DEMO sin precio"
-                  }
-                ]
-              },
-              {
-                "type": "OptIn",
-                "name": "contacto",
-                "label": "Solicito contacto sobre este interés.",
-                "required": true
-              },
-              {
-                "type": "Footer",
-                "label": "Simular interés",
-                "on-click-action": {
-                  "name": "complete",
-                  "payload": {
-                    "tipo": "INTERES_PROMOCION",
-                    "flow_version": "interes-promocion.v1",
-                    "demo": true,
-                    "promocion": "${form.promocion}",
-                    "contacto": "${form.contacto}"
-                  }
-                }
-              }
+            "type": "RadioButtonsGroup",
+            "name": "contacto",
+            "label": "¿Cómo te contactamos?",
+            "required": true,
+            "data-source": [
+              { "id": "WHATSAPP", "title": "Por este chat" },
+              { "id": "LLAMADA", "title": "Con una llamada" }
             ]
+          },
+          {
+            "type": "RadioButtonsGroup",
+            "name": "horario",
+            "label": "¿En qué horario?",
+            "required": true,
+            "data-source": [
+              { "id": "MANANA", "title": "Por la mañana" },
+              { "id": "TARDE", "title": "Por la tarde" },
+              { "id": "INDISTINTO", "title": "Cualquier horario" }
+            ]
+          },
+          {
+            "type": "TextCaption",
+            "text": "Enviar esto no reserva una cita ni te suscribe a otras promociones."
+          },
+          {
+            "type": "Footer",
+            "label": "Enviar",
+            "on-click-action": {
+              "name": "complete",
+              "payload": {
+                "flow_version": "interes-promocion.v1",
+                "contacto": "${form.contacto}",
+                "horario": "${form.horario}"
+              }
+            }
           }
         ]
       }

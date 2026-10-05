@@ -2,355 +2,91 @@
   "version": "7.3",
   "screens": [
     {
-      "id": "ESPECIALIDAD",
-      "title": "DEMO · Especialidad",
+      "id": "MOTIVO",
+      "title": "Solicitar una cita",
+      "data": {},
+      "sensitive": ["especialidad"],
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          {
+            "type": "TextBody",
+            "text": "Son dos preguntas. Después, recepción te escribirá por este chat para acordar el día y la hora."
+          },
+          {
+            "type": "RadioButtonsGroup",
+            "name": "especialidad",
+            "label": "¿Para qué es la cita?",
+            "required": true,
+            "data-source": [
+              { "id": "GINECOLOGIA", "title": "Ginecología" },
+              { "id": "MATERNIDAD", "title": "Maternidad" },
+              { "id": "REPRODUCCION_ASISTIDA", "title": "Reproducción asistida" },
+              { "id": "OTRA", "title": "Otra especialidad" },
+              { "id": "ORIENTACION", "title": "No sé, necesito orientación" }
+            ]
+          },
+          {
+            "type": "TextCaption",
+            "text": "¿Prefieres escribirnos? Cierra este formulario y cuéntanos en el chat."
+          },
+          {
+            "type": "Footer",
+            "label": "Continuar",
+            "on-click-action": {
+              "name": "navigate",
+              "next": { "type": "screen", "name": "PREFERENCIA" },
+              "payload": {}
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "PREFERENCIA",
+      "title": "Solicitar una cita",
+      "terminal": true,
+      "success": true,
       "data": {},
       "layout": {
         "type": "SingleColumnLayout",
         "children": [
           {
-            "type": "TextBody",
-            "text": "Demostración local. No registra citas ni consulta disponibilidad. No introduzcas datos reales."
-          },
-          {
-            "type": "Form",
-            "name": "formulario",
-            "children": [
-              {
-                "type": "Dropdown",
-                "name": "especialidad",
-                "label": "Especialidad",
-                "required": true,
-                "data-source": [
-                  {
-                    "id": "DEMO_SPECIALTY",
-                    "title": "Especialidad DEMO"
-                  }
-                ]
-              },
-              {
-                "type": "Footer",
-                "label": "Continuar",
-                "on-click-action": {
-                  "name": "navigate",
-                  "next": {
-                    "type": "screen",
-                    "name": "PROFESIONAL"
-                  },
-                  "payload": {
-                    "especialidad": "${form.especialidad}"
-                  }
-                }
-              }
+            "type": "RadioButtonsGroup",
+            "name": "cuando",
+            "label": "¿Cuándo te vendría bien?",
+            "required": true,
+            "data-source": [
+              { "id": "LO_ANTES_POSIBLE", "title": "Lo antes posible" },
+              { "id": "PROXIMA_SEMANA", "title": "La próxima semana" },
+              { "id": "MAS_ADELANTE", "title": "Más adelante" }
             ]
-          }
-        ]
-      }
-    },
-    {
-      "id": "PROFESIONAL",
-      "title": "DEMO · Profesional",
-      "data": {
-        "especialidad": {
-          "type": "string",
-          "__example__": "DEMO"
-        }
-      },
-      "layout": {
-        "type": "SingleColumnLayout",
-        "children": [
-          {
-            "type": "TextBody",
-            "text": "Demostración local. No registra citas ni consulta disponibilidad. No introduzcas datos reales."
           },
           {
-            "type": "Form",
-            "name": "formulario",
-            "children": [
-              {
-                "type": "Dropdown",
-                "name": "profesional",
-                "label": "Profesional",
-                "required": true,
-                "data-source": [
-                  {
-                    "id": "DEMO_DOCTOR",
-                    "title": "Profesional DEMO"
-                  }
-                ]
-              },
-              {
-                "type": "Footer",
-                "label": "Continuar",
-                "on-click-action": {
-                  "name": "navigate",
-                  "next": {
-                    "type": "screen",
-                    "name": "FECHA"
-                  },
-                  "payload": {
-                    "especialidad": "${data.especialidad}",
-                    "profesional": "${form.profesional}"
-                  }
-                }
-              }
+            "type": "RadioButtonsGroup",
+            "name": "horario",
+            "label": "¿En qué horario?",
+            "required": true,
+            "data-source": [
+              { "id": "MANANA", "title": "Por la mañana" },
+              { "id": "TARDE", "title": "Por la tarde" },
+              { "id": "INDISTINTO", "title": "Cualquier horario" }
             ]
-          }
-        ]
-      }
-    },
-    {
-      "id": "FECHA",
-      "title": "DEMO · Fecha preferida",
-      "data": {
-        "especialidad": {
-          "type": "string",
-          "__example__": "DEMO"
-        },
-        "profesional": {
-          "type": "string",
-          "__example__": "DEMO"
-        }
-      },
-      "layout": {
-        "type": "SingleColumnLayout",
-        "children": [
-          {
-            "type": "TextBody",
-            "text": "Demostración local. No registra citas ni consulta disponibilidad. No introduzcas datos reales."
           },
           {
-            "type": "Form",
-            "name": "formulario",
-            "children": [
-              {
-                "type": "DatePicker",
-                "name": "fecha",
-                "label": "Fecha preferida",
-                "required": true
-              },
-              {
-                "type": "Footer",
-                "label": "Continuar",
-                "on-click-action": {
-                  "name": "navigate",
-                  "next": {
-                    "type": "screen",
-                    "name": "HORARIO"
-                  },
-                  "payload": {
-                    "especialidad": "${data.especialidad}",
-                    "profesional": "${data.profesional}",
-                    "fecha": "${form.fecha}"
-                  }
-                }
-              }
-            ]
-          }
-        ]
-      }
-    },
-    {
-      "id": "HORARIO",
-      "title": "DEMO · Horario preferido",
-      "data": {
-        "especialidad": {
-          "type": "string",
-          "__example__": "DEMO"
-        },
-        "profesional": {
-          "type": "string",
-          "__example__": "DEMO"
-        },
-        "fecha": {
-          "type": "string",
-          "__example__": "DEMO"
-        }
-      },
-      "layout": {
-        "type": "SingleColumnLayout",
-        "children": [
-          {
-            "type": "TextBody",
-            "text": "Demostración local. No registra citas ni consulta disponibilidad. No introduzcas datos reales."
-          },
-          {
-            "type": "Form",
-            "name": "formulario",
-            "children": [
-              {
-                "type": "Dropdown",
-                "name": "horario",
-                "label": "Horario preferido",
-                "required": true,
-                "data-source": [
-                  {
-                    "id": "DEMO_MORNING",
-                    "title": "Mañana · preferencia"
-                  },
-                  {
-                    "id": "DEMO_AFTERNOON",
-                    "title": "Tarde · preferencia"
-                  }
-                ]
-              },
-              {
-                "type": "Footer",
-                "label": "Continuar",
-                "on-click-action": {
-                  "name": "navigate",
-                  "next": {
-                    "type": "screen",
-                    "name": "DATOS"
-                  },
-                  "payload": {
-                    "especialidad": "${data.especialidad}",
-                    "profesional": "${data.profesional}",
-                    "fecha": "${data.fecha}",
-                    "horario": "${form.horario}"
-                  }
-                }
-              }
-            ]
-          }
-        ]
-      }
-    },
-    {
-      "id": "DATOS",
-      "title": "DEMO · Cómo te llamamos",
-      "data": {
-        "especialidad": {
-          "type": "string",
-          "__example__": "DEMO"
-        },
-        "profesional": {
-          "type": "string",
-          "__example__": "DEMO"
-        },
-        "fecha": {
-          "type": "string",
-          "__example__": "DEMO"
-        },
-        "horario": {
-          "type": "string",
-          "__example__": "DEMO"
-        }
-      },
-      "layout": {
-        "type": "SingleColumnLayout",
-        "children": [
-          {
-            "type": "TextBody",
-            "text": "Demostración local. No registra citas ni consulta disponibilidad. No introduzcas datos reales."
-          },
-          {
-            "type": "Form",
-            "name": "formulario",
-            "children": [
-              {
-                "type": "TextInput",
-                "name": "nombre",
-                "label": "Cómo te llamamos",
-                "required": true,
-                "input-type": "text",
-                "max-chars": 80
-              },
-              {
-                "type": "Footer",
-                "label": "Continuar",
-                "on-click-action": {
-                  "name": "navigate",
-                  "next": {
-                    "type": "screen",
-                    "name": "RESUMEN"
-                  },
-                  "payload": {
-                    "especialidad": "${data.especialidad}",
-                    "profesional": "${data.profesional}",
-                    "fecha": "${data.fecha}",
-                    "horario": "${data.horario}",
-                    "nombre": "${form.nombre}"
-                  }
-                }
-              }
-            ]
-          }
-        ]
-      }
-    },
-    {
-      "id": "RESUMEN",
-      "title": "DEMO · Solicitud",
-      "terminal": true,
-      "success": true,
-      "data": {
-        "especialidad": {
-          "type": "string",
-          "__example__": "DEMO"
-        },
-        "profesional": {
-          "type": "string",
-          "__example__": "DEMO"
-        },
-        "fecha": {
-          "type": "string",
-          "__example__": "DEMO"
-        },
-        "horario": {
-          "type": "string",
-          "__example__": "DEMO"
-        },
-        "nombre": {
-          "type": "string",
-          "__example__": "DEMO"
-        }
-      },
-      "layout": {
-        "type": "SingleColumnLayout",
-        "children": [
-          {
-            "type": "TextHeading",
-            "text": "Solicitud de cita · DEMO"
-          },
-          {
-            "type": "TextBody",
-            "text": "Estas son preferencias, no disponibilidad garantizada. No se ha confirmado una cita."
-          },
-          {
-            "type": "TextBody",
-            "text": "${data.especialidad}"
-          },
-          {
-            "type": "TextBody",
-            "text": "${data.profesional}"
-          },
-          {
-            "type": "TextBody",
-            "text": "${data.fecha}"
-          },
-          {
-            "type": "TextBody",
-            "text": "${data.horario}"
-          },
-          {
-            "type": "TextBody",
-            "text": "${data.nombre}"
+            "type": "TextCaption",
+            "text": "Esto es una solicitud: todavía no reserva la cita. Recepción te propondrá un día y una hora por este chat."
           },
           {
             "type": "Footer",
-            "label": "Simular solicitud",
+            "label": "Enviar solicitud",
             "on-click-action": {
               "name": "complete",
               "payload": {
-                "tipo": "SOLICITUD_DE_CITA",
                 "flow_version": "solicitud-cita.v1",
-                "demo": true,
-                "especialidad": "${data.especialidad}",
-                "profesional": "${data.profesional}",
-                "fecha": "${data.fecha}",
-                "horario": "${data.horario}",
-                "nombre": "${data.nombre}"
+                "especialidad": "${screen.MOTIVO.form.especialidad}",
+                "cuando": "${form.cuando}",
+                "horario": "${form.horario}"
               }
             }
           }

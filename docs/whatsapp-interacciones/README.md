@@ -129,20 +129,24 @@ No se actualizaron paquetes ni lockfiles. La validación local es propia y acota
 |---|---|---|
 | Bienvenida | Tres botones estables: `BOOK_APPOINTMENT`, `VIEW_SERVICES`, `TALK_TO_HUMAN` | Una oferta por contexto; texto libre y humano siempre posibles; no enviar marketing automático |
 | Servicios/precios | Especialidad → búsqueda de servicio → consulta de precio/profesional → humano | Contratos sin conexión devuelven no disponible; nunca precio inventado |
-| Cita | Especialidad → profesional → fecha preferida → horario preferido → nombre → resumen | `SOLICITUD_DE_CITA`, nunca confirmación ni bloqueo de cupo |
+| Cita | Para qué es la cita → cuándo y en qué horario (2 pantallas) | Solicitud de cita pendiente, nunca confirmación ni bloqueo de cupo |
 | Recepción | Lista de horario, ubicación, requisitos, orientación de informes y humano | Solo información administrativa aprobada; sin documentos/enlaces privados |
-| Ventas | Promoción vigente validada → interés → contacto solicitado | Independiente de cita; contacto puntual no equivale a consentimiento de campañas |
+| Ventas | Mensaje de la promoción → cómo y cuándo contactar (1 pantalla) | Independiente de cita; contacto puntual no equivale a consentimiento de campañas |
 | Humano | Solicitud explícita o asunto clínico/desconocido | Conserva chat/línea/responsable/mensaje/selección/motivo; sin asignador nuevo |
 
 Archivos locales con versión explícita:
 
-- [Solicitud v1](flows/solicitud-cita.v1.json): seis pantallas, una especialidad y profesional
-  evidentemente DEMO; fecha elegida y franja preferida, no disponibilidad real. Sin CI, teléfono
-  adicional, síntomas ni historia clínica. Nombre solo para probar con datos sintéticos.
-- [Interés promocional v1](flows/interes-promocion.v1.json): flujo separado sin precio/descuento,
-  consentimiento puntual visible, sin alta automática a campañas.
-- [Manifest](flows/manifest.json): IDs/WABA nulos, desarrollo y producción separados,
-  producción deshabilitada y validación Meta pendiente.
+- [Solicitud v1](flows/solicitud-cita.v1.json): revisada el 2026-10-05. Dos pantallas (para qué
+  es la cita; cuándo y en qué horario), todo de opción cerrada, «Enviar solicitud». Sin nombre,
+  profesional ni fecha exacta: el texto libre nunca se le muestra al personal, no hay catálogo
+  real de médicos y una fecha suelta aparenta una disponibilidad que no existe.
+- [Interés promocional v1](flows/interes-promocion.v1.json): una pantalla (cómo y cuándo
+  contactar). La promoción la identifica el mensaje que abrió el Flow, no un desplegable.
+- [Manifest](flows/manifest.json): por Flow, nombre y categoría en Meta, el contrato que no se
+  deduce del JSON (pantalla inicial, propósito, etiquetas) y lo pendiente. IDs/WABA nulos y
+  producción deshabilitada.
+- [Prueba real](flows/PRUEBA-REAL.md): crear el borrador, leer errores oficiales, vista previa
+  y recorrido completo en un entorno DEV, sin tocar producción.
 
 Flow JSON fijado en **7.3**, referenciado en el [changelog oficial](https://developers.facebook.com/documentation/business-messaging/whatsapp/flows/changelogs).
 No se presupone su vigencia indefinida: revisar versiones soportadas/congeladas antes de crear el activo.
@@ -158,7 +162,8 @@ Una respuesta tardía puede llegar incluso de un Flow deprecado.
 
 ### Previsualización disponible y límites
 
-`npm run check:flows` valida navegación, referencias, transporte de datos, campos, terminales y separación de ambientes.
+`npm run check:flows` valida los límites oficiales de Meta que usan estos Flows, navegación, referencias, que cada
+pregunta llegue al CRM, que el contrato del manifest coincida con el JSON y la separación de ambientes.
 El componente Angular `InteraccionPreviewComponent` representa mensajes/selecciones con fixtures en TestBed,
 sin importar el componente desde una ruta o hilo reales. No es un emulador nativo de Flows.
 No se generó URL de preview Meta: obtenerla requiere un activo remoto, cuya creación no está autorizada.
