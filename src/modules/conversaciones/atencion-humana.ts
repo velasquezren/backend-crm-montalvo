@@ -304,7 +304,11 @@ export async function contextoDeAtencion(
 
 /* ── Resolución: quién, cuándo y cuánto esperó ──────────────────────── */
 
-/** La solicitud que está viva, leída con la fila bloqueada: nadie la cambia entre leerla y resolverla. */
+/**
+ * La solicitud que está viva, leída con la fila bloqueada: nadie la cambia entre leerla y
+ * resolverla. `NO KEY UPDATE` y no `UPDATE`: es el bloqueo que ya toma un UPDATE normal, y no
+ * frena a un mensaje entrante que se inserta mientras tanto (su llave foránea pide `KEY SHARE`).
+ */
 export interface SolicitudViva {
   solicitadaEn: Date;
   motivo: MotivoAtencion;
@@ -318,7 +322,7 @@ export async function bloquearSolicitudViva(tx: Prisma.TransactionClient, conver
            "atencionTomadaEn" AS "tomadaEn", "atencionTomadaPorId" AS "tomadaPorId"
     FROM "Conversacion"
     WHERE id = ${conversacionId} AND "atencionSolicitadaEn" IS NOT NULL
-    FOR UPDATE`;
+    FOR NO KEY UPDATE`;
   return filas[0] ?? null;
 }
 
