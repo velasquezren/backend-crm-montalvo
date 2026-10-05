@@ -123,6 +123,30 @@ Dashboard escribía su propia copia de la regla.
   `updatedAt`, que se mueve al asignar. `cerradaPorId` nulo significa que la cerró el
   sistema.
 
+### Atención humana: solicitud, prioridad y pausa de la automatización (2026-10-05)
+
+Diseño completo en el [diseño de atención humana](../../../docs/atencion-humana.md). Lo que no se puede olvidar al tocarlo:
+
+- **El estado sale de fechas, no de una columna `estado`**: `atencionSolicitadaEn`
+  (viva) y `atencionTomadaEn` (en atención). Las definiciones (`CON_ATENCION`,
+  `ESPERANDO_HUMANO`, `EN_ATENCION`, `ORDEN_ATENCION`) y la prioridad
+  (`prioridadDeMotivo`) viven en `modules/conversaciones/atencion-humana.ts`. El orden de
+  `enum MotivoAtencion` ES la prioridad.
+- **Nace en la ingesta, dentro de la transacción del mensaje** (`registrarSolicitudAtencion`),
+  a partir de lo que `guardarRespuesta` correlacionó. Nunca del título visible ni de un id
+  que no esté en nuestra oferta: `seleccionId` solo existe tras correlacionar.
+- **`atencionTomadaPorId` no es `agenteId`.** En recepción la atención es compartida:
+  tomar no asigna el chat. En comercial, tomar reclama del pool con la misma regla que
+  contestar y nunca le quita un chat a otra agente.
+- **La automatización se calla en tres puntos, y los tres hacen falta**: la pausa se
+  lee dentro del candado de `guardarMensajeAutomatico` (`CANDADO_AUTOMATICOS`, el mismo
+  que toma la solicitud), se vuelve a mirar justo antes de despachar (`sigueSinPausa`
+  retira lo que ya se había guardado) y el barrido de reintentos no reenvía automáticos
+  de un chat pausado. **Un camino nuevo que mande automáticos pasa por
+  `guardarMensajeAutomatico`**, o la paciente que pidió una persona recibe una máquina.
+- Resolver no levanta la pausa; solo `POST …/automatizacion/reanudar`, auditado y sin
+  solicitud viva. Cerrar resuelve. El barrido de inactividad no cierra una solicitud viva.
+
 ## Categoría del paciente: valor, no actividad (2026-09-30)
 
 `Cliente.categoria` es lo que lee todo el CRM (inbox, fichas, filtros, el índice). Su
