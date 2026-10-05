@@ -1,3 +1,4 @@
+import { MenuAtencionService } from '../menu-atencion/menu-atencion.service';
 import { ConfigService } from '@nestjs/config';
 import { AuditService } from '../../common/audit/audit.service';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -32,7 +33,7 @@ function worker(db = prisma) {
 function ingesta(s = worker(), db = prisma) {
   return new IngestaWhatsappService(db, clientes(db), gateway as unknown as ConversacionesGateway,
     new AcuseAutomaticoService(new ConfigService({})), {} as DespachadorSalienteService,
-    { despertar: jest.fn() } as unknown as MediaEntranteService, s);
+    { despertar: jest.fn() } as unknown as MediaEntranteService, s, new MenuAtencionService(db));
 }
 function recibir(s = ingesta(), id = 'wamid.f062', linea = LINEA, telefono = TELEFONO) {
   return s.procesarEntrante(telefono, 'Consulta comercial', id, 'Paciente ficticia',

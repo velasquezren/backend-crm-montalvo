@@ -1,5 +1,54 @@
 # Estado actual
 
+## Menú de atención y emergencias — 5 de octubre de 2026 · LOCAL, SIN DESPLEGAR
+
+Cada línea puede recibir a la paciente con un menú de opciones configurable en **Líneas
+WhatsApp → Menú**: hablar con una persona (prioridad alta), **es una emergencia
+(prioridad crítica, nueva)**, solicitar una cita, información, ubicación y promociones.
+Diseño: [menu-atencion](menu-atencion.md). Sin commit, push ni despliegue.
+
+- Migración `20261005170920_menu_atencion`: valor `EMERGENCIA` del enum **antes** de
+  `SOLICITUD_EXPLICITA` (su orden es la prioridad) y la tabla `MenuAtencion`. Aditiva.
+- Apagado por partida doble: cada menú nace apagado y además exige `WHATSAPP_INTERACCIONES`.
+- Escribir «es una emergencia» (entera) ahora crea una solicitud crítica: cambia una
+  regla anterior a propósito, por pedido de René.
+- Nada de contenido inventado: los textos, la orientación de emergencia y las
+  promociones los escribe la clínica. **Pendiente de la clínica**: el texto de la
+  orientación de emergencia (a dónde acudir, qué número) y las promociones vigentes.
+- Revisado con las Web Interface Guidelines de Vercel y dos revisiones de código (18
+  hallazgos, todos corregidos): cambios sin guardar protegidos (Escape, clic fuera, Atrás),
+  deshacer al quitar, el negro solo para la emergencia, «¿hay emergencia?» no es un aviso,
+  un toque de campaña no dispara el menú, menú rechazado por Meta → sale el acuse.
+- Verificación: backend build OK, 814 unitarias, integración 39 suites · 767 (la nueva
+  `menu-atencion.integracion.spec.ts` con 19 casos de punta a punta); frontend build OK y
+  579 pruebas.
+
+## WhatsApp Flows: borradores en Meta sin errores — 5 de octubre de 2026 · SIN PUBLICAR
+
+Los dos Flows se rehicieron pensando en la paciente y se crearon en Meta **como borrador**, con
+autorización de René, cada uno en la WABA de la línea que lo usará. Validación oficial: **0 errores**.
+**Sin publicar ni enviar mensajes**; `WHATSAPP_INTERACCIONES` sigue apagada y el catálogo vacío.
+
+| Flow | Línea / WABA | ID en Meta |
+|---|---|---|
+| `montalvo_solicitud_cita_v1` | Recepción · `1110803964711622` | `1637177818205081` |
+| `montalvo_interes_promocion_v1` | Ventas · `1011426071679964` | `4291693104383978` |
+
+La WABA de Ventas ya tenía tres Flows publicados creados fuera del CRM («segunda opinion dr m…»,
+«control prenatal suc…», «Formulario de WhatsA…»); no se tocaron.
+
+- `solicitud-cita.v1`: de 6 pantallas a 2, todo de opción cerrada. Se quitaron el nombre (texto libre:
+  el CRM nunca se lo muestra al personal), el profesional (no hay catálogo real) y la fecha exacta.
+- `interes-promocion.v1`: sin el desplegable de promoción ni el OptIn obligatorio.
+- `check:flows` aplica los límites oficiales (label de Dropdown/TextInput 20, RadioButtonsGroup 30…),
+  las buenas prácticas de Meta y el contrato del backend; `--contrato` imprime la entrada exacta de
+  `catalogoFlows()`. Prueba de integración nueva: la respuesta de cada JSON real entra `CORRELACIONADA`
+  con sus datos legibles.
+- **Pendiente de la clínica:** confirmar las especialidades (hoy Ginecología, Maternidad y
+  Reproducción asistida, de las áreas reales de la planilla).
+- El MCP `whatsapp_business_tools` no tiene herramientas de Flows: el borrador se crea en el Flow
+  Builder de WhatsApp Manager o con la Flows API. Procedimiento: [PRUEBA-REAL](whatsapp-interacciones/flows/PRUEBA-REAL.md).
+
 ## Cierre de la atención humana — 5 de octubre de 2026 · DESPLEGADA, con la función APAGADA
 
 **Desplegada el 4/10 a las 23:27 (hora de La Paz) con aprobación de René; `WHATSAPP_INTERACCIONES` sigue apagada.**

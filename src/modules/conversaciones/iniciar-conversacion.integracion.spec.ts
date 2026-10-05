@@ -1,3 +1,4 @@
+import { MenuAtencionService } from '../menu-atencion/menu-atencion.service';
 import { ConfigService } from '@nestjs/config';
 
 import { AuditService } from '../../common/audit/audit.service';
@@ -116,6 +117,7 @@ beforeEach(async () => {
     prisma, clientes, gateway, new AcuseAutomaticoService(config), despachador,
     new MediaEntranteService(prisma, gateway, r2, whatsapp, lineas),
     new PrimerContactoService(prisma, clientes),
+    new MenuAtencionService(prisma),
   );
   jest.spyOn(service['logger'], 'error').mockImplementation(() => undefined);
 });

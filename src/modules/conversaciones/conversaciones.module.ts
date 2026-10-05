@@ -2,6 +2,7 @@ import { CierreInactividadService } from './cierre-inactividad.service';
 import { CabecerasPlantillaController } from './cabeceras-plantilla.controller';
 import { MemoriaAgenteModule } from '../memoria-agente/memoria-agente.module';
 import { LineasWhatsappModule } from '../lineas-whatsapp/lineas-whatsapp.module';
+import { MenuAtencionModule } from '../menu-atencion/menu-atencion.module';
 import { LeadsModule } from '../leads/leads.module';
 import { Module } from '@nestjs/common';
 
@@ -25,7 +26,7 @@ import { ReintentoSalienteService } from './reintento-saliente.service';
 import { WhatsappWebhookController } from './webhooks/whatsapp-webhook.controller';
 
 @Module({
-  imports: [LeadsModule, MemoriaAgenteModule, LineasWhatsappModule, ClientesModule, StorageModule, PushModule, AuthModule],
+  imports: [LeadsModule, MemoriaAgenteModule, LineasWhatsappModule, MenuAtencionModule, ClientesModule, StorageModule, PushModule, AuthModule],
   controllers: [ConversacionesController, WhatsappWebhookController, CabecerasPlantillaController],
   providers: [
     ConversacionesService,

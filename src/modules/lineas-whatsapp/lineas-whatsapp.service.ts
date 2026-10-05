@@ -223,7 +223,12 @@ export class LineasWhatsappService {
    * la ve por rol (los admins): es una preferencia de la persona, no del
    * acceso. Ver `SilencioLinea`.
    */
-  async audiencia(conversacionId: string): Promise<{ ven: string[]; avisar: string[] }> {
+  /**
+   * `critica` (una emergencia que declaró la paciente): le suena a todos los que
+   * la ven, también a quien silenció la línea. El silencio es para el flujo de
+   * todos los días; esto no puede quedar mudo.
+   */
+  async audiencia(conversacionId: string, { critica = false } = {}): Promise<{ ven: string[]; avisar: string[] }> {
     const conversacion = await this.prisma.conversacion.findUnique({
       where: { id: conversacionId },
       select: {
@@ -260,7 +265,7 @@ export class LineasWhatsappService {
         agenteId === null ||
         esSuya(u.id),
     );
-    const avisar = ven.filter(
+    const avisar = critica ? ven : ven.filter(
       (u) => u.silenciosLinea.length === 0 || esSuya(u.id),
     );
     return { ven: ven.map((u) => u.id), avisar: avisar.map((u) => u.id) };

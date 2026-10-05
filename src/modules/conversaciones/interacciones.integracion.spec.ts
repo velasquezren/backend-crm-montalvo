@@ -1,3 +1,4 @@
+import { MenuAtencionService } from '../menu-atencion/menu-atencion.service';
 import { INestApplication, Module, ValidationPipe } from '@nestjs/common';
 import { APP_GUARD, NestFactory } from '@nestjs/core';
 import { ConfigService } from '@nestjs/config';
@@ -35,7 +36,7 @@ import { DespachadorSalienteService } from './despachador-saliente.service';
 import { MediaEntranteService } from './media-entrante.service';
 import { ReintentoSalienteService } from './reintento-saliente.service';
 import { WhatsappWebhookController } from './webhooks/whatsapp-webhook.controller';
-import { datosOferta, descifrarInteraccion, OfertaInteraccion, purgarInteracciones } from './interacciones-integracion';
+import { datosOferta, descifrarInteraccion, FlowAutorizado, OfertaInteraccion, purgarInteracciones } from './interacciones-integracion';
 
 // URL deliberadamente fija; nunca usar DATABASE_URL ni cargar .env en esta suite.
 const prisma = new PrismaService('postgresql://crm_app@127.0.0.1:5433/crm_test');
@@ -50,7 +51,7 @@ const config = new ConfigService({ META_APP_SECRET: secretoSintetico, UBICACION_
     { provide: PrismaService, useValue: prisma }, { provide: ConfigService, useValue: config },
     AuditService, AuthService, UsuariosService, ClientesService, CategoriaPacienteService, ServiciosService, TipoCambioService,
     LineasWhatsappService, PrimerContactoService, MemoriaAgenteService, ConversacionesService, EnvioPlantillasService, AtencionHumanaService,
-    ConversacionesGateway, IngestaWhatsappService, AcuseAutomaticoService, DespachadorSalienteService,
+    ConversacionesGateway, IngestaWhatsappService, MenuAtencionService, AcuseAutomaticoService, DespachadorSalienteService,
     ReintentoSalienteService, MetaSignatureGuard,
     { provide: WhatsappCloudService, useValue: transporte },
     { provide: R2Service, useValue: { urlFirmada: async () => null } },
@@ -195,6 +196,27 @@ it.each(['token', 'version', 'correcta'])('Flow: validación de %s contra oferta
   const entrada = await prisma.mensaje.findUniqueOrThrow({ where: { whatsappMsgId: raw.id }, include: { interaccion: true } });
   expect(entrada.interaccion?.estado).toBe(variante === 'correcta' ? 'CORRELACIONADA' : 'NO_CORRELACIONADA');
   expect(JSON.stringify((await http(`/conversaciones/${chat}`)).body)).not.toContain('token-sintetico');
+});
+it.each(['solicitud-cita.v1.json', 'interes-promocion.v1.json'])('Flow real %s: la respuesta que arma su JSON entra correlacionada y legible', async archivo => {
+  // El contrato lo deriva el validador del propio JSON (docs/whatsapp-interacciones/flows): si el JSON cambia, esta prueba lo sigue.
+  const { stdout } = await promisify(execFile)(process.execPath, ['scripts/validar-flows-locales.mjs', '--contrato'], { timeout: 10_000, env: { PATH: process.env['PATH'] } });
+  const { contrato } = (JSON.parse(stdout) as { archivo: string; contrato: Omit<FlowAutorizado, 'id'> }[]).find(f => f.archivo === archivo)!;
+  const flow: FlowAutorizado = { id: '200', ...contrato };
+  const clientMessageId = randomUUID();
+  const oferta: OfertaInteraccion = { telefono, mensaje: { tipo: 'flow', cuerpo: 'Abrir formulario', flowId: flow.id, correlacion: 'token-real', cta: 'Abrir', modo: 'published', inicio: { accion: 'navigate', pantalla: flow.pantalla } }, flow };
+  const m = await prisma.mensaje.create({ data: { conversacionId: chat, direccion: 'SALIENTE', contenido: 'Abrir formulario', clientMessageId, whatsappMsgId: randomUUID(), interaccion: { create: datosOferta(oferta, clientMessageId) } } });
+  // Lo que manda Meta al completar: flow_token más el payload de `complete`, con la última opción de cada pregunta.
+  const elegidas = Object.fromEntries(Object.entries(flow.respuestas).map(([clave, ids]) => [clave, ids[ids.length - 1]]));
+  const raw = { ...respuesta(m.whatsappMsgId!), interactive: { type: 'nfm_reply', nfm_reply: { name: 'flow', body: 'Sent', response_json: JSON.stringify({ flow_token: 'token-real', flow_version: flow.version, ...elegidas }) } } };
+  expect((await webhook([raw])).status).toBe(200);
+
+  const entrada = await prisma.mensaje.findUniqueOrThrow({ where: { whatsappMsgId: raw.id }, include: { interaccion: true } });
+  expect(entrada.interaccion?.estado).toBe('CORRELACIONADA');
+  const vista = entrada.interaccion?.vista as Record<string, unknown>;
+  expect(vista['datos']).toEqual(Object.entries(elegidas).map(([clave, id]) => ({ etiqueta: flow.etiquetas![clave], valor: flow.titulos![clave][id] })));
+  expect(vista['proposito']).toBe(flow.proposito);
+  if (flow.proposito === 'SOLICITUD_CITA') expect(entrada.contenido).toContain('no hay ninguna cita reservada');
+  expect(JSON.stringify(vista)).not.toMatch(/token-real|response_json|INDISTINTO/);
 });
 it.each(['caducada', 'opcion', 'linea', 'paciente', 'contexto'])('no autoriza respuestas con %s incorrecta', async variante => {
   const m = await enviar();

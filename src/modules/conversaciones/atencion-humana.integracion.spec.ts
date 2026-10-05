@@ -1,3 +1,4 @@
+import { MenuAtencionService } from '../menu-atencion/menu-atencion.service';
 import { INestApplication, Module, ValidationPipe } from '@nestjs/common';
 import { APP_GUARD, NestFactory } from '@nestjs/core';
 import { ConfigService } from '@nestjs/config';
@@ -65,7 +66,7 @@ const config = new ConfigService({
     { provide: PrismaService, useValue: prisma }, { provide: ConfigService, useValue: config },
     AuditService, AuthService, UsuariosService, ClientesService, CategoriaPacienteService, ServiciosService, TipoCambioService,
     LineasWhatsappService, PrimerContactoService, MemoriaAgenteService, ConversacionesService, EnvioPlantillasService, AtencionHumanaService,
-    ConversacionesGateway, IngestaWhatsappService, AcuseAutomaticoService, DespachadorSalienteService,
+    ConversacionesGateway, IngestaWhatsappService, MenuAtencionService, AcuseAutomaticoService, DespachadorSalienteService,
     ReintentoSalienteService, CierreInactividadService, MetaSignatureGuard,
     { provide: WhatsappCloudService, useValue: transporte },
     { provide: R2Service, useValue: { urlFirmada: async () => null } },
@@ -563,7 +564,9 @@ describe('Pedir a una persona escribiendo', () => {
   });
 
   it('cualquier otro texto no genera solicitud: no es un clasificador', async () => {
-    for (const cuerpo of ['hola', 'quiero hablar con una persona sobre mi cita', 'me duele mucho el pecho', 'es una emergencia']) {
+    /* «es una emergencia», entera, SÍ cuenta desde el menú de atención (lo declara
+       ella; ver menu-atencion.integracion.spec.ts). Dicha a medias, no. */
+    for (const cuerpo of ['hola', 'quiero hablar con una persona sobre mi cita', 'me duele mucho el pecho', 'no es una emergencia, solo una consulta']) {
       await webhook([texto(cuerpo)]);
     }
     await reposo();

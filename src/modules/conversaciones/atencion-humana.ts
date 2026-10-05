@@ -14,9 +14,10 @@ import { MotivoAtencion, Prisma } from '../../prisma/prisma-client';
 export type EstadoAtencion = 'ESPERANDO' | 'EN_ATENCION';
 
 /**
- * `CRITICA` existe en el contrato y ninguna regla la produce todavía: hace
- * falta un criterio aprobado (una urgencia médica no se detecta con palabras
- * sueltas) y esta fase no usa clasificadores.
+ * `CRITICA` la produce un solo criterio: la paciente DICE que es una emergencia
+ * —toca «Es una emergencia» en el menú o escribe, entera, una de las frases de
+ * `esAvisoDeEmergencia`—. Es lo que ella declara, no algo que el CRM deduzca: una
+ * urgencia descrita con otras palabras no se detecta (ver docs/menu-atencion.md).
  */
 export type PrioridadAtencion = 'NORMAL' | 'ALTA' | 'CRITICA';
 
@@ -56,10 +57,11 @@ export const ORDEN_ATENCION = [
  */
 export const CANDADO_AUTOMATICOS = 70071;
 
-const ORDEN_MOTIVOS: readonly MotivoAtencion[] = ['SOLICITUD_EXPLICITA', 'SOLICITUD_CITA', 'REVISION'];
+const ORDEN_MOTIVOS: readonly MotivoAtencion[] = ['EMERGENCIA', 'SOLICITUD_EXPLICITA', 'SOLICITUD_CITA', 'REVISION'];
 
 /** La prioridad sale del motivo, en un solo sitio. */
 export function prioridadDeMotivo(motivo: MotivoAtencion): PrioridadAtencion {
+  if (motivo === 'EMERGENCIA') return 'CRITICA';
   return motivo === 'SOLICITUD_EXPLICITA' ? 'ALTA' : 'NORMAL';
 }
 
@@ -81,6 +83,8 @@ export interface ResultadoRespuesta {
   seleccionId?: string;
   /** Solo si el Flow se validó contra la oferta y su versión. */
   propositoFlow?: string;
+  /** La opción estaba en una oferta del menú de atención (ver `OfertaInteraccion.origen`). */
+  deMenu?: boolean;
 }
 
 const ESTADOS_DE_OFERTA_NUESTRA = new Set(['CORRELACIONADA', 'CADUCADA']);
@@ -89,21 +93,26 @@ const ESTADOS_DE_OFERTA_NUESTRA = new Set(['CORRELACIONADA', 'CADUCADA']);
  * Por qué esta respuesta necesita a una persona. Reglas deterministas, sin
  * clasificador:
  *
+ * - «Es una emergencia» de una oferta nuestra → emergencia (aunque haya caducado).
  * - «Hablar con recepción» de una oferta nuestra → la pidió (aunque la oferta
  *   haya caducado: pedir una persona siempre se atiende).
  * - Flow de cita validado, o «Solicitar cita» → solicitud de cita.
- * - Cualquier otra respuesta, o una sin correlación → revisión. Hoy ninguna
- *   automatización continúa una selección, así que ninguna puede quedar sin
+ * - Una opción que el menú de atención contesta solo (`resueltaSola`: horarios,
+ *   ubicación, la lista de promociones) → nada: ya tiene respuesta.
+ * - Cualquier otra respuesta, o una sin correlación → revisión: ninguna queda sin
  *   que alguien la vea.
  * - El segundo toque de la misma oferta no crea nada nuevo.
  *
  * El identificador solo cuenta si `guardarRespuesta` lo encontró en la oferta
  * guardada: un payload construido a mano no llega aquí como `seleccionId`.
  */
-export function motivoDeRespuesta(r: ResultadoRespuesta): MotivoAtencion | null {
+export function motivoDeRespuesta(r: ResultadoRespuesta, resueltaSola = false): MotivoAtencion | null {
   if (r.estado === 'DUPLICADA') return null;
   const nuestra = ESTADOS_DE_OFERTA_NUESTRA.has(r.estado);
+  if (nuestra && r.seleccionId === 'EMERGENCY') return 'EMERGENCIA';
   if (nuestra && r.seleccionId === 'TALK_TO_HUMAN') return 'SOLICITUD_EXPLICITA';
+  /* Solo una oferta VIGENTE se contesta sola: un toque tardío lo ve una persona. */
+  if (resueltaSola && r.estado === 'CORRELACIONADA') return null;
   if (nuestra && (r.seleccionId === 'BOOK_APPOINTMENT' || r.propositoFlow === 'SOLICITUD_CITA')) return 'SOLICITUD_CITA';
   return 'REVISION';
 }
@@ -155,13 +164,17 @@ export async function registrarSolicitudAtencion(
  * esté en esta lista cerrada no genera solicitud. Ver «Antes de activar la IA»
  * en docs/atencion-humana.md.
  */
+/** Saludo y cortesía con que puede empezar una frase entera. */
+const SALUDO = '(?:(?:hola|buenas|buenos dias|buenas tardes|buenas noches)\\s+)?(?:por favor\\s+)?';
+const CORTESIA = '(?:\\s+por\\s+favor)?$';
+
 const PEDIR_PERSONA = new RegExp(
-  '^(?:(?:hola|buenas|buenos dias|buenas tardes|buenas noches)\\s+)?(?:por favor\\s+)?' +
+  `^${SALUDO}` +
   '(?:(?:quiero|quisiera|necesito|deseo|me gustaria|puedo|podria|podrian|podemos)\\s+)?' +
   '(?:hablar|comunicarme|contactar|chatear)\\s+con\\s+' +
   '(?:un[ao]?\\s+persona(?:\\s+real)?|alguien(?:\\s+de\\s+la\\s+clinica)?|un\\s+humano|un\\s+asesor|una\\s+asesora|' +
   'un\\s+operador|una\\s+operadora|un\\s+agente|una\\s+agente|(?:la\\s+)?recepcion|(?:la|una)\\s+recepcionista)' +
-  '(?:\\s+por\\s+favor)?$',
+  CORTESIA,
 );
 
 function sinAdornos(texto: string): string {
@@ -176,6 +189,31 @@ function sinAdornos(texto: string): string {
 /** ¿Lo que escribió, entero, es una de las frases de pedir a una persona? */
 export function esPedidoDePersona(texto: string): boolean {
   return texto.length <= 120 && PEDIR_PERSONA.test(sinAdornos(texto));
+}
+
+/**
+ * Frases COMPLETAS con las que una paciente dice que es una emergencia. Mismo
+ * criterio que `PEDIR_PERSONA`: el mensaje entero, con saludos y cortesías.
+ * «es una emergencia» sí; «no es una emergencia, solo una consulta» no.
+ *
+ * Una PREGUNTA no es un aviso: «¿hay emergencia?» suele preguntar si la clínica
+ * tiene ese servicio, y «¿es urgente?», si conviene ir hoy. Con «¿» o «?» no cuenta.
+ *
+ * Es lo que ella declara, no una detección: «me siento muy mal» o «sangro» no
+ * están aquí ni deben agregarse sin un criterio aprobado por la clínica. Ante la
+ * duda una persona lo ve en la bandeja, como siempre.
+ */
+const AVISO_EMERGENCIA = [
+  new RegExp(`^${SALUDO}(?:(?:es|tengo|tenemos|hay)\\s+)?(?:una\\s+)?(?:emergencia|urgencia)(?:\\s+medica)?${CORTESIA}`),
+  new RegExp(`^${SALUDO}(?:es\\s+)?(?:muy\\s+)?urgente${CORTESIA}`),
+  new RegExp(`^(?:auxilio|socorro|ayuda urgente)${CORTESIA}`),
+];
+
+/** ¿Lo que escribió, entero, es una de las frases de emergencia? */
+export function esAvisoDeEmergencia(texto: string): boolean {
+  if (texto.length > 120 || /[¿?]/.test(texto)) return false;
+  const limpio = sinAdornos(texto);
+  return AVISO_EMERGENCIA.some(r => r.test(limpio));
 }
 
 /* ── Contexto del traspaso ──────────────────────────────────────────── */

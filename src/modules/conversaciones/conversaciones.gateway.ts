@@ -134,7 +134,8 @@ export class ConversacionesGateway implements OnGatewayInit, OnGatewayConnection
    */
   notificarEntrante(
     conversacionId: string,
-    info: { clienteNombre?: string; texto?: string },
+    /** `critica`: una emergencia. Suena a todos los que ven la conversación, también a quien silenció la línea. */
+    info: { clienteNombre?: string; texto?: string; critica?: boolean },
   ): void {
     const aviso = {
       titulo: info.clienteNombre ? `WhatsApp: ${info.clienteNombre}` : 'Mensaje de WhatsApp',
@@ -153,7 +154,7 @@ export class ConversacionesGateway implements OnGatewayInit, OnGatewayConnection
        refresco de la bandeja; solo `avisar` recibe la marca que hace sonar la
        pestaña y el push al teléfono. Van por separado para que un fallo en una
        no se lleve la otra: sin socket, el teléfono aún debe sonar. */
-    void this.lineas.audiencia(conversacionId).then(({ ven, avisar }) => {
+    void this.lineas.audiencia(conversacionId, { critica: info.critica }).then(({ ven, avisar }) => {
       const alcanzadas = new Set(ven);
       const suenan = new Set(avisar);
       void this.emitirAutenticados(

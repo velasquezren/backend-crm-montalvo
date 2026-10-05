@@ -1,3 +1,4 @@
+import { MenuAtencionService } from '../menu-atencion/menu-atencion.service';
 import { PrimerContactoService } from '../leads/primer-contacto.service';
 import { ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -59,7 +60,7 @@ function ingesta(s = worker()) {
   return new IngestaWhatsappService(prisma,
     clientes,
     gateway as unknown as ConversacionesGateway, new AcuseAutomaticoService(config),
-    {} as DespachadorSalienteService, s, new PrimerContactoService(prisma, clientes));
+    {} as DespachadorSalienteService, s, new PrimerContactoService(prisma, clientes), new MenuAtencionService(prisma));
 }
 
 /** Lo que «descarga» de Meta cada prueba; por defecto no es una imagen legible. */

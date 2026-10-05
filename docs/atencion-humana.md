@@ -43,9 +43,11 @@ asignación comercial.
 - **Estado** se deriva de las columnas: `ESPERANDO` (solicitada, sin tomar),
   `EN_ATENCION` (tomada), `NINGUNA`.
 - **Prioridad** se deriva del motivo, en una sola función
-  (`prioridadDeMotivo`): `SOLICITUD_EXPLICITA` → `ALTA`; el resto → `NORMAL`.
-  `CRITICA` no la produce ninguna regla todavía: no hay un criterio definido y
-  aprobado, y no se usa un clasificador.
+  (`prioridadDeMotivo`): `EMERGENCIA` → `CRITICA`; `SOLICITUD_EXPLICITA` →
+  `ALTA`; el resto → `NORMAL`. `EMERGENCIA` (2026-10-05, [menú de
+  atención](menu-atencion.md)) nace solo de lo que la paciente **declara**: el
+  botón «Es una emergencia» o una frase entera de `esAvisoDeEmergencia`. No se
+  usa un clasificador.
 - La pausa de la automatización es independiente: resolver no la levanta.
   Solo `POST …/automatizacion/reanudar`, explícito y auditado.
 
@@ -127,8 +129,9 @@ que la paciente pidió y es una sola vez.
 
 ## Qué queda fuera
 
-- Aviso automático a la paciente al pedir una persona: no hay texto aprobado y
-  cada mensaje cuesta. Mismo criterio que `AUTORESPUESTA_TEXTO`.
+- Aviso automático a la paciente al pedir una persona: solo si la clínica escribe
+  la confirmación en el [menú de atención](menu-atencion.md); no hay texto por
+  defecto. Mismo criterio que `AUTORESPUESTA_TEXTO`.
 - Detección de asunto médico o de emergencia: requiere criterios aprobados o un
   clasificador, y esta fase no usa ninguno.
 - IA: no hay LLM. El punto de entrada futuro es `guardarMensajeAutomatico`, que
@@ -139,11 +142,12 @@ que la paciente pidió y es una sola vez.
 **Hoy el CRM NO detecta urgencias médicas ni mensajes sensibles, y no debe decirse
 que lo hace.** Lo único que genera una solicitud de atención humana es un evento
 explícito: tocar un botón o una lista, completar un Flow aprobado, o escribir
-entera una de las frases cerradas de arriba. La prioridad `CRITICA` existe en el
-contrato y ninguna regla la produce.
+entera una de las frases cerradas de arriba. La prioridad `CRITICA` la da solo una
+emergencia que la paciente **declara** (botón o frase entera, ver
+[menú de atención](menu-atencion.md)); el CRM no evalúa si lo es.
 
-Un mensaje como «me siento muy mal», «sangro después de la cirugía» o «es una
-emergencia» escrito con otras palabras **no** crea solicitud, **no** pausa la
+Un mensaje como «me siento muy mal», «sangro después de la cirugía» o una
+emergencia descrita con otras palabras **no** crea solicitud, **no** pausa la
 automatización y **no** sube en el inbox: llega como cualquier mensaje. Mientras no
 haya automatización autónoma eso lo ve una persona en la bandeja normal, como
 siempre; el día que una IA conteste por su cuenta, dejaría de ser cierto.
@@ -159,10 +163,12 @@ y no están hechos:
    deriva a una persona**, nunca contesta.
 3. Qué se le dice a la paciente ante una posible emergencia: orientación para
    buscar servicios de emergencia, aprobada por la clínica, sin diagnosticar ni
-   prometer atención inmediata por WhatsApp.
+   prometer atención inmediata por WhatsApp. **Hecho para la emergencia
+   declarada**: es el texto obligatorio de la opción «Es una emergencia» del
+   menú; falta para la que se detecte.
 4. Que la IA no pueda enviar nada en un chat con solicitud viva ni pausado
    (`guardarMensajeAutomatico` ya lo respeta: es el único punto de entrada).
-5. La regla que produzca `CRITICA`, con un criterio definido, o que siga sin
-   existir.
+5. La regla que produzca `CRITICA`. **Hoy existe una**: la emergencia declarada.
+   Cualquier otra (detectada) necesita los puntos 1 y 2.
 
 Hasta que existan, la IA solo puede preparar borradores para una persona.

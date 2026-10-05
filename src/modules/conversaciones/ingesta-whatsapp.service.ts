@@ -1,15 +1,27 @@
 import { LINEA_COMERCIAL_INICIAL, obtenerOCrearConversacion } from './acceso-conversacion';
 import { Injectable, Logger } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import { Mensaje, MotivoAtencion, OrigenLead, Prisma } from '../../prisma/prisma-client';
 
 import { CONFIRMACION_BAJA, esPedidoDeBaja } from './baja-promociones';
 import { REABRIR } from './estado-conversacion';
-import { CANDADO_AUTOMATICOS, esPedidoDePersona, motivoDeRespuesta, registrarSolicitudAtencion } from './atencion-humana';
+import { CANDADO_AUTOMATICOS, esAvisoDeEmergencia, esPedidoDePersona, motivoDeRespuesta, registrarSolicitudAtencion } from './atencion-humana';
 import { enSegundoPlano } from '../../common/fiabilidad/en-segundo-plano';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ClientesService, nombreProvisional } from '../clientes/clientes.service';
 import { PrimerContactoService } from '../leads/primer-contacto.service';
-import { guardarRespuesta, interaccionesHabilitadas } from './interacciones-integracion';
+import { datosOferta, guardarRespuesta, interaccionesHabilitadas, OfertaInteraccion, prepararOferta } from './interacciones-integracion';
+import { MenuAtencionService } from '../menu-atencion/menu-atencion.service';
+import { MensajePreparado } from '../../common/whatsapp/interacciones/mensaje-interactivo';
+import {
+  AccionMenu,
+  accionDeSeleccion,
+  MenuAtencion,
+  mensajeDelMenu,
+  mensajeDePromociones,
+  orientacionDeEmergencia,
+  seResuelveSola,
+} from '../menu-atencion/menu-atencion';
 import { AcuseAutomaticoService } from './acuse-automatico.service';
 import { ConversacionesGateway } from './conversaciones.gateway';
 import { DespachadorSalienteService } from './despachador-saliente.service';
@@ -20,6 +32,17 @@ import { CONTENIDO_PIN, TEXTO_UBICACION, UBICACION_CLINICA } from './ubicacion-c
 const UBICACION_ESPERA_MS = 12 * 60 * 60 * 1000;
 /** Si una persona escribió hace menos que esto, está atendiendo: no interrumpir. */
 const PERSONA_ATENDIENDO_MS = 15 * 60 * 1000;
+/**
+ * El menú de atención se ofrece al empezar una conversación, no en cada
+ * mensaje: no se repite si en este plazo ya se ofreció algo o una persona le
+ * escribió. Es el plazo en que una conversación sigue «en curso».
+ */
+const MENU_ESPERA_MS = 24 * 60 * 60 * 1000;
+/** Una confirmación u orientación no se repite si ya salió hace menos que esto. */
+const RESPUESTA_REPETIDA_MS = 30 * 60 * 1000;
+
+/** Un automático: texto, o una oferta interactiva que se guarda para correlacionar su respuesta. */
+type Automatico = string | { oferta: OfertaInteraccion };
 
 /** Contexto de campaña publicitaria / anuncio de Meta (Click-to-WhatsApp Ads). */
 export interface ReferenciaCampana {
@@ -64,6 +87,7 @@ export class IngestaWhatsappService {
     private readonly despachador: DespachadorSalienteService,
     private readonly mediaEntrante: MediaEntranteService,
     private readonly primerContacto: PrimerContactoService,
+    private readonly menus: MenuAtencionService,
   ) {}
 
   /**
@@ -136,12 +160,23 @@ export class IngestaWhatsappService {
       await this.clientesService.registrarCampanaOrigen(cliente, referral, origenLead);
     }
 
+    /* El menú de atención de la línea, si está encendido (y la bandeja de
+       interacciones también: sin ella no hay ofertas que correlacionar). */
+    const menu = interaccionesHabilitadas() ? await this.menus.activoDe(lineaId) : null;
+
     /* `conversacion.update` bumpea `updatedAt` — sin esto un mensaje entrante
        no subía el chat al tope del inbox (ordenado por updatedAt desc), y el
        agente podía no notar que había algo nuevo hasta revisar chat por chat. */
     let mensaje: Mensaje;
     /* La solicitud de atención humana que nació con este mensaje, si nació. */
     let solicitud: MotivoAtencion | null = null;
+    /* Lo que este mensaje pidió, aunque ya hubiera una solicitud viva: una
+       emergencia avisa a todos aunque el chat ya estuviera esperando. */
+    /* `as` y no anotación: se asignan dentro de la transacción y TypeScript, que
+       no sigue esa asignación, las estrecharía a `null` para siempre. */
+    let pedido = null as MotivoAtencion | null;
+    /* La opción de nuestro menú que tocó, si la tocó. */
+    let accion = null as AccionMenu | null;
     try {
       mensaje = await this.prisma.$transaction(async tx => {
         const creado = await tx.mensaje.create({
@@ -161,16 +196,28 @@ export class IngestaWhatsappService {
         });
         if (interaccionOriginal !== undefined && interaccionesHabilitadas()) {
           const resultado = await guardarRespuesta(tx, creado.id, conversacion.id, telefono, interaccionOriginal);
+          /* Qué significa la opción según el menú de HOY; solo si estaba en
+             nuestra oferta (`seleccionId` existe únicamente tras correlacionar). */
+          /* Y solo de una oferta del MENÚ: el mismo `TALK_TO_HUMAN` en una
+             plantilla de campaña pide una persona, pero no es un toque al menú. */
+          accion = resultado.deMenu && resultado.seleccionId ? accionDeSeleccion(menu, resultado.seleccionId) : null;
+          /* Lo que el menú contesta solo, lo contesta solo mientras nadie haya
+             pedido una persona en este chat. */
+          const resuelveSola = seResuelveSola(accion);
           /* En la MISMA transacción: si el mensaje queda guardado, su solicitud
              también. Un refresco, una desconexión o un reinicio no la pierden. */
-          const motivo = motivoDeRespuesta(resultado);
-          if (motivo && await registrarSolicitudAtencion(tx, conversacion.id, motivo, creado.id, this.ahora())) solicitud = motivo;
-        } else if (!media && !esRespuestaBoton && interaccionesHabilitadas() && esPedidoDePersona(contenido)) {
-          /* Escribió, entera, una frase inequívoca de pedir a una persona
-             («quiero hablar con alguien»). Misma solicitud que el botón, en la
+          pedido = motivoDeRespuesta(resultado, resuelveSola && !(await automatizacionPausada(tx, conversacion.id)));
+          /* Si hace falta una persona (chat pausado, menú caducado), no se
+             contesta solo además: la decisión es una, la de `motivoDeRespuesta`. */
+          if (resuelveSola && pedido) accion = null;
+          if (pedido && await registrarSolicitudAtencion(tx, conversacion.id, pedido, creado.id, this.ahora())) solicitud = pedido;
+        } else if (!media && !esRespuestaBoton && interaccionesHabilitadas()) {
+          /* Escribió, entera, una frase inequívoca: que es una emergencia, o que
+             quiere hablar con una persona. La misma solicitud que el botón, en la
              misma transacción. Lo demás que escriba no genera nada: esto no
-             clasifica mensajes, solo reconoce una lista cerrada de frases. */
-          if (await registrarSolicitudAtencion(tx, conversacion.id, 'SOLICITUD_EXPLICITA', creado.id, this.ahora())) solicitud = 'SOLICITUD_EXPLICITA';
+             clasifica mensajes, solo reconoce dos listas cerradas de frases. */
+          pedido = esAvisoDeEmergencia(contenido) ? 'EMERGENCIA' : esPedidoDePersona(contenido) ? 'SOLICITUD_EXPLICITA' : null;
+          if (pedido && await registrarSolicitudAtencion(tx, conversacion.id, pedido, creado.id, this.ahora())) solicitud = pedido;
         }
         await tx.conversacion.update({
           where: { id: conversacion.id },
@@ -205,17 +252,42 @@ export class IngestaWhatsappService {
        solo aquí ha escrito una paciente. A quién le suena no se decide aquí:
        lo lee `LineasWhatsappService.audiencia` de la base, con la línea, la
        dueña y quién la silenció. */
+    const emergencia = pedido === 'EMERGENCIA';
     this.gateway.notificarEntrante(conversacion.id, {
       clienteNombre: cliente.nombre,
       /* El título de un botón dice poco en el teléfono; lo que importa es que
          pidió a alguien. Es el mismo aviso, a las mismas personas. */
-      texto: solicitud === 'SOLICITUD_EXPLICITA' ? 'Pidió hablar con una persona'
+      texto: emergencia ? 'Indicó una EMERGENCIA'
+        : solicitud === 'SOLICITUD_EXPLICITA' ? 'Pidió hablar con una persona'
         : solicitud === 'SOLICITUD_CITA' ? 'Envió una solicitud de cita' : contenido,
+      /* Una emergencia le suena a todos los que ven la línea, también a quien
+         la silenció: el silencio es para el flujo normal, no para esto. */
+      critica: emergencia,
     });
 
+    /* Lo que dijo que es una emergencia recibe la orientación que aprobó la
+       clínica, si existe —aunque haya escrito en vez de tocar el botón—. Sin
+       texto configurado no se le manda nada inventado: la solicitud crítica ya
+       está arriba de todo en «Atención». */
+    const orientacion = emergencia ? (accion?.tipo === 'EMERGENCIA' ? accion.orientacion : orientacionDeEmergencia(menu)) : null;
+    if (orientacion) {
+      void enSegundoPlano('orientación de emergencia', this.logger, () =>
+        this.responderTexto(conversacion.id, cliente.telefono, orientacion, { respetaPausa: false, noRepetir: true }),
+      );
+    }
+
     // Las selecciones nuevas son datos para la persona que atiende. Nunca
-    // disparar automáticos/opt-out por títulos no confiables de un botón.
-    if (interaccionOriginal !== undefined && interaccionesHabilitadas()) return mensaje;
+    // disparar automáticos/opt-out por títulos no confiables de un botón:
+    // solo lo que el menú de HOY dice de una opción que estaba en nuestra oferta.
+    if (interaccionOriginal !== undefined && interaccionesHabilitadas()) {
+      const elegida = accion;
+      if (elegida && menu && elegida.tipo !== 'EMERGENCIA') {
+        void enSegundoPlano('respuesta del menú de atención', this.logger, () =>
+          this.responderSeleccion(conversacion.id, cliente.telefono, elegida, menu),
+        );
+      }
+      return mensaje;
+    }
 
     /* «No me interesa» en una promoción: se registra la baja y se confirma, y
        NADA más. Ni el acuse fuera de horario («te atendemos mañana») ni el
@@ -234,7 +306,12 @@ export class IngestaWhatsappService {
        milisegundos. Van en orden y no en paralelo: el acuse mira si ya hubo un
        automático reciente, y el pin no debe contar como tal. */
     void enSegundoPlano('respuestas automáticas', this.logger, async () => {
-      if (linea.comercial) await this.responderFueraDeHorario(conversacion.id, cliente.telefono);
+      /* Quien acaba de pedir algo ya tiene una persona en camino. */
+      const ofrecido = menu && !pedido && !esRespuestaBoton ? await this.ofrecerMenu(conversacion.id, cliente.telefono, menu) : false;
+      /* Cuando el menú sale, ES el acuse: dos automáticos al mismo mensaje se
+         leen como un sistema roto. Cuando no sale (la conversación está en curso),
+         el acuse fuera de horario funciona como siempre. */
+      if (linea.comercial && !ofrecido) await this.responderFueraDeHorario(conversacion.id, cliente.telefono);
       if (!media) await this.compartirUbicacionSiLaPiden(conversacion.id, cliente.telefono, contenido);
     });
 
@@ -279,7 +356,14 @@ export class IngestaWhatsappService {
         !!(await tx.mensaje.findFirst({
           /* La ubicación también es automática, pero no es un acuse: pedirla por
              la tarde no puede dejar sin aviso a quien escribe esa noche. */
-          where: { conversacionId, automatico: true, createdAt: { gte: desde }, contenido: { notIn: [TEXTO_UBICACION, CONTENIDO_PIN] } },
+          /* Un MENÚ que no salió no cuenta: la paciente no lo recibió y el acuse es
+             su reemplazo. Un acuse que falló sí cuenta: lo reintenta el barrido, y
+             contarlo como «no hecho» crearía uno nuevo por mensaje (y varios
+             reintentos llegarían a la vez). */
+          where: {
+            conversacionId, automatico: true, createdAt: { gte: desde }, contenido: { notIn: [TEXTO_UBICACION, CONTENIDO_PIN] },
+            NOT: { estadoEnvio: 'FALLIDO', interaccion: { isNot: null } },
+          },
           select: { id: true },
         })),
       ) ?? [];
@@ -373,14 +457,130 @@ export class IngestaWhatsappService {
         return !!(yaCompartida || atendiendo);
       });
       if (!filas || !(await this.sigueSinPausa(conversacionId, filas))) return;
-
-      const [aviso, pin] = filas;
-      await this.despachador.texto({ mensajeId: aviso.id, conversacionId, telefono }, TEXTO_UBICACION);
-      await this.despachador.ubicacion({ mensajeId: pin.id, conversacionId, telefono }, UBICACION_CLINICA, CONTENIDO_PIN);
+      await this.despacharUbicacion(conversacionId, telefono, filas, TEXTO_UBICACION);
     } catch (error) {
       /* Mismo criterio que el acuse: nunca tumba la entrada del mensaje. */
       this.logger.error('No se pudo compartir la ubicación de la clínica', error);
     }
+  }
+
+  /**
+   * Ofrece el menú de atención al empezar una conversación. No lo repite si en
+   * las últimas `MENU_ESPERA_MS` ya se le ofreció algo o una persona le
+   * escribió: entonces la conversación está en curso y el menú estorbaría.
+   * Devuelve si lo ofreció.
+   */
+  private async ofrecerMenu(conversacionId: string, telefono: string, menu: MenuAtencion): Promise<boolean> {
+    const desde = new Date(this.ahora().getTime() - MENU_ESPERA_MS);
+    const enCurso = async (db: Prisma.TransactionClient) => {
+      const [ofrecido, persona] = await Promise.all([
+        db.mensaje.findFirst({ where: { conversacionId, direccion: 'SALIENTE', automatico: true, interaccion: { isNot: null }, createdAt: { gte: desde } }, select: { id: true } }),
+        db.mensaje.findFirst({ where: { conversacionId, direccion: 'SALIENTE', automatico: false, createdAt: { gte: desde } }, select: { id: true } }),
+      ]);
+      return !!(ofrecido || persona);
+    };
+    /* La mayoría de los mensajes llegan con la conversación en curso: se mira sin
+       candado y solo se toma el candado (que vuelve a mirar) si parece que toca. */
+    if (await enCurso(this.prisma)) return false;
+    return this.enviarOfertaAutomatica(conversacionId, telefono, mensajeDelMenu(menu), enCurso);
+  }
+
+  /**
+   * Una oferta del menú (el menú o la lista de promociones): se guarda bajo el
+   * candado de automáticos, se retira si entretanto alguien pidió una persona y
+   * se despacha. Devuelve si SALIÓ: un menú que Meta rechazó no cuenta como
+   * acuse, y entonces el acuse fuera de horario sale como siempre.
+   */
+  private async enviarOfertaAutomatica(
+    conversacionId: string, telefono: string, mensaje: MensajePreparado, yaHecho: (tx: Prisma.TransactionClient) => Promise<boolean>,
+  ): Promise<boolean> {
+    try {
+      const filas = await this.guardarMensajeAutomatico(conversacionId, [{ oferta: { ...prepararOferta(mensaje, telefono), origen: 'MENU_ATENCION' } }], yaHecho);
+      if (!filas || !(await this.sigueSinPausa(conversacionId, filas))) return false;
+      await this.despachador.interaccion({ mensajeId: filas[0].id, conversacionId, telefono });
+      const enviada = await this.prisma.mensaje.findUnique({ where: { id: filas[0].id }, select: { estadoEnvio: true } });
+      return enviada?.estadoEnvio !== 'FALLIDO';
+    } catch (error) {
+      /* Nunca tumba la entrada del mensaje, que ya está guardada. */
+      this.logger.error('No se pudo enviar el menú de atención', error);
+      return false;
+    }
+  }
+
+  /**
+   * Lo que hace una opción del menú que la paciente tocó. Las que piden una
+   * persona ya dejaron su solicitud en la transacción; aquí solo sale la
+   * confirmación, si la clínica la escribió. Las que se contestan solas salen
+   * aquí, respetando la pausa: si entretanto alguien pidió una persona, callan.
+   */
+  private async responderSeleccion(conversacionId: string, telefono: string, accion: AccionMenu, menu: MenuAtencion): Promise<void> {
+    switch (accion.tipo) {
+      case 'PERSONA':
+      case 'CITA':
+        /* Responde a lo que ella pidió, una vez: no es automatización que deba
+           callarse ante la solicitud que esa misma opción acaba de crear. */
+        if (accion.confirmacion) await this.responderTexto(conversacionId, telefono, accion.confirmacion, { respetaPausa: false, noRepetir: true });
+        return;
+      case 'RESPUESTA':
+        /* Si la vuelve a pedir, se le vuelve a responder: la pidió ella. */
+        await this.responderTexto(conversacionId, telefono, accion.texto, { respetaPausa: true, noRepetir: false });
+        return;
+      case 'UBICACION':
+        await this.enviarUbicacion(conversacionId, telefono, accion.texto);
+        return;
+      case 'PROMOCIONES': {
+        const lista = mensajeDePromociones(menu);
+        if (lista) await this.enviarOfertaAutomatica(conversacionId, telefono, lista, async () => false);
+        return;
+      }
+      case 'PROMOCION':
+      case 'EMERGENCIA':
+        /* La promoción elegida queda para la asesora (solicitud de revisión con
+           su título); la emergencia ya tuvo su orientación. */
+        return;
+    }
+  }
+
+  /**
+   * Un texto del menú o una confirmación. Con `respetaPausa: false` es la
+   * respuesta a lo que ella acaba de pedir (confirmación, orientación de
+   * emergencia) y sale aunque el chat espere a una persona. `noRepetir`: no
+   * vuelve a salir el mismo texto antes de `RESPUESTA_REPETIDA_MS` (un segundo
+   * toque a «Hablar con una persona» no merece una segunda confirmación; un
+   * segundo «Horarios» sí merece la respuesta).
+   */
+  private async responderTexto(
+    conversacionId: string, telefono: string, texto: string, { respetaPausa, noRepetir }: { respetaPausa: boolean; noRepetir: boolean },
+  ): Promise<void> {
+    try {
+      const desde = new Date(this.ahora().getTime() - RESPUESTA_REPETIDA_MS);
+      const [mensaje] = await this.guardarMensajeAutomatico(conversacionId, [texto], async tx =>
+        noRepetir && !!(await tx.mensaje.findFirst({ where: { conversacionId, automatico: true, contenido: texto, createdAt: { gte: desde } }, select: { id: true } })),
+        { respetaPausa },
+      ) ?? [];
+      if (!mensaje || (respetaPausa && !(await this.sigueSinPausa(conversacionId, [mensaje])))) return;
+      await this.despachador.texto({ mensajeId: mensaje.id, conversacionId, telefono }, texto);
+    } catch (error) {
+      this.logger.error('No se pudo enviar la respuesta del menú de atención', error);
+    }
+  }
+
+  /** «Ubicación» del menú: una línea opcional y el mapa. Pedida, no detectada. */
+  private async enviarUbicacion(conversacionId: string, telefono: string, texto: string | null): Promise<void> {
+    try {
+      const filas = await this.guardarMensajeAutomatico(conversacionId, texto ? [texto, CONTENIDO_PIN] : [CONTENIDO_PIN], async () => false);
+      if (!filas || !(await this.sigueSinPausa(conversacionId, filas))) return;
+      await this.despacharUbicacion(conversacionId, telefono, filas, texto);
+    } catch (error) {
+      this.logger.error('No se pudo enviar la ubicación del menú de atención', error);
+    }
+  }
+
+  /** Despacha lo que dejó guardado un envío de ubicación: el texto previo (si hay) y el pin, en ese orden. */
+  private async despacharUbicacion(conversacionId: string, telefono: string, filas: readonly Mensaje[], texto: string | null): Promise<void> {
+    const pin = filas[filas.length - 1];
+    if (texto) await this.despachador.texto({ mensajeId: filas[0].id, conversacionId, telefono }, texto);
+    await this.despachador.ubicacion({ mensajeId: pin.id, conversacionId, telefono }, UBICACION_CLINICA, CONTENIDO_PIN);
   }
 
   /**
@@ -399,7 +599,7 @@ export class IngestaWhatsappService {
    */
   private async guardarMensajeAutomatico(
     conversacionId: string,
-    contenidos: readonly string[],
+    contenidos: readonly Automatico[],
     yaHecho: (tx: Prisma.TransactionClient) => Promise<boolean>,
     { respetaPausa = true } = {},
   ): Promise<Mensaje[] | null> {
@@ -415,17 +615,24 @@ export class IngestaWhatsappService {
          aviso tiene que quedar antes que el pin. */
       const base = Date.now();
       const creadas: Mensaje[] = [];
-      for (const [i, contenido] of contenidos.entries()) {
+      for (const [i, item] of contenidos.entries()) {
+        /* Una oferta se guarda con su interacción, igual que la de una agente:
+           así su respuesta se correlaciona y el despachador la reconstruye tras
+           un reinicio. Nace FALLIDA y con intento ya: `interaccion()` la reclama. */
+        const oferta = typeof item === 'string' ? null : item.oferta;
+        const clientMessageId = randomUUID();
         creadas.push(await tx.mensaje.create({
           data: {
             conversacionId,
             direccion: 'SALIENTE',
-            contenido,
-            estadoEnvio: 'ENVIADO',
+            contenido: typeof item === 'string' ? item : item.oferta.mensaje.cuerpo,
             /* La marca que impide que esto tape la conversación en el inbox —
                ver el comentario del campo en schema.prisma. */
             automatico: true,
             createdAt: new Date(base + i),
+            ...(oferta
+              ? { estadoEnvio: 'FALLIDO', proximoIntento: new Date(), clientMessageId, interaccion: { create: datosOferta(oferta, clientMessageId) } }
+              : { estadoEnvio: 'ENVIADO' }),
           },
         }));
       }

@@ -30,6 +30,7 @@ Los dos primeros comparten servidor y Postgres (bases separadas) y se hablan
 | `modules/auth` | Login, sesiones revocables, refresco con cookie, perfil propio | Todos |
 | `modules/usuarios` | Cuentas, roles y líneas de cada usuario | SUPER_ADMIN |
 | `modules/lineas-whatsapp` | Las cuatro líneas de WhatsApp y quién atiende cada una | Lectura: cada uno las suyas · edición: SUPER_ADMIN |
+| `modules/menu-atencion` | El menú con el que cada línea recibe a la paciente: qué opciones ofrece (persona, emergencia, cita, información, ubicación, promociones) y sus textos. Lo lee la ingesta; solo él escribe `MenuAtencion` ([diseño](menu-atencion.md)) | Edición: SUPER_ADMIN |
 | `modules/conversaciones` | Inbox: webhook de Meta, envío, media en R2, plantillas, reintentos, acuse fuera de horario, abierta/cerrada con cierre por inactividad, bajas de marketing de Meta, alertas de plataforma y tiempo real | Todos, por línea |
 | `modules/plantillas-agente` | Respuestas rápidas personales (atajos con «/») | Todos |
 | `modules/memoria-agente` | Biblioteca personal de textos y archivos (30 MB) para el chat | Todos |
@@ -68,7 +69,7 @@ si añades otra, añádela aquí con su motivo.
 | --- | --- | --- | --- |
 | `modules/clientes` | Lead, Conversacion | `cascadaDeReasignacion` (desde `update`/`reasignarAgente`) y `reclamarSiNoTieneDuena` | Reasignar una paciente mueve a la vez sus leads y sus chats de la línea comercial, en la misma transacción |
 | `modules/usuarios` | Conversacion | `UsuariosService.update`, al quitar líneas o desactivar | Libera los chats que la persona ya no puede atender, en la misma transacción que el cambio de permisos |
-| varios | AuditLog | conversaciones, usuarios, lineas-whatsapp | Escriben la bitácora dentro de su propia transacción cuando el registro tiene que ser atómico con el cambio; fuera de una transacción se usa `AuditService` |
+| varios | AuditLog | conversaciones, usuarios, lineas-whatsapp, menu-atencion | Escriben la bitácora dentro de su propia transacción cuando el registro tiene que ser atómico con el cambio; fuera de una transacción se usa `AuditService` |
 
 ## Frontend del CRM — pantallas (`src/app/features/`)
 
@@ -84,7 +85,7 @@ si añades otra, añádela aquí con su motivo.
 | Ventas | `/ventas` | AGENTE+ |
 | Finanzas & Comisiones | `/finanzas` (liquidación, desempeño, analítica, anual) | ADMIN+ |
 | Historial de Servicios | `/servicios` | ADMIN+ |
-| Líneas WhatsApp | `/lineas-whatsapp` | SUPER_ADMIN |
+| Líneas WhatsApp | `/lineas-whatsapp` (conexión y menú de atención de cada línea) | SUPER_ADMIN |
 | Usuarios y Accesos | `/usuarios` | SUPER_ADMIN |
 | Perfil (incluye Mi Memoria) | `/perfil` | Todos |
 

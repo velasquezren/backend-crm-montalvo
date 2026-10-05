@@ -152,8 +152,33 @@ Diseño completo en el [diseño de atención humana](../../../docs/atencion-huma
   que esa fila es el único registro de cuánto esperó y quién la atendió. No añadas una
   columna `resueltaEn`: la siguiente solicitud la borraría.
 - **El texto libre solo cuenta si el mensaje ENTERO es una frase de la lista cerrada**
-  (`esPedidoDePersona`) y con la bandeja de interacciones encendida. No es un clasificador
-  y no detecta urgencias: ver «Antes de activar la IA» en el diseño antes de ampliarla.
+  (`esPedidoDePersona`, `esAvisoDeEmergencia`) y con la bandeja de interacciones encendida.
+  No es un clasificador y no detecta urgencias: ver «Antes de activar la IA» en el diseño
+  antes de ampliarla.
+- **`CRITICA` = `EMERGENCIA`, y solo la DECLARA la paciente** (botón del menú o frase
+  entera). Está primera en el enum: la migración usó `ADD VALUE … BEFORE`, porque el
+  `ADD VALUE` que genera Prisma la pone al final y la emergencia quedaría detrás de una
+  revisión. Una emergencia suena a todos los que ven la línea (`notificarEntrante` con
+  `critica`), también a quien la silenció.
+
+### Menú de atención (2026-10-05)
+
+Diseño en [menu-atencion](../../../docs/menu-atencion.md). `modules/menu-atencion` es el
+único dueño de `MenuAtencion`; la ingesta lo lee con `activoDe`. Lo que no se puede olvidar:
+
+- **Tipos en código, contenido de la clínica**: ningún texto para la paciente tiene
+  valor por defecto (sin orientación no hay opción de emergencia; sin promociones
+  cargadas no hay opción de promociones). `erroresDelMenu` valida al guardar Y al leer.
+- **Una selección se interpreta con el menú de HOY** (`accionDeSeleccion`) y solo si
+  `guardarRespuesta` la correlacionó con nuestra oferta. Opción retirada → `REVISION`.
+- **El menú es una oferta con `origen: 'MENU_ATENCION'`**: sin eso, el segundo toque en la
+  misma lista era `DUPLICADA` y «Hablar con una persona» después de «Horarios» se perdía en
+  silencio. Y solo un toque a una oferta así (`ResultadoRespuesta.deMenu`) dispara
+  respuestas del menú: un `TALK_TO_HUMAN` de una campaña no recibe su confirmación.
+- Lo que se contesta solo respeta la pausa y exige oferta vigente; la confirmación y la
+  orientación de emergencia no (`respetaPausa: false`), con ventana anti-repetición.
+- En la línea comercial, cuando el menú sale, el acuse fuera de horario no sale; si el menú
+  no sale (conversación en curso), el acuse funciona como siempre.
 
 ## Categoría del paciente: valor, no actividad (2026-09-30)
 

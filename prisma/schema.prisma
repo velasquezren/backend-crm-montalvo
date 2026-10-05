@@ -100,6 +100,7 @@ model Usuario {
   conversaciones        Conversacion[]  @relation("ConversacionAgente")
   conversacionesCerradas Conversacion[] @relation("ConversacionCerradaPor")
   atencionesTomadas      Conversacion[] @relation("ConversacionAtencionTomadaPor")
+  menusAtencion          MenuAtencion[] @relation("MenuAtencionActualizadoPor")
   lineasWhatsapp        AccesoLineaWhatsapp[]
   silenciosLinea        SilencioLinea[]
   ventas                Venta[]
@@ -295,6 +296,27 @@ model LineaWhatsapp {
   silencios      SilencioLinea[]
   conversaciones Conversacion[]
   campanas       Campana[]
+  menuAtencion   MenuAtencion?
+}
+
+/// El menú con el que la línea recibe a la paciente (docs/menu-atencion.md).
+/// Solo configuración: qué significa cada opción vive en
+/// `modules/menu-atencion/menu-atencion.ts`. Lo escribe `MenuAtencionService`;
+/// la ingesta lo lee.
+model MenuAtencion {
+  lineaId          String        @id
+  linea            LineaWhatsapp @relation(fields: [lineaId], references: [id], onDelete: Cascade)
+  /// Apagado, la línea se comporta como antes. Además exige `WHATSAPP_INTERACCIONES`.
+  activo           Boolean       @default(false)
+  saludo           String        @db.VarChar(1024)
+  /// `OpcionMenu[]` en orden. Se valida con `erroresDelMenu` al escribir Y al
+  /// leer (`leerMenu`): lo que no pase no se le envía a nadie.
+  opciones         Json
+  /// `Promocion[]`: solo las que la clínica cargó. No hay ninguna por defecto.
+  promociones      Json          @default("[]")
+  actualizadoEn    DateTime      @updatedAt
+  actualizadoPor   Usuario?      @relation("MenuAtencionActualizadoPor", fields: [actualizadoPorId], references: [id], onDelete: SetNull)
+  actualizadoPorId String?
 }
 
 model AccesoLineaWhatsapp {
@@ -410,6 +432,10 @@ model Conversacion {
 /// Por qué una conversación necesita a una persona. El ORDEN es la prioridad
 /// (Postgres ordena un enum por su declaración): primero quien la pidió.
 enum MotivoAtencion {
+  /// Dijo que es una emergencia: tocó «Es una emergencia» del menú de atención
+  /// o escribió, entera, una frase de `esAvisoDeEmergencia`. Lo declara ella; el
+  /// CRM no lo deduce. Prioridad CRÍTICA.
+  EMERGENCIA
   /// Tocó «Hablar con recepción» (TALK_TO_HUMAN) en una oferta nuestra.
   SOLICITUD_EXPLICITA
   /// Completó el Flow de cita o tocó «Solicitar cita». Es una SOLICITUD: no

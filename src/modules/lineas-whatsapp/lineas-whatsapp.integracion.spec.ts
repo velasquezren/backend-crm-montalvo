@@ -1,3 +1,4 @@
+import { MenuAtencionService } from '../menu-atencion/menu-atencion.service';
 import { ActividadesController } from '../actividades/actividades.controller';
 import { ActividadesService } from '../actividades/actividades.service';
 import { PrimerContactoService } from '../leads/primer-contacto.service';
@@ -93,7 +94,7 @@ const r2 = {
     ConversacionesGateway,
     DespachadorSalienteService,
     MediaEntranteService,
-    IngestaWhatsappService,
+    IngestaWhatsappService, MenuAtencionService,
     PrimerContactoService,
     AcuseAutomaticoService,
     WhatsappCloudService,

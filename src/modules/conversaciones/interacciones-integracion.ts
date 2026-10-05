@@ -71,6 +71,17 @@ export interface OfertaInteraccion {
   telefono: string;
   flow?: FlowAutorizado;
   respuestasPlantilla?: { id: string; titulo: string }[];
+  /**
+   * La mandó el menú de atención (el menú o su lista de promociones). Dos efectos:
+   * - cada opción se puede elegir, y más de una vez. Sin esto la oferta se consume
+   *   con el primer toque y el segundo es `DUPLICADA` —lo correcto para lo que manda
+   *   una agente—; en un menú, «Horarios» y después «Hablar con una persona» son dos
+   *   pedidos. Un webhook repetido sigue sin duplicar nada (índice único del wamid);
+   * - solo un toque en una oferta así dispara las respuestas del menú: el mismo
+   *   `TALK_TO_HUMAN` en una plantilla de campaña pide una persona, pero no recibe la
+   *   confirmación del menú.
+   */
+  origen?: 'MENU_ATENCION';
   /** Metadatos de transporte; no forman parte de la intención ni llegan a UI. */
   metaIdsAnteriores?: string[];
 }
@@ -141,6 +152,7 @@ export async function guardarRespuesta(
   let versionFlow: string | undefined;
   let propositoFlow: string | undefined;
   let datosFlow: { etiqueta: string; valor: string }[] | undefined;
+  let deMenu = false;
   let cuerpo = r.seleccion?.tipo === 'nfm_reply' ? 'Formulario recibido; requiere revisión humana. No confirma una cita.' : 'Respuesta interactiva recibida; requiere revisión humana.';
   if (r.estado === 'valida' && r.contextoId && r.seleccion) {
     const fuente = await tx.mensaje.findFirst({
@@ -164,7 +176,7 @@ export async function guardarRespuesta(
         Object.keys(seleccion.datos).every(k => k === 'flow_token' || k === 'flow_version' || Object.hasOwn(guardada.flow!.respuestas, k) || Object.hasOwn(guardada.flow!.campos ?? {}, k));
       if (guardada.telefono === telefono && ((tipoCorrecto && opcion) || flowValido)) {
         contextoId = fuente.id; // ID interno autorizado, nunca identificador de otro chat.
-        if (opcion) { seleccionId = opcion.id; cuerpo = opcion.titulo; }
+        if (opcion) { seleccionId = opcion.id; cuerpo = opcion.titulo; deMenu = guardada.origen === 'MENU_ATENCION'; }
         if (flowValido && seleccion.tipo === 'nfm_reply') {
           versionFlow = guardada.flow!.version;
           propositoFlow = guardada.flow!.proposito;
@@ -172,6 +184,7 @@ export async function guardarRespuesta(
           if (propositoFlow === 'SOLICITUD_CITA') cuerpo = 'Solicitud de cita recibida. Pendiente: no hay ninguna cita reservada.';
         }
         if (!vigente) estado = 'CADUCADA';
+        else if (guardada.origen === 'MENU_ATENCION') estado = 'CORRELACIONADA';
         else {
           const reclamo = await tx.interaccionMensaje.updateMany({ where: { mensajeId: fuente.id, consumidaPor: null }, data: { consumidaPor: mensajeId } });
           estado = reclamo.count ? 'CORRELACIONADA' : 'DUPLICADA';
@@ -185,7 +198,7 @@ export async function guardarRespuesta(
     venceEn: new Date(), purgarEn: new Date(Date.now() + 7 * DIA),
   } });
   await tx.mensaje.update({ where: { id: mensajeId }, data: { contenido: cuerpo } });
-  return { estado, ...(seleccionId ? { seleccionId } : {}), ...(propositoFlow ? { propositoFlow } : {}) };
+  return { estado, ...(seleccionId ? { seleccionId } : {}), ...(propositoFlow ? { propositoFlow } : {}), ...(deMenu ? { deMenu } : {}) };
 }
 
 function validarCampoFlow(valor: unknown, campo: { tipo: 'texto' | 'fecha' | 'booleano'; max?: number }): boolean {
