@@ -1,8 +1,15 @@
 # Estado actual
 
-## Cierre de la atención humana — 5 de octubre de 2026 · LISTA PARA DESPLEGAR, NO DESPLEGADA
+## Cierre de la atención humana — 5 de octubre de 2026 · DESPLEGADA, con la función APAGADA
 
-Commits locales, **sin push ni despliegue**; `WHATSAPP_INTERACCIONES` queda **apagada**.
+**Desplegada el 4/10 a las 23:27 (hora de La Paz) con aprobación de René; `WHATSAPP_INTERACCIONES` sigue apagada.**
+Servidor en `0517cc3` (respaldo `/root/backup-crm-20261004-232617.sql.gz`, 4,7 MB, verificado), 64 migraciones aplicadas
+sin errores, `/health` ok, login vacío 400, periodos sin token 401, 0 errores 5xx con tráfico real (inbox y detalle en 200),
+0 solicitudes de atención y 0 interacciones en la base. Frontend `5f54a85` en Vercel. El CI de ambos repos estaba roto
+por causas ajenas a la lógica y quedó en verde: el frontend clonaba el schema del backend en un SHA anterior al enum
+`MotivoAtencion`, y el Postgres del CI exigía contraseña a dos suites que usan una URL sin ella (el paso colgaba los 15 min).
+
+El plan de abajo se ejecutó tal cual; se conserva como registro y como guía para activarla.
 Diseño: [atencion-humana](atencion-humana.md). Capturas reales en `capturas-atencion-humana/`
 (carpeta hermana de los repos, fuera de git).
 
@@ -30,7 +37,7 @@ IA autónoma (ver «Antes de activar la IA» en el diseño). No se debe afirmar 
 | Bandera APAGADA, navegador real y webhook firmado | misma visibilidad compartida (24/24), sin pestaña ni insignias, el pedido por texto **no** crea solicitud ni pausa ni mensajes |
 | Bandera ENCENDIDA, navegador real | ver capturas: orden, contadores, toma simultánea y 409, liberar, resolver, vacío, sin red, reconexión, 390 px, teclado, permisos, comercial, administrador |
 
-### Plan de despliegue (pendiente de orden)
+### Plan de despliegue (ejecutado el 4/10)
 
 Hoy: servidor en `77ccd58` con 62 migraciones; **Vercel ya sirve el frontend `14cc283`** (se despliega solo con el
 push) y se comprobó que tolera al backend de hoy. BD de producción: 48 MB, ~1.200 conversaciones, 23 GB libres.
