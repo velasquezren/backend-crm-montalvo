@@ -109,7 +109,13 @@ export class ReintentoSalienteService implements OnModuleInit, OnModuleDestroy {
     });
 
     const pendientes = await this.prisma.mensaje.findMany({
-      where: { estadoEnvio: 'FALLIDO', permiteReintento: true, intentosEnvio: { lt: 3 }, proximoIntento: { lte: ahora }, ...(interaccionesHabilitadas() ? {} : { interaccion: { is: null } }) },
+      where: {
+        estadoEnvio: 'FALLIDO', permiteReintento: true, intentosEnvio: { lt: 3 }, proximoIntento: { lte: ahora },
+        ...(interaccionesHabilitadas() ? {} : { interaccion: { is: null } }),
+        /* Un automático no se reenvía en un chat que pidió una persona: la
+           pausa de la automatización vale también para los reintentos. */
+        OR: [{ automatico: false }, { conversacion: { automatizacionPausadaEn: null } }],
+      },
       select: {
         id: true,
         conversacionId: true,

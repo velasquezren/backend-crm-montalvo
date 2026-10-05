@@ -1,9 +1,10 @@
 import { LINEA_COMERCIAL_INICIAL, obtenerOCrearConversacion } from './acceso-conversacion';
 import { Injectable, Logger } from '@nestjs/common';
-import { Mensaje, OrigenLead, Prisma } from '../../prisma/prisma-client';
+import { Mensaje, MotivoAtencion, OrigenLead, Prisma } from '../../prisma/prisma-client';
 
 import { CONFIRMACION_BAJA, esPedidoDeBaja } from './baja-promociones';
 import { REABRIR } from './estado-conversacion';
+import { CANDADO_AUTOMATICOS, motivoDeRespuesta, registrarSolicitudAtencion } from './atencion-humana';
 import { enSegundoPlano } from '../../common/fiabilidad/en-segundo-plano';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ClientesService, nombreProvisional } from '../clientes/clientes.service';
@@ -139,6 +140,8 @@ export class IngestaWhatsappService {
        no subía el chat al tope del inbox (ordenado por updatedAt desc), y el
        agente podía no notar que había algo nuevo hasta revisar chat por chat. */
     let mensaje: Mensaje;
+    /* La solicitud de atención humana que nació con este mensaje, si nació. */
+    let solicitud: MotivoAtencion | null = null;
     try {
       mensaje = await this.prisma.$transaction(async tx => {
         const creado = await tx.mensaje.create({
@@ -157,7 +160,11 @@ export class IngestaWhatsappService {
           },
         });
         if (interaccionOriginal !== undefined && interaccionesHabilitadas()) {
-          await guardarRespuesta(tx, creado.id, conversacion.id, telefono, interaccionOriginal);
+          const resultado = await guardarRespuesta(tx, creado.id, conversacion.id, telefono, interaccionOriginal);
+          /* En la MISMA transacción: si el mensaje queda guardado, su solicitud
+             también. Un refresco, una desconexión o un reinicio no la pierden. */
+          const motivo = motivoDeRespuesta(resultado);
+          if (motivo && await registrarSolicitudAtencion(tx, conversacion.id, motivo, creado.id, this.ahora())) solicitud = motivo;
         }
         await tx.conversacion.update({
           where: { id: conversacion.id },
@@ -194,7 +201,10 @@ export class IngestaWhatsappService {
        dueña y quién la silenció. */
     this.gateway.notificarEntrante(conversacion.id, {
       clienteNombre: cliente.nombre,
-      texto: contenido,
+      /* El título de un botón dice poco en el teléfono; lo que importa es que
+         pidió a alguien. Es el mismo aviso, a las mismas personas. */
+      texto: solicitud === 'SOLICITUD_EXPLICITA' ? 'Pidió hablar con una persona'
+        : solicitud === 'SOLICITUD_CITA' ? 'Envió una solicitud de cita' : contenido,
     });
 
     // Las selecciones nuevas son datos para la persona que atiende. Nunca
@@ -267,7 +277,7 @@ export class IngestaWhatsappService {
           select: { id: true },
         })),
       ) ?? [];
-      if (!mensaje) return;
+      if (!mensaje || !(await this.sigueSinPausa(conversacionId, [mensaje]))) return;
 
       const destino = { mensajeId: mensaje.id, conversacionId, telefono };
       if (acuse.botones) {
@@ -301,7 +311,9 @@ export class IngestaWhatsappService {
   private async confirmarBajaPromociones(conversacionId: string, clienteId: string, telefono: string): Promise<void> {
     try {
       if (!(await this.clientesService.registrarBajaPromociones(clienteId))) return;
-      const [mensaje] = await this.guardarMensajeAutomatico(conversacionId, [CONFIRMACION_BAJA], async () => false) ?? [];
+      /* Responde a lo que ella pidió, una sola vez: no es automatización que
+         deba callarse ante una solicitud de atención. */
+      const [mensaje] = await this.guardarMensajeAutomatico(conversacionId, [CONFIRMACION_BAJA], async () => false, { respetaPausa: false }) ?? [];
       if (mensaje) await this.despachador.texto({ mensajeId: mensaje.id, conversacionId, telefono }, CONFIRMACION_BAJA);
     } catch (error) {
       /* La entrada ya está guardada; lo que falle aquí no puede tumbarla. */
@@ -317,7 +329,7 @@ export class IngestaWhatsappService {
       const [mensaje] = await this.guardarMensajeAutomatico(conversacionId, [texto], async tx =>
         !!(await tx.mensaje.findFirst({ where: { conversacionId, automatico: true, contenido: texto }, select: { id: true } })),
       ) ?? [];
-      if (!mensaje) return;
+      if (!mensaje || !(await this.sigueSinPausa(conversacionId, [mensaje]))) return;
       await this.despachador.texto({ mensajeId: mensaje.id, conversacionId, telefono }, texto);
     } catch (error) {
       /* Mismo criterio que el acuse: nunca tumba la entrada del mensaje del
@@ -354,7 +366,7 @@ export class IngestaWhatsappService {
         ]);
         return !!(yaCompartida || atendiendo);
       });
-      if (!filas) return;
+      if (!filas || !(await this.sigueSinPausa(conversacionId, filas))) return;
 
       const [aviso, pin] = filas;
       await this.despachador.texto({ mensajeId: aviso.id, conversacionId, telefono }, TEXTO_UBICACION);
@@ -383,9 +395,14 @@ export class IngestaWhatsappService {
     conversacionId: string,
     contenidos: readonly string[],
     yaHecho: (tx: Prisma.TransactionClient) => Promise<boolean>,
+    { respetaPausa = true } = {},
   ): Promise<Mensaje[] | null> {
     const filas = await this.prisma.$transaction(async tx => {
-      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${conversacionId}, 70071))::text`;
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${conversacionId}, ${CANDADO_AUTOMATICOS}))::text`;
+      /* Bajo el MISMO candado que toma la solicitud de atención humana: o el
+         automático se guardó antes de que ella pidiera una persona, o ve la
+         pausa y no se guarda. */
+      if (respetaPausa && await automatizacionPausada(tx, conversacionId)) return null;
       if (await yaHecho(tx)) return null;
 
       /* Instantes distintos a propósito: el hilo ordena por `createdAt` y el
@@ -420,4 +437,23 @@ export class IngestaWhatsappService {
     if (filas) this.gateway.emitirActividad(conversacionId);
     return filas;
   }
+
+  /**
+   * La última comprobación, justo antes de hablar con Meta. Entre guardar el
+   * automático y despacharlo cabe una solicitud de atención —la paciente toca
+   * «Hablar con recepción» mientras su mensaje anterior todavía se procesa—.
+   * Si eso pasó, el automático se retira sin salir: ninguna respuesta tardía
+   * llega después de que pidió una persona.
+   */
+  private async sigueSinPausa(conversacionId: string, filas: readonly Mensaje[]): Promise<boolean> {
+    if (!(await automatizacionPausada(this.prisma, conversacionId))) return true;
+    await this.prisma.mensaje.deleteMany({ where: { id: { in: filas.map(f => f.id) }, conversacionId, automatico: true } });
+    this.gateway.emitirActividad(conversacionId);
+    return false;
+  }
+}
+
+async function automatizacionPausada(db: Prisma.TransactionClient, conversacionId: string): Promise<boolean> {
+  const fila = await db.conversacion.findUnique({ where: { id: conversacionId }, select: { automatizacionPausadaEn: true } });
+  return Boolean(fila?.automatizacionPausadaEn);
 }

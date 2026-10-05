@@ -58,6 +58,7 @@ export class CierreInactividadService implements OnModuleInit, OnModuleDestroy {
     const count = await this.prisma.$executeRaw`
       UPDATE "Conversacion" c SET "cerradaEn" = ${ahora}
       WHERE c."cerradaEn" IS NULL
+        AND c."atencionSolicitadaEn" IS NULL
         AND c."createdAt" < ${corte}
         AND NOT EXISTS (
           SELECT 1 FROM "Mensaje" m WHERE m."conversacionId" = c.id AND m."createdAt" >= ${corte}

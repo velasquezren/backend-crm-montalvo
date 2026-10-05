@@ -4,6 +4,7 @@ import { Prisma } from '../../prisma/prisma-client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { MensajePreparado, contenidoMeta, validarMensaje } from '../../common/whatsapp/interacciones/mensaje-interactivo';
 import { objeto, parsearRespuesta } from '../../common/whatsapp/interacciones/respuesta-interactiva';
+import { ResultadoRespuesta } from './atencion-humana';
 
 /** Opt-in de despliegue. No se habilita por instalar la migración. */
 export function interaccionesHabilitadas(): boolean {
@@ -39,6 +40,28 @@ export interface FlowAutorizado {
   /** Valores cerrados del borrador aprobado, nunca datos personales libres. */
   respuestas: Record<string, readonly string[]>;
   campos?: Record<string, { tipo: 'texto' | 'fecha' | 'booleano'; max?: number }>;
+  /** Para qué sirve este Flow. `SOLICITUD_CITA` lo convierte en una solicitud de cita (no en una cita). */
+  proposito?: 'SOLICITUD_CITA';
+  /** Cómo se llama cada campo en pantalla («Especialidad»). Sin etiqueta, el campo no se muestra. */
+  etiquetas?: Record<string, string>;
+  /** El texto de cada valor cerrado (`GINECOLOGIA` → «Ginecología»). */
+  titulos?: Record<string, Record<string, string>>;
+}
+
+/**
+ * Lo que el personal puede leer de un Flow validado: solo campos con etiqueta,
+ * de valores cerrados o fechas. Un campo de texto libre nunca se proyecta: su
+ * contenido queda cifrado en el original.
+ */
+function datosVisiblesDeFlow(flow: FlowAutorizado, datos: Record<string, unknown>): { etiqueta: string; valor: string }[] {
+  const visibles: { etiqueta: string; valor: string }[] = [];
+  for (const [clave, etiqueta] of Object.entries(flow.etiquetas ?? {})) {
+    const valor = datos[clave];
+    if (typeof valor !== 'string') continue;
+    if (Object.hasOwn(flow.respuestas, clave)) visibles.push({ etiqueta, valor: flow.titulos?.[clave]?.[valor] ?? valor });
+    else if (flow.campos?.[clave]?.tipo === 'fecha') visibles.push({ etiqueta, valor });
+  }
+  return visibles;
 }
 /** Vacío deliberadamente. Solo despliegue revisado puede añadir activos publicados/versionados. */
 export function catalogoFlows(): readonly FlowAutorizado[] { return []; }
@@ -107,7 +130,7 @@ export async function estadoDeIntentoAnterior(prisma: PrismaService, referencia:
 /** Dentro de la MISMA transacción de la ingesta. CAS serializa selecciones simultáneas. */
 export async function guardarRespuesta(
   tx: Prisma.TransactionClient, mensajeId: string, conversacionId: string, telefono: string, raw: unknown,
-): Promise<void> {
+): Promise<ResultadoRespuesta> {
   const r = parsearRespuesta(raw);
   const original = JSON.stringify(raw);
   // El límite global HTTP acota el mensaje. Se conserva incluso si el parser no lo entiende.
@@ -116,6 +139,8 @@ export async function guardarRespuesta(
   let contextoId: string | undefined;
   let seleccionId: string | undefined;
   let versionFlow: string | undefined;
+  let propositoFlow: string | undefined;
+  let datosFlow: { etiqueta: string; valor: string }[] | undefined;
   let cuerpo = r.seleccion?.tipo === 'nfm_reply' ? 'Formulario recibido; requiere revisión humana. No confirma una cita.' : 'Respuesta interactiva recibida; requiere revisión humana.';
   if (r.estado === 'valida' && r.contextoId && r.seleccion) {
     const fuente = await tx.mensaje.findFirst({
@@ -140,7 +165,12 @@ export async function guardarRespuesta(
       if (guardada.telefono === telefono && ((tipoCorrecto && opcion) || flowValido)) {
         contextoId = fuente.id; // ID interno autorizado, nunca identificador de otro chat.
         if (opcion) { seleccionId = opcion.id; cuerpo = opcion.titulo; }
-        if (flowValido) versionFlow = guardada.flow!.version;
+        if (flowValido && seleccion.tipo === 'nfm_reply') {
+          versionFlow = guardada.flow!.version;
+          propositoFlow = guardada.flow!.proposito;
+          datosFlow = datosVisiblesDeFlow(guardada.flow!, seleccion.datos);
+          if (propositoFlow === 'SOLICITUD_CITA') cuerpo = 'Solicitud de cita recibida. Pendiente: no hay ninguna cita reservada.';
+        }
         if (!vigente) estado = 'CADUCADA';
         else {
           const reclamo = await tx.interaccionMensaje.updateMany({ where: { mensajeId: fuente.id, consumidaPor: null }, data: { consumidaPor: mensajeId } });
@@ -151,10 +181,11 @@ export async function guardarRespuesta(
   }
   await tx.interaccionMensaje.create({ data: {
     mensajeId, estado, privado: cifrarInteraccion(raw, mensajeId),
-    vista: { tipo: r.seleccion?.tipo === 'nfm_reply' ? 'respuesta_flow' : r.seleccion ? 'seleccion' : 'error', cuerpo, estado, ...(contextoId ? { contextoId } : {}), ...(seleccionId ? { seleccionId } : {}), ...(versionFlow ? { versionFlow } : {}) },
+    vista: { tipo: r.seleccion?.tipo === 'nfm_reply' ? 'respuesta_flow' : r.seleccion ? 'seleccion' : 'error', cuerpo, estado, ...(contextoId ? { contextoId } : {}), ...(seleccionId ? { seleccionId } : {}), ...(versionFlow ? { versionFlow } : {}), ...(propositoFlow ? { proposito: propositoFlow } : {}), ...(datosFlow?.length ? { datos: datosFlow } : {}) },
     venceEn: new Date(), purgarEn: new Date(Date.now() + 7 * DIA),
   } });
   await tx.mensaje.update({ where: { id: mensajeId }, data: { contenido: cuerpo } });
+  return { estado, ...(seleccionId ? { seleccionId } : {}), ...(propositoFlow ? { propositoFlow } : {}) };
 }
 
 function validarCampoFlow(valor: unknown, campo: { tipo: 'texto' | 'fecha' | 'booleano'; max?: number }): boolean {

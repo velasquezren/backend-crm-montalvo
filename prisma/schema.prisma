@@ -99,6 +99,7 @@ model Usuario {
   leads                 Lead[]
   conversaciones        Conversacion[]  @relation("ConversacionAgente")
   conversacionesCerradas Conversacion[] @relation("ConversacionCerradaPor")
+  atencionesTomadas      Conversacion[] @relation("ConversacionAtencionTomadaPor")
   lineasWhatsapp        AccesoLineaWhatsapp[]
   silenciosLinea        SilencioLinea[]
   ventas                Venta[]
@@ -374,6 +375,26 @@ model Conversacion {
   /// Quién la cerró. null con `cerradaEn` = cerrada por inactividad (barrido).
   cerradaPor         Usuario?  @relation("ConversacionCerradaPor", fields: [cerradaPorId], references: [id], onDelete: SetNull)
   cerradaPorId       String?
+  /// Atención humana (docs/atencion-humana.md). Cuándo empezó la espera de una
+  /// PERSONA; null = no hay solicitud viva. No se reinicia mientras siga viva:
+  /// es el reloj que ve recepción, y recargar o reiniciar no lo mueve.
+  atencionSolicitadaEn DateTime?
+  /// Por qué. El orden del enum es la prioridad: la pestaña «Atención» ordena
+  /// por esta columna.
+  atencionMotivo       MotivoAtencion?
+  /// El mensaje de la paciente que la originó, para el contexto. Sin FK a
+  /// propósito (sería una segunda relación con Mensaje); se lee siempre
+  /// acotado a esta conversación.
+  atencionMensajeId    String?
+  /// Quién la tomó y cuándo. NO es `agenteId`: en recepción la atención es
+  /// compartida y tomar una solicitud no asigna el chat.
+  atencionTomadaEn     DateTime?
+  atencionTomadaPor    Usuario?  @relation("ConversacionAtencionTomadaPor", fields: [atencionTomadaPorId], references: [id], onDelete: SetNull)
+  atencionTomadaPorId  String?
+  /// La automatización no vuelve a escribir en este chat. Lo pone una solicitud
+  /// de atención humana y solo lo levanta una reanudación explícita: resolver
+  /// la solicitud no lo hace.
+  automatizacionPausadaEn DateTime?
 
   @@index([agenteId])
   @@index([updatedAt])
@@ -382,6 +403,21 @@ model Conversacion {
   @@index([lineaId, updatedAt])
   /// Sirve al filtro y al contador de la pestaña "Sin responder" a la vez.
   @@index([esperandoRespuesta, updatedAt])
+  /// Sirve a la pestaña «Atención» y a sus dos contadores.
+  @@index([atencionSolicitadaEn])
+}
+
+/// Por qué una conversación necesita a una persona. El ORDEN es la prioridad
+/// (Postgres ordena un enum por su declaración): primero quien la pidió.
+enum MotivoAtencion {
+  /// Tocó «Hablar con recepción» (TALK_TO_HUMAN) en una oferta nuestra.
+  SOLICITUD_EXPLICITA
+  /// Completó el Flow de cita o tocó «Solicitar cita». Es una SOLICITUD: no
+  /// hay ninguna cita reservada.
+  SOLICITUD_CITA
+  /// Cualquier otra respuesta interactiva, o una fuera de contexto: hay que
+  /// revisarla, no se ejecutó nada.
+  REVISION
 }
 
 /// Datos privados separados: jamás incluir esta relación completa en respuestas HTTP.
