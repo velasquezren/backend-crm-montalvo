@@ -97,11 +97,22 @@ export class ConversacionesGateway implements OnGatewayInit, OnGatewayConnection
    * Es barato y silencioso, así que lo llama TODO —el agente que envía, el
    * acuse de entrega de Meta, la media que termina de subir—. Por eso **no
    * manda notificación push**: ver `notificarEntrante`.
+   *
+   * La audiencia se calcula DESPUÉS del cambio. Si el cambio saca la conversación
+   * de la vista de alguien (una agente reclama un chat del pool y las demás dejan
+   * de verlo), esa persona ya no está en la audiencia y se quedaría con la fila
+   * vieja hasta el refresco de respaldo: `tambienA` es para avisarle a ella —
+   * `quienesVen` ANTES de aplicar el cambio—. Su refresco recibe `null` y la quita.
    */
-  emitirActividad(conversacionId: string): void {
+  /** Quién ve la conversación ahora mismo: tómalo antes de un cambio que pueda sacarla de la vista de alguien. */
+  quienesVen(conversacionId: string): Promise<string[]> {
+    return this.lineas.destinatarios(conversacionId);
+  }
+
+  emitirActividad(conversacionId: string, tambienA: readonly string[] = []): void {
     void this.lineas.destinatarios(conversacionId)
       .then(ven => {
-        const alcanzadas = new Set(ven);
+        const alcanzadas = new Set([...ven, ...tambienA]);
         return this.emitirAutenticados('conversacion:actividad', a => alcanzadas.has(a.sub), () => ({ conversacionId }));
       })
       .catch(() => this.logger.warn('No se pudo difundir la conversación'));

@@ -47,6 +47,10 @@ export class AtencionHumanaService {
    */
   async tomar(id: string, usuarioId: string, soloAgenteId?: string): Promise<EstadoDeAtencion> {
     const conversacion = await obtenerConversacionPropia(this.prisma, id, soloAgenteId);
+    /* Un chat del pool, al reclamarlo, sale de la vista de las demás agentes de la
+       línea: hay que avisarles también a ellas, o conservan la fila ajena. */
+    const reclama = conversacion.linea.comercial && !conversacion.agenteId;
+    const verianAntes = reclama ? await this.gateway.quienesVen(id) : [];
     const ahora = new Date();
     const tomadas = await this.prisma.$executeRaw`
       UPDATE "Conversacion" SET "atencionTomadaEn" = ${ahora}, "atencionTomadaPorId" = ${usuarioId}
@@ -67,7 +71,7 @@ export class AtencionHumanaService {
         UPDATE "Conversacion" SET "agenteId" = ${usuarioId} WHERE id = ${id} AND "agenteId" IS NULL`;
     }
     await this.audit.registrar('Conversacion', id, 'ATENCION_TOMADA', usuarioId);
-    this.gateway.emitirActividad(id);
+    this.gateway.emitirActividad(id, verianAntes);
     return this.estado(id);
   }
 

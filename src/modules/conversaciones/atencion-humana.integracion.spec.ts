@@ -300,7 +300,23 @@ describe('C · línea comercial', () => {
     expect((await webhook([toque(oferta.whatsappMsgId!)], PHONE_COMERCIAL)).status).toBe(200);
     expect((await conversacion(chatComercial)).atencionMotivo).toBe('SOLICITUD_EXPLICITA');
 
-    expect((await http(`/conversaciones/${chatComercial}/atencion/tomar`, 'POST', usuarios.ventasA.token)).status).toBe(201);
+    /* ventasB ve el chat del pool y está conectada: cuando ventasA lo reclame dejará de verlo,
+       pero tiene que ENTERARSE (su refresco recibe null y quita la fila ajena). */
+    const ws = new WebSocket(base.replace('http:', 'ws:') + '/socket.io/?EIO=4&transport=websocket');
+    const eventos: string[] = [];
+    let conectado = false;
+    ws.addEventListener('message', event => {
+      const data = String(event.data);
+      if (data.startsWith('0')) ws.send(`40/realtime,${JSON.stringify({ token: usuarios.ventasB.token })}`);
+      if (data.startsWith('40/realtime,')) conectado = true;
+      if (data === '2') ws.send('3');
+      if (data.startsWith('42/realtime,')) eventos.push(data);
+    });
+    try {
+      await esperar(async () => conectado);
+      expect((await http(`/conversaciones/${chatComercial}/atencion/tomar`, 'POST', usuarios.ventasA.token)).status).toBe(201);
+      await esperar(async () => eventos.some(e => e.includes('conversacion:actividad') && e.includes(chatComercial)));
+    } finally { ws.close(); }
     expect((await conversacion(chatComercial)).agenteId).toBe(usuarios.ventasA.id);
 
     /* La regla comercial de siempre: el chat de otra agente no se ve ni se toca. */
