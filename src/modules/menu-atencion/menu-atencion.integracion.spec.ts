@@ -477,14 +477,32 @@ describe('qué hace cada opción', () => {
     expect((await prisma.conversacion.findUniqueOrThrow({ where: { id: chat } })).atencionMotivo).toBe('SOLICITUD_EXPLICITA');
   });
 
-  it('con una persona ya pedida, una respuesta informativa NO se contesta sola: la ve una persona', async () => {
+  it('con una persona ya pedida, lo informativo que ella toca se contesta igual y su solicitud sigue como estaba', async () => {
     const { chat, menu } = await recibirMenu();
     await webhook([texto('quiero hablar con una persona')]);
+    await esperar(async () => (await prisma.conversacion.findUniqueOrThrow({ where: { id: chat } })).atencionMotivo === 'SOLICITUD_EXPLICITA');
+    const antes = await prisma.conversacion.findUniqueOrThrow({ where: { id: chat } });
     const menuGuardado = (await http(`/menu-atencion/${recepcion}`)).body['menu'] as { opciones: { tipo: string; clave?: string }[] };
     const info = `INFO_${menuGuardado.opciones.find(o => o.tipo === 'RESPUESTA')!.clave}`;
     expect((await webhook([toque(menu, info)])).status).toBe(200);
+    await esperar(async () => (await textosAutomaticos(chat)).includes('Horario sintético de atención.'));
+    /* «Cómo llegar» también: el pin sale aunque espere a una persona. */
+    expect((await webhook([toque(menu, 'VIEW_LOCATION')])).status).toBe(200);
+    await esperar(async () => (await textosAutomaticos(chat)).some(t => t.startsWith('📍')));
+    const despues = await prisma.conversacion.findUniqueOrThrow({ where: { id: chat } });
+    expect(despues).toMatchObject({ atencionMotivo: 'SOLICITUD_EXPLICITA', atencionSolicitadaEn: antes.atencionSolicitadaEn });
+  });
+
+  it('escribir «menú» lo muestra otra vez, aunque la conversación esté en curso', async () => {
+    const { chat } = await recibirMenu();
+    expect((await webhook([texto('Menú')])).status).toBe(200);
+    await esperar(async () => (await ofertasEnviadas(chat)).length === 2);
+    const [, segundo] = await ofertasEnviadas(chat);
+    expect(segundo.contenido).toBe(menuRecepcion().saludo);
+    /* Otra palabra cualquiera no lo repite. */
+    expect((await webhook([texto('gracias')])).status).toBe(200);
     await reposo();
-    expect(await textosAutomaticos(chat)).not.toContain('Horario sintético de atención.');
+    expect(await ofertasEnviadas(chat)).toHaveLength(2);
   });
 
   it('si la clínica retiró la opción después de enviar el menú, no se contesta un texto viejo', async () => {

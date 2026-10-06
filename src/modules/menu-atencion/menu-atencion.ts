@@ -192,8 +192,20 @@ export function mensajeDelMenu(menu: MenuAtencion, { hayPromociones }: { hayProm
   const opciones = visibles.map(o => opcionMeta(o, idDeOpcion(o)));
   const caben = visibles.length <= 3 && visibles.every(o => !o.descripcion && o.titulo.length <= LIMITES.tituloBoton && !NO_BOTON.test(o.titulo));
   return caben
-    ? { tipo: 'botones', cuerpo: menu.saludo, opciones }
-    : { tipo: 'lista', cuerpo: menu.saludo, boton: 'Ver opciones', secciones: [{ titulo: 'Opciones', opciones }] };
+    ? { tipo: 'botones', cuerpo: menu.saludo, pie: PIE_DEL_MENU, opciones }
+    : { tipo: 'lista', cuerpo: menu.saludo, pie: PIE_DEL_MENU, boton: 'Ver opciones', secciones: [{ titulo: '¿En qué te ayudamos?', opciones }] };
+}
+
+/** Debajo del menú: cómo volver a verlo (`pideMenu`). */
+export const PIE_DEL_MENU = 'Escribe «menú» para volver a ver estas opciones';
+
+/** Lo que, escrito como mensaje entero, pide ver el menú otra vez. */
+const PIDE_MENU = new Set(['menu', 'el menu', 'ver menu', 'ver el menu', 'menu principal', 'volver al menu', 'opciones', 'ver opciones', 'inicio']);
+
+/** ¿Escribió solo «menú» (u «opciones», «inicio»…)? Sin tildes, mayúsculas ni signos. */
+export function pideMenu(texto: string): boolean {
+  const t = texto.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9ñ]+/g, ' ').trim();
+  return PIDE_MENU.has(t);
 }
 
 /**
@@ -207,9 +219,10 @@ export function mensajeDePromociones(menu: MenuAtencion, promociones: readonly P
   return {
     tipo: 'lista',
     cuerpo: opcion.respuesta,
+    pie: 'Toca una para ver precio y condiciones',
     boton: 'Ver promociones',
     secciones: [{
-      titulo: 'Promociones',
+      titulo: 'Promociones vigentes',
       opciones: promociones.slice(0, LIMITES.opciones).map(p => ({
         id: idDePromocion(p),
         titulo: acortar(p.titulo, LIMITES.titulo),

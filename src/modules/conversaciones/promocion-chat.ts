@@ -29,6 +29,7 @@ function fechaCorta(iso: string): string {
 
 /** Lo que cabe en el cuerpo de un mensaje con botones de Meta. */
 const CUERPO_MAXIMO = 1024;
+const PREFIJO_CONDICIONES = '\n\n📋 Condiciones: ';
 
 /**
  * La tarjeta: banner, título, precio (con el anterior si hay oferta), vigencia y
@@ -38,21 +39,25 @@ const CUERPO_MAXIMO = 1024;
  * No inventa nada: lo que no está cargado en la promoción no aparece.
  */
 export function tarjetaDePromocion(p: PromocionChat, { puedePagar }: { puedePagar: boolean }): MensajePreparado {
+  /* Formato de WhatsApp: *negrita* y ~tachado~ para el precio anterior. */
   const precio = p.precio === null
     ? null
     : p.precioPromocional !== null && p.precioRegular !== null
-      ? `${bolivianos(p.precioPromocional)} (antes ${bolivianos(p.precioRegular)})`
-      : bolivianos(p.precio);
+      ? `*${bolivianos(p.precioPromocional)}* ~${bolivianos(p.precioRegular)}~`
+      : `*${bolivianos(p.precio)}*`;
+  const detalles = [
+    ...(precio ? [`💰 ${precio}`] : []),
+    ...(p.vigenteHasta ? [`📅 Válida hasta el ${fechaCorta(p.vigenteHasta)}`] : []),
+  ];
   const cabecera = [
     `*${p.titulo}*${p.etiquetaOferta ? ` · ${p.etiquetaOferta}` : ''}`,
     p.resumen,
-    ...(precio ? [`Precio: ${precio}`] : []),
-    ...(p.vigenteHasta ? [`Válida hasta el ${fechaCorta(p.vigenteHasta)}`] : []),
+    ...(detalles.length ? ['', ...detalles] : []),
   ].join('\n');
   /* Las condiciones van al final y se acortan si no caben: la letra chica completa
      está en la página de la promoción y la agente la tiene en el CRM. */
-  const resto = CUERPO_MAXIMO - cabecera.length - '\n\nCondiciones: '.length;
-  const conCondiciones = p.condiciones && resto > 40 ? `${cabecera}\n\nCondiciones: ${acortar(p.condiciones, resto)}` : cabecera;
+  const resto = CUERPO_MAXIMO - cabecera.length - PREFIJO_CONDICIONES.length;
+  const conCondiciones = p.condiciones && resto > 40 ? `${cabecera}${PREFIJO_CONDICIONES}${acortar(p.condiciones, resto)}` : cabecera;
   /* `acortar` cuenta caracteres y Meta cuenta unidades UTF-16: con muchos emojis
      podría pasarse; entonces van sin condiciones antes que no ir. */
   const cuerpo = conCondiciones.length <= CUERPO_MAXIMO ? conCondiciones : cabecera;
@@ -69,12 +74,15 @@ export function tarjetaDePromocion(p: PromocionChat, { puedePagar }: { puedePaga
   };
 }
 
+/** «Hablar con alguien» en la tarjeta, si el menú de la línea no tiene su propia confirmación. */
+export const TEXTO_PERSONA_TARJETA = 'Listo. Una persona del equipo te escribirá por aquí para ayudarte con esta promoción.';
+
 /** Lo que recibe al mandar el comprobante. No promete plazos: lo verifica una persona. */
-export const TEXTO_COMPROBANTE_RECIBIDO = 'Recibimos tu comprobante. Una persona del equipo lo verificará y te confirmará el pago por aquí.';
+export const TEXTO_COMPROBANTE_RECIBIDO = '✅ Recibimos tu comprobante. Una persona del equipo lo verificará y te confirmará el pago por aquí.';
 
 /** Lo que recibe cuando una persona confirma el pago (sale como mensaje de esa persona). */
 export function textoPagoConfirmado(titulo: string, monto: number): string {
-  return `Confirmamos tu pago de ${bolivianos(monto)} por «${titulo}». ¡Gracias! Si necesitas coordinar una fecha, escríbenos por aquí.`;
+  return `✅ Confirmamos tu pago de ${bolivianos(monto)} por «${titulo}». ¡Gracias! Si necesitas coordinar una fecha, escríbenos por aquí.`;
 }
 
 /** Lo que recibe cuando hay que mandar otro comprobante. El motivo lo escribe la persona que lo revisó. */

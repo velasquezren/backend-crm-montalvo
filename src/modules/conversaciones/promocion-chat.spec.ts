@@ -34,7 +34,7 @@ describe('la tarjeta de la promoción', () => {
     expect(() => validarMensaje(t)).not.toThrow();
     if (t.tipo !== 'botones') throw new Error('botones');
     expect(t.imagenCabecera).toBe(PROMO.bannerUrl);
-    expect(t.cuerpo).toContain('Bs 280 (antes Bs 350)');
+    expect(t.cuerpo).toContain('💰 *Bs 280* ~Bs 350~');
     expect(t.cuerpo).toContain('Válida hasta el 31/10/2026');
     expect(t.cuerpo).toContain('No acumulable');
     expect(t.pie).toBe('Código PRM-7K3QX');

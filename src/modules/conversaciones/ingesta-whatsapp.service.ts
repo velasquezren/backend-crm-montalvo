@@ -20,6 +20,7 @@ import {
   mensajeDelMenu,
   mensajeDePromociones,
   orientacionDeEmergencia,
+  pideMenu,
   seResuelveSola,
 } from '../menu-atencion/menu-atencion';
 import { AcuseAutomaticoService } from './acuse-automatico.service';
@@ -28,7 +29,7 @@ import { DespachadorSalienteService } from './despachador-saliente.service';
 import { MediaEntranteService, MediaEntrante } from './media-entrante.service';
 import { CONTENIDO_PIN, TEXTO_UBICACION, UBICACION_CLINICA } from './ubicacion-clinica';
 import { registrarComprobante } from './pagos-chat';
-import { codigoEnTexto, PAGAR_PROMOCION, TEXTO_COMPROBANTE_RECIBIDO } from './promocion-chat';
+import { codigoEnTexto, HABLAR_CON_PERSONA, PAGAR_PROMOCION, TEXTO_COMPROBANTE_RECIBIDO, TEXTO_PERSONA_TARJETA } from './promocion-chat';
 import { PromocionesChatService } from './promociones-chat.service';
 import type { PromocionChat } from '../promociones/promociones.service';
 
@@ -224,14 +225,21 @@ export class IngestaWhatsappService {
             /* Y solo de una oferta del MENÚ: el mismo `TALK_TO_HUMAN` en una
                plantilla de campaña pide una persona, pero no es un toque al menú. */
             accion = resultado.deMenu && resultado.seleccionId ? accionDeSeleccion(menu, resultado.seleccionId) : null;
-            /* Lo que el menú contesta solo, lo contesta solo mientras nadie haya
-               pedido una persona en este chat. */
+            /* «Hablar con alguien» en NUESTRA tarjeta vigente: pide una persona como
+               el menú, y recibe su confirmación (la del menú, o una propia). */
+            if (resultado.promocionId && resultado.seleccionId === HABLAR_CON_PERSONA && resultado.estado === 'CORRELACIONADA') {
+              const delMenu = accionDeSeleccion(menu, HABLAR_CON_PERSONA);
+              accion = { tipo: 'PERSONA', confirmacion: (delMenu?.tipo === 'PERSONA' ? delMenu.confirmacion : null) ?? TEXTO_PERSONA_TARJETA };
+            }
+            /* Lo informativo (horarios, cómo llegar, promociones) se contesta solo
+               siempre que ella lo toque en una oferta vigente, aunque ya espere a una
+               persona: lo acaba de pedir ella, y su solicitud sigue como estaba. */
             const resuelveSola = seResuelveSola(accion);
             /* En la MISMA transacción: si el mensaje queda guardado, su solicitud
                también. Un refresco, una desconexión o un reinicio no la pierden. */
-            pedido = motivoDeRespuesta(resultado, resuelveSola && !(await automatizacionPausada(tx, conversacion.id)));
-            /* Si hace falta una persona (chat pausado, menú caducado), no se
-               contesta solo además: la decisión es una, la de `motivoDeRespuesta`. */
+            pedido = motivoDeRespuesta(resultado, resuelveSola);
+            /* Si hace falta una persona (menú caducado), no se contesta solo
+               además: la decisión es una, la de `motivoDeRespuesta`. */
             if (resuelveSola && pedido) accion = null;
             if (pedido && await registrarSolicitudAtencion(tx, conversacion.id, pedido, creado.id, this.ahora())) solicitud = pedido;
           }
@@ -320,7 +328,7 @@ export class IngestaWhatsappService {
     // solo lo que el menú de HOY dice de una opción que estaba en nuestra oferta.
     if (interaccionOriginal !== undefined && interacciones) {
       const elegida = accion;
-      if (elegida && menu && elegida.tipo !== 'EMERGENCIA') {
+      if (elegida && elegida.tipo !== 'EMERGENCIA') {
         void enSegundoPlano('respuesta del menú de atención', this.logger, () =>
           this.responderSeleccion(conversacion.id, cliente.telefono, lineaId, elegida, menu, mensaje.id),
         );
@@ -357,7 +365,10 @@ export class IngestaWhatsappService {
          menú y de acuse a la vez. */
       const tarjeta = codigo ? await this.atenderCodigo(conversacion.id, cliente.id, cliente.telefono, lineaId, codigo) : false;
       /* Quien acaba de pedir algo ya tiene una persona en camino. */
-      const ofrecido = !tarjeta && menu && !pedido && !esRespuestaBoton ? await this.ofrecerMenu(conversacion.id, cliente.telefono, menu) : false;
+      /* Escribió «menú»: se le muestra aunque la conversación esté en curso. */
+      const ofrecido = !tarjeta && menu && !pedido && !esRespuestaBoton
+        ? await this.ofrecerMenu(conversacion.id, cliente.telefono, menu, { aPedido: !media && pideMenu(contenido) })
+        : false;
       /* Cuando el menú sale, ES el acuse: dos automáticos al mismo mensaje se
          leen como un sistema roto. Cuando no sale (la conversación está en curso),
          el acuse fuera de horario funciona como siempre. */
@@ -520,7 +531,13 @@ export class IngestaWhatsappService {
    * escribió: entonces la conversación está en curso y el menú estorbaría.
    * Devuelve si lo ofreció.
    */
-  private async ofrecerMenu(conversacionId: string, telefono: string, menu: MenuAtencion): Promise<boolean> {
+  private async ofrecerMenu(conversacionId: string, telefono: string, menu: MenuAtencion, { aPedido = false } = {}): Promise<boolean> {
+    /* La opción «Promociones» solo sale si hoy hay alguna publicada para WhatsApp. */
+    const elMenu = async () => mensajeDelMenu(menu, {
+      hayPromociones: menu.opciones.some(o => o.tipo === 'PROMOCIONES') && (await this.promocionesChat.hayParaMenu()),
+    });
+    /* Lo pidió ella escribiendo «menú»: sale siempre, aunque espere a una persona. */
+    if (aPedido) return this.enviarOfertaAutomatica(conversacionId, telefono, await elMenu(), { origen: 'MENU_ATENCION' }, async () => false, { respetaPausa: false });
     const desde = new Date(this.ahora().getTime() - MENU_ESPERA_MS);
     const enCurso = async (db: Prisma.TransactionClient) => {
       const [ofrecido, persona] = await Promise.all([
@@ -532,9 +549,7 @@ export class IngestaWhatsappService {
     /* La mayoría de los mensajes llegan con la conversación en curso: se mira sin
        candado y solo se toma el candado (que vuelve a mirar) si parece que toca. */
     if (await enCurso(this.prisma)) return false;
-    /* La opción «Promociones» solo sale si hoy hay alguna publicada para WhatsApp. */
-    const hayPromociones = menu.opciones.some(o => o.tipo === 'PROMOCIONES') && (await this.promocionesChat.hayParaMenu());
-    return this.enviarOfertaAutomatica(conversacionId, telefono, mensajeDelMenu(menu, { hayPromociones }), { origen: 'MENU_ATENCION' }, enCurso);
+    return this.enviarOfertaAutomatica(conversacionId, telefono, await elMenu(), { origen: 'MENU_ATENCION' }, enCurso);
   }
 
   /**
@@ -564,8 +579,10 @@ export class IngestaWhatsappService {
   private async enviarTarjeta(conversacionId: string, telefono: string, lineaId: string, promocion: PromocionChat): Promise<boolean> {
     const tarjeta = await this.promocionesChat.tarjeta(lineaId, promocion);
     const desde = new Date(this.ahora().getTime() - RESPUESTA_REPETIDA_MS);
+    /* La pidió ella (escribió el código o la eligió de la lista): sale aunque espere a una persona. */
     return this.enviarOfertaAutomatica(conversacionId, telefono, tarjeta, { origen: 'PROMOCION', promocionId: promocion.id }, async tx =>
       !!(await tx.mensaje.findFirst({ where: { conversacionId, automatico: true, contenido: tarjeta.cuerpo, createdAt: { gte: desde } }, select: { id: true } })),
+      { respetaPausa: false },
     );
   }
 
@@ -604,10 +621,11 @@ export class IngestaWhatsappService {
    */
   private async enviarOfertaAutomatica(
     conversacionId: string, telefono: string, mensaje: MensajePreparado, origen: OrigenOferta, yaHecho: (tx: Prisma.TransactionClient) => Promise<boolean>,
+    { respetaPausa = true } = {},
   ): Promise<boolean> {
     try {
-      const filas = await this.guardarMensajeAutomatico(conversacionId, [{ oferta: { ...prepararOferta(mensaje, telefono), ...origen } }], yaHecho);
-      if (!filas || !(await this.sigueSinPausa(conversacionId, filas))) return false;
+      const filas = await this.guardarMensajeAutomatico(conversacionId, [{ oferta: { ...prepararOferta(mensaje, telefono), ...origen } }], yaHecho, { respetaPausa });
+      if (!filas || (respetaPausa && !(await this.sigueSinPausa(conversacionId, filas)))) return false;
       await this.despachador.interaccion({ mensajeId: filas[0].id, conversacionId, telefono });
       const enviada = await this.prisma.mensaje.findUnique({ where: { id: filas[0].id }, select: { estadoEnvio: true } });
       return enviada?.estadoEnvio !== 'FALLIDO';
@@ -622,9 +640,9 @@ export class IngestaWhatsappService {
    * Lo que hace una opción del menú que la paciente tocó. Las que piden una
    * persona ya dejaron su solicitud en la transacción; aquí solo sale la
    * confirmación, si la clínica la escribió. Las que se contestan solas salen
-   * aquí, respetando la pausa: si entretanto alguien pidió una persona, callan.
+   * aquí aunque espere a una persona: las acaba de pedir ella.
    */
-  private async responderSeleccion(conversacionId: string, telefono: string, lineaId: string, accion: AccionMenu, menu: MenuAtencion, mensajeId: string): Promise<void> {
+  private async responderSeleccion(conversacionId: string, telefono: string, lineaId: string, accion: AccionMenu, menu: MenuAtencion | null, mensajeId: string): Promise<void> {
     switch (accion.tipo) {
       case 'CITA': {
         /* Si la WABA de la línea tiene publicado el Flow de solicitud de cita, se lo
@@ -644,7 +662,7 @@ export class IngestaWhatsappService {
         return;
       case 'RESPUESTA':
         /* Si la vuelve a pedir, se le vuelve a responder: la pidió ella. */
-        await this.responderTexto(conversacionId, telefono, accion.texto, { respetaPausa: true, noRepetir: false });
+        await this.responderTexto(conversacionId, telefono, accion.texto, { respetaPausa: false, noRepetir: false });
         return;
       case 'UBICACION':
         await this.enviarUbicacion(conversacionId, telefono, accion.texto);
@@ -652,8 +670,8 @@ export class IngestaWhatsappService {
       case 'PROMOCIONES': {
         /* Si entre el menú y el toque dejó de haber promociones publicadas, no se la
            deja sin respuesta: lo ve una persona. */
-        const lista = mensajeDePromociones(menu, await this.promocionesChat.paraMenu());
-        if (lista) await this.enviarOfertaAutomatica(conversacionId, telefono, lista, { origen: 'MENU_ATENCION' }, async () => false);
+        const lista = menu ? mensajeDePromociones(menu, await this.promocionesChat.paraMenu()) : null;
+        if (lista) await this.enviarOfertaAutomatica(conversacionId, telefono, lista, { origen: 'MENU_ATENCION' }, async () => false, { respetaPausa: false });
         else await this.pedirRevision(conversacionId, mensajeId);
         return;
       }
@@ -724,8 +742,9 @@ export class IngestaWhatsappService {
   /** «Ubicación» del menú: una línea opcional y el mapa. Pedida, no detectada. */
   private async enviarUbicacion(conversacionId: string, telefono: string, texto: string | null): Promise<void> {
     try {
-      const filas = await this.guardarMensajeAutomatico(conversacionId, texto ? [texto, CONTENIDO_PIN] : [CONTENIDO_PIN], async () => false);
-      if (!filas || !(await this.sigueSinPausa(conversacionId, filas))) return;
+      /* La pidió ella tocando «Cómo llegar»: sale aunque espere a una persona. */
+      const filas = await this.guardarMensajeAutomatico(conversacionId, texto ? [texto, CONTENIDO_PIN] : [CONTENIDO_PIN], async () => false, { respetaPausa: false });
+      if (!filas) return;
       await this.despacharUbicacion(conversacionId, telefono, filas, texto);
     } catch (error) {
       this.logger.error('No se pudo enviar la ubicación del menú de atención', error);

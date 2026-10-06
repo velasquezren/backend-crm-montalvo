@@ -43,6 +43,10 @@ En la ingesta, después de guardar el mensaje, si **todo** se cumple:
 - la automatización no está pausada (nadie pidió una persona);
 - en las últimas 24 h no se le ofreció un menú ni le escribió una persona del equipo.
 
+**Excepción: escribió «menú»** (u «opciones», «inicio», «volver al menú»: el mensaje
+entero, `pideMenu`). Entonces sale siempre, aunque la conversación esté en curso o espere
+a una persona. El menú lo dice en su pie («Escribe «menú» para volver a ver estas opciones»).
+
 Pasa por `guardarMensajeAutomatico` (candado de automáticos y pausa) y se despacha
 como una oferta interactiva igual que la de una agente: su respuesta se
 correlaciona, sobrevive a un reinicio y no se reenvía a ciegas.
@@ -58,8 +62,12 @@ paciente, opción). Solo entonces `accionDeSeleccion` mira **el menú de hoy**:
 
 - Si la opción ya no existe (la clínica cambió el menú entre el envío y el toque), la
   respuesta queda para una persona (`REVISION`). Nunca se contesta con un texto retirado.
-- Lo que se contesta solo (información, ubicación, promociones) lo hace **solo si la
-  oferta está vigente y nadie pidió una persona**; si no, lo ve una persona.
+- Lo que se contesta solo (información, ubicación —el pin nativo de WhatsApp—, la lista de
+  promociones y la tarjeta de una) lo hace **siempre que la oferta esté vigente, aunque ya
+  espere a una persona**: lo acaba de pedir ella, y su solicitud sigue como estaba (mismo
+  motivo y mismo reloj). Un toque a una oferta caducada lo ve una persona (`REVISION`).
+  (Antes callaba si alguien había pedido una persona: en la prueba del 2026-10-06 «Cómo
+  llegar» quedó sin respuesta después de «Hablar con alguien».)
 - El menú se marca con `OfertaInteraccion.origen = 'MENU_ATENCION'`: cada opción se puede
   elegir más de una vez («Horarios» y después «Hablar con una persona» son dos pedidos) y
   **solo** un toque a una oferta así dispara respuestas del menú (el mismo `TALK_TO_HUMAN`
@@ -70,6 +78,9 @@ paciente, opción). Solo entonces `accionDeSeleccion` mira **el menú de hoy**:
 - Si Meta rechaza el menú, sale el acuse fuera de horario como siempre.
 - La confirmación de persona/cita y la orientación de emergencia salen **aunque la
   automatización esté pausada**: responden a lo que ella acaba de pedir.
+- «Hablar con alguien» en la **tarjeta de una promoción** pide una persona igual que el
+  menú y recibe la confirmación de la opción «Hablar con una persona» del menú de la línea,
+  o `TEXTO_PERSONA_TARJETA` si no hay.
 
 ## Emergencia: lo que hace y lo que NO
 

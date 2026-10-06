@@ -8,6 +8,8 @@ import {
   mensajeDelMenu,
   mensajeDePromociones,
   orientacionDeEmergencia,
+  PIE_DEL_MENU,
+  pideMenu,
   PromocionDeMenu,
   seResuelveSola,
 } from './menu-atencion';
@@ -131,6 +133,16 @@ describe('el mensaje que recibe la paciente', () => {
     expect(primera.titulo.endsWith('…')).toBe(true);
     expect(mensajeDePromociones(ventas(), [])).toBeNull();
     expect(mensajeDePromociones(recepcion(), PUBLICADAS)).toBeNull();
+  });
+});
+
+describe('volver a ver el menú', () => {
+  it('el menú dice cómo volver a verlo, y escribir solo «menú» (u «opciones») lo pide', () => {
+    const menu = mensajeDelMenu(recepcion(), { hayPromociones: false });
+    expect(menu.tipo !== 'texto' && menu.tipo !== 'flow' ? menu.pie : null).toBe(PIE_DEL_MENU);
+    expect(PIE_DEL_MENU.length).toBeLessThanOrEqual(60);
+    for (const t of ['menú', 'MENU!', ' Ver opciones ', 'menú principal', 'Inicio']) expect(pideMenu(t)).toBe(true);
+    for (const t of ['el menú de precios', 'quiero ver el menú de la cafetería', 'hola', '']) expect(pideMenu(t)).toBe(false);
   });
 });
 
