@@ -1,5 +1,5 @@
 import { pagoDelChat, promocionDelChat } from './pagos-chat';
-import { estadoDeIntentoAnterior, verificarIntencion, datosOferta, OfertaInteraccion, prepararOferta, proyectarInteracciones } from './interacciones-integracion';
+import { estadoDeIntentoAnterior, verificarIntencion, datosOferta, interaccionesEnLinea, OfertaInteraccion, prepararOferta, proyectarInteracciones } from './interacciones-integracion';
 import { MemoriaAgenteService } from '../memoria-agente/memoria-agente.service';
 import { whereAccesoConversacion as whereVisibilidad, SELECT_LINEA } from './acceso-conversacion';
 import {
@@ -627,6 +627,8 @@ export class ConversacionesService {
     const conversacion = await obtenerConversacionPropia(this.prisma, conversacionId, soloAgenteId);
     await this.verificarVentana24h(conversacionId);
     if (interaccion !== undefined && (!clientMessageId || adjunto?.mediaKey)) throw new BadRequestException('Una interacción exige clientMessageId y no admite adjunto');
+    /* En un piloto (`WHATSAPP_INTERACCIONES_LINEAS`), las demás líneas no mandan botones ni Flows. */
+    if (interaccion !== undefined && !interaccionesEnLinea(conversacion.linea.id)) throw new BadRequestException('Interacciones desactivadas en esta línea');
     const oferta = interaccion === undefined ? undefined : prepararOferta(interaccion, conversacion.cliente.telefono);
     if (oferta) contenido = oferta.mensaje.cuerpo;
     if (adjunto?.mediaKey) {

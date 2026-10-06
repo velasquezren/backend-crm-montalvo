@@ -66,7 +66,8 @@ recepción»). Cuenta solo si el mensaje **entero** es una de las frases de una 
 cerrada (`esPedidoDePersona`), con saludos y cortesías; «no quiero hablar con una
 persona que me cobre más» o «hablar con recepción sobre mi cita» no cuentan. Nace la
 misma solicitud `SOLICITUD_EXPLICITA`, en la misma transacción del mensaje y con la
-misma pausa de la automatización. Con `WHATSAPP_INTERACCIONES` apagada no hace nada.
+misma pausa de la automatización. Con `WHATSAPP_INTERACCIONES` apagada no hace nada, y
+tampoco en una línea fuera del piloto `WHATSAPP_INTERACCIONES_LINEAS` (`interaccionesEnLinea`).
 Es un reconocimiento de frases, no un clasificador: lo que no esté en la lista no
 genera solicitud, y la lista no incluye nada médico.
 

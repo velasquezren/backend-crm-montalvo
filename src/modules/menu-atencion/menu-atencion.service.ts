@@ -4,7 +4,7 @@ import { randomBytes } from 'node:crypto';
 import { CacheMemoria } from '../../common/cache/cache-memoria';
 import { Prisma } from '../../prisma/prisma-client';
 import { PrismaService } from '../../prisma/prisma.service';
-import { interaccionesHabilitadas } from '../conversaciones/interacciones-integracion';
+import { interaccionesEnLinea } from '../conversaciones/interacciones-integracion';
 import { GuardarMenuDto } from './dto/guardar-menu.dto';
 import { erroresDelMenu, leerMenu, MenuAtencion, normalizarMenu } from './menu-atencion';
 
@@ -61,7 +61,7 @@ export class MenuAtencionService {
       errores: fila && !menu ? erroresDelMenu(comoMenu(fila)) : [],
       actualizadoEn: fila?.actualizadoEn ?? null,
       actualizadoPor: fila?.actualizadoPor ?? null,
-      enviosHabilitados: interaccionesHabilitadas(),
+      enviosHabilitados: interaccionesEnLinea(lineaId),
     };
   }
 

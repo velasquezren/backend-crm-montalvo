@@ -14,7 +14,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import type { Request } from 'express';
-import { interaccionesHabilitadas } from '../interacciones-integracion';
+import { interaccionesEnLinea, interaccionesHabilitadas } from '../interacciones-integracion';
 import { objeto } from '../../../common/whatsapp/interacciones/respuesta-interactiva';
 import { ConfigService } from '@nestjs/config';
 import { SkipThrottle } from '@nestjs/throttler';
@@ -322,7 +322,7 @@ export class WhatsappWebhookController {
     const contacto = contactos?.find(c => c.wa_id === mensaje.from);
     const respuestaBoton = extraerRespuestaBoton(mensaje);
     const media = extraerMedia(mensaje);
-    if (interaccionesHabilitadas() && (mensaje.type === 'interactive' || mensaje.type === 'button' || (mensaje.type !== 'text' && !media))) {
+    if (interaccionesEnLinea(lineaId) && (mensaje.type === 'interactive' || mensaje.type === 'button' || (mensaje.type !== 'text' && !media))) {
       await this.ingesta.procesarEntrante(
         `+${mensaje.from}`, 'Interacción recibida; pendiente de revisión.', mensaje.id,
         contacto?.profile?.name?.trim() || undefined, undefined, extraerReferral(mensaje), false, lineaId, original ?? mensaje,

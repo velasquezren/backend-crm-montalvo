@@ -10,7 +10,7 @@ import { enSegundoPlano } from '../../common/fiabilidad/en-segundo-plano';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ClientesService, nombreProvisional } from '../clientes/clientes.service';
 import { PrimerContactoService } from '../leads/primer-contacto.service';
-import { datosOferta, guardarRespuesta, interaccionesHabilitadas, OfertaInteraccion, prepararOferta } from './interacciones-integracion';
+import { datosOferta, guardarRespuesta, interaccionesEnLinea, OfertaInteraccion, prepararOferta } from './interacciones-integracion';
 import { MenuAtencionService } from '../menu-atencion/menu-atencion.service';
 import { MensajePreparado } from '../../common/whatsapp/interacciones/mensaje-interactivo';
 import {
@@ -171,9 +171,10 @@ export class IngestaWhatsappService {
       await this.clientesService.registrarCampanaOrigen(cliente, referral, origenLead);
     }
 
-    /* El menú de atención de la línea, si está encendido (y la bandeja de
-       interacciones también: sin ella no hay ofertas que correlacionar). */
-    const menu = interaccionesHabilitadas() ? await this.menus.activoDe(lineaId) : null;
+    /* El menú de atención de la línea, si está encendido (y las interacciones
+       también en ESTA línea: sin ellas no hay ofertas que correlacionar). */
+    const interacciones = interaccionesEnLinea(lineaId);
+    const menu = interacciones ? await this.menus.activoDe(lineaId) : null;
 
     /* `conversacion.update` bumpea `updatedAt` — sin esto un mensaje entrante
        no subía el chat al tope del inbox (ordenado por updatedAt desc), y el
@@ -209,7 +210,7 @@ export class IngestaWhatsappService {
             ...(media ? { trabajoMedia: { create: { mediaId: media.mediaId } } } : {}),
           },
         });
-        if (interaccionOriginal !== undefined && interaccionesHabilitadas()) {
+        if (interaccionOriginal !== undefined && interacciones) {
           const resultado = await guardarRespuesta(tx, creado.id, conversacion.id, telefono, interaccionOriginal);
           if (resultado.promocionId && resultado.seleccionId === PAGAR_PROMOCION && resultado.estado === 'CORRELACIONADA') {
             /* «Pagar ahora» de una tarjeta VIGENTE: se le manda el QR aunque una persona
@@ -234,7 +235,7 @@ export class IngestaWhatsappService {
             if (resuelveSola && pedido) accion = null;
             if (pedido && await registrarSolicitudAtencion(tx, conversacion.id, pedido, creado.id, this.ahora())) solicitud = pedido;
           }
-        } else if (!media && !esRespuestaBoton && interaccionesHabilitadas()) {
+        } else if (!media && !esRespuestaBoton && interacciones) {
           /* Escribió, entera, una frase inequívoca: que es una emergencia, o que
              quiere hablar con una persona. La misma solicitud que el botón, en la
              misma transacción. Lo demás que escriba no genera nada: esto no
@@ -317,7 +318,7 @@ export class IngestaWhatsappService {
     // Las selecciones nuevas son datos para la persona que atiende. Nunca
     // disparar automáticos/opt-out por títulos no confiables de un botón:
     // solo lo que el menú de HOY dice de una opción que estaba en nuestra oferta.
-    if (interaccionOriginal !== undefined && interaccionesHabilitadas()) {
+    if (interaccionOriginal !== undefined && interacciones) {
       const elegida = accion;
       if (elegida && menu && elegida.tipo !== 'EMERGENCIA') {
         void enSegundoPlano('respuesta del menú de atención', this.logger, () =>
@@ -546,7 +547,7 @@ export class IngestaWhatsappService {
     const promocion = await this.promocionesChat.porCodigo(codigo);
     if (!promocion) return false;
     if (await this.promocionesChat.atribuir(clienteId, promocion.id)) this.gateway.emitirActividad(conversacionId);
-    if (!interaccionesHabilitadas()) return false;
+    if (!interaccionesEnLinea(lineaId)) return false;
     return this.enviarTarjeta(conversacionId, telefono, lineaId, promocion);
   }
 

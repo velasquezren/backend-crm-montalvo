@@ -199,6 +199,7 @@ beforeAll(async () => {
 beforeEach(async () => {
   process.env['WHATSAPP_INTERACCIONES'] = 'on';
   process.env['WHATSAPP_INTERACCIONES_KEY'] = claveSintetica;
+  delete process.env['WHATSAPP_INTERACCIONES_LINEAS'];
   await limpiar();
   transporte.enviar.mockReset().mockImplementation(async () => ({ estado: 'ENVIADO', metaMsgId: `wamid.out.${randomUUID()}` }));
   push.enviarAUsuario.mockClear();
@@ -219,6 +220,7 @@ beforeEach(async () => {
 });
 
 afterAll(async () => {
+  delete process.env['WHATSAPP_INTERACCIONES_LINEAS'];
   await limpiar(); await app?.close(); await prisma.$disconnect();
   for (const [nombre, valor] of [['WHATSAPP_INTERACCIONES', envOriginal.flag], ['WHATSAPP_INTERACCIONES_KEY', envOriginal.key]] as const) {
     if (valor === undefined) delete process.env[nombre]; else process.env[nombre] = valor;
@@ -279,6 +281,28 @@ describe('cuándo se ofrece', () => {
     expect((await webhook([texto('Hola', otroTelefono)])).status).toBe(200);
     await reposo();
     expect(await prisma.mensaje.count({ where: { conversacionId: (await chatDe(recepcion, otroTelefono)).id, automatico: true } })).toBe(0);
+  });
+
+  it('en un piloto, solo las líneas de WHATSAPP_INTERACCIONES_LINEAS cambian; las demás siguen como con la bandera apagada', async () => {
+    process.env['WHATSAPP_INTERACCIONES_LINEAS'] = ` ${comercial} `;
+    expect((await http(`/menu-atencion/${recepcion}`)).body).toMatchObject({ enviosHabilitados: false });
+    expect((await http(`/menu-atencion/${comercial}`)).body).toMatchObject({ enviosHabilitados: true });
+
+    /* Recepción, fuera del piloto: ni menú ni «Atención», aunque escriba que es una emergencia. */
+    expect((await webhook([texto('Hola')])).status).toBe(200);
+    expect((await webhook([texto('es una emergencia')])).status).toBe(200);
+    await reposo();
+    const fuera = await chatDe(recepcion);
+    expect(await prisma.mensaje.count({ where: { conversacionId: fuera.id, automatico: true } })).toBe(0);
+    expect((await prisma.conversacion.findUniqueOrThrow({ where: { id: fuera.id } })).atencionSolicitadaEn).toBeNull();
+    /* Y una persona de esa línea no puede mandar botones. */
+    const botones = await http(`/conversaciones/${fuera.id}/mensajes`, 'POST', usuarios.rec1.token, {
+      contenido: '', clientMessageId: randomUUID(), interaccion: { tipo: 'botones', cuerpo: '¿Confirmas?', opciones: [{ id: 'SI', titulo: 'Sí' }] },
+    });
+    expect(botones.status).toBe(400);
+
+    /* La línea del piloto, con todo. */
+    await recibirMenu(comercial, PHONE_COMERCIAL);
   });
 
   it('en la línea comercial el menú reemplaza al acuse fuera de horario: un solo automático', async () => {

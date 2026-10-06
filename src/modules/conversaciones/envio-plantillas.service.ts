@@ -26,7 +26,7 @@ import { IniciarConversacionDto } from './dto/iniciar-conversacion.dto';
 import { obtenerConversacionPropia, recuperarEnvioDuplicado } from './envio-comun';
 import { REABRIR } from './estado-conversacion';
 import { ESPERANDO_HUMANO } from './atencion-humana';
-import { datosOferta, interaccionesHabilitadas, OfertaInteraccion } from './interacciones-integracion';
+import { datosOferta, interaccionesEnLinea, OfertaInteraccion } from './interacciones-integracion';
 import { PlantillaMeta, PlantillaResumen, renderizarPlantilla, resumirPlantilla, validarParametros } from './plantillas-whatsapp';
 
 /**
@@ -333,7 +333,7 @@ export class EnvioPlantillasService {
       );
     }
     const parametros = validarParametros(plantilla, dto.parametros ?? []);
-    const respuestasRapidas = interaccionesHabilitadas() && dto.clientMessageId
+    const respuestasRapidas = interaccionesEnLinea(lineaId) && dto.clientMessageId
       ? plantilla.respuestasRapidas?.map(b => ({ ...b, id: `TPL_${createHash('sha256').update(`${plantilla.nombre}:${plantilla.idioma}:${b.indice}`).digest('hex').slice(0,32)}` })) : undefined;
     const despacho: PlantillaADespachar = {
       ...(respuestasRapidas?.length ? { respuestasRapidas } : {}),

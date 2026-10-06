@@ -1,5 +1,27 @@
 # Estado actual
 
+## Interacciones solo en la línea de prueba — 6 de octubre de 2026
+
+René quiere probar todo (menú, emergencia, promociones, QR, Flows) con su número sin cambiar
+nada a las pacientes reales. Nueva variable **`WHATSAPP_INTERACCIONES_LINEAS`** (ids de línea,
+separados por coma): con `WHATSAPP_INTERACCIONES=on`, solo esas líneas se comportan con
+interacciones; las demás, exactamente como con la bandera apagada (ni menú, ni tarjetas, ni
+«Atención» por frases, ni botones de la agente, ni respuestas rápidas en plantillas, y los
+toques de botón entran por el camino de siempre). `interaccionesHabilitadas()` queda como la
+capacidad del servidor (clave, correlación, despacho, retención); lo que ve la paciente lo
+decide `interaccionesEnLinea(lineaId)`.
+
+- Línea «PRUEBA · Número de Meta» en producción (`b54b50e5-f8e7-4b09-bfd4-f168cd219327`,
+  +1 555-194-8320, WABA de prueba 1699047341353103, `WHATSAPP_TOKEN`), no comercial,
+  silenciada para ADMIN y SUPER_ADMIN. La WABA de prueba no tiene método de pago: solo
+  responde si se le escribe primero (error 141006 para lo que inicia la empresa).
+- Ojo al probar el pago: **confirmar** crea una venta real en la ficha de la paciente; para
+  probar, usar «Anular» o borrar la venta después.
+- La migración `pagos_promocion` borra `MenuAtencion.promociones` en el mismo despliegue
+  (sin expand/contract) porque el proceso viejo, con la bandera apagada, nunca lee
+  `MenuAtencion`, y el editor del menú no está en el frontend de producción.
+- Verificación: 876 unitarias, integración 42 suites · 803 (piloto en `menu-atencion`).
+
 ## Promociones conectadas al chat, con pago por QR — 6 de octubre de 2026 · LOCAL, SIN DESPLEGAR
 
 Decisiones de René: el pago va **por WhatsApp con QR y comprobante**, **un QR por línea**, y el

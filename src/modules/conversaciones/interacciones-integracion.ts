@@ -6,9 +6,26 @@ import { MensajePreparado, contenidoMeta, validarMensaje } from '../../common/wh
 import { objeto, parsearRespuesta } from '../../common/whatsapp/interacciones/respuesta-interactiva';
 import { ResultadoRespuesta } from './atencion-humana';
 
-/** Opt-in de despliegue. No se habilita por instalar la migración. */
+/**
+ * Opt-in de despliegue: la CAPACIDAD del servidor (clave, correlación, despacho,
+ * retención). No se habilita por instalar la migración. Lo que ve la paciente
+ * lo decide `interaccionesEnLinea`.
+ */
 export function interaccionesHabilitadas(): boolean {
   return process.env['WHATSAPP_INTERACCIONES'] === 'on';
+}
+
+/**
+ * ¿Esta línea se comporta con interacciones (menú, tarjetas, botones, «Atención»)?
+ * Con `WHATSAPP_INTERACCIONES_LINEAS` (ids de línea separados por coma) es un
+ * piloto: solo esas líneas; las demás siguen exactamente como con la bandera
+ * apagada. Sin ella, todas. Así se prueba con una línea de prueba en producción
+ * sin cambiar nada a las pacientes de Recepción y Ventas.
+ */
+export function interaccionesEnLinea(lineaId: string | null | undefined): boolean {
+  if (!interaccionesHabilitadas()) return false;
+  const piloto = (process.env['WHATSAPP_INTERACCIONES_LINEAS'] ?? '').split(',').map(s => s.trim()).filter(Boolean);
+  return piloto.length === 0 || (!!lineaId && piloto.includes(lineaId));
 }
 const DIA = 86_400_000;
 function clave(): Buffer {
