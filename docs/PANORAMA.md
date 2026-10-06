@@ -31,7 +31,8 @@ Los dos primeros comparten servidor y Postgres (bases separadas) y se hablan
 | `modules/usuarios` | Cuentas, roles y líneas de cada usuario | SUPER_ADMIN |
 | `modules/lineas-whatsapp` | Las cuatro líneas de WhatsApp y quién atiende cada una | Lectura: cada uno las suyas · edición: SUPER_ADMIN |
 | `modules/menu-atencion` | El menú con el que cada línea recibe a la paciente: qué opciones ofrece (persona, emergencia, cita, información, ubicación, promociones) y sus textos. Lo lee la ingesta; solo él escribe `MenuAtencion` ([diseño](menu-atencion.md)) | Edición: SUPER_ADMIN |
-| `modules/conversaciones` | Inbox: webhook de Meta, envío, media en R2, plantillas, reintentos, acuse fuera de horario, abierta/cerrada con cierre por inactividad, bajas de marketing de Meta, alertas de plataforma y tiempo real | Todos, por línea |
+| `modules/cobros` | El QR con que cada línea cobra una promoción por WhatsApp (banco, titular, vencimiento). Lo lee el chat cuando la paciente toca «Pagar ahora» ([diseño](pagos-promocion.md)) | Edición: SUPER_ADMIN |
+| `modules/conversaciones` | Inbox: webhook de Meta, envío, media en R2, plantillas, reintentos, acuse fuera de horario, abierta/cerrada con cierre por inactividad, bajas de marketing de Meta, alertas de plataforma y tiempo real; la promoción dentro del chat: su código `PRM-…`, la tarjeta y el pago con QR y comprobante hasta la venta ([diseño](pagos-promocion.md)) | Todos, por línea |
 | `modules/plantillas-agente` | Respuestas rápidas personales (atajos con «/») | Todos |
 | `modules/memoria-agente` | Biblioteca personal de textos y archivos (30 MB) para el chat | Todos |
 | `modules/actividades` | Recordatorios y calendario de seguimiento, con push | Todos (operativos sin leads) |
@@ -71,7 +72,7 @@ si añades otra, añádela aquí con su motivo.
 | --- | --- | --- | --- |
 | `modules/clientes` | Lead, Conversacion | `cascadaDeReasignacion` (desde `update`/`reasignarAgente`) y `reclamarSiNoTieneDuena` | Reasignar una paciente mueve a la vez sus leads y sus chats de la línea comercial, en la misma transacción |
 | `modules/usuarios` | Conversacion | `UsuariosService.update`, al quitar líneas o desactivar | Libera los chats que la persona ya no puede atender, en la misma transacción que el cambio de permisos |
-| varios | AuditLog | conversaciones, usuarios, lineas-whatsapp, menu-atencion, promociones | Escriben la bitácora dentro de su propia transacción cuando el registro tiene que ser atómico con el cambio; fuera de una transacción se usa `AuditService` |
+| varios | AuditLog | conversaciones, usuarios, lineas-whatsapp, menu-atencion, promociones, cobros | Escriben la bitácora dentro de su propia transacción cuando el registro tiene que ser atómico con el cambio; fuera de una transacción se usa `AuditService` |
 
 ## Frontend del CRM — pantallas (`src/app/features/`)
 
@@ -164,5 +165,6 @@ mensajes cargados (ahora busca en todo el historial); y un índice duplicado en
 | Comisiones y finanzas | skill `crm-finanzas` (frontend) |
 | Plantillas de WhatsApp preparadas y cómo activarlas | [plantillas-whatsapp](plantillas-whatsapp.md) |
 | Promociones, directorio médico y la API pública de la landing | [promociones-y-directorio](promociones-y-directorio.md) |
+| Cobrar una promoción por WhatsApp (QR, comprobante, venta) | [pagos-promocion](pagos-promocion.md) |
 | Qué cambió y cuándo | [ESTADO_ACTUAL](ESTADO_ACTUAL.md) |
 | Auditorías cerradas F01–F10, rendimiento R3, campañas | `docs/auditoria-*.md`, `docs/rendimiento-r3-2026-09.md`, `docs/CAMP-*.md` |

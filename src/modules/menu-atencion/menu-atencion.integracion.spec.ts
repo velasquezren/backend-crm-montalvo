@@ -1,3 +1,9 @@
+import { PromocionesChatService } from '../conversaciones/promociones-chat.service';
+import { CobrosService } from '../cobros/cobros.service';
+import { PromocionesService } from '../promociones/promociones.service';
+import { VentasService } from '../ventas/ventas.service';
+import { LeadsService } from '../leads/leads.service';
+import { AvisoLandingService } from '../../common/landing/aviso-landing.service';
 import { INestApplication, Module, ValidationPipe } from '@nestjs/common';
 import { APP_GUARD, NestFactory } from '@nestjs/core';
 import { ConfigService } from '@nestjs/config';
@@ -68,7 +74,7 @@ const config = new ConfigService({
     { provide: PrismaService, useValue: prisma }, { provide: ConfigService, useValue: config },
     AuditService, AuthService, UsuariosService, ClientesService, CategoriaPacienteService, ServiciosService, TipoCambioService,
     LineasWhatsappService, PrimerContactoService, MemoriaAgenteService, ConversacionesService, EnvioPlantillasService, AtencionHumanaService,
-    ConversacionesGateway, IngestaWhatsappService, MenuAtencionService, AcuseAutomaticoService, DespachadorSalienteService,
+    ConversacionesGateway, IngestaWhatsappService, MenuAtencionService, PromocionesChatService, CobrosService, PromocionesService, VentasService, LeadsService, AvisoLandingService, AcuseAutomaticoService, DespachadorSalienteService,
     ReintentoSalienteService, CierreInactividadService, MetaSignatureGuard,
     { provide: WhatsappCloudService, useValue: transporte },
     { provide: R2Service, useValue: { urlFirmada: async () => null } },
@@ -104,7 +110,6 @@ const menuRecepcion = () => ({
     { tipo: 'RESPUESTA', titulo: 'Horarios', respuesta: 'Horario sintético de atención.' },
     { tipo: 'UBICACION', titulo: 'Cómo llegar' },
   ],
-  promociones: [],
 });
 const menuVentas = () => ({
   activo: true,
@@ -113,7 +118,6 @@ const menuVentas = () => ({
     { tipo: 'PROMOCIONES', titulo: 'Ver promociones', respuesta: 'Promociones sintéticas vigentes:' },
     { tipo: 'PERSONA', titulo: 'Hablar con asesora' },
   ],
-  promociones: [{ titulo: 'Promoción sintética' }],
 });
 
 async function crearApp(): Promise<INestApplication> {
@@ -234,13 +238,13 @@ describe('configurar el menú', () => {
     expect(await prisma.auditLog.count({ where: { entidad: 'MenuAtencion', entidadId: recepcion, accion: 'MENU_ACTUALIZADO', usuarioId: usuarios.admin.id } })).toBe(1);
   });
 
-  it('rechaza un menú sin salida a una persona, o con promociones sin cargar, con el motivo', async () => {
+  it('rechaza un menú sin salida a una persona, o una opción de promociones sin su texto, con el motivo', async () => {
     const sinPersona = { ...menuRecepcion(), opciones: menuRecepcion().opciones.filter(o => o.tipo !== 'PERSONA') };
     const r = await http(`/menu-atencion/${recepcion}`, 'PUT', usuarios.admin.token, sinPersona);
     expect(r.status).toBe(400);
     expect(JSON.stringify(r.body['message'])).toContain('siempre ofrece hablar con una persona');
-    const sinPromos = await http(`/menu-atencion/${comercial}`, 'PUT', usuarios.admin.token, { ...menuVentas(), promociones: [] });
-    expect(sinPromos.status).toBe(400);
+    const sinTexto = { ...menuVentas(), opciones: menuVentas().opciones.map(o => (o.tipo === 'PROMOCIONES' ? { tipo: o.tipo, titulo: o.titulo } : o)) };
+    expect((await http(`/menu-atencion/${comercial}`, 'PUT', usuarios.admin.token, sinTexto)).status).toBe(400);
     expect((await http('/menu-atencion/no-existe', 'PUT', usuarios.admin.token, menuRecepcion())).status).toBe(404);
   });
 });
@@ -420,14 +424,12 @@ describe('qué hace cada opción', () => {
     expect((await prisma.conversacion.findUniqueOrThrow({ where: { id: chat } })).atencionMotivo).toBe('REVISION');
   });
 
-  it('promociones: manda las que cargó la clínica; la elegida queda para la asesora con su título', async () => {
-    const { chat, menu } = await recibirMenu(comercial, PHONE_COMERCIAL);
-    expect((await webhook([toque(menu, 'VIEW_PROMOTIONS', 'button_reply')], PHONE_COMERCIAL)).status).toBe(200);
-    await esperar(async () => (await ofertasEnviadas(chat)).length === 2);
-    const lista = (await ofertasEnviadas(chat))[1];
-    const guardado = (await http(`/menu-atencion/${comercial}`)).body['menu'] as { promociones: { clave: string }[] };
-    expect((await webhook([toque(lista.whatsappMsgId!, `PROMO_${guardado.promociones[0].clave}`)], PHONE_COMERCIAL)).status).toBe(200);
-    const detalle = await http(`/conversaciones/${chat}`, 'GET', usuarios.ventas.token);
-    expect(detalle.body['atencion']).toMatchObject({ motivo: 'REVISION', origen: { cuerpo: 'Promoción sintética' } });
+  it('sin promociones publicadas para WhatsApp en el CRM, la opción «Promociones» no aparece', async () => {
+    /* La lista sale del módulo Promociones (una sola fuente con la landing). Con una
+       publicada, elegir una manda su tarjeta: ver pagos-promocion.integracion.spec.ts. */
+    await recibirMenu(comercial, PHONE_COMERCIAL);
+    const menu = transporte.enviar.mock.calls.map(c => JSON.stringify(c[1])).find(e => e.includes('"type":"button"'))!;
+    expect(menu).toContain('TALK_TO_HUMAN');
+    expect(menu).not.toContain('VIEW_PROMOTIONS');
   });
 });

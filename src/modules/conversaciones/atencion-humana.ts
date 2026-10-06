@@ -57,7 +57,7 @@ export const ORDEN_ATENCION = [
  */
 export const CANDADO_AUTOMATICOS = 70071;
 
-const ORDEN_MOTIVOS: readonly MotivoAtencion[] = ['EMERGENCIA', 'SOLICITUD_EXPLICITA', 'SOLICITUD_CITA', 'REVISION'];
+const ORDEN_MOTIVOS: readonly MotivoAtencion[] = ['EMERGENCIA', 'SOLICITUD_EXPLICITA', 'SOLICITUD_CITA', 'COMPROBANTE_PAGO', 'REVISION'];
 
 /** La prioridad sale del motivo, en un solo sitio. */
 export function prioridadDeMotivo(motivo: MotivoAtencion): PrioridadAtencion {
@@ -85,6 +85,8 @@ export interface ResultadoRespuesta {
   propositoFlow?: string;
   /** La opción estaba en una oferta del menú de atención (ver `OfertaInteraccion.origen`). */
   deMenu?: boolean;
+  /** La opción estaba en la tarjeta de esta promoción. */
+  promocionId?: string;
 }
 
 const ESTADOS_DE_OFERTA_NUESTRA = new Set(['CORRELACIONADA', 'CADUCADA']);

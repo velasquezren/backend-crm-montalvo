@@ -101,6 +101,8 @@ model Usuario {
   conversacionesCerradas Conversacion[] @relation("ConversacionCerradaPor")
   atencionesTomadas      Conversacion[] @relation("ConversacionAtencionTomadaPor")
   menusAtencion          MenuAtencion[] @relation("MenuAtencionActualizadoPor")
+  cobrosLinea            CobroLinea[]   @relation("CobroLineaActualizadoPor")
+  pagosCerrados          PagoPromocion[] @relation("PagoPromocionCerradoPor")
   lineasWhatsapp        AccesoLineaWhatsapp[]
   silenciosLinea        SilencioLinea[]
   ventas                Venta[]
@@ -261,6 +263,10 @@ model Lead {
   /// es justo para lo que se paga una campaña. Indexado para poder contar
   /// cuántos leads trajo cada anuncio.
   anuncioId     String?    @db.VarChar(64)
+  /// La promoción por la que llegó, si se supo SIN anuncio: escribió con su código
+  /// `PRM-…` (la landing lo pone en el enlace). Con anuncio manda `PromocionAnuncio`.
+  promocion     Promocion? @relation(fields: [promocionId], references: [id], onDelete: SetNull)
+  promocionId   String?
   /// Por qué se perdió. Solo tiene sentido con `estado = PERDIDO`; se limpia si
   /// el lead vuelve a moverse a otro estado — mismo criterio que
   /// `VentaImportada.motivoExclusion`: mover (o dejar de mover) una oportunidad
@@ -276,6 +282,7 @@ model Lead {
   createdAt     DateTime   @default(now())
 
   @@index([anuncioId])
+  @@index([promocionId])
   @@index([clienteId])
   @@index([estado])
   @@index([agenteId])
@@ -299,6 +306,78 @@ model LineaWhatsapp {
   conversaciones Conversacion[]
   campanas       Campana[]
   menuAtencion   MenuAtencion?
+  cobro          CobroLinea?
+  pagosPromocion PagoPromocion[]
+}
+
+/// El QR con que la línea cobra una promoción por WhatsApp (uno por línea,
+/// docs/pagos-promocion.md). Lo escribe `CobrosService`; la conversación lo lee.
+model CobroLinea {
+  lineaId          String        @id
+  linea            LineaWhatsapp @relation(fields: [lineaId], references: [id], onDelete: Cascade)
+  /// Apagado, ninguna promoción ofrece «Pagar ahora» por esta línea.
+  activo           Boolean       @default(false)
+  banco            String        @db.VarChar(60)
+  /// A nombre de quién está la cuenta: la paciente lo ve antes de pagar.
+  titular          String        @db.VarChar(120)
+  /// Lo que se le dice además del QR («Indica tu nombre en la glosa»). Opcional.
+  instrucciones    String?       @db.VarChar(500)
+  /// Los QR bancarios vencen. Pasada esta fecha (La Paz) no se envía.
+  venceEl          DateTime?     @db.Date
+  /// La imagen del QR. Reemplazarla crea otro id (otra URL pública inmutable).
+  imagenId         String?       @unique @db.VarChar(40)
+  imagenClave      String?       @db.VarChar(200)
+  imagenMime       String?       @db.VarChar(40)
+  imagenBytes      Int?
+  actualizadoEn    DateTime      @updatedAt
+  actualizadoPor   Usuario?      @relation("CobroLineaActualizadoPor", fields: [actualizadoPorId], references: [id], onDelete: SetNull)
+  actualizadoPorId String?
+}
+
+/// De pedir el QR a confirmar el comprobante. El orden no es la prioridad: es el ciclo.
+enum EstadoPagoPromocion {
+  /// Se le envió el QR; falta su comprobante.
+  PENDIENTE
+  /// Mandó una imagen o documento: falta que una persona lo verifique.
+  COMPROBANTE_ENVIADO
+  /// Una persona lo verificó y se registró la venta.
+  CONFIRMADO
+  /// No sigue (lo anuló una persona o la paciente desistió). No borra nada.
+  ANULADO
+}
+
+/// Un pago de promoción por WhatsApp. Lo escribe `PagosChatService` (conversaciones).
+/// Como mucho uno abierto (PENDIENTE o COMPROBANTE_ENVIADO) por conversación: se
+/// garantiza bajo el candado de automáticos de la conversación.
+model PagoPromocion {
+  id                   String              @id @default(uuid())
+  conversacionId       String
+  conversacion         Conversacion        @relation(fields: [conversacionId], references: [id], onDelete: Cascade)
+  lineaId              String
+  linea                LineaWhatsapp       @relation(fields: [lineaId], references: [id])
+  promocionId          String
+  promocion            Promocion           @relation(fields: [promocionId], references: [id])
+  /// El precio vigente al pedir el QR, congelado: un cambio de precio después no
+  /// cambia lo que ella ya pagó.
+  monto                Decimal             @db.Decimal(10, 2)
+  estado               EstadoPagoPromocion @default(PENDIENTE)
+  /// El mensaje (imagen o documento) que ella mandó como comprobante.
+  comprobanteMensajeId String?
+  /// Por qué se pidió otro comprobante (lo último dicho; el historial está en AuditLog).
+  motivoRechazo        String?             @db.VarChar(300)
+  /// La venta que nace al confirmar.
+  ventaId              String?             @unique
+  venta                Venta?              @relation(fields: [ventaId], references: [id], onDelete: SetNull)
+  cerradoPor           Usuario?            @relation("PagoPromocionCerradoPor", fields: [cerradoPorId], references: [id], onDelete: SetNull)
+  cerradoPorId         String?
+  cerradoEn            DateTime?
+  createdAt            DateTime            @default(now())
+  updatedAt            DateTime            @updatedAt
+
+  @@index([conversacionId, estado])
+  @@index([promocionId, estado])
+  @@index([lineaId])
+  @@index([cerradoPorId])
 }
 
 /// El menú con el que la línea recibe a la paciente (docs/menu-atencion.md).
@@ -314,8 +393,6 @@ model MenuAtencion {
   /// `OpcionMenu[]` en orden. Se valida con `erroresDelMenu` al escribir Y al
   /// leer (`leerMenu`): lo que no pase no se le envía a nadie.
   opciones         Json
-  /// `Promocion[]`: solo las que la clínica cargó. No hay ninguna por defecto.
-  promociones      Json          @default("[]")
   actualizadoEn    DateTime      @updatedAt
   actualizadoPor   Usuario?      @relation("MenuAtencionActualizadoPor", fields: [actualizadoPorId], references: [id], onDelete: SetNull)
   actualizadoPorId String?
@@ -367,6 +444,7 @@ model Conversacion {
   agente             Usuario?  @relation("ConversacionAgente", fields: [agenteId], references: [id])
   agenteId           String?
   mensajes           Mensaje[]
+  pagosPromocion     PagoPromocion[]
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
   /// True mientras la paciente espera respuesta de una PERSONA: lo último que
@@ -443,6 +521,9 @@ enum MotivoAtencion {
   /// Completó el Flow de cita o tocó «Solicitar cita». Es una SOLICITUD: no
   /// hay ninguna cita reservada.
   SOLICITUD_CITA
+  /// Mandó el comprobante de un pago de promoción: hay que verificarlo. No es
+  /// urgente (el dinero ya salió), pero no puede quedar sin que alguien lo mire.
+  COMPROBANTE_PAGO
   /// Cualquier otra respuesta interactiva, o una fuera de contexto: hay que
   /// revisarla, no se ejecutó nada.
   REVISION
@@ -616,6 +697,8 @@ model Venta {
   /// existe en vez de contar el dinero dos veces. Mismo patrón que
   /// `Mensaje.clientMessageId`: la garantía es el índice único.
   clientRequestId   String?     @unique @db.VarChar(64)
+  /// Si nació de confirmar un pago de promoción por WhatsApp.
+  pagoPromocion     PagoPromocion?
   createdAt         DateTime    @default(now())
 
   @@index([clienteId])
@@ -1721,6 +1804,8 @@ model Promocion {
   updatedAt         DateTime        @updatedAt
 
   imagenes PromocionImagen[]
+  leads    Lead[]
+  pagos    PagoPromocion[]
   anuncios PromocionAnuncio[]
   medicos  PromocionMedico[]
 

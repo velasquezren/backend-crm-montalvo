@@ -21,7 +21,15 @@ export interface Opcion {
 type Base = { cuerpo: string; cabecera?: string; pie?: string };
 export type MensajePreparado =
   | { tipo: "texto"; cuerpo: string }
-  | (Base & { tipo: "botones"; opciones: Opcion[] })
+  | (Base & {
+      tipo: "botones";
+      opciones: Opcion[];
+      /**
+       * Imagen de cabecera (URL https que Meta descarga): el banner de una
+       * promoción. Solo los botones la admiten; excluye `cabecera` de texto.
+       */
+      imagenCabecera?: string;
+    })
   | (Base & {
       tipo: "lista";
       boton: string;
@@ -64,6 +72,13 @@ export function validarMensaje(m: MensajePreparado): void {
   if (m.tipo === "texto") return;
   if (m.cabecera !== undefined) texto(m.cabecera, 60, "cabecera");
   if (m.pie !== undefined) texto(m.pie, 60, "pie");
+  if (m.tipo === "botones" && m.imagenCabecera !== undefined) {
+    texto(m.imagenCabecera, 2000, "imagen de cabecera");
+    if (!/^https:\/\/\S+$/.test(m.imagenCabecera))
+      throw new Error("La imagen de cabecera necesita una URL https.");
+    if (m.cabecera !== undefined)
+      throw new Error("Una cabecera es de texto o de imagen, no las dos.");
+  }
   if (m.tipo === "flow") {
     texto(m.flowId, 80, "flowId");
     if (!/^\d+$/.test(m.flowId))
@@ -132,6 +147,9 @@ export function contenidoMeta(m: MensajePreparado): Record<string, unknown> {
       type: "interactive",
       interactive: {
         ...base,
+        ...(m.imagenCabecera
+          ? { header: { type: "image", image: { link: m.imagenCabecera } } }
+          : {}),
         type: "button",
         action: {
           buttons: m.opciones.map((o) => ({

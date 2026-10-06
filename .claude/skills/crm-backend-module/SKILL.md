@@ -179,6 +179,26 @@ Diseño en [menu-atencion](../../../docs/menu-atencion.md). `modules/menu-atenci
   orientación de emergencia no (`respetaPausa: false`), con ventana anti-repetición.
 - En la línea comercial, cuando el menú sale, el acuse fuera de horario no sale; si el menú
   no sale (conversación en curso), el acuse funciona como siempre.
+- La opción «Promociones» **lee las promociones publicadas para WhatsApp** del módulo
+  Promociones (`PromocionesChatService.paraMenu`): sin ninguna, la opción no se muestra. El
+  menú ya no guarda una lista propia.
+
+### Promoción en el chat y pago por QR (2026-10-06)
+
+Diseño en [pagos-promocion](../../../docs/pagos-promocion.md). Lo que no se puede olvidar:
+
+- **`PromocionesChatService` es el único dueño de `PagoPromocion`**; la venta la crea
+  `VentasService` (con `clientRequestId` por pago: confirmar dos veces no cuenta dos) y el lead
+  lo anota `LeadsService`. `CobrosService` es el único dueño de `CobroLinea`.
+- **Nunca «pagado» sin una persona**: PENDIENTE → COMPROBANTE_ENVIADO (sube a «Atención» con
+  `COMPROBANTE_PAGO`) → CONFIRMADO al verificarlo. Un pago abierto por conversación, bajo
+  `CANDADO_AUTOMATICOS`; el comprobante se marca con compare-and-set (`registrarComprobante`).
+- **La tarjeta es una oferta `origen: 'PROMOCION'`** con su `promocionId` dentro del sobre
+  cifrado: solo un toque a NUESTRA tarjeta inicia un pago. «Pagar ahora» responde aunque el
+  chat esté pausado; si hoy no se puede cobrar, pasa a «Atención» y no se inventa nada.
+- **El QR sale de R2 como un adjunto** (URL firmada): no hay ruta pública para él.
+- **Confirmar copia el comprobante a `comprobantes/<agente>/`**: es la única carpeta que
+  `VentasService` acepta como respaldo propio. Sin la descarga terminada, 409.
 
 ## Promociones y directorio médico (2026-10-05)
 

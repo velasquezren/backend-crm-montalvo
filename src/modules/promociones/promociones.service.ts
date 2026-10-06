@@ -78,6 +78,29 @@ interface AnuncioSinPromocion {
 
 const aNumero = (d: Prisma.Decimal | null) => (d === null ? null : d.toNumber());
 
+/**
+ * Una promoción tal como la necesita el chat de WhatsApp: la tarjeta, el precio a
+ * cobrar y su banner cuadrado. Solo de promociones visibles hoy.
+ */
+export interface PromocionChat {
+  id: string;
+  codigo: string;
+  titulo: string;
+  resumen: string;
+  condiciones: string;
+  etiquetaOferta: string | null;
+  precioRegular: number | null;
+  precioPromocional: number | null;
+  /** Lo que se cobra: el promocional si hay, si no el regular. `null` = sin precio publicado: no se cobra por chat. */
+  precio: number | null;
+  vigenteHasta: string | null;
+  /** URL pública del banner cuadrado (la que descarga Meta), o `null`. */
+  bannerUrl: string | null;
+}
+
+/** Cuántas promociones caben en la lista del menú (10 filas de Meta). */
+export const PROMOCIONES_EN_MENU = 10;
+
 function fechaOFallar(texto: string, campo: string): Date {
   const fecha = fechaCivilDesdeTexto(texto);
   if (!fecha) throw new BadRequestException(`La fecha de ${campo} no existe.`);
@@ -170,18 +193,23 @@ export class PromocionesService {
 
   /**
    * El detalle que pinta el CRM: todo, más lo que falta para publicarla, las
-   * acciones que ESTA persona puede hacer y lo que trajo (leads y ventas de sus
-   * anuncios). Las cifras son atribución por anuncio, no causalidad.
+   * acciones que ESTA persona puede hacer y lo que trajo: leads (por sus anuncios
+   * o por su código `PRM-…`), ventas de esos leads o de sus pagos por WhatsApp, y
+   * los pagos en curso. Las cifras son atribución, no causalidad.
    */
   private async detalle(p: PromocionDetalle, usuario: UsuarioJwt) {
     const hoy = fechaCivilClinica(new Date());
     const esAdmin = cubreRol(usuario.rol, 'ADMIN');
     const anuncioIds = p.anuncios.map(a => a.anuncioId);
-    const [leads, ventas, imagenes] = await Promise.all([
-      anuncioIds.length ? this.prisma.lead.count({ where: { anuncioId: { in: anuncioIds } } }) : 0,
-      anuncioIds.length
-        ? this.prisma.venta.aggregate({ where: { estado: 'GANADA', lead: { anuncioId: { in: anuncioIds } } }, _count: true, _sum: { monto: true } })
-        : null,
+    const deLaPromocion: Prisma.LeadWhereInput = { OR: [{ promocionId: p.id }, ...(anuncioIds.length ? [{ anuncioId: { in: anuncioIds } }] : [])] };
+    const [leads, ventas, pagos, imagenes] = await Promise.all([
+      this.prisma.lead.count({ where: deLaPromocion }),
+      this.prisma.venta.aggregate({
+        where: { estado: 'GANADA', OR: [{ lead: deLaPromocion }, { pagoPromocion: { promocionId: p.id } }] },
+        _count: true,
+        _sum: { monto: true },
+      }),
+      this.prisma.pagoPromocion.groupBy({ by: ['estado'], where: { promocionId: p.id }, _count: true }),
       Promise.all(
         p.imagenes.map(async i => ({
           id: i.id,
@@ -233,8 +261,11 @@ export class PromocionesService {
       }),
       resultados: {
         leads,
-        ventasGanadas: ventas?._count ?? 0,
-        montoVendido: ventas?._sum.monto?.toNumber() ?? 0,
+        ventasGanadas: ventas._count,
+        montoVendido: ventas._sum.monto?.toNumber() ?? 0,
+        /* Pagos por WhatsApp: esperando comprobante y por verificar. */
+        pagosPendientes: pagos.find(g => g.estado === 'PENDIENTE')?._count ?? 0,
+        pagosPorVerificar: pagos.find(g => g.estado === 'COMPROBANTE_ENVIADO')?._count ?? 0,
       },
     };
   }
@@ -531,17 +562,74 @@ export class PromocionesService {
     };
   }
 
+  /* ── Chat de WhatsApp ───────────────────────────────────────────────── */
+
+  /** Los anuncios de Meta que la publicitan: para atribuir la venta de un pago al lead correcto. */
+  async anunciosDe(promocionId: string): Promise<string[]> {
+    const filas = await this.prisma.promocionAnuncio.findMany({ where: { promocionId }, select: { anuncioId: true } });
+    return filas.map(f => f.anuncioId);
+  }
+
+  /**
+   * La promoción de un código `PRM-…`, si está visible hoy en algún canal: el
+   * código llega desde la landing, así que basta con que esté publicada y vigente.
+   */
+  async paraChatPorCodigo(codigo: string): Promise<PromocionChat | null> {
+    const p = await this.prisma.promocion.findFirst({ where: { codigo, ...this.whereVisible() }, include: { imagenes: { where: { formato: FORMATO_OBLIGATORIO } } } });
+    return p ? this.paraChat(p) : null;
+  }
+
+  /** Por id, con la misma condición: lo que se le cobra tiene que seguir visible al pedir el QR. */
+  async paraChatPorId(id: string): Promise<PromocionChat | null> {
+    const p = await this.prisma.promocion.findFirst({ where: { id, ...this.whereVisible() }, include: { imagenes: { where: { formato: FORMATO_OBLIGATORIO } } } });
+    return p ? this.paraChat(p) : null;
+  }
+
+  async hayParaMenuWhatsapp(): Promise<boolean> {
+    return Boolean(await this.prisma.promocion.findFirst({ where: this.wherePublica('whatsapp'), select: { id: true } }));
+  }
+
+  /** Las que se ofrecen por WhatsApp hoy, en el orden de la landing, para la lista del menú. */
+  async paraMenuWhatsapp(): Promise<PromocionChat[]> {
+    const filas = await this.prisma.promocion.findMany({
+      where: this.wherePublica('whatsapp'),
+      orderBy: [{ destacada: 'desc' }, { vigenteHasta: { sort: 'asc', nulls: 'last' } }, { publicadaEn: 'desc' }, { id: 'asc' }],
+      take: PROMOCIONES_EN_MENU,
+      include: { imagenes: { where: { formato: FORMATO_OBLIGATORIO } } },
+    });
+    return filas.map(f => this.paraChat(f));
+  }
+
+  private paraChat(p: Promocion & { imagenes: { id: string }[] }): PromocionChat {
+    const precioRegular = aNumero(p.precioRegular);
+    const precioPromocional = aNumero(p.precioPromocional);
+    const banner = p.imagenes[0];
+    return {
+      id: p.id,
+      codigo: p.codigo,
+      titulo: p.titulo,
+      resumen: p.resumen,
+      condiciones: p.condiciones,
+      etiquetaOferta: p.etiquetaOferta,
+      precioRegular,
+      precioPromocional,
+      precio: precioPromocional ?? precioRegular,
+      vigenteHasta: p.vigenteHasta ? textoDeFechaCivil(p.vigenteHasta) : null,
+      bannerUrl: banner ? urlPublica(`/publico/promociones/imagenes/${banner.id}`) : null,
+    };
+  }
+
   /* ── Público (landing, y más adelante el menú de WhatsApp) ──────────── */
 
-  /** Publicada, vigente hoy en La Paz y ofrecida en ese canal. La única definición de «visible». */
-  private wherePublica(canal: 'landing' | 'whatsapp'): Prisma.PromocionWhereInput {
+  /** Publicada y vigente hoy en La Paz. La única definición de «visible». */
+  private whereVisible(): Prisma.PromocionWhereInput {
     const hoy = fechaCivilClinica(new Date());
-    return {
-      estado: 'PUBLICADA',
-      vigenteDesde: { lte: hoy },
-      OR: [{ vigenteHasta: null }, { vigenteHasta: { gte: hoy } }],
-      ...(canal === 'landing' ? { enLanding: true } : { enWhatsapp: true }),
-    };
+    return { estado: 'PUBLICADA', vigenteDesde: { lte: hoy }, OR: [{ vigenteHasta: null }, { vigenteHasta: { gte: hoy } }] };
+  }
+
+  /** Visible y ofrecida en ese canal. */
+  private wherePublica(canal: 'landing' | 'whatsapp'): Prisma.PromocionWhereInput {
+    return { ...this.whereVisible(), ...(canal === 'landing' ? { enLanding: true } : { enWhatsapp: true }) };
   }
 
   async listarPublicas(query: QueryPromocionesPublicasDto) {
@@ -565,16 +653,7 @@ export class PromocionesService {
 
   async publicaPorSlug(slug: string) {
     /* Basta que sea visible en algún canal: un enlace compartido por WhatsApp abre su página. */
-    const hoy = fechaCivilClinica(new Date());
-    const p = await this.prisma.promocion.findFirst({
-      where: {
-        slug,
-        estado: 'PUBLICADA',
-        vigenteDesde: { lte: hoy },
-        OR: [{ vigenteHasta: null }, { vigenteHasta: { gte: hoy } }],
-      },
-      include: INCLUIR_PUBLICA,
-    });
+    const p = await this.prisma.promocion.findFirst({ where: { slug, ...this.whereVisible() }, include: INCLUIR_PUBLICA });
     if (!p) throw new NotFoundException('Esa promoción no está disponible.');
     return this.publica(p);
   }
@@ -584,12 +663,8 @@ export class PromocionesService {
    * sirve aunque alguien conozca el id: un precio sin aprobar no sale de aquí.
    */
   async imagenPublica(imagenId: string): Promise<StreamableFile> {
-    const hoy = fechaCivilClinica(new Date());
     const imagen = await this.prisma.promocionImagen.findFirst({
-      where: {
-        id: imagenId,
-        promocion: { estado: 'PUBLICADA', vigenteDesde: { lte: hoy }, OR: [{ vigenteHasta: null }, { vigenteHasta: { gte: hoy } }] },
-      },
+      where: { id: imagenId, promocion: this.whereVisible() },
       select: { clave: true, mime: true, bytes: true },
     });
     if (!imagen) throw new NotFoundException('Esa imagen no está disponible.');

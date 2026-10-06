@@ -27,6 +27,10 @@ import { ConversacionesGateway } from './conversaciones.gateway';
 import { DespachadorSalienteService } from './despachador-saliente.service';
 import { MediaEntranteService, MediaEntrante } from './media-entrante.service';
 import { CONTENIDO_PIN, TEXTO_UBICACION, UBICACION_CLINICA } from './ubicacion-clinica';
+import { registrarComprobante } from './pagos-chat';
+import { codigoEnTexto, PAGAR_PROMOCION, TEXTO_COMPROBANTE_RECIBIDO } from './promocion-chat';
+import { PromocionesChatService } from './promociones-chat.service';
+import type { PromocionChat } from '../promociones/promociones.service';
 
 /** No repetir el pin en la misma conversación antes de esto. */
 const UBICACION_ESPERA_MS = 12 * 60 * 60 * 1000;
@@ -41,8 +45,14 @@ const MENU_ESPERA_MS = 24 * 60 * 60 * 1000;
 /** Una confirmación u orientación no se repite si ya salió hace menos que esto. */
 const RESPUESTA_REPETIDA_MS = 30 * 60 * 1000;
 
-/** Un automático: texto, o una oferta interactiva que se guarda para correlacionar su respuesta. */
-type Automatico = string | { oferta: OfertaInteraccion };
+/**
+ * Un automático: texto, una oferta interactiva que se guarda para correlacionar su
+ * respuesta, o un texto con una imagen de R2 (el QR de pago).
+ */
+type Automatico = string | { oferta: OfertaInteraccion } | { texto: string; media: { key: string; mime: string; nombre: string } };
+
+/** De dónde sale una oferta automática: el menú, o la tarjeta de una promoción. */
+type OrigenOferta = { origen: 'MENU_ATENCION' } | { origen: 'PROMOCION'; promocionId: string };
 
 /** Contexto de campaña publicitaria / anuncio de Meta (Click-to-WhatsApp Ads). */
 export interface ReferenciaCampana {
@@ -88,6 +98,7 @@ export class IngestaWhatsappService {
     private readonly mediaEntrante: MediaEntranteService,
     private readonly primerContacto: PrimerContactoService,
     private readonly menus: MenuAtencionService,
+    private readonly promocionesChat: PromocionesChatService,
   ) {}
 
   /**
@@ -177,6 +188,10 @@ export class IngestaWhatsappService {
     let pedido = null as MotivoAtencion | null;
     /* La opción de nuestro menú que tocó, si la tocó. */
     let accion = null as AccionMenu | null;
+    /* Tocó «Pagar ahora» en la tarjeta de esta promoción. */
+    let pagarPromocion = null as string | null;
+    /* La imagen o documento que mandó era el comprobante de un pago pendiente. */
+    let comprobante = false;
     try {
       mensaje = await this.prisma.$transaction(async tx => {
         const creado = await tx.mensaje.create({
@@ -196,21 +211,29 @@ export class IngestaWhatsappService {
         });
         if (interaccionOriginal !== undefined && interaccionesHabilitadas()) {
           const resultado = await guardarRespuesta(tx, creado.id, conversacion.id, telefono, interaccionOriginal);
-          /* Qué significa la opción según el menú de HOY; solo si estaba en
-             nuestra oferta (`seleccionId` existe únicamente tras correlacionar). */
-          /* Y solo de una oferta del MENÚ: el mismo `TALK_TO_HUMAN` en una
-             plantilla de campaña pide una persona, pero no es un toque al menú. */
-          accion = resultado.deMenu && resultado.seleccionId ? accionDeSeleccion(menu, resultado.seleccionId) : null;
-          /* Lo que el menú contesta solo, lo contesta solo mientras nadie haya
-             pedido una persona en este chat. */
-          const resuelveSola = seResuelveSola(accion);
-          /* En la MISMA transacción: si el mensaje queda guardado, su solicitud
-             también. Un refresco, una desconexión o un reinicio no la pierden. */
-          pedido = motivoDeRespuesta(resultado, resuelveSola && !(await automatizacionPausada(tx, conversacion.id)));
-          /* Si hace falta una persona (chat pausado, menú caducado), no se
-             contesta solo además: la decisión es una, la de `motivoDeRespuesta`. */
-          if (resuelveSola && pedido) accion = null;
-          if (pedido && await registrarSolicitudAtencion(tx, conversacion.id, pedido, creado.id, this.ahora())) solicitud = pedido;
+          if (resultado.promocionId && resultado.seleccionId === PAGAR_PROMOCION && resultado.estado === 'CORRELACIONADA') {
+            /* «Pagar ahora» de una tarjeta VIGENTE: se le manda el QR aunque una persona
+               ya esté en el chat, porque es lo que ella acaba de pedir. Si hoy no se puede
+               cobrar, se pide una persona después (`enviarPago`). Un toque a una tarjeta
+               caducada sigue la regla de todos los toques tardíos: lo ve una persona. */
+            pagarPromocion = resultado.promocionId;
+          } else {
+            /* Qué significa la opción según el menú de HOY; solo si estaba en
+               nuestra oferta (`seleccionId` existe únicamente tras correlacionar). */
+            /* Y solo de una oferta del MENÚ: el mismo `TALK_TO_HUMAN` en una
+               plantilla de campaña pide una persona, pero no es un toque al menú. */
+            accion = resultado.deMenu && resultado.seleccionId ? accionDeSeleccion(menu, resultado.seleccionId) : null;
+            /* Lo que el menú contesta solo, lo contesta solo mientras nadie haya
+               pedido una persona en este chat. */
+            const resuelveSola = seResuelveSola(accion);
+            /* En la MISMA transacción: si el mensaje queda guardado, su solicitud
+               también. Un refresco, una desconexión o un reinicio no la pierden. */
+            pedido = motivoDeRespuesta(resultado, resuelveSola && !(await automatizacionPausada(tx, conversacion.id)));
+            /* Si hace falta una persona (chat pausado, menú caducado), no se
+               contesta solo además: la decisión es una, la de `motivoDeRespuesta`. */
+            if (resuelveSola && pedido) accion = null;
+            if (pedido && await registrarSolicitudAtencion(tx, conversacion.id, pedido, creado.id, this.ahora())) solicitud = pedido;
+          }
         } else if (!media && !esRespuestaBoton && interaccionesHabilitadas()) {
           /* Escribió, entera, una frase inequívoca: que es una emergencia, o que
              quiere hablar con una persona. La misma solicitud que el botón, en la
@@ -218,6 +241,12 @@ export class IngestaWhatsappService {
              clasifica mensajes, solo reconoce dos listas cerradas de frases. */
           pedido = esAvisoDeEmergencia(contenido) ? 'EMERGENCIA' : esPedidoDePersona(contenido) ? 'SOLICITUD_EXPLICITA' : null;
           if (pedido && await registrarSolicitudAtencion(tx, conversacion.id, pedido, creado.id, this.ahora())) solicitud = pedido;
+        } else if (media && (media.tipo === 'IMAGEN' || media.tipo === 'DOCUMENTO') && await registrarComprobante(tx, conversacion.id, creado.id)) {
+          /* Había un pago esperando su comprobante: esta foto o PDF lo es. Pasa a
+             «Atención» para que una persona lo verifique, en la misma transacción. */
+          comprobante = true;
+          pedido = 'COMPROBANTE_PAGO';
+          if (await registrarSolicitudAtencion(tx, conversacion.id, pedido, creado.id, this.ahora())) solicitud = pedido;
         }
         await tx.conversacion.update({
           where: { id: conversacion.id },
@@ -259,7 +288,8 @@ export class IngestaWhatsappService {
          pidió a alguien. Es el mismo aviso, a las mismas personas. */
       texto: emergencia ? 'Indicó una EMERGENCIA'
         : solicitud === 'SOLICITUD_EXPLICITA' ? 'Pidió hablar con una persona'
-        : solicitud === 'SOLICITUD_CITA' ? 'Envió una solicitud de cita' : contenido,
+        : solicitud === 'SOLICITUD_CITA' ? 'Envió una solicitud de cita'
+        : comprobante ? 'Envió un comprobante de pago' : contenido,
       /* Una emergencia le suena a todos los que ven la línea, también a quien
          la silenció: el silencio es para el flujo normal, no para esto. */
       critica: emergencia,
@@ -275,6 +305,14 @@ export class IngestaWhatsappService {
         this.responderTexto(conversacion.id, cliente.telefono, orientacion, { respetaPausa: false, noRepetir: true }),
       );
     }
+    /* Mandó el comprobante: que sepa que llegó y que lo verifica una persona. */
+    if (comprobante) {
+      void enSegundoPlano('acuse de comprobante', this.logger, () =>
+        /* Cada comprobante registrado es un evento propio (tras «pedir otro», el
+           nuevo también merece su acuse); un webhook repetido ya no llega aquí. */
+        this.responderTexto(conversacion.id, cliente.telefono, TEXTO_COMPROBANTE_RECIBIDO, { respetaPausa: false, noRepetir: false }),
+      );
+    }
 
     // Las selecciones nuevas son datos para la persona que atiende. Nunca
     // disparar automáticos/opt-out por títulos no confiables de un botón:
@@ -283,7 +321,13 @@ export class IngestaWhatsappService {
       const elegida = accion;
       if (elegida && menu && elegida.tipo !== 'EMERGENCIA') {
         void enSegundoPlano('respuesta del menú de atención', this.logger, () =>
-          this.responderSeleccion(conversacion.id, cliente.telefono, elegida, menu),
+          this.responderSeleccion(conversacion.id, cliente.telefono, lineaId, elegida, menu, mensaje.id),
+        );
+      }
+      const promocionAPagar = pagarPromocion;
+      if (promocionAPagar) {
+        void enSegundoPlano('pago de promoción', this.logger, () =>
+          this.enviarPago(conversacion.id, cliente.telefono, lineaId, promocionAPagar, mensaje.id),
         );
       }
       return mensaje;
@@ -305,13 +349,18 @@ export class IngestaWhatsappService {
        como todo lo que habla con Meta: el webhook tiene que responder en
        milisegundos. Van en orden y no en paralelo: el acuse mira si ya hubo un
        automático reciente, y el pin no debe contar como tal. */
+    /* El enlace de la landing escribe el código de la promoción (`PRM-…`). */
+    const codigo = !media && !esRespuestaBoton ? codigoEnTexto(contenido) : null;
     void enSegundoPlano('respuestas automáticas', this.logger, async () => {
+      /* Vino por una promoción: queda atribuida y recibe su tarjeta, que hace de
+         menú y de acuse a la vez. */
+      const tarjeta = codigo ? await this.atenderCodigo(conversacion.id, cliente.id, cliente.telefono, lineaId, codigo) : false;
       /* Quien acaba de pedir algo ya tiene una persona en camino. */
-      const ofrecido = menu && !pedido && !esRespuestaBoton ? await this.ofrecerMenu(conversacion.id, cliente.telefono, menu) : false;
+      const ofrecido = !tarjeta && menu && !pedido && !esRespuestaBoton ? await this.ofrecerMenu(conversacion.id, cliente.telefono, menu) : false;
       /* Cuando el menú sale, ES el acuse: dos automáticos al mismo mensaje se
          leen como un sistema roto. Cuando no sale (la conversación está en curso),
          el acuse fuera de horario funciona como siempre. */
-      if (linea.comercial && !ofrecido) await this.responderFueraDeHorario(conversacion.id, cliente.telefono);
+      if (linea.comercial && !ofrecido && !tarjeta) await this.responderFueraDeHorario(conversacion.id, cliente.telefono);
       if (!media) await this.compartirUbicacionSiLaPiden(conversacion.id, cliente.telefono, contenido);
     });
 
@@ -482,7 +531,68 @@ export class IngestaWhatsappService {
     /* La mayoría de los mensajes llegan con la conversación en curso: se mira sin
        candado y solo se toma el candado (que vuelve a mirar) si parece que toca. */
     if (await enCurso(this.prisma)) return false;
-    return this.enviarOfertaAutomatica(conversacionId, telefono, mensajeDelMenu(menu), enCurso);
+    /* La opción «Promociones» solo sale si hoy hay alguna publicada para WhatsApp. */
+    const hayPromociones = menu.opciones.some(o => o.tipo === 'PROMOCIONES') && (await this.promocionesChat.hayParaMenu());
+    return this.enviarOfertaAutomatica(conversacionId, telefono, mensajeDelMenu(menu, { hayPromociones }), { origen: 'MENU_ATENCION' }, enCurso);
+  }
+
+  /**
+   * Escribió con el código de una promoción. La promoción queda atribuida a su
+   * lead aunque no se le pueda responder (bandeja de interacciones apagada) y,
+   * si se puede, recibe su tarjeta. Devuelve si salió la tarjeta. Un código de
+   * una promoción que ya no está visible no responde nada: lo ve una persona.
+   */
+  private async atenderCodigo(conversacionId: string, clienteId: string, telefono: string, lineaId: string, codigo: string): Promise<boolean> {
+    const promocion = await this.promocionesChat.porCodigo(codigo);
+    if (!promocion) return false;
+    if (await this.promocionesChat.atribuir(clienteId, promocion.id)) this.gateway.emitirActividad(conversacionId);
+    if (!interaccionesHabilitadas()) return false;
+    return this.enviarTarjeta(conversacionId, telefono, lineaId, promocion);
+  }
+
+  /**
+   * Lo que se iba a contestar solo ya no se puede (la promoción dejó de estar
+   * visible, no hay QR…): en vez de dejarla sin respuesta, lo ve una persona.
+   */
+  private async pedirRevision(conversacionId: string, mensajeId: string): Promise<void> {
+    await this.prisma.$transaction(tx => registrarSolicitudAtencion(tx, conversacionId, 'REVISION', mensajeId, this.ahora()));
+    this.gateway.emitirActividad(conversacionId);
+  }
+
+  /** La tarjeta de una promoción, una vez cada 30 min aunque la pida dos veces. */
+  private async enviarTarjeta(conversacionId: string, telefono: string, lineaId: string, promocion: PromocionChat): Promise<boolean> {
+    const tarjeta = await this.promocionesChat.tarjeta(lineaId, promocion);
+    const desde = new Date(this.ahora().getTime() - RESPUESTA_REPETIDA_MS);
+    return this.enviarOfertaAutomatica(conversacionId, telefono, tarjeta, { origen: 'PROMOCION', promocionId: promocion.id }, async tx =>
+      !!(await tx.mensaje.findFirst({ where: { conversacionId, automatico: true, contenido: tarjeta.cuerpo, createdAt: { gte: desde } }, select: { id: true } })),
+    );
+  }
+
+  /**
+   * «Pagar ahora»: el QR de la línea con el monto y qué hacer después. Si hoy no
+   * se puede cobrar por chat (promoción vencida, sin precio, línea sin QR vigente)
+   * no se le manda nada inventado: la conversación pasa a «Atención».
+   */
+  private async enviarPago(conversacionId: string, telefono: string, lineaId: string, promocionId: string, mensajeId: string): Promise<void> {
+    try {
+      const inicio = await this.promocionesChat.iniciar(conversacionId, lineaId, promocionId);
+      /* Su comprobante de esta promoción ya se está verificando: no se le pide otra vez. */
+      if (inicio === 'EN_VERIFICACION') return;
+      if (!inicio) {
+        await this.pedirRevision(conversacionId, mensajeId);
+        return;
+      }
+      const desde = new Date(this.ahora().getTime() - RESPUESTA_REPETIDA_MS);
+      const media = { key: inicio.imagen.clave, mime: inicio.imagen.mime, nombre: 'QR de pago' };
+      /* Responde a lo que ella pidió: sale aunque el chat espere a una persona. */
+      const [fila] = await this.guardarMensajeAutomatico(conversacionId, [{ texto: inicio.texto, media }], async tx =>
+        !!(await tx.mensaje.findFirst({ where: { conversacionId, automatico: true, contenido: inicio.texto, createdAt: { gte: desde } }, select: { id: true } })),
+        { respetaPausa: false },
+      ) ?? [];
+      if (fila) await this.despachador.texto({ mensajeId: fila.id, conversacionId, telefono }, inicio.texto, media);
+    } catch (error) {
+      this.logger.error('No se pudo enviar el QR de pago', error);
+    }
   }
 
   /**
@@ -492,10 +602,10 @@ export class IngestaWhatsappService {
    * acuse, y entonces el acuse fuera de horario sale como siempre.
    */
   private async enviarOfertaAutomatica(
-    conversacionId: string, telefono: string, mensaje: MensajePreparado, yaHecho: (tx: Prisma.TransactionClient) => Promise<boolean>,
+    conversacionId: string, telefono: string, mensaje: MensajePreparado, origen: OrigenOferta, yaHecho: (tx: Prisma.TransactionClient) => Promise<boolean>,
   ): Promise<boolean> {
     try {
-      const filas = await this.guardarMensajeAutomatico(conversacionId, [{ oferta: { ...prepararOferta(mensaje, telefono), origen: 'MENU_ATENCION' } }], yaHecho);
+      const filas = await this.guardarMensajeAutomatico(conversacionId, [{ oferta: { ...prepararOferta(mensaje, telefono), ...origen } }], yaHecho);
       if (!filas || !(await this.sigueSinPausa(conversacionId, filas))) return false;
       await this.despachador.interaccion({ mensajeId: filas[0].id, conversacionId, telefono });
       const enviada = await this.prisma.mensaje.findUnique({ where: { id: filas[0].id }, select: { estadoEnvio: true } });
@@ -513,7 +623,7 @@ export class IngestaWhatsappService {
    * confirmación, si la clínica la escribió. Las que se contestan solas salen
    * aquí, respetando la pausa: si entretanto alguien pidió una persona, callan.
    */
-  private async responderSeleccion(conversacionId: string, telefono: string, accion: AccionMenu, menu: MenuAtencion): Promise<void> {
+  private async responderSeleccion(conversacionId: string, telefono: string, lineaId: string, accion: AccionMenu, menu: MenuAtencion, mensajeId: string): Promise<void> {
     switch (accion.tipo) {
       case 'PERSONA':
       case 'CITA':
@@ -529,14 +639,23 @@ export class IngestaWhatsappService {
         await this.enviarUbicacion(conversacionId, telefono, accion.texto);
         return;
       case 'PROMOCIONES': {
-        const lista = mensajeDePromociones(menu);
-        if (lista) await this.enviarOfertaAutomatica(conversacionId, telefono, lista, async () => false);
+        /* Si entre el menú y el toque dejó de haber promociones publicadas, no se la
+           deja sin respuesta: lo ve una persona. */
+        const lista = mensajeDePromociones(menu, await this.promocionesChat.paraMenu());
+        if (lista) await this.enviarOfertaAutomatica(conversacionId, telefono, lista, { origen: 'MENU_ATENCION' }, async () => false);
+        else await this.pedirRevision(conversacionId, mensajeId);
         return;
       }
-      case 'PROMOCION':
+      case 'PROMOCION': {
+        /* Eligió una de la lista: su tarjeta (precio, condiciones, pagar). Si dejó
+           de estar visible entre la lista y el toque, lo ve una persona. */
+        const promocion = await this.promocionesChat.porId(accion.promocionId);
+        if (promocion) await this.enviarTarjeta(conversacionId, telefono, lineaId, promocion);
+        else await this.pedirRevision(conversacionId, mensajeId);
+        return;
+      }
       case 'EMERGENCIA':
-        /* La promoción elegida queda para la asesora (solicitud de revisión con
-           su título); la emergencia ya tuvo su orientación. */
+        /* Ya tuvo su orientación. */
         return;
     }
   }
@@ -619,13 +738,17 @@ export class IngestaWhatsappService {
         /* Una oferta se guarda con su interacción, igual que la de una agente:
            así su respuesta se correlaciona y el despachador la reconstruye tras
            un reinicio. Nace FALLIDA y con intento ya: `interaccion()` la reclama. */
-        const oferta = typeof item === 'string' ? null : item.oferta;
+        const oferta = typeof item === 'object' && 'oferta' in item ? item.oferta : null;
+        const media = typeof item === 'object' && 'media' in item ? item.media : null;
         const clientMessageId = randomUUID();
         creadas.push(await tx.mensaje.create({
           data: {
             conversacionId,
             direccion: 'SALIENTE',
-            contenido: typeof item === 'string' ? item : item.oferta.mensaje.cuerpo,
+            contenido: typeof item === 'string' ? item : 'oferta' in item ? item.oferta.mensaje.cuerpo : item.texto,
+            /* Una imagen de R2 (el QR): el hilo la muestra con su URL firmada y el
+               despachador la manda como imagen con este texto de pie. */
+            ...(media ? { tipo: media.mime.startsWith('image/') ? 'IMAGEN' : 'DOCUMENTO', mediaKey: media.key, mediaMime: media.mime, mediaNombre: media.nombre } : {}),
             /* La marca que impide que esto tape la conversación en el inbox —
                ver el comentario del campo en schema.prisma. */
             automatico: true,

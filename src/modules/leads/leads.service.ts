@@ -198,6 +198,39 @@ export class LeadsService {
     return lead?.clienteId === clienteId;
   }
 
+  /**
+   * La paciente escribió con el código de una promoción (`PRM-…`, lo pone la
+   * landing). Se anota en su lead abierto más reciente, si ese lead no sabe ya de
+   * dónde vino: un anuncio de Meta manda sobre el código (es más específico) y
+   * una atribución anterior no se pisa. Sin lead abierto no crea ninguno.
+   */
+  async atribuirPromocion(clienteId: string, promocionId: string): Promise<boolean> {
+    /* El lead abierto MÁS RECIENTE, y solo si no sabe ya de dónde vino. No se busca
+       uno más viejo sin atribuir: sería atribuirle la promoción a otra visita. */
+    const lead = await this.prisma.lead.findFirst({
+      where: { clienteId, estado: { in: ['NUEVO', 'CONTACTADO'] } },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      select: { id: true, anuncioId: true, promocionId: true },
+    });
+    if (!lead || lead.anuncioId || lead.promocionId) return false;
+    const { count } = await this.prisma.lead.updateMany({ where: { id: lead.id, anuncioId: null, promocionId: null }, data: { promocionId } });
+    return count > 0;
+  }
+
+  /**
+   * El lead que trajo a esta paciente a esta promoción —por su código o por uno
+   * de sus anuncios—, para que la venta que nace del pago quede atribuida. El
+   * más reciente; `null` si ninguno.
+   */
+  async leadDePromocion(clienteId: string, promocionId: string, anuncioIds: readonly string[]): Promise<string | null> {
+    const lead = await this.prisma.lead.findFirst({
+      where: { clienteId, OR: [{ promocionId }, ...(anuncioIds.length ? [{ anuncioId: { in: [...anuncioIds] } }] : [])] },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      select: { id: true },
+    });
+    return lead?.id ?? null;
+  }
+
   async marcarConvertidos(
     clienteId: string,
     leadId?: string | null,

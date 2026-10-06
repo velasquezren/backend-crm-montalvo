@@ -8,6 +8,7 @@ import {
   mensajeDelMenu,
   mensajeDePromociones,
   orientacionDeEmergencia,
+  PromocionDeMenu,
   seResuelveSola,
 } from './menu-atencion';
 
@@ -24,7 +25,6 @@ function recepcion(): MenuAtencion {
       { tipo: 'RESPUESTA', titulo: 'Horarios', clave: 'hora1234', respuesta: 'Atendemos de lunes a sábado.' },
       { tipo: 'UBICACION', titulo: 'Cómo llegar' },
     ],
-    promociones: [],
   };
 }
 function ventas(): MenuAtencion {
@@ -35,9 +35,13 @@ function ventas(): MenuAtencion {
       { tipo: 'PROMOCIONES', titulo: 'Ver promociones', respuesta: 'Estas son las promociones vigentes:' },
       { tipo: 'PERSONA', titulo: 'Hablar con asesora' },
     ],
-    promociones: [{ clave: 'prom0001', titulo: 'Promoción de prueba', descripcion: 'Solo para la prueba' }],
   };
 }
+/** Las publicadas para WhatsApp en el CRM (módulo Promociones). */
+const PUBLICADAS: PromocionDeMenu[] = [
+  { id: '11111111-1111-4111-8111-111111111111', titulo: 'Control prenatal completo con ecografía 4D', resumen: 'Consulta, ecografía y análisis en un solo paquete para tu tranquilidad y la de tu bebé.' },
+  { id: '22222222-2222-4222-8222-222222222222', titulo: 'Vacuna antiinfluenza', resumen: 'Aplicación en el día.' },
+];
 
 describe('validación del menú', () => {
   it('un menú completo es válido', () => {
@@ -57,10 +61,10 @@ describe('validación del menú', () => {
     expect(erroresDelMenu(m).join()).toMatch(/Opción 2: falta el texto/);
   });
 
-  it('sin promociones cargadas no hay opción de promociones: no se inventa ninguna', () => {
+  it('la opción de promociones no lleva una lista propia: solo el texto que acompaña a las del CRM', () => {
     const m = ventas();
-    m.promociones = [];
-    expect(erroresDelMenu(m)).toContain('La opción de promociones necesita al menos una promoción cargada.');
+    delete m.opciones[0].respuesta;
+    expect(erroresDelMenu(m).join()).toMatch(/Opción 1: falta el texto/);
   });
 
   it.each([
@@ -81,7 +85,7 @@ describe('validación del menú', () => {
     expect(leerMenu(m)).toEqual(m);
     expect(leerMenu({ ...m, opciones: m.opciones.filter(o => o.tipo !== 'PERSONA') })).toBeNull();
     expect(leerMenu({ ...m, opciones: 'no es una lista' })).toBeNull();
-    /* Claves de más en la base no viajan a ningún sitio. */
+    /* Claves de más en la base (como la lista de promociones de antes) no viajan a ningún sitio. */
     const conExtra = leerMenu({ ...m, opciones: m.opciones.map(o => ({ ...o, extra: 'x' })) });
     expect(conExtra?.opciones[0]).not.toHaveProperty('extra');
   });
@@ -89,33 +93,44 @@ describe('validación del menú', () => {
 
 describe('el mensaje que recibe la paciente', () => {
   it('hasta tres opciones cortas salen como botones; Meta acepta el mensaje', () => {
-    const m = ventas();
-    const mensaje = mensajeDelMenu(m);
+    const mensaje = mensajeDelMenu(ventas(), { hayPromociones: true });
     expect(mensaje.tipo).toBe('botones');
     expect(() => validarMensaje(mensaje)).not.toThrow();
   });
 
   it('con más opciones sale como lista; Meta acepta el mensaje', () => {
-    const mensaje = mensajeDelMenu(recepcion());
+    const mensaje = mensajeDelMenu(recepcion(), { hayPromociones: false });
     expect(mensaje.tipo).toBe('lista');
     expect(() => validarMensaje(mensaje)).not.toThrow();
     if (mensaje.tipo !== 'lista') throw new Error('lista');
     expect(mensaje.secciones[0].opciones.map(o => o.id)).toEqual(['TALK_TO_HUMAN', 'EMERGENCY', 'BOOK_APPOINTMENT', 'INFO_hora1234', 'VIEW_LOCATION']);
   });
 
+  it('sin promociones publicadas para WhatsApp, la opción no aparece', () => {
+    const sin = mensajeDelMenu(ventas(), { hayPromociones: false });
+    if (sin.tipo !== 'botones') throw new Error('botones');
+    expect(sin.opciones.map(o => o.id)).toEqual(['TALK_TO_HUMAN']);
+  });
+
   it('un título que no cabe en un botón (más de 20 o con emoji) pasa a lista', () => {
     const m = ventas();
     m.opciones[1].titulo = 'Hablar con una asesora';
-    expect(mensajeDelMenu(m).tipo).toBe('lista');
+    expect(mensajeDelMenu(m, { hayPromociones: true }).tipo).toBe('lista');
     m.opciones[1].titulo = 'Asesora 🙂';
-    expect(mensajeDelMenu(m).tipo).toBe('lista');
+    expect(mensajeDelMenu(m, { hayPromociones: true }).tipo).toBe('lista');
   });
 
-  it('la lista de promociones es la que cargó la clínica', () => {
-    const lista = mensajeDePromociones(ventas());
+  it('la lista de promociones son las del CRM, acortadas a lo que admite Meta', () => {
+    const lista = mensajeDePromociones(ventas(), PUBLICADAS);
     expect(lista).not.toBeNull();
     expect(() => validarMensaje(lista!)).not.toThrow();
-    expect(mensajeDePromociones(recepcion())).toBeNull();
+    if (lista?.tipo !== 'lista') throw new Error('lista');
+    const [primera] = lista.secciones[0].opciones;
+    expect(primera.id).toBe(`PROMO_${PUBLICADAS[0].id}`);
+    expect(primera.titulo.length).toBeLessThanOrEqual(24);
+    expect(primera.titulo.endsWith('…')).toBe(true);
+    expect(mensajeDePromociones(ventas(), [])).toBeNull();
+    expect(mensajeDePromociones(recepcion(), PUBLICADAS)).toBeNull();
   });
 });
 
@@ -132,7 +147,7 @@ describe('qué hace cada opción', () => {
     expect(orientacionDeEmergencia(null)).toBeNull();
   });
 
-  it('información, ubicación y promociones se resuelven solas', () => {
+  it('información, ubicación, la lista de promociones y una promoción elegida se resuelven solas', () => {
     const info = accionDeSeleccion(recepcion(), 'INFO_hora1234');
     expect(info).toEqual({ tipo: 'RESPUESTA', texto: 'Atendemos de lunes a sábado.' });
     expect(seResuelveSola(info)).toBe(true);
@@ -141,10 +156,10 @@ describe('qué hace cada opción', () => {
     expect(seResuelveSola(accionDeSeleccion(recepcion(), 'TALK_TO_HUMAN'))).toBe(false);
   });
 
-  it('elegir una promoción queda para la asesora, con su título', () => {
-    const accion = accionDeSeleccion(ventas(), 'PROMO_prom0001');
-    expect(accion).toEqual({ tipo: 'PROMOCION', titulo: 'Promoción de prueba' });
-    expect(seResuelveSola(accion)).toBe(false);
+  it('elegir una promoción de la lista pide su tarjeta', () => {
+    const accion = accionDeSeleccion(ventas(), `PROMO_${PUBLICADAS[1].id}`);
+    expect(accion).toEqual({ tipo: 'PROMOCION', promocionId: PUBLICADAS[1].id });
+    expect(seResuelveSola(accion)).toBe(true);
   });
 
   it('una opción que la clínica retiró después de enviar el menú no contesta nada', () => {
@@ -152,7 +167,8 @@ describe('qué hace cada opción', () => {
     const id = idDeOpcion(m.opciones[3]);
     m.opciones.splice(3, 1);
     expect(accionDeSeleccion(m, id)).toBeNull();
-    expect(accionDeSeleccion(m, 'PROMO_prom0001')).toBeNull();
+    /* Un menú sin la opción de promociones no responde a un toque de promoción. */
+    expect(accionDeSeleccion(m, `PROMO_${PUBLICADAS[0].id}`)).toBeNull();
     expect(accionDeSeleccion(null, 'TALK_TO_HUMAN')).toBeNull();
   });
 });

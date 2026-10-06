@@ -1,3 +1,4 @@
+import { PromocionesChatService } from './promociones-chat.service';
 import { MenuAtencionService } from '../menu-atencion/menu-atencion.service';
 import { PrimerContactoService } from '../leads/primer-contacto.service';
 import { LineasWhatsappService } from '../lineas-whatsapp/lineas-whatsapp.service';
@@ -164,6 +165,8 @@ beforeEach(async () => {
     ),
     new PrimerContactoService(prisma, clientesService),
     new MenuAtencionService(prisma),
+    /* No recorre promociones ni pagos. */
+    {} as PromocionesChatService,
   );
   jest.spyOn(service['logger'], 'warn').mockImplementation(() => undefined);
   jest.spyOn(service['logger'], 'error').mockImplementation(() => undefined);
@@ -1163,6 +1166,7 @@ describe('Acuse automático fuera de horario', () => {
       ),
       new PrimerContactoService(prisma, clientesService),
       new MenuAtencionService(prisma),
+      {} as PromocionesChatService,
     );
     /* Se sustituye el reloj en vez de congelar los temporizadores: los fake
        timers de Jest paran también los que Prisma usa por dentro. */

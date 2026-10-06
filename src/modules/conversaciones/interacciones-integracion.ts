@@ -72,16 +72,19 @@ export interface OfertaInteraccion {
   flow?: FlowAutorizado;
   respuestasPlantilla?: { id: string; titulo: string }[];
   /**
-   * La mandó el menú de atención (el menú o su lista de promociones). Dos efectos:
+   * La mandó el CRM solo: el menú de atención (o su lista de promociones) o la
+   * tarjeta de una promoción. Dos efectos:
    * - cada opción se puede elegir, y más de una vez. Sin esto la oferta se consume
    *   con el primer toque y el segundo es `DUPLICADA` —lo correcto para lo que manda
    *   una agente—; en un menú, «Horarios» y después «Hablar con una persona» son dos
    *   pedidos. Un webhook repetido sigue sin duplicar nada (índice único del wamid);
-   * - solo un toque en una oferta así dispara las respuestas del menú: el mismo
+   * - solo un toque en una oferta así dispara sus respuestas: el mismo
    *   `TALK_TO_HUMAN` en una plantilla de campaña pide una persona, pero no recibe la
    *   confirmación del menú.
    */
-  origen?: 'MENU_ATENCION';
+  origen?: 'MENU_ATENCION' | 'PROMOCION';
+  /** Con `origen: 'PROMOCION'`: de qué promoción es la tarjeta. */
+  promocionId?: string;
   /** Metadatos de transporte; no forman parte de la intención ni llegan a UI. */
   metaIdsAnteriores?: string[];
 }
@@ -102,7 +105,7 @@ export function prepararOferta(entrada: unknown, telefono: string): OfertaIntera
     // Reconstrucción explícita: no conservar claves arbitrarias de la petición.
     const base = { cuerpo: m.cuerpo, ...(m.cabecera ? { cabecera: m.cabecera } : {}), ...(m.pie ? { pie: m.pie } : {}) };
     const opcion = (o: { id: string; titulo: string; descripcion?: string }) => ({ id: o.id, titulo: o.titulo, ...(o.descripcion ? { descripcion: o.descripcion } : {}) });
-    const mensaje: MensajePreparado = m.tipo === 'botones' ? { ...base, tipo: 'botones', opciones: m.opciones.map(opcion) }
+    const mensaje: MensajePreparado = m.tipo === 'botones' ? { ...base, tipo: 'botones', opciones: m.opciones.map(opcion), ...(m.imagenCabecera ? { imagenCabecera: m.imagenCabecera } : {}) }
       : m.tipo === 'lista' ? { ...base, tipo: 'lista', boton: m.boton, secciones: m.secciones.map(s => ({ titulo: s.titulo, opciones: s.opciones.map(opcion) })) }
       : { ...base, tipo: 'flow', flowId: m.flowId, correlacion: m.correlacion, cta: m.cta, modo: 'published', inicio: { accion: 'navigate', pantalla: flow!.pantalla } };
     return { mensaje, telefono, ...(flow ? { flow } : {}) };
@@ -152,7 +155,8 @@ export async function guardarRespuesta(
   let versionFlow: string | undefined;
   let propositoFlow: string | undefined;
   let datosFlow: { etiqueta: string; valor: string }[] | undefined;
-  let deMenu = false;
+  let origenOferta: OfertaInteraccion['origen'];
+  let promocionOferta: string | undefined;
   let cuerpo = r.seleccion?.tipo === 'nfm_reply' ? 'Formulario recibido; requiere revisión humana. No confirma una cita.' : 'Respuesta interactiva recibida; requiere revisión humana.';
   if (r.estado === 'valida' && r.contextoId && r.seleccion) {
     const fuente = await tx.mensaje.findFirst({
@@ -176,7 +180,12 @@ export async function guardarRespuesta(
         Object.keys(seleccion.datos).every(k => k === 'flow_token' || k === 'flow_version' || Object.hasOwn(guardada.flow!.respuestas, k) || Object.hasOwn(guardada.flow!.campos ?? {}, k));
       if (guardada.telefono === telefono && ((tipoCorrecto && opcion) || flowValido)) {
         contextoId = fuente.id; // ID interno autorizado, nunca identificador de otro chat.
-        if (opcion) { seleccionId = opcion.id; cuerpo = opcion.titulo; deMenu = guardada.origen === 'MENU_ATENCION'; }
+        if (opcion) {
+          seleccionId = opcion.id;
+          cuerpo = opcion.titulo;
+          origenOferta = guardada.origen;
+          promocionOferta = guardada.promocionId;
+        }
         if (flowValido && seleccion.tipo === 'nfm_reply') {
           versionFlow = guardada.flow!.version;
           propositoFlow = guardada.flow!.proposito;
@@ -184,7 +193,7 @@ export async function guardarRespuesta(
           if (propositoFlow === 'SOLICITUD_CITA') cuerpo = 'Solicitud de cita recibida. Pendiente: no hay ninguna cita reservada.';
         }
         if (!vigente) estado = 'CADUCADA';
-        else if (guardada.origen === 'MENU_ATENCION') estado = 'CORRELACIONADA';
+        else if (guardada.origen) estado = 'CORRELACIONADA';
         else {
           const reclamo = await tx.interaccionMensaje.updateMany({ where: { mensajeId: fuente.id, consumidaPor: null }, data: { consumidaPor: mensajeId } });
           estado = reclamo.count ? 'CORRELACIONADA' : 'DUPLICADA';
@@ -198,7 +207,13 @@ export async function guardarRespuesta(
     venceEn: new Date(), purgarEn: new Date(Date.now() + 7 * DIA),
   } });
   await tx.mensaje.update({ where: { id: mensajeId }, data: { contenido: cuerpo } });
-  return { estado, ...(seleccionId ? { seleccionId } : {}), ...(propositoFlow ? { propositoFlow } : {}), ...(deMenu ? { deMenu } : {}) };
+  return {
+    estado,
+    ...(seleccionId ? { seleccionId } : {}),
+    ...(propositoFlow ? { propositoFlow } : {}),
+    ...(origenOferta === 'MENU_ATENCION' ? { deMenu: true } : {}),
+    ...(origenOferta === 'PROMOCION' && promocionOferta ? { promocionId: promocionOferta } : {}),
+  };
 }
 
 function validarCampoFlow(valor: unknown, campo: { tipo: 'texto' | 'fecha' | 'booleano'; max?: number }): boolean {

@@ -3,6 +3,9 @@ import { CabecerasPlantillaController } from './cabeceras-plantilla.controller';
 import { MemoriaAgenteModule } from '../memoria-agente/memoria-agente.module';
 import { LineasWhatsappModule } from '../lineas-whatsapp/lineas-whatsapp.module';
 import { MenuAtencionModule } from '../menu-atencion/menu-atencion.module';
+import { CobrosModule } from '../cobros/cobros.module';
+import { PromocionesModule } from '../promociones/promociones.module';
+import { VentasModule } from '../ventas/ventas.module';
 import { LeadsModule } from '../leads/leads.module';
 import { Module } from '@nestjs/common';
 
@@ -20,18 +23,20 @@ import { ConversacionesService } from './conversaciones.service';
 import { DespachadorSalienteService } from './despachador-saliente.service';
 import { EnvioPlantillasService } from './envio-plantillas.service';
 import { AtencionHumanaService } from './atencion-humana.service';
+import { PromocionesChatService } from './promociones-chat.service';
 import { IngestaWhatsappService } from './ingesta-whatsapp.service';
 import { MediaEntranteService } from './media-entrante.service';
 import { ReintentoSalienteService } from './reintento-saliente.service';
 import { WhatsappWebhookController } from './webhooks/whatsapp-webhook.controller';
 
 @Module({
-  imports: [LeadsModule, MemoriaAgenteModule, LineasWhatsappModule, MenuAtencionModule, ClientesModule, StorageModule, PushModule, AuthModule],
+  imports: [LeadsModule, MemoriaAgenteModule, LineasWhatsappModule, MenuAtencionModule, CobrosModule, PromocionesModule, VentasModule, ClientesModule, StorageModule, PushModule, AuthModule],
   controllers: [ConversacionesController, WhatsappWebhookController, CabecerasPlantillaController],
   providers: [
     ConversacionesService,
     EnvioPlantillasService,
     AtencionHumanaService,
+    PromocionesChatService,
     IngestaWhatsappService,
     ConversacionesGateway,
     AcuseAutomaticoService,

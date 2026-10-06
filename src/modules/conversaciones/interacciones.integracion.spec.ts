@@ -1,3 +1,9 @@
+import { PromocionesChatService } from './promociones-chat.service';
+import { CobrosService } from '../cobros/cobros.service';
+import { PromocionesService } from '../promociones/promociones.service';
+import { VentasService } from '../ventas/ventas.service';
+import { LeadsService } from '../leads/leads.service';
+import { AvisoLandingService } from '../../common/landing/aviso-landing.service';
 import { MenuAtencionService } from '../menu-atencion/menu-atencion.service';
 import { INestApplication, Module, ValidationPipe } from '@nestjs/common';
 import { APP_GUARD, NestFactory } from '@nestjs/core';
@@ -51,7 +57,7 @@ const config = new ConfigService({ META_APP_SECRET: secretoSintetico, UBICACION_
     { provide: PrismaService, useValue: prisma }, { provide: ConfigService, useValue: config },
     AuditService, AuthService, UsuariosService, ClientesService, CategoriaPacienteService, ServiciosService, TipoCambioService,
     LineasWhatsappService, PrimerContactoService, MemoriaAgenteService, ConversacionesService, EnvioPlantillasService, AtencionHumanaService,
-    ConversacionesGateway, IngestaWhatsappService, MenuAtencionService, AcuseAutomaticoService, DespachadorSalienteService,
+    ConversacionesGateway, IngestaWhatsappService, MenuAtencionService, PromocionesChatService, CobrosService, PromocionesService, VentasService, LeadsService, AvisoLandingService, AcuseAutomaticoService, DespachadorSalienteService,
     ReintentoSalienteService, MetaSignatureGuard,
     { provide: WhatsappCloudService, useValue: transporte },
     { provide: R2Service, useValue: { urlFirmada: async () => null } },

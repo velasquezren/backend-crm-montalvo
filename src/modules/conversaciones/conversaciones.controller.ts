@@ -1,10 +1,12 @@
-import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Param, ParseUUIDPipe, Patch, Post, Query } from '@nestjs/common';
 import { alcanceAgente, tieneAlcanceGlobal } from '../../common/auth/roles';
 import { CurrentUser, UsuarioJwt } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { ConversacionesService } from './conversaciones.service';
 import { EnvioPlantillasService } from './envio-plantillas.service';
 import { AtencionHumanaService } from './atencion-humana.service';
+import { PromocionesChatService } from './promociones-chat.service';
+import { PedirOtroComprobanteDto } from './dto/pedir-otro-comprobante.dto';
 import { AsignarAgenteDto } from './dto/asignar-agente.dto';
 import { EnviarMensajeDto } from './dto/enviar-mensaje.dto';
 import { EnviarPlantillaDto } from './dto/enviar-plantilla.dto';
@@ -22,6 +24,7 @@ export class ConversacionesController {
     private readonly conversacionesService: ConversacionesService,
     private readonly plantillas: EnvioPlantillasService,
     private readonly atencion: AtencionHumanaService,
+    private readonly promocionesChat: PromocionesChatService,
   ) {}
 
   /**
@@ -186,6 +189,31 @@ export class ConversacionesController {
   @Post(':id/atencion/resolver')
   resolverAtencion(@Param('id') id: string, @CurrentUser() usuario: UsuarioJwt) {
     return this.atencion.resolver(id, usuario.sub, alcanceAgente(usuario));
+  }
+
+  /**
+   * El pago de una promoción por WhatsApp (docs/pagos-promocion.md). Lo ve quien
+   * puede ver el chat; confirmar registra una venta y exige rango de agente (lo
+   * comprueba el servicio).
+   */
+  @Post(':id/pagos/:pagoId/confirmar')
+  confirmarPago(@Param('id') id: string, @Param('pagoId', ParseUUIDPipe) pagoId: string, @CurrentUser() usuario: UsuarioJwt) {
+    return this.promocionesChat.confirmar(id, pagoId, usuario, alcanceAgente(usuario));
+  }
+
+  @Post(':id/pagos/:pagoId/pedir-otro')
+  pedirOtroComprobante(
+    @Param('id') id: string,
+    @Param('pagoId', ParseUUIDPipe) pagoId: string,
+    @Body() dto: PedirOtroComprobanteDto,
+    @CurrentUser() usuario: UsuarioJwt,
+  ) {
+    return this.promocionesChat.pedirOtroComprobante(id, pagoId, dto.motivo, usuario, alcanceAgente(usuario));
+  }
+
+  @Post(':id/pagos/:pagoId/anular')
+  anularPago(@Param('id') id: string, @Param('pagoId', ParseUUIDPipe) pagoId: string, @CurrentUser() usuario: UsuarioJwt) {
+    return this.promocionesChat.anular(id, pagoId, usuario, alcanceAgente(usuario));
   }
 
   @Post(':id/automatizacion/reanudar')

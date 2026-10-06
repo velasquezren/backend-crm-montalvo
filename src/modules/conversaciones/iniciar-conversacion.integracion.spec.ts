@@ -1,3 +1,4 @@
+import { PromocionesChatService } from './promociones-chat.service';
 import { MenuAtencionService } from '../menu-atencion/menu-atencion.service';
 import { ConfigService } from '@nestjs/config';
 
@@ -118,6 +119,8 @@ beforeEach(async () => {
     new MediaEntranteService(prisma, gateway, r2, whatsapp, lineas),
     new PrimerContactoService(prisma, clientes),
     new MenuAtencionService(prisma),
+    /* No recorre promociones ni pagos. */
+    {} as PromocionesChatService,
   );
   jest.spyOn(service['logger'], 'error').mockImplementation(() => undefined);
 });

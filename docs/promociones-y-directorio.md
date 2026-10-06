@@ -133,10 +133,9 @@ lo guardado al instante (sin el aviso, se renueva sola cada 5 minutos).
 1. **Pantallas del CRM** (Angular): Promociones (lista por estado, editor con banners,
    revisión) y Directorio (especialidades, fichas, horario).
 2. ~~**Landing**: leer esta API con revalidación (ISR) y avisarle al publicar~~ — hecho el 5/10.
-3. **Menú de WhatsApp**: que la opción «Promociones» del menú de atención lea las promociones
-   publicadas para WhatsApp en vez de una lista escrita a mano (una sola fuente).
-4. **Ingesta**: reconocer el código `PRM-…` en el primer mensaje y atribuir la promoción
-   cuando no vino por un anuncio.
+3. ~~**Menú de WhatsApp**: que la opción «Promociones» lea las publicadas~~ — hecho el 6/10.
+4. ~~**Ingesta**: reconocer el código `PRM-…` y atribuir la promoción~~ — hecho el 6/10, con la
+   tarjeta y el pago por QR: [pagos-promocion](pagos-promocion.md).
 5. **Reservas reales**: integrar la agenda de la clínica (ScriptCase/FileMaker) para cupos.
 6. **IA**: tendrá datos estructurados (promoción vigente, precio, condiciones, médicos,
    horario) en vez de texto suelto. No se programa todavía.

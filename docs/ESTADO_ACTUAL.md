@@ -1,5 +1,39 @@
 # Estado actual
 
+## Promociones conectadas al chat, con pago por QR — 6 de octubre de 2026 · LOCAL, SIN DESPLEGAR
+
+Decisiones de René: el pago va **por WhatsApp con QR y comprobante**, **un QR por línea**, y el
+CRM **responde solo con la tarjeta** de la promoción. Diseño: [pagos-promocion](pagos-promocion.md).
+
+- La paciente llega desde la landing con el código `PRM-…` → el CRM lo reconoce, **atribuye la
+  promoción a su lead** (sin anuncio) y le manda la **tarjeta** (banner, precio con el anterior,
+  vigencia, condiciones, «Pagar ahora» / «Hablar con alguien»). Sin menú ni acuse además.
+- «Pagar ahora» → el **QR de la línea** con el monto (congelado), banco y titular → su foto o PDF
+  queda como **comprobante** y sube a «Atención» (`COMPROBANTE_PAGO`) → la agente **confirma** en el
+  bloque «Pago» del chat (nace la **venta** ligada a la promoción y a su lead, con el comprobante)
+  o **pide otro** con motivo, o **anula**. Nunca «pagado» sin una persona.
+- La opción «Promociones» del menú **lee las promociones publicadas** (una sola fuente con la
+  landing); la lista escrita a mano del menú se retiró (nunca llegó a producción).
+- Los resultados de cada promoción cuentan leads por anuncio **o** por código, ventas de esos
+  leads **o** de sus pagos, y los pagos pendientes / por verificar.
+- Migración `pagos_promocion`: `CobroLinea`, `PagoPromocion` (+ enum), `Lead.promocionId`,
+  `COMPROBANTE_PAGO` BEFORE `REVISION`, y **quita `MenuAtencion.promociones`**: antes de desplegar,
+  comprobar en el servidor `SELECT count(*) FROM "MenuAtencion" WHERE promociones <> '[]'` = 0.
+- Frontend (rama local `integrar-menu-atencion`, que además **une el menú de atención a `main`**):
+  bloque «Pago» en el chat, «Cobro» en Líneas, etiquetas del motivo nuevo y el editor del menú sin
+  lista de promociones.
+- Revisión de código aplicada (10 hallazgos): confirmar **reclama** el pago antes de crear la venta
+  (dos agentes no generan dos) y lo devuelve a «por verificar» si la venta falla; retomar «Pagar
+  ahora» respeta el monto congelado y no pide otro QR con el comprobante en revisión; una foto
+  más de **72 h** después del QR ya no cuenta como comprobante; la promoción solo se anota en el
+  lead abierto **más reciente**; un toque tardío o una lista de promociones vacía pasa a
+  «Atención» como revisión; el QR viejo no se borra de R2 (los mensajes enviados lo enlazan).
+- Verificación: backend build OK, 873 unitarias, integración 42 suites · 802 (`pagos-promocion`
+  con 17 casos). Frontend build OK, 615 pruebas.
+- Para que funcione: desplegar backend (respaldo + `migrate deploy`), pasar el frontend a `main`,
+  cargar el QR de la línea de Ventas en Líneas → «Cobro», y `WHATSAPP_INTERACCIONES=on` (sin ella
+  solo se atribuye la promoción; no salen tarjetas ni QR).
+
 ## Landing conectada al CRM — 5 de octubre de 2026
 
 La landing (`landing-montalvo`) lee la API pública: promociones (portada, listado y página por

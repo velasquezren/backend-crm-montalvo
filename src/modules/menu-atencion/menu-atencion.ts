@@ -1,3 +1,4 @@
+import { acortar } from '../../common/texto/acortar';
 import type { MensajePreparado, Opcion } from '../../common/whatsapp/interacciones/mensaje-interactivo';
 
 /*
@@ -27,17 +28,17 @@ export interface OpcionMenu {
   clave?: string;
 }
 
-export interface Promocion {
-  clave: string;
-  titulo: string;
-  descripcion?: string;
-}
-
 export interface MenuAtencion {
   activo: boolean;
   saludo: string;
   opciones: OpcionMenu[];
-  promociones: Promocion[];
+}
+
+/** Lo que muestra la lista de promociones: las publicadas para WhatsApp en el CRM (módulo Promociones). */
+export interface PromocionDeMenu {
+  id: string;
+  titulo: string;
+  resumen: string;
 }
 
 /**
@@ -47,7 +48,6 @@ export interface MenuAtencion {
  */
 export const LIMITES = {
   opciones: 10,
-  promociones: 10,
   titulo: 24,
   /** Un botón de respuesta rápida admite 20: por encima, el menú sale como lista. */
   tituloBoton: 20,
@@ -67,7 +67,11 @@ export const REGLAS: Readonly<Record<TipoOpcion, { unica: boolean; respuesta: 'o
   RESPUESTA: { unica: false, respuesta: 'obligatoria' },
   /** El mapa de la clínica. `respuesta` = una línea antes del mapa. */
   UBICACION: { unica: true, respuesta: 'opcional' },
-  /** La lista de promociones vigentes. `respuesta` = el texto que la acompaña. */
+  /**
+   * La lista de promociones publicadas para WhatsApp en el CRM (una sola fuente con
+   * la landing). `respuesta` = el texto que la acompaña. Sin ninguna publicada, la
+   * opción no se muestra.
+   */
   PROMOCIONES: { unica: true, respuesta: 'obligatoria' },
 };
 
@@ -94,8 +98,8 @@ const NO_BOTON = /[*_~`]|\p{Extended_Pictographic}/u;
 export function idDeOpcion(o: OpcionMenu): string {
   return o.tipo === 'RESPUESTA' ? `${PREFIJO_INFO}${o.clave}` : ID_FIJO[o.tipo];
 }
-export function idDePromocion(p: Promocion): string {
-  return `${PREFIJO_PROMO}${p.clave}`;
+export function idDePromocion(p: { id: string }): string {
+  return `${PREFIJO_PROMO}${p.id}`;
 }
 
 /* ── Validación: la misma al guardar y al leer ──────────────────────── */
@@ -114,8 +118,6 @@ export function erroresDelMenu(menu: MenuAtencion): string[] {
   if (!textoValido(menu.saludo, LIMITES.texto)) errores.push(`El saludo es obligatorio y tiene hasta ${LIMITES.texto} caracteres.`);
   if (!Array.isArray(menu.opciones) || menu.opciones.length === 0 || menu.opciones.length > LIMITES.opciones)
     return [...errores, `El menú lleva entre 1 y ${LIMITES.opciones} opciones.`];
-  if (!Array.isArray(menu.promociones) || menu.promociones.length > LIMITES.promociones)
-    return [...errores, `Como mucho ${LIMITES.promociones} promociones.`];
 
   const titulos = new Set<string>();
   const claves = new Set<string>();
@@ -143,20 +145,6 @@ export function erroresDelMenu(menu: MenuAtencion): string[] {
      hablando con una máquina. */
   if (!menu.opciones.some(o => o.tipo === 'PERSONA')) errores.push('El menú siempre ofrece hablar con una persona.');
 
-  const tienePromos = menu.opciones.some(o => o.tipo === 'PROMOCIONES');
-  if (tienePromos && menu.promociones.length === 0) errores.push('La opción de promociones necesita al menos una promoción cargada.');
-  const clavesPromo = new Set<string>();
-  const titulosPromo = new Set<string>();
-  for (const [i, p] of menu.promociones.entries()) {
-    const n = `Promoción ${i + 1}`;
-    if (!textoValido(p.titulo, LIMITES.titulo)) errores.push(`${n}: el título es obligatorio y tiene hasta ${LIMITES.titulo} caracteres.`);
-    else if (titulosPromo.has(p.titulo.toLowerCase())) errores.push(`${n}: hay otra promoción con el título «${p.titulo}».`);
-    else titulosPromo.add(p.titulo.toLowerCase());
-    if (p.descripcion !== undefined && !textoValido(p.descripcion, LIMITES.descripcion))
-      errores.push(`${n}: la descripción tiene hasta ${LIMITES.descripcion} caracteres.`);
-    if (!CLAVE.test(p.clave ?? '') || clavesPromo.has(p.clave)) errores.push(`${n}: identificador interno inválido.`);
-    else clavesPromo.add(p.clave);
-  }
   return errores;
 }
 
@@ -170,11 +158,8 @@ function limpiarOpcion(o: OpcionMenu): OpcionMenu {
     ...(o.clave !== undefined ? { clave: o.clave } : {}),
   };
 }
-function limpiarPromocion(p: Promocion): Promocion {
-  return { clave: p.clave, titulo: p.titulo, ...(p.descripcion !== undefined ? { descripcion: p.descripcion } : {}) };
-}
 export function normalizarMenu(menu: MenuAtencion): MenuAtencion {
-  return { activo: menu.activo, saludo: menu.saludo, opciones: menu.opciones.map(limpiarOpcion), promociones: menu.promociones.map(limpiarPromocion) };
+  return { activo: menu.activo, saludo: menu.saludo, opciones: menu.opciones.map(limpiarOpcion) };
 }
 
 function esObjeto(v: unknown): v is Record<string, unknown> {
@@ -185,15 +170,9 @@ function esObjeto(v: unknown): v is Record<string, unknown> {
  * El menú guardado, o `null` si no es válido. Fail-closed: lo que no pase la
  * validación no se le envía a nadie.
  */
-export function leerMenu(fila: { activo: boolean; saludo: string; opciones: unknown; promociones: unknown }): MenuAtencion | null {
-  if (!Array.isArray(fila.opciones) || !Array.isArray(fila.promociones)) return null;
-  if (!fila.opciones.every(esObjeto) || !fila.promociones.every(esObjeto)) return null;
-  const menu = normalizarMenu({
-    activo: fila.activo,
-    saludo: fila.saludo,
-    opciones: fila.opciones as unknown as OpcionMenu[],
-    promociones: fila.promociones as unknown as Promocion[],
-  });
+export function leerMenu(fila: { activo: boolean; saludo: string; opciones: unknown }): MenuAtencion | null {
+  if (!Array.isArray(fila.opciones) || !fila.opciones.every(esObjeto)) return null;
+  const menu = normalizarMenu({ activo: fila.activo, saludo: fila.saludo, opciones: fila.opciones as unknown as OpcionMenu[] });
   return erroresDelMenu(menu).length === 0 ? menu : null;
 }
 
@@ -205,25 +184,38 @@ function opcionMeta(o: { titulo: string; descripcion?: string }, id: string): Op
 
 /**
  * Hasta tres opciones cortas, sin descripción ni formato: botones (un toque).
- * Si no, lista (un toque para abrirla y otro para elegir).
+ * Si no, lista (un toque para abrirla y otro para elegir). La opción de
+ * promociones solo sale si hoy hay alguna publicada para WhatsApp.
  */
-export function mensajeDelMenu(menu: MenuAtencion): MensajePreparado {
-  const opciones = menu.opciones.map(o => opcionMeta(o, idDeOpcion(o)));
-  const caben = menu.opciones.length <= 3 && menu.opciones.every(o => !o.descripcion && o.titulo.length <= LIMITES.tituloBoton && !NO_BOTON.test(o.titulo));
+export function mensajeDelMenu(menu: MenuAtencion, { hayPromociones }: { hayPromociones: boolean }): MensajePreparado {
+  const visibles = menu.opciones.filter(o => o.tipo !== 'PROMOCIONES' || hayPromociones);
+  const opciones = visibles.map(o => opcionMeta(o, idDeOpcion(o)));
+  const caben = visibles.length <= 3 && visibles.every(o => !o.descripcion && o.titulo.length <= LIMITES.tituloBoton && !NO_BOTON.test(o.titulo));
   return caben
     ? { tipo: 'botones', cuerpo: menu.saludo, opciones }
     : { tipo: 'lista', cuerpo: menu.saludo, boton: 'Ver opciones', secciones: [{ titulo: 'Opciones', opciones }] };
 }
 
-/** La lista de promociones. `null` si el menú no la ofrece. */
-export function mensajeDePromociones(menu: MenuAtencion): MensajePreparado | null {
+/**
+ * La lista de promociones publicadas para WhatsApp, con el texto que escribió la
+ * clínica. `null` si el menú no la ofrece o no hay ninguna. Los títulos de la
+ * promoción pueden ser más largos que una fila de Meta: se acortan.
+ */
+export function mensajeDePromociones(menu: MenuAtencion, promociones: readonly PromocionDeMenu[]): MensajePreparado | null {
   const opcion = menu.opciones.find(o => o.tipo === 'PROMOCIONES');
-  if (!opcion?.respuesta || menu.promociones.length === 0) return null;
+  if (!opcion?.respuesta || promociones.length === 0) return null;
   return {
     tipo: 'lista',
     cuerpo: opcion.respuesta,
     boton: 'Ver promociones',
-    secciones: [{ titulo: 'Promociones', opciones: menu.promociones.map(p => opcionMeta(p, idDePromocion(p))) }],
+    secciones: [{
+      titulo: 'Promociones',
+      opciones: promociones.slice(0, LIMITES.opciones).map(p => ({
+        id: idDePromocion(p),
+        titulo: acortar(p.titulo, LIMITES.titulo),
+        ...(p.resumen ? { descripcion: acortar(p.resumen, LIMITES.descripcion) } : {}),
+      })),
+    }],
   };
 }
 
@@ -235,11 +227,12 @@ export type AccionMenu =
   | { tipo: 'RESPUESTA'; texto: string }
   | { tipo: 'UBICACION'; texto: string | null }
   | { tipo: 'PROMOCIONES' }
-  | { tipo: 'PROMOCION'; titulo: string };
+  /** Eligió una promoción de la lista: se le manda su tarjeta (precio, condiciones, pagar). */
+  | { tipo: 'PROMOCION'; promocionId: string };
 
 /** Las acciones que el menú resuelve solo, sin pedir a una persona. */
 export function seResuelveSola(a: AccionMenu | null): boolean {
-  return a?.tipo === 'RESPUESTA' || a?.tipo === 'UBICACION' || a?.tipo === 'PROMOCIONES';
+  return a?.tipo === 'RESPUESTA' || a?.tipo === 'UBICACION' || a?.tipo === 'PROMOCIONES' || a?.tipo === 'PROMOCION';
 }
 
 /**
@@ -251,8 +244,10 @@ export function seResuelveSola(a: AccionMenu | null): boolean {
 export function accionDeSeleccion(menu: MenuAtencion | null, seleccionId: string): AccionMenu | null {
   if (!menu) return null;
   if (seleccionId.startsWith(PREFIJO_PROMO)) {
-    const promo = menu.opciones.some(o => o.tipo === 'PROMOCIONES') ? menu.promociones.find(p => idDePromocion(p) === seleccionId) : undefined;
-    return promo ? { tipo: 'PROMOCION', titulo: promo.titulo } : null;
+    /* El id salió de NUESTRA lista (la correlación lo garantiza); si la promoción
+       sigue visible lo decide quien manda su tarjeta. */
+    const promocionId = seleccionId.slice(PREFIJO_PROMO.length);
+    return menu.opciones.some(o => o.tipo === 'PROMOCIONES') && promocionId ? { tipo: 'PROMOCION', promocionId } : null;
   }
   const o = menu.opciones.find(x => idDeOpcion(x) === seleccionId);
   if (!o) return null;
@@ -267,7 +262,7 @@ export function accionDeSeleccion(menu: MenuAtencion | null, seleccionId: string
     case 'UBICACION':
       return { tipo: 'UBICACION', texto: o.respuesta ?? null };
     case 'PROMOCIONES':
-      return mensajeDePromociones(menu) ? { tipo: 'PROMOCIONES' } : null;
+      return o.respuesta ? { tipo: 'PROMOCIONES' } : null;
   }
 }
 

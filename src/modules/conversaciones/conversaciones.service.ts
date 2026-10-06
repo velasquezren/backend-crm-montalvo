@@ -1,3 +1,4 @@
+import { pagoDelChat, promocionDelChat } from './pagos-chat';
 import { estadoDeIntentoAnterior, verificarIntencion, datosOferta, OfertaInteraccion, prepararOferta, proyectarInteracciones } from './interacciones-integracion';
 import { MemoriaAgenteService } from '../memoria-agente/memoria-agente.service';
 import { whereAccesoConversacion as whereVisibilidad, SELECT_LINEA } from './acceso-conversacion';
@@ -330,10 +331,19 @@ export class ConversacionesService {
         mediaUrl: m.mediaKey ? await this.r2.urlFirmada(m.mediaKey) : null,
       })),
     );
+    /* Ya con el acceso comprobado arriba: todo se lee acotado a este chat, en
+       paralelo. El pago de una promoción en curso (o el último, cerrado hace poco) y
+       la promoción por la que llegó con su código. */
+    const [atencion, pago, promocion] = await Promise.all([
+      contextoDeAtencion(this.prisma, conversacion.id, conversacion),
+      pagoDelChat(this.prisma, conversacion.id),
+      conversacion.linea.comercial ? promocionDelChat(this.prisma, conversacion.clienteId) : null,
+    ]);
     return {
       ...conversacion,
-      /* Ya con el acceso comprobado arriba: el contexto se lee acotado a este chat. */
-      atencion: await contextoDeAtencion(this.prisma, conversacion.id, conversacion),
+      atencion,
+      pago,
+      promocion,
       /* `agente` es quien atiende el chat, sin caer a la dueña de la paciente:
          ver `aFilaDeInbox`. */
       cliente: conversacion.linea.comercial ? conversacion.cliente : { ...conversacion.cliente, datosExtra: null, intereses: [], agente: null, agenteId: null },

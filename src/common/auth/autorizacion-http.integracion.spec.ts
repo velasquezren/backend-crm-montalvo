@@ -1,3 +1,7 @@
+import { PromocionesChatService } from '../../modules/conversaciones/promociones-chat.service';
+import { CobrosService } from '../../modules/cobros/cobros.service';
+import { PromocionesService } from '../../modules/promociones/promociones.service';
+import { AvisoLandingService } from '../landing/aviso-landing.service';
 import { ConfigService } from '@nestjs/config';
 import { LineasWhatsappService } from '../../modules/lineas-whatsapp/lineas-whatsapp.service';
 import { MemoriaAgenteService } from '../../modules/memoria-agente/memoria-agente.service';
@@ -55,7 +59,7 @@ const telefonos = { startsWith: '+59170004' };
   controllers: [AuthController, UsuariosController, ClientesController, CampanasController, ActividadesController, VentasController, LeadsController, ConversacionesController],
   providers: [LineasWhatsappService, MemoriaAgenteService, { provide: ConfigService, useValue: new ConfigService({}) },
     { provide: PrismaService, useValue: prisma }, AuditService, AuthService, UsuariosService,
-    ClientesService, CategoriaPacienteService, TipoCambioService, ServiciosService, ActividadesService, VentasService, LeadsService,
+    ClientesService, CategoriaPacienteService, TipoCambioService, ServiciosService, ActividadesService, VentasService, LeadsService, PromocionesChatService, CobrosService, PromocionesService, AvisoLandingService,
     ConversacionesService, EnvioPlantillasService, AtencionHumanaService, CatalogoClinicoService, AudienciasService, CampanasService,
     { provide: R2Service, useValue: {} }, { provide: PushService, useValue: {} },
     { provide: WhatsappCloudService, useValue: {} }, { provide: DespachadorSalienteService, useValue: {} },

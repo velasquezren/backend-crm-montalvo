@@ -81,11 +81,6 @@ export class MenuAtencionService {
            en el toque de la paciente. Se conserva la que traía; si es nueva, se crea. */
         ...(o.tipo === 'RESPUESTA' ? { clave: o.clave ?? claveNueva() } : {}),
       })),
-      promociones: dto.promociones.map(p => ({
-        clave: p.clave ?? claveNueva(),
-        titulo: p.titulo.trim(),
-        ...(p.descripcion?.trim() ? { descripcion: p.descripcion.trim() } : {}),
-      })),
     });
     const errores = erroresDelMenu(menu);
     if (errores.length) throw new BadRequestException(errores);
@@ -94,7 +89,6 @@ export class MenuAtencionService {
       activo: menu.activo,
       saludo: menu.saludo,
       opciones: menu.opciones as unknown as Prisma.InputJsonArray,
-      promociones: menu.promociones as unknown as Prisma.InputJsonArray,
       actualizadoPorId: usuarioId,
     };
     /* Guardar y dejar constancia van juntos: un cambio en lo que reciben las
@@ -135,11 +129,10 @@ function claveNueva(): string {
 }
 
 /** Lo guardado, sin validar, para mostrarlo con sus errores. */
-function comoMenu(fila: { activo: boolean; saludo: string; opciones: Prisma.JsonValue; promociones: Prisma.JsonValue }): MenuAtencion {
+function comoMenu(fila: { activo: boolean; saludo: string; opciones: Prisma.JsonValue }): MenuAtencion {
   return {
     activo: fila.activo,
     saludo: fila.saludo,
     opciones: Array.isArray(fila.opciones) ? (fila.opciones as unknown as MenuAtencion['opciones']) : [],
-    promociones: Array.isArray(fila.promociones) ? (fila.promociones as unknown as MenuAtencion['promociones']) : [],
   };
 }
