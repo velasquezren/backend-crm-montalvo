@@ -1,6 +1,11 @@
 # Estado actual
 
-## Promociones y directorio médico — 5 de octubre de 2026 · BACKEND Y PANTALLAS LISTOS, SIN DESPLEGAR NI SUBIR
+## Promociones y directorio médico — 5 de octubre de 2026 · DESPLEGADO
+
+**En producción desde el 5/10 a las 21:17 (La Paz)**: servidor en `93dfcbd` con 66 migraciones (entraron
+`menu_atencion` —apagado— y `directorio_y_promociones`), respaldo `/root/backup-crm-20261005-211510.sql.gz`
+(4,7 MB, verificado), 0 errores 5xx; `/publico/promociones` y `/publico/directorio/*` en 200, rutas del CRM
+en 401 sin sesión. Frontend `1503ebf` en Vercel. CI de los dos repos en verde.
 
 Dos módulos nuevos ([diseño](promociones-y-directorio.md)): **promociones** (la agente redacta con
 banners por formato, precio en Bs, vigencia y condiciones; un ADMIN publica; cada promoción sabe
