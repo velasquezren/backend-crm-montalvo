@@ -10,6 +10,8 @@ import { LoggingInterceptor } from './common/logging/logging.interceptor';
 import { RolesGuard } from './common/guards/roles.guard';
 import { ActividadesModule } from './modules/actividades/actividades.module';
 import { CampanasModule } from './modules/campanas/campanas.module';
+import { DirectorioModule } from './modules/directorio/directorio.module';
+import { PromocionesModule } from './modules/promociones/promociones.module';
 import { ResultadosModule } from './modules/resultados/resultados.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { ClientesModule } from './modules/clientes/clientes.module';
@@ -42,6 +44,8 @@ import { PrismaModule } from './prisma/prisma.module';
     LeadsModule,
     ActividadesModule,
     CampanasModule,
+    DirectorioModule,
+    PromocionesModule,
     ConversacionesModule,
     ResultadosModule,
     ServiciosModule,
