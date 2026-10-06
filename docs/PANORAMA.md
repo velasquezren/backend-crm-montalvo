@@ -37,6 +37,8 @@ Los dos primeros comparten servidor y Postgres (bases separadas) y se hablan
 | `modules/actividades` | Recordatorios y calendario de seguimiento, con push | Todos (operativos sin leads) |
 | `modules/clientes` | Fichas de pacientes (≈16.000, importadas de FileMaker), PAC, y su categoría por valor —calculada con FileMaker + CRM, o fijada a mano por SUPER_ADMIN—; reconoce pacientes de otros sistemas | AGENTE+ |
 | `modules/campanas` | Campañas de Marketing de punta a punta. **Audiencia** (`GET /campanas/audiencia`, solo lee): a quién mandarle hoy, cruzando la categoría por valor con si conviene escribirle (sin baja, con celular, sin campaña reciente, si ya conversó). **Envío**: una plantilla de Marketing a esa audiencia congelada, a ritmo (80/min) y de 9:00 a 20:00 en La Paz, con sus métricas (entregó, leyó, respondió, compró, costo) | Ver: ADMIN+ · lanzar y controlar: SUPER_ADMIN |
+| `modules/promociones` | Promociones de la clínica: la agente las redacta con banners por formato, precio en Bs, vigencia y condiciones; un ADMIN las publica. Cada una sabe qué anuncios de Meta la publicitan, así que el CRM atribuye leads y ventas a la promoción. API pública de solo lectura para la landing (`/publico/promociones`) ([diseño](promociones-y-directorio.md)) | Ver: todos · redactar: AGENTE+ · publicar: ADMIN+ |
+| `modules/directorio` | Directorio médico: especialidades, la ficha pública de cada médico (enlazada a su código de FileMaker) y su horario semanal INFORMATIVO, más sus ausencias. Las citas reales siguen en el sistema de agenda de la clínica. API pública para la landing (`/publico/directorio`) ([diseño](promociones-y-directorio.md)) | Ver: todos · editar: ADMIN+ |
 | `modules/leads` | Embudo comercial, Lead Ads de Meta (`/webhooks/meta`) y alta presencial | AGENTE+ |
 | `modules/ventas` | Registro de ventas, catálogo, atribución al lead de origen | AGENTE+ (estado: ADMIN) |
 | `modules/kpis` | Números del dashboard, medidos sobre los mensajes | AGENTE+ |
@@ -69,7 +71,7 @@ si añades otra, añádela aquí con su motivo.
 | --- | --- | --- | --- |
 | `modules/clientes` | Lead, Conversacion | `cascadaDeReasignacion` (desde `update`/`reasignarAgente`) y `reclamarSiNoTieneDuena` | Reasignar una paciente mueve a la vez sus leads y sus chats de la línea comercial, en la misma transacción |
 | `modules/usuarios` | Conversacion | `UsuariosService.update`, al quitar líneas o desactivar | Libera los chats que la persona ya no puede atender, en la misma transacción que el cambio de permisos |
-| varios | AuditLog | conversaciones, usuarios, lineas-whatsapp, menu-atencion | Escriben la bitácora dentro de su propia transacción cuando el registro tiene que ser atómico con el cambio; fuera de una transacción se usa `AuditService` |
+| varios | AuditLog | conversaciones, usuarios, lineas-whatsapp, menu-atencion, promociones | Escriben la bitácora dentro de su propia transacción cuando el registro tiene que ser atómico con el cambio; fuera de una transacción se usa `AuditService` |
 
 ## Frontend del CRM — pantallas (`src/app/features/`)
 
@@ -111,7 +113,7 @@ Verificado por HTTP el 2026-09-22 con una cuenta de cada caso.
 | --- | --- | --- |
 | WhatsApp Cloud API (Meta) | Cuatro líneas; una app y un `META_APP_SECRET` para todas | `.env` del servidor + pantalla Líneas WhatsApp |
 | Meta Lead Ads | Leads de formularios de anuncios | `/webhooks/meta` |
-| Cloudflare R2 | Media de los chats y de Mi Memoria (URLs firmadas de 15 min) | `.env` (`R2_*`) |
+| Cloudflare R2 | Media de los chats y de Mi Memoria (URLs firmadas); banners de promociones y fotos del directorio, servidos por la API con URL pública inmutable solo si están publicados | `.env` (`R2_*`) |
 | Web Push (VAPID) | Avisos al teléfono: mensaje entrante y recordatorios | `.env` (`VAPID_*`); **no regenerar las llaves** |
 | Portal de Resultados | Cola de informes y renovación de enlaces | `.env` (`PORTAL_RESULTADOS_*`, `RESULTADOS_*`) |
 
@@ -158,5 +160,6 @@ mensajes cargados (ahora busca en todo el historial); y un índice duplicado en
 | El inbox de WhatsApp | skill `crm-conversaciones` (frontend) |
 | Comisiones y finanzas | skill `crm-finanzas` (frontend) |
 | Plantillas de WhatsApp preparadas y cómo activarlas | [plantillas-whatsapp](plantillas-whatsapp.md) |
+| Promociones, directorio médico y la API pública de la landing | [promociones-y-directorio](promociones-y-directorio.md) |
 | Qué cambió y cuándo | [ESTADO_ACTUAL](ESTADO_ACTUAL.md) |
 | Auditorías cerradas F01–F10, rendimiento R3, campañas | `docs/auditoria-*.md`, `docs/rendimiento-r3-2026-09.md`, `docs/CAMP-*.md` |

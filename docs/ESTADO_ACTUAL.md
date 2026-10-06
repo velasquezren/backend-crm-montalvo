@@ -1,5 +1,25 @@
 # Estado actual
 
+## Promociones y directorio médico — 5 de octubre de 2026 · BACKEND LISTO, SIN DESPLEGAR NI SUBIR
+
+Dos módulos nuevos ([diseño](promociones-y-directorio.md)): **promociones** (la agente redacta con
+banners por formato, precio en Bs, vigencia y condiciones; un ADMIN publica; cada promoción sabe
+qué anuncios de Meta la publicitan y cuenta sus leads y ventas) y **directorio médico**
+(especialidades, ficha pública de cada médico enlazada a su código de FileMaker, horario semanal
+informativo y ausencias). API pública de solo lectura para la landing en `/publico/promociones` y
+`/publico/directorio`. Decisiones del propietario: la agente redacta y el admin publica; las citas
+siguen en el sistema de agenda de la clínica (el horario es informativo).
+
+- Migración `20261006001129_directorio_y_promociones`: aditiva (8 tablas, 2 enums, 8 `CHECK`).
+  Revisada a mano, sin deriva. Sin dependencias nuevas (`image-size` ya estaba; R2 ya en producción).
+- Pruebas: 44 unitarias nuevas; integración nueva `promociones` (12) y `directorio` (6) con guards
+  reales, Postgres y R2 en memoria, incluidas concurrencia de publicación, bloqueo optimista y que
+  lo público no filtra datos internos. Dos mutaciones comprobadas (las pruebas fallan sin la protección).
+- **Falta**: pantallas del CRM, conectar la landing (ISR + revalidación al publicar), que el menú de
+  WhatsApp lea las promociones publicadas, reconocer el código `PRM-…` en la ingesta, y las
+  reservas reales. Ver «Pasos siguientes» en el diseño.
+- `npm run sync:tipos` en el frontend por los enums `EstadoPromocion` y `FormatoBanner`.
+
 ## Menú de atención y emergencias — 5 de octubre de 2026 · EN GITHUB, SIN DESPLEGAR
 
 Cada línea puede recibir a la paciente con un menú de opciones configurable en **Líneas
