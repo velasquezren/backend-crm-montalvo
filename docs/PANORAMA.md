@@ -84,6 +84,8 @@ si añades otra, añádela aquí con su motivo.
 | Clientes y Pacientes | `/clientes` | AGENTE+ |
 | Leads y Prospectos | `/leads` | AGENTE+ |
 | Campañas (pestañas «Campañas» y «Audiencia») | `/campanas` | ADMIN+ (crear, pausar, reanudar, cancelar: SUPER_ADMIN) |
+| Promociones (pestañas «Promociones» y «Anuncios de Meta») | `/promociones` | Todos (redactar y anuncios: AGENTE+ · publicar: ADMIN+) |
+| Directorio médico (pestañas «Médicos» y «Especialidades») | `/directorio` | Todos (editar: ADMIN+) |
 | Ventas | `/ventas` | AGENTE+ |
 | Finanzas & Comisiones | `/finanzas` (liquidación, desempeño, analítica, anual) | ADMIN+ |
 | Historial de Servicios | `/servicios` | ADMIN+ |

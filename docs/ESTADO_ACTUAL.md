@@ -1,6 +1,6 @@
 # Estado actual
 
-## Promociones y directorio médico — 5 de octubre de 2026 · BACKEND LISTO, SIN DESPLEGAR NI SUBIR
+## Promociones y directorio médico — 5 de octubre de 2026 · BACKEND Y PANTALLAS LISTOS, SIN DESPLEGAR NI SUBIR
 
 Dos módulos nuevos ([diseño](promociones-y-directorio.md)): **promociones** (la agente redacta con
 banners por formato, precio en Bs, vigencia y condiciones; un ADMIN publica; cada promoción sabe
@@ -15,7 +15,12 @@ siguen en el sistema de agenda de la clínica (el horario es informativo).
 - Pruebas: 44 unitarias nuevas; integración nueva `promociones` (12) y `directorio` (6) con guards
   reales, Postgres y R2 en memoria, incluidas concurrencia de publicación, bloqueo optimista y que
   lo público no filtra datos internos. Dos mutaciones comprobadas (las pruebas fallan sin la protección).
-- **Falta**: pantallas del CRM, conectar la landing (ISR + revalidación al publicar), que el menú de
+- **Pantallas del CRM** (frontend): `/promociones` (lista por estado, ficha con banners por formato,
+  ciclo de revisión, médicos, anuncios y resultados; pestaña «Anuncios de Meta») y `/directorio`
+  (médicos con foto, horario semanal y ausencias; especialidades). 574 pruebas, build sin advertencias.
+  El commit de enums anterior dejaba roto el build de `main` del frontend (faltaban las etiquetas de
+  `EMERGENCIA`, que vive en la rama `menu-atencion`): se copiaron las mismas tres líneas de esa rama.
+- **Falta**: conectar la landing (ISR + revalidación al publicar), que el menú de
   WhatsApp lea las promociones publicadas, reconocer el código `PRM-…` en la ingesta, y las
   reservas reales. Ver «Pasos siguientes» en el diseño.
 - `npm run sync:tipos` en el frontend por los enums `EstadoPromocion` y `FormatoBanner`.
