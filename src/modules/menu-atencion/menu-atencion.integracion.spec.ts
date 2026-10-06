@@ -42,6 +42,17 @@ import { ReintentoSalienteService } from '../conversaciones/reintento-saliente.s
 import { CierreInactividadService } from '../conversaciones/cierre-inactividad.service';
 import { WhatsappWebhookController } from '../conversaciones/webhooks/whatsapp-webhook.controller';
 import { datosOferta, OfertaInteraccion } from '../conversaciones/interacciones-integracion';
+import { FLOWS_PUBLICADOS } from '../conversaciones/flows-publicados';
+
+/* El catálogo generado, con un Flow de cita publicado en una WABA sintética. Solo
+   la línea que tenga esa WABA lo usa; las demás no tienen WABA en estas pruebas. */
+jest.mock('../conversaciones/flows-publicados', () => ({
+  FLOWS_PUBLICADOS: [{
+    id: '900', wabaId: 'waba-sintetica-menu', version: 'solicitud-cita.v1', pantalla: 'MOTIVO', proposito: 'SOLICITUD_CITA',
+    respuestas: { especialidad: ['GINECOLOGIA', 'MATERNIDAD'] }, etiquetas: { especialidad: 'Especialidad' },
+    titulos: { especialidad: { GINECOLOGIA: 'Ginecología', MATERNIDAD: 'Maternidad' } },
+  }],
+}));
 import { MenuAtencionController } from './menu-atencion.controller';
 import { MenuAtencionService } from './menu-atencion.service';
 
@@ -378,6 +389,45 @@ describe('qué hace cada opción', () => {
     expect((await webhook([toque(menu, 'BOOK_APPOINTMENT')])).status).toBe(200);
     const detalle = await http(`/conversaciones/${chat}`, 'GET', usuarios.rec1.token);
     expect(detalle.body['atencion']).toMatchObject({ motivo: 'SOLICITUD_CITA', prioridad: 'NORMAL' });
+  });
+
+  it('«Solicitar una cita» con el Flow publicado en la WABA de la línea: lo abre, y lo que responde llega legible y una sola vez', async () => {
+    const [flow] = FLOWS_PUBLICADOS;
+    await prisma.lineaWhatsapp.update({ where: { id: recepcion }, data: { wabaId: flow.wabaId } });
+    const { chat, menu } = await recibirMenu();
+    expect((await webhook([toque(menu, 'BOOK_APPOINTMENT')])).status).toBe(200);
+    await esperar(async () => (await ofertasEnviadas(chat)).length === 2);
+    /* La solicitud nace con el toque, aunque no complete el Flow. */
+    expect((await http(`/conversaciones/${chat}`, 'GET', usuarios.rec1.token)).body['atencion']).toMatchObject({ motivo: 'SOLICITUD_CITA' });
+    const enviado = transporte.enviar.mock.calls.map(c => c[1] as { interactive?: { type: string; action: { parameters: { flow_id: string; flow_token: string } } } })
+      .find(c => c.interactive?.type === 'flow');
+    expect(enviado?.interactive?.action.parameters.flow_id).toBe('900');
+    const ofertaFlow = (await ofertasEnviadas(chat))[1];
+
+    const completar = () => ({
+      id: `wamid.in.${randomUUID()}`, from: telefono.slice(1), type: 'interactive', timestamp: ahoraMeta(), context: { id: ofertaFlow.whatsappMsgId },
+      interactive: { type: 'nfm_reply', nfm_reply: { name: 'flow', body: 'Sent', response_json: JSON.stringify({ flow_token: enviado!.interactive!.action.parameters.flow_token, flow_version: flow.version, especialidad: 'MATERNIDAD' }) } },
+    });
+    const primera = completar();
+    expect((await webhook([primera])).status).toBe(200);
+    const recibida = await prisma.mensaje.findUniqueOrThrow({ where: { whatsappMsgId: primera.id }, include: { interaccion: true } });
+    expect(recibida.interaccion?.estado).toBe('CORRELACIONADA');
+    expect(recibida.contenido).toContain('no hay ninguna cita reservada');
+    expect((recibida.interaccion?.vista as Record<string, unknown>)['datos']).toEqual([{ etiqueta: 'Especialidad', valor: 'Maternidad' }]);
+    /* Completarlo otra vez no crea otra solicitud ni otro Flow. */
+    const segunda = completar();
+    expect((await webhook([segunda])).status).toBe(200);
+    expect((await prisma.mensaje.findUniqueOrThrow({ where: { whatsappMsgId: segunda.id }, include: { interaccion: true } })).interaccion?.estado).toBe('DUPLICADA');
+    await reposo();
+    expect(await ofertasEnviadas(chat)).toHaveLength(2);
+  });
+
+  it('«Solicitar una cita» sin Flow publicado en la WABA de la línea: la confirmación de siempre', async () => {
+    const { chat, menu } = await recibirMenu();
+    expect((await webhook([toque(menu, 'BOOK_APPOINTMENT')])).status).toBe(200);
+    await reposo();
+    expect(transporte.enviar.mock.calls.some(c => (c[1] as { interactive?: { type: string } }).interactive?.type === 'flow')).toBe(false);
+    expect(await ofertasEnviadas(chat)).toHaveLength(1);
   });
 
   it('un TALK_TO_HUMAN de otra oferta (campaña, agente) pide persona pero no dispara la confirmación del menú', async () => {

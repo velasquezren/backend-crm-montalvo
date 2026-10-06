@@ -62,6 +62,11 @@
       "wabaId": null,
       "flowIds": {}
     },
+    "prueba": {
+      "wabaId": null,
+      "flowIds": {},
+      "habilitado": false
+    },
     "produccion": {
       "wabaId": null,
       "flowIds": {},

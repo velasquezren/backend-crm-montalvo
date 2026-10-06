@@ -5,6 +5,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { MensajePreparado, contenidoMeta, validarMensaje } from '../../common/whatsapp/interacciones/mensaje-interactivo';
 import { objeto, parsearRespuesta } from '../../common/whatsapp/interacciones/respuesta-interactiva';
 import { ResultadoRespuesta } from './atencion-humana';
+import { FLOWS_PUBLICADOS } from './flows-publicados';
 
 /**
  * Opt-in de despliegue: la CAPACIDAD del servidor (clave, correlación, despacho,
@@ -80,8 +81,22 @@ function datosVisiblesDeFlow(flow: FlowAutorizado, datos: Record<string, unknown
   }
   return visibles;
 }
-/** Vacío deliberadamente. Solo despliegue revisado puede añadir activos publicados/versionados. */
-export function catalogoFlows(): readonly FlowAutorizado[] { return []; }
+/** Un Flow publicado en Meta y la WABA donde vive (solo se envía por las líneas de esa WABA). */
+export interface FlowPublicado extends FlowAutorizado {
+  wabaId: string;
+}
+
+/**
+ * Lo que el CRM puede enviar: los Flows publicados de los ambientes encendidos del
+ * manifest (docs/whatsapp-interacciones/flows), generados a `flows-publicados.ts`.
+ * Producción sigue apagada por regla del validador; hoy solo la WABA de prueba.
+ */
+export function catalogoFlows(): readonly FlowPublicado[] { return FLOWS_PUBLICADOS; }
+
+/** El Flow de solicitud de cita publicado en la WABA de esta línea, si hay. */
+export function flowDeCita(wabaId: string | null | undefined): FlowPublicado | null {
+  return (wabaId && catalogoFlows().find(f => f.wabaId === wabaId && f.proposito === 'SOLICITUD_CITA')) || null;
+}
 
 export interface OfertaInteraccion {
   mensaje: MensajePreparado;

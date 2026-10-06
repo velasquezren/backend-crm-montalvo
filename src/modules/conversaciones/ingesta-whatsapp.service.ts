@@ -10,7 +10,7 @@ import { enSegundoPlano } from '../../common/fiabilidad/en-segundo-plano';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ClientesService, nombreProvisional } from '../clientes/clientes.service';
 import { PrimerContactoService } from '../leads/primer-contacto.service';
-import { datosOferta, guardarRespuesta, interaccionesEnLinea, OfertaInteraccion, prepararOferta } from './interacciones-integracion';
+import { datosOferta, flowDeCita, FlowPublicado, guardarRespuesta, interaccionesEnLinea, OfertaInteraccion, prepararOferta } from './interacciones-integracion';
 import { MenuAtencionService } from '../menu-atencion/menu-atencion.service';
 import { MensajePreparado } from '../../common/whatsapp/interacciones/mensaje-interactivo';
 import {
@@ -626,8 +626,18 @@ export class IngestaWhatsappService {
    */
   private async responderSeleccion(conversacionId: string, telefono: string, lineaId: string, accion: AccionMenu, menu: MenuAtencion, mensajeId: string): Promise<void> {
     switch (accion.tipo) {
+      case 'CITA': {
+        /* Si la WABA de la línea tiene publicado el Flow de solicitud de cita, se lo
+           abre: especialidad, cuándo y horario llegan al chat ordenados. La
+           solicitud ya nació con el toque (si no completa el Flow, igual la ve una
+           persona); el Flow solo la completa. Sin Flow, la confirmación de siempre. */
+        const linea = await this.prisma.lineaWhatsapp.findUnique({ where: { id: lineaId }, select: { wabaId: true } });
+        const flow = flowDeCita(linea?.wabaId);
+        if (flow) { await this.enviarFlowDeCita(conversacionId, telefono, flow, accion.confirmacion); return; }
+        if (accion.confirmacion) await this.responderTexto(conversacionId, telefono, accion.confirmacion, { respetaPausa: false, noRepetir: true });
+        return;
+      }
       case 'PERSONA':
-      case 'CITA':
         /* Responde a lo que ella pidió, una vez: no es automatización que deba
            callarse ante la solicitud que esa misma opción acaba de crear. */
         if (accion.confirmacion) await this.responderTexto(conversacionId, telefono, accion.confirmacion, { respetaPausa: false, noRepetir: true });
@@ -658,6 +668,32 @@ export class IngestaWhatsappService {
       case 'EMERGENCIA':
         /* Ya tuvo su orientación. */
         return;
+    }
+  }
+
+  /**
+   * El Flow de solicitud de cita, como respuesta a «Solicitar una cita»: sale
+   * aunque el chat espere a una persona (esa espera la creó este mismo toque) y
+   * una sola vez cada 30 min. Es una oferta de UN uso (sin `origen`): completarlo
+   * dos veces deja la segunda respuesta como `DUPLICADA`.
+   */
+  private async enviarFlowDeCita(conversacionId: string, telefono: string, flow: FlowPublicado, confirmacion: string | null): Promise<void> {
+    try {
+      const cuerpo = confirmacion ?? 'Cuéntanos para qué es la cita y cuándo te queda mejor. Una persona del equipo te escribirá para confirmarla.';
+      const oferta = prepararOferta(
+        { tipo: 'flow', cuerpo, cta: 'Solicitar cita', flowId: flow.id, modo: 'published', inicio: { accion: 'navigate', pantalla: flow.pantalla } },
+        telefono,
+      );
+      const desde = new Date(this.ahora().getTime() - RESPUESTA_REPETIDA_MS);
+      const [fila] = await this.guardarMensajeAutomatico(conversacionId, [{ oferta }], async tx =>
+        !!(await tx.mensaje.findFirst({ where: { conversacionId, automatico: true, contenido: cuerpo, interaccion: { isNot: null }, createdAt: { gte: desde } }, select: { id: true } })),
+        { respetaPausa: false },
+      ) ?? [];
+      if (fila) await this.despachador.interaccion({ mensajeId: fila.id, conversacionId, telefono });
+    } catch (error) {
+      /* Que no se quede sin respuesta: la confirmación de siempre. */
+      this.logger.error('No se pudo enviar el Flow de solicitud de cita', error);
+      if (confirmacion) await this.responderTexto(conversacionId, telefono, confirmacion, { respetaPausa: false, noRepetir: true });
     }
   }
 

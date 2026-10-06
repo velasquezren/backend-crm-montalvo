@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { contratoDeFlow, validarBorradores, validarFlow, validarManifest } from "./validar-flows-locales.mjs";
+import { catalogoPublicado, contratoDeFlow, fuenteDelCatalogo, validarBorradores, validarFlow, validarManifest } from "./validar-flows-locales.mjs";
 
 const dir = new URL("../docs/whatsapp-interacciones/flows/", import.meta.url);
 const leer = (archivo) => JSON.parse(readFileSync(new URL(archivo, dir), "utf8"));
@@ -129,4 +129,22 @@ test("el manifest no apunta a ningún activo remoto ni habilita producción", ()
   const publicado = structuredClone(m.flows);
   publicado["solicitud-cita.v1.json"].borradorMeta.estado = "PUBLISHED";
   assert.throws(() => validarManifest({ ...m, flows: publicado }), /solo borradores/);
+});
+
+test("un ambiente encendido declara su WABA y Flows publicados; de ahí sale el catálogo que el CRM envía", () => {
+  const m = leer("manifest.json");
+  const prueba = { wabaId: "1699047341353103", flowIds: { "solicitud-cita.v1.json": "777" }, habilitado: true };
+  const conPrueba = { ...m, ambientes: { ...m.ambientes, prueba } };
+  validarManifest(conPrueba);
+  assert.throws(() => validarManifest({ ...m, ambientes: { ...m.ambientes, prueba: { ...prueba, wabaId: null } } }), /WABA/);
+  assert.throws(() => validarManifest({ ...m, ambientes: { ...m.ambientes, prueba: { ...prueba, flowIds: { "otro.json": "1" } } } }), /no está en el manifest/);
+  assert.throws(() => validarManifest({ ...m, ambientes: { ...m.ambientes, prueba: { ...prueba, flowIds: { "solicitud-cita.v1.json": "abc" } } } }), /ID publicado/);
+  /* Producción sigue apagada aunque otro ambiente esté encendido. */
+  assert.throws(() => validarManifest({ ...conPrueba, ambientes: { ...conPrueba.ambientes, produccion: { ...m.ambientes.produccion, habilitado: true } } }), /Producción/);
+
+  const catalogo = catalogoPublicado(conPrueba, validarBorradores());
+  assert.deepEqual(catalogo.map((f) => [f.id, f.wabaId, f.proposito, f.pantalla]), [["777", "1699047341353103", "SOLICITUD_CITA", "MOTIVO"]]);
+  assert.match(fuenteDelCatalogo(catalogo), /FLOWS_PUBLICADOS: readonly FlowPublicado\[\] = \[/);
+  /* Un ambiente apagado no aporta nada al catálogo. */
+  assert.deepEqual(catalogoPublicado(m, validarBorradores()), []);
 });

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
 
@@ -214,9 +214,20 @@ export function contratoDeFlow(flow, nombre, declarado) {
 export function validarManifest(manifest) {
   assert.equal(manifest.jsonVersion, "7.3");
   assert.equal(manifest.ambientes.produccion.habilitado, false, "Producción deshabilitada");
-  for (const ambiente of Object.values(manifest.ambientes)) {
-    assert.equal(ambiente.wabaId, null, "Ningún WABA hasta que se autorice");
-    assert.deepEqual(ambiente.flowIds, {}, "Ningún Flow remoto hasta que se autorice");
+  for (const [nombre, ambiente] of Object.entries(manifest.ambientes)) {
+    /* Un ambiente apagado no apunta a nada remoto. Uno encendido (con autorización
+       de René: hoy solo la WABA de prueba) declara su WABA y los Flows PUBLICADOS
+       en ella; de ahí sale el catálogo que el CRM puede enviar. */
+    if (ambiente.habilitado !== true) {
+      assert.equal(ambiente.wabaId, null, `${nombre}: ningún WABA hasta que se autorice`);
+      assert.deepEqual(ambiente.flowIds, {}, `${nombre}: ningún Flow remoto hasta que se autorice`);
+      continue;
+    }
+    assert.match(ambiente.wabaId ?? "", /^\d+$/, `${nombre}: WABA del ambiente`);
+    for (const [archivo, id] of Object.entries(ambiente.flowIds)) {
+      assert.ok(manifest.archivos.includes(archivo), `${nombre}: ${archivo} no está en el manifest`);
+      assert.match(id, /^\d+$/, `${nombre}: ID publicado de ${archivo}`);
+    }
   }
   assert.deepEqual(Object.keys(manifest.flows).sort(), [...manifest.archivos].sort(), "Cada archivo con su entrada en flows");
   for (const [archivo, f] of Object.entries(manifest.flows)) {
@@ -233,14 +244,37 @@ export function validarManifest(manifest) {
   }
 }
 
+const DIR_FLOWS = new URL("../docs/whatsapp-interacciones/flows/", import.meta.url);
+const leerFlow = (archivo) => JSON.parse(readFileSync(new URL(archivo, DIR_FLOWS), "utf8"));
+const CATALOGO = new URL("../src/modules/conversaciones/flows-publicados.ts", import.meta.url);
+
+/**
+ * Lo que el CRM puede enviar: cada Flow PUBLICADO en un ambiente encendido, con
+ * su contrato (derivado del JSON) y la WABA donde vive. El backend no lee docs/
+ * en tiempo de ejecución: este catálogo se genera a TypeScript y el build
+ * comprueba que el archivo coincide con el manifest.
+ */
+export function catalogoPublicado(manifest, flows) {
+  return Object.values(manifest.ambientes)
+    .filter((a) => a.habilitado === true)
+    .flatMap((a) => Object.entries(a.flowIds).map(([archivo, id]) => ({ id, wabaId: a.wabaId, ...flows.find((f) => f.archivo === archivo).contrato })));
+}
+
+export function fuenteDelCatalogo(catalogo) {
+  return (
+    "// GENERADO por `npm run flows:generar` desde docs/whatsapp-interacciones/flows/manifest.json.\n" +
+    "// No se edita a mano: `npm run check:flows` (parte del build) falla si no coincide.\n" +
+    "import type { FlowPublicado } from './interacciones-integracion';\n\n" +
+    `export const FLOWS_PUBLICADOS: readonly FlowPublicado[] = ${JSON.stringify(catalogo, null, 2)};\n`
+  );
+}
+
 export function validarBorradores() {
-  const dir = new URL("../docs/whatsapp-interacciones/flows/", import.meta.url);
-  const leer = (archivo) => JSON.parse(readFileSync(new URL(archivo, dir), "utf8"));
-  const manifest = leer("manifest.json");
+  const manifest = leerFlow("manifest.json");
   validarManifest(manifest);
   return manifest.archivos.map((archivo) => ({
     archivo,
-    contrato: contratoDeFlow(leer(archivo), archivo.replace(/\.json$/, ""), manifest.flows[archivo].contrato),
+    contrato: contratoDeFlow(leerFlow(archivo), archivo.replace(/\.json$/, ""), manifest.flows[archivo].contrato),
     pendientes: manifest.flows[archivo].pendientes,
     borradorMeta: manifest.flows[archivo].borradorMeta,
   }));
@@ -248,11 +282,16 @@ export function validarBorradores() {
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const flows = validarBorradores();
+  const catalogo = catalogoPublicado(leerFlow("manifest.json"), flows);
+  const fuente = fuenteDelCatalogo(catalogo);
+  if (process.argv.includes("--generar")) writeFileSync(CATALOGO, fuente);
+  else assert.equal(readFileSync(CATALOGO, "utf8"), fuente, "flows-publicados.ts no coincide con el manifest: corre `npm run flows:generar`");
   if (process.argv.includes("--contrato")) process.stdout.write(`${JSON.stringify(flows, null, 2)}\n`);
   else
     process.stdout.write(
       `${flows.length} Flows válidos localmente (límites de Meta 7.3 + reglas Montalvo).\n` +
         flows.map((f) => `  ${f.archivo}: ${f.borradorMeta ? `borrador en Meta ${f.borradorMeta.flowId} (WABA ${f.borradorMeta.wabaId}), sin publicar` : "sin crear en Meta"}\n`).join("") +
+        catalogo.map((f) => `  PUBLICADO ${f.version}: Flow ${f.id} en la WABA ${f.wabaId} (el CRM lo envía por sus líneas)\n`).join("") +
         flows.flatMap((f) => f.pendientes.map((p) => `  pendiente ${f.archivo}: ${p}\n`)).join(""),
     );
 }

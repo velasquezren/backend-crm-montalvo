@@ -8,6 +8,7 @@
   "scripts": {
     "build": "npm run check:skills && npm run check:flows && nest build && npm run check:build",
     "check:flows": "node scripts/validar-flows-locales.mjs",
+    "flows:generar": "node scripts/validar-flows-locales.mjs --generar",
     "test:flows": "node --test scripts/validar-flows-locales.test.mjs",
     "check:build": "node scripts/verificar-build.mjs",
     "test:build": "node --test scripts/verificar-build.test.mjs",
