@@ -1,5 +1,18 @@
 # Estado actual
 
+## Revisión de pagos y validación general — 6 de octubre de 2026
+
+- Retomar un QR renueva el plazo del comprobante sin cambiar el importe congelado.
+- Una confirmación sin venta enlazada queda como «Registro pendiente» y quien la
+  inició puede completarla; no desaparece ni permite abrir un segundo cobro.
+- El resultado de confirmar/pedir otro distingue guardar el pago de preparar su
+  aviso. Si no se pudo enviar, la interfaz lo advierte sin afirmar que avisó.
+- Validación: 876 unitarias, 808 integraciones, incluidas 23 comprobaciones con Excel
+  reales ejecutadas expresamente; frontend 621. Resultados 72, portal 5, landing 17.
+- Alcance, cambios y límites: [auditoría del 6 de octubre](auditoria-2026-10-06.md).
+- Las entradas inferiores son históricas: los pagos ya están en main y en el piloto
+  de la línea de prueba. «Local, sin desplegar» describe la fase inicial.
+
 ## Flow de cita desde el menú, publicado en la WABA de prueba — 6 de octubre de 2026
 
 - «Solicitar una cita» del menú abre el Flow `montalvo_solicitud_cita_v1` si la WABA de la línea lo

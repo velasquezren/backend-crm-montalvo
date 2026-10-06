@@ -9,6 +9,10 @@ import { EstadoPagoPromocion, Prisma } from '../../prisma/prisma-client';
 
 /** Los estados en que el pago sigue en curso: como mucho uno por conversación. */
 export const PAGO_ABIERTO: readonly EstadoPagoPromocion[] = ['PENDIENTE', 'COMPROBANTE_ENVIADO'];
+/** Una confirmación sin venta enlazada sigue pendiente de completar. */
+export const PAGO_EN_CURSO = {
+  OR: [{ estado: { in: [...PAGO_ABIERTO] } }, { estado: 'CONFIRMADO', ventaId: null }],
+} satisfies Prisma.PagoPromocionWhereInput;
 
 /**
  * Cuánto se espera el comprobante de un pago pedido (desde el QR o desde que se
@@ -41,10 +45,13 @@ export interface PagoDelChat {
   comprobanteMensajeId: string | null;
   motivoRechazo: string | null;
   ventaId: string | null;
+  registroPendiente: boolean;
   cerradoPor: { id: string; nombre: string } | null;
   cerradoEn: Date | null;
   createdAt: Date;
 }
+
+export type ResultadoAccionPago = (PagoDelChat & { avisoPaciente?: 'ENCOLADO' | 'NO_ENVIADO' }) | null;
 
 /**
  * El pago que se muestra en el chat: el abierto, o el último cerrado de los
@@ -54,7 +61,7 @@ export interface PagoDelChat {
 export async function pagoDelChat(db: Prisma.TransactionClient, conversacionId: string): Promise<PagoDelChat | null> {
   const desde = new Date(Date.now() - DIAS_VISIBLE_CERRADO * 86_400_000);
   const abierto = await db.pagoPromocion.findFirst({
-    where: { conversacionId, estado: { in: [...PAGO_ABIERTO] } },
+    where: { conversacionId, ...PAGO_EN_CURSO },
     orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
     select: SELECT_PAGO,
   });
@@ -63,7 +70,7 @@ export async function pagoDelChat(db: Prisma.TransactionClient, conversacionId: 
     orderBy: [{ cerradoEn: 'desc' }, { id: 'desc' }],
     select: SELECT_PAGO,
   });
-  return fila ? { ...fila, monto: fila.monto.toNumber() } : null;
+  return fila ? { ...fila, monto: fila.monto.toNumber(), registroPendiente: fila.estado === 'CONFIRMADO' && !fila.ventaId } : null;
 }
 
 /**

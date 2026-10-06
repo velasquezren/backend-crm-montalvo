@@ -370,6 +370,55 @@ describe('de la landing al pago confirmado', () => {
     expect(await prisma.venta.count({ where: { cliente: { telefono } } })).toBe(1);
   });
 
+  it('retomar el mismo QR después de 72 h vuelve a admitir el comprobante y conserva el monto', async () => {
+    await configurarCobro();
+    const { chat: id, tarjeta } = await llegarPorLaLanding();
+    await pagar(id, tarjeta);
+    const pago = await pagoAbierto(id);
+    await prisma.$executeRaw`UPDATE "PagoPromocion" SET "updatedAt" = now() - interval '73 hours' WHERE id = ${pago.id}`;
+    await prisma.promocion.update({ where: { id: promocionId }, data: { precioPromocional: 300 } });
+    const inicio = await app.get(PromocionesChatService).iniciar(id, ventas, promocionId);
+    expect(inicio).toMatchObject({ pagoId: pago.id, texto: expect.stringContaining('Bs 280') });
+    const comprobanteMensajeId = await mandarComprobante(id);
+    expect(await pagoAbierto(id)).toMatchObject({ id: pago.id, estado: 'COMPROBANTE_ENVIADO', comprobanteMensajeId });
+    expect(await prisma.pagoPromocion.count({ where: { conversacionId: id } })).toBe(1);
+  });
+
+  it('la venta se registra sin ventana de WhatsApp, pero la respuesta advierte que el aviso no salió', async () => {
+    await configurarCobro();
+    const { chat: id, tarjeta } = await llegarPorLaLanding();
+    await pagar(id, tarjeta); await mandarComprobante(id);
+    await reposo();
+    await prisma.mensaje.updateMany({ where: { conversacionId: id, direccion: 'ENTRANTE' }, data: { createdAt: new Date(Date.now() - 25 * 3_600_000) } });
+    const pago = await pagoAbierto(id);
+    const r = await http(`/conversaciones/${id}/pagos/${pago.id}/confirmar`, 'POST');
+    expect(r.status).toBe(201);
+    expect(r.body).toMatchObject({ estado: 'CONFIRMADO', avisoPaciente: 'NO_ENVIADO', ventaId: expect.any(String) });
+    expect(await prisma.venta.count({ where: { cliente: { telefono } } })).toBe(1);
+    expect(await prisma.mensaje.count({ where: { conversacionId: id, contenido: { startsWith: 'Confirmamos tu pago' } } })).toBe(0);
+  });
+
+  it('una confirmación interrumpida sigue visible y no admite otro QR; quien la inició puede completarla', async () => {
+    await configurarCobro();
+    const { chat: id, tarjeta } = await llegarPorLaLanding();
+    await pagar(id, tarjeta); await mandarComprobante(id);
+    const pago = await pagoAbierto(id);
+    // Estado persistido entre reclamar y enlazar la venta (por ejemplo, un reinicio).
+    await prisma.pagoPromocion.update({ where: { id: pago.id }, data: {
+      estado: 'CONFIRMADO', cerradoPorId: usuarios.agente.id, cerradoEn: new Date(Date.now() - 15 * 86_400_000),
+    } });
+    const detalle = await http(`/conversaciones/${id}`);
+    expect(detalle.body.pago).toMatchObject({ id: pago.id, registroPendiente: true, ventaId: null });
+    expect(await app.get(PromocionesChatService).iniciar(id, ventas, promocionId)).toBe('EN_VERIFICACION');
+    expect(await prisma.pagoPromocion.count({ where: { conversacionId: id } })).toBe(1);
+    expect((await http(`/conversaciones/${id}/pagos/${pago.id}/confirmar`, 'POST', usuarios.admin.token)).status).toBe(409);
+    const r = await http(`/conversaciones/${id}/pagos/${pago.id}/confirmar`, 'POST');
+    expect(r.status).toBe(201);
+    expect(r.body).toMatchObject({ registroPendiente: false, ventaId: expect.any(String) });
+    expect((await http(`/conversaciones/${id}/pagos/${pago.id}/confirmar`, 'POST')).status).toBe(201);
+    expect(await prisma.venta.count({ where: { cliente: { telefono } } })).toBe(1);
+  });
+
   it('una foto días después del QR ya no cuenta como comprobante', async () => {
     await configurarCobro();
     const { chat: id, tarjeta } = await llegarPorLaLanding();

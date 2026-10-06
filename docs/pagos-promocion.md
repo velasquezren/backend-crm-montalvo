@@ -63,17 +63,23 @@ dentro del menú, que nunca llegó a producción).
   promoción anula el pendiente; si ya mandó comprobante de otra, lo resuelve una persona.
 - **El comprobante** es la primera imagen o documento que llega con un pago PENDIENTE de
   hace menos de 72 h (`HORAS_ESPERA_COMPROBANTE`; compare-and-set: dos fotos simultáneas no
-  marcan dos). Volver a tocar «Pagar ahora» retoma el mismo pago con su monto; si su
+  marcan dos). Volver a tocar «Pagar ahora» retoma el mismo pago con su monto y renueva
+  las 72 h para recibir el comprobante; si su
   comprobante ya está en revisión, no se le manda otro QR. Sube a «Atención» con motivo
   `COMPROBANTE_PAGO` (prioridad normal, antes de `REVISION` en el orden).
 - **Confirmar** exige rango de agente (registra una venta) y que la descarga del
   comprobante haya terminado (si no, 409). Primero **reclama** el pago (compare-and-set a
   `CONFIRMADO` sin venta), después crea la venta y la enlaza; si la venta falla, el pago vuelve
-  a «por verificar». Un reclamo a medias solo lo completa quien lo hizo. Copia el archivo a `comprobantes/<agente>/` (la
+  a «por verificar». Un reclamo a medias solo lo completa quien lo hizo: el chat muestra
+  «Registro pendiente» y «Completar registro», conserva el pago visible aunque hayan pasado
+  14 días y bloquea otro QR mientras se termina (`PAGO_EN_CURSO`). Al completar, renueva
+  la fecha de cierre y mantiene la misma clave de venta para no duplicarla. Copia el archivo a `comprobantes/<agente>/` (la
   carpeta que `VentasService` acepta como respaldo propio). Resuelve la solicitud de
   atención solo si es la de ESE comprobante; otra (pidió una persona, una emergencia) sigue.
 - **Fuera de la ventana de 24 h** el aviso de confirmación no puede salir como texto libre:
-  el pago queda resuelto igual y queda en el log; la persona le escribe con una plantilla.
+  el pago queda resuelto igual y el CRM muestra una advertencia; la persona le escribe con
+  una plantilla. Confirmar y pedir otro devuelven `avisoPaciente: ENCOLADO | NO_ENVIADO`.
+  Preparar un aviso no acredita su entrega: esta se consulta en el mensaje del chat.
 
 ## Datos
 

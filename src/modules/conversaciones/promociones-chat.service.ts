@@ -15,7 +15,7 @@ import { auditarResolucion, bloquearSolicitudViva, CANDADO_AUTOMATICOS, SIN_ATEN
 import { ConversacionesGateway } from './conversaciones.gateway';
 import { ConversacionesService } from './conversaciones.service';
 import { obtenerConversacionPropia } from './envio-comun';
-import { PAGO_ABIERTO, PagoDelChat, pagoDelChat, uuidEstable } from './pagos-chat';
+import { PAGO_ABIERTO, PAGO_EN_CURSO, PagoDelChat, ResultadoAccionPago, pagoDelChat, uuidEstable } from './pagos-chat';
 import { tarjetaDePromocion, textoOtroComprobante, textoPagoConfirmado } from './promocion-chat';
 
 /** Lo que hay que mandarle a la paciente al empezar el pago: el QR y su pie. */
@@ -109,13 +109,20 @@ export class PromocionesChatService {
          simultáneos a «Pagar ahora» no abren dos pagos. */
       await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${conversacionId}, ${CANDADO_AUTOMATICOS}))::text`;
       const abierto = await tx.pagoPromocion.findFirst({
-        where: { conversacionId, estado: { in: [...PAGO_ABIERTO] } },
+        where: { conversacionId, ...PAGO_EN_CURSO },
         orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
         select: { id: true, promocionId: true, estado: true, monto: true },
       });
       /* Retoma el suyo con SU monto congelado: si el precio cambió entretanto, lo
          que se le dice es lo que se registrará al confirmar. */
-      if (abierto?.promocionId === promocionId) return abierto;
+      if (abierto?.estado === 'CONFIRMADO') return abierto;
+      if (abierto?.promocionId === promocionId) {
+        if (abierto.estado === 'PENDIENTE') {
+          // Retomar el QR abre otra ventana para recibir su comprobante.
+          await tx.pagoPromocion.updateMany({ where: { id: abierto.id, estado: 'PENDIENTE' }, data: { updatedAt: new Date() } });
+        }
+        return abierto;
+      }
       if (abierto?.estado === 'COMPROBANTE_ENVIADO') return null; // ya pagó otra: lo resuelve una persona
       if (abierto) {
         await tx.pagoPromocion.update({ where: { id: abierto.id }, data: { estado: 'ANULADO', motivoRechazo: 'Eligió otra promoción.', cerradoEn: new Date() } });
@@ -123,7 +130,7 @@ export class PromocionesChatService {
       return tx.pagoPromocion.create({ data: { conversacionId, lineaId, promocionId, monto }, select: { id: true, promocionId: true, estado: true, monto: true } });
     });
     if (!pago) return null;
-    if (pago.estado === 'COMPROBANTE_ENVIADO') return 'EN_VERIFICACION';
+    if (pago.estado === 'COMPROBANTE_ENVIADO' || pago.estado === 'CONFIRMADO') return 'EN_VERIFICACION';
     this.gateway.emitirActividad(conversacionId);
     return {
       pagoId: pago.id,
@@ -146,7 +153,7 @@ export class PromocionesChatService {
    * idempotente por pago (`clientRequestId`) y el paso 3 se completa. Después, la
    * paciente recibe la confirmación como un mensaje de quien confirmó.
    */
-  async confirmar(conversacionId: string, pagoId: string, usuario: UsuarioJwt, soloAgenteId?: string): Promise<PagoDelChat | null> {
+  async confirmar(conversacionId: string, pagoId: string, usuario: UsuarioJwt, soloAgenteId?: string): Promise<ResultadoAccionPago> {
     if (!cubreRol(usuario.rol, 'AGENTE')) throw new ForbiddenException('Confirmar un pago registra una venta: lo hace una agente o un admin.');
     const conversacion = await obtenerConversacionPropia(this.prisma, conversacionId, soloAgenteId);
     const pago = await this.prisma.pagoPromocion.findFirst({
@@ -212,19 +219,20 @@ export class PromocionesChatService {
 
     /* 3. Enlazar, sacar de «Atención» y dejar constancia, juntos. */
     await this.prisma.$transaction(async tx => {
-      await tx.pagoPromocion.update({ where: { id: pago.id }, data: { ventaId } });
+      await tx.pagoPromocion.update({ where: { id: pago.id }, data: { ventaId, cerradoEn: new Date() } });
       await this.resolverAtencionDelComprobante(tx, conversacionId, comprobanteMensajeId, usuario.sub);
       await tx.auditLog.create({
         data: { entidad: 'PagoPromocion', entidadId: pago.id, accion: 'PAGO_CONFIRMADO', usuarioId: usuario.sub, cambios: { ventaId, monto, promocionId: pago.promocionId } },
       });
     });
-    await this.avisarPaciente(conversacionId, textoPagoConfirmado(pago.promocion.titulo, monto), usuario.sub, soloAgenteId, `pago-confirmado:${pago.id}`);
+    const avisoPaciente = await this.avisarPaciente(conversacionId, textoPagoConfirmado(pago.promocion.titulo, monto), usuario.sub, soloAgenteId, `pago-confirmado:${pago.id}`);
     this.gateway.emitirActividad(conversacionId);
-    return pagoDelChat(this.prisma, conversacionId);
+    const actual = await pagoDelChat(this.prisma, conversacionId);
+    return actual ? { ...actual, avisoPaciente } : null;
   }
 
   /** El comprobante no sirve: vuelve a esperar uno, con el motivo, y se le pide otro. */
-  async pedirOtroComprobante(conversacionId: string, pagoId: string, motivo: string, usuario: UsuarioJwt, soloAgenteId?: string): Promise<PagoDelChat | null> {
+  async pedirOtroComprobante(conversacionId: string, pagoId: string, motivo: string, usuario: UsuarioJwt, soloAgenteId?: string): Promise<ResultadoAccionPago> {
     await obtenerConversacionPropia(this.prisma, conversacionId, soloAgenteId);
     const anterior = await this.prisma.$transaction(async tx => {
       const pago = await tx.pagoPromocion.findFirst({ where: { id: pagoId, conversacionId }, select: { comprobanteMensajeId: true, estado: true } });
@@ -238,9 +246,10 @@ export class PromocionesChatService {
       await tx.auditLog.create({ data: { entidad: 'PagoPromocion', entidadId: pagoId, accion: 'COMPROBANTE_RECHAZADO', usuarioId: usuario.sub, cambios: { motivo } } });
       return pago.comprobanteMensajeId;
     });
-    await this.avisarPaciente(conversacionId, textoOtroComprobante(motivo), usuario.sub, soloAgenteId, `otro-comprobante:${pagoId}:${anterior ?? ''}`);
+    const avisoPaciente = await this.avisarPaciente(conversacionId, textoOtroComprobante(motivo), usuario.sub, soloAgenteId, `otro-comprobante:${pagoId}:${anterior ?? ''}`);
     this.gateway.emitirActividad(conversacionId);
-    return pagoDelChat(this.prisma, conversacionId);
+    const actual = await pagoDelChat(this.prisma, conversacionId);
+    return actual ? { ...actual, avisoPaciente } : null;
   }
 
   /** Se cierra sin venta (desistió, pagó de otra forma). No le escribe: lo hace la persona si hace falta. */
@@ -299,11 +308,13 @@ export class PromocionesChatService {
    * respondió alguien). Si la ventana de 24 h se cerró no puede salir texto libre;
    * el pago ya quedó resuelto igual y la persona le escribe con una plantilla.
    */
-  private async avisarPaciente(conversacionId: string, texto: string, usuarioId: string, soloAgenteId: string | undefined, intencion: string): Promise<void> {
+  private async avisarPaciente(conversacionId: string, texto: string, usuarioId: string, soloAgenteId: string | undefined, intencion: string): Promise<'ENCOLADO' | 'NO_ENVIADO'> {
     try {
       await this.conversaciones.enviarMensaje(conversacionId, texto, usuarioId, soloAgenteId, undefined, uuidEstable(intencion));
+      return 'ENCOLADO';
     } catch (error) {
       this.logger.warn(`El pago se resolvió pero no se pudo avisar a la paciente: ${error instanceof Error ? error.message : String(error)}`);
+      return 'NO_ENVIADO';
     }
   }
 }
