@@ -114,6 +114,8 @@ model Usuario {
   updatedAt             DateTime               @updatedAt
   avisosResultado       AvisoResultado[]
   campanas              Campana[]
+  promocionesCreadas    Promocion[]            @relation("PromocionCreadaPor")
+  promocionesRevisadas  Promocion[]            @relation("PromocionRevisadaPor")
 }
 
 model SesionUsuario {
@@ -973,6 +975,10 @@ model Medico {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  /// Su ficha pública (directorio de la landing), si la tiene. La escribe
+  /// `modules/directorio`; este modelo sigue siendo de comisiones.
+  perfil PerfilMedico?
+
   @@index([activo])
 }
 
@@ -1543,4 +1549,223 @@ model CampanaDestinatario {
   /// Una paciente, una vez por campaña: es lo que impide mandarle dos.
   @@unique([campanaId, clienteId])
   @@index([campanaId, estado, orden])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Directorio médico (modules/directorio): especialidades, fichas públicas de
+// los médicos y su horario semanal INFORMATIVO. Las citas reales siguen en el
+// sistema de agenda de la clínica; esto es lo que se publica y lo que el CRM
+// (y más adelante la IA) sabe de cada médico. Diseño: docs/promociones-y-directorio.md
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Especialidad {
+  id          String   @id @default(uuid())
+  nombre      String   @unique @db.VarChar(80)
+  /// Para la URL pública (`/especialidades/ginecologia`). Estable una vez creada.
+  slug        String   @unique @db.VarChar(80)
+  descripcion String   @default("") @db.VarChar(600)
+  /// false = no se muestra ni se ofrece. No se borra: hay fichas y promociones que la citan.
+  activa      Boolean  @default(true)
+  orden       Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  medicos     PerfilMedicoEspecialidad[]
+  promociones Promocion[]
+
+  @@index([activa, orden])
+}
+
+/// La ficha pública de un médico. Enlazada (opcionalmente) al `Medico` que crea
+/// el importador de comisiones con su código de FileMaker: así es la MISMA
+/// persona para la planilla, las ventas y el directorio.
+model PerfilMedico {
+  id             String   @id @default(uuid())
+  medicoId       String?  @unique
+  medico         Medico?  @relation(fields: [medicoId], references: [id], onDelete: SetNull)
+  /// Como se presenta a pacientes: «Dra. Claudia Azogue Rivera».
+  nombrePublico  String   @db.VarChar(120)
+  slug           String   @unique @db.VarChar(120)
+  resumen        String   @default("") @db.VarChar(300)
+  biografia      String   @default("") @db.VarChar(3000)
+  /// Registro profesional, si la clínica quiere mostrarlo.
+  matricula      String?  @db.VarChar(40)
+  /// Precio de la consulta en Bs. Null = no se publica precio.
+  precioConsulta Decimal? @db.Decimal(10, 2)
+  /// Foto en R2 (`directorio/<id>/<fotoId>.<ext>`). `fotoId` cambia con cada
+  /// foto nueva: la URL pública es inmutable y se puede cachear para siempre.
+  fotoId         String?  @db.VarChar(40)
+  fotoClave      String?  @db.VarChar(200)
+  fotoMime       String?  @db.VarChar(40)
+  /// false = solo lo ve el CRM. Publicar exige al menos una especialidad.
+  publicado      Boolean  @default(false)
+  orden          Int      @default(0)
+  /// Bloqueo optimista: cada edición manda la versión que leyó.
+  version        Int      @default(1)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  especialidades PerfilMedicoEspecialidad[]
+  horarios       HorarioMedico[]
+  ausencias      AusenciaMedico[]
+  promociones    PromocionMedico[]
+
+  @@index([publicado, orden])
+}
+
+model PerfilMedicoEspecialidad {
+  perfilMedicoId String
+  perfilMedico   PerfilMedico @relation(fields: [perfilMedicoId], references: [id], onDelete: Cascade)
+  especialidadId String
+  especialidad   Especialidad @relation(fields: [especialidadId], references: [id], onDelete: Restrict)
+
+  @@id([perfilMedicoId, especialidadId])
+  @@index([especialidadId])
+}
+
+/// Un bloque del horario semanal: «los lunes de 8:00 a 12:00». Informativo: no
+/// genera cupos ni reservas. Las horas van en minutos desde la medianoche de La Paz.
+model HorarioMedico {
+  id             String       @id @default(uuid())
+  perfilMedicoId String
+  perfilMedico   PerfilMedico @relation(fields: [perfilMedicoId], references: [id], onDelete: Cascade)
+  /// ISO: 1 = lunes … 7 = domingo.
+  diaSemana      Int          @db.SmallInt
+  inicioMinuto   Int          @db.SmallInt
+  finMinuto      Int          @db.SmallInt
+  /// «Consultorio 3», «Sede Equipetrol». Opcional.
+  lugar          String?      @db.VarChar(80)
+
+  @@index([perfilMedicoId, diaSemana])
+}
+
+/// Días en que no atiende (vacaciones, congreso). Se publica para no ofrecer lo que no hay.
+model AusenciaMedico {
+  id             String       @id @default(uuid())
+  perfilMedicoId String
+  perfilMedico   PerfilMedico @relation(fields: [perfilMedicoId], references: [id], onDelete: Cascade)
+  desde          DateTime     @db.Date
+  hasta          DateTime     @db.Date
+  /// Lo que se dice al público, sin detalles personales: «Vacaciones».
+  motivoPublico  String?      @db.VarChar(120)
+  createdAt      DateTime     @default(now())
+
+  @@index([perfilMedicoId, hasta])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Promociones (modules/promociones): la oferta, sus banners por formato, los
+// anuncios de Meta que la publicitan y los médicos que la atienden.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Ciclo de vida. Las transiciones legales viven en `modules/promociones/promocion-reglas.ts`.
+enum EstadoPromocion {
+  /// La redacta una agente.
+  BORRADOR
+  /// Esperando que un ADMIN la publique o la devuelva.
+  EN_REVISION
+  /// A la vista de pacientes mientras esté vigente.
+  PUBLICADA
+  /// Retirada a mano; se puede volver a publicar.
+  PAUSADA
+  /// Terminada. Solo histórico.
+  ARCHIVADA
+}
+
+/// Formato del banner, por proporción. Cada uno tiene su uso (ver `FORMATOS_BANNER`).
+enum FormatoBanner {
+  CUADRADO
+  VERTICAL
+  HISTORIA
+  HORIZONTAL
+}
+
+model Promocion {
+  id                String          @id @default(uuid())
+  /// Código corto y estable («PRM-7K3QX»): viaja en el enlace de WhatsApp de la
+  /// landing para saber de qué promoción viene una paciente.
+  codigo            String          @unique @db.VarChar(16)
+  slug              String          @unique @db.VarChar(90)
+  titulo            String          @db.VarChar(80)
+  /// Una línea para tarjetas y listas.
+  resumen           String          @db.VarChar(160)
+  descripcion       String          @default("") @db.VarChar(4000)
+  /// Letra chica: qué incluye, qué no, hasta cuándo. Obligatoria si hay precio u oferta.
+  condiciones       String          @default("") @db.VarChar(2000)
+  /// «2x1», «-20 %». Corta, para el sello del banner o la tarjeta.
+  etiquetaOferta    String?         @db.VarChar(24)
+  /// En Bs. Null = no se publica.
+  precioRegular     Decimal?        @db.Decimal(10, 2)
+  precioPromocional Decimal?        @db.Decimal(10, 2)
+  /// Días de calendario de La Paz, inclusive. `vigenteHasta` null = sin fecha de fin.
+  vigenteDesde      DateTime        @db.Date
+  vigenteHasta      DateTime?       @db.Date
+  estado            EstadoPromocion @default(BORRADOR)
+  destacada         Boolean         @default(false)
+  /// Dónde se ofrece. Publicada y vigente es condición necesaria, no suficiente.
+  enLanding         Boolean         @default(true)
+  enWhatsapp        Boolean         @default(true)
+  especialidadId    String?
+  especialidad      Especialidad?   @relation(fields: [especialidadId], references: [id], onDelete: SetNull)
+  creadaPorId       String?
+  creadaPor         Usuario?        @relation("PromocionCreadaPor", fields: [creadaPorId], references: [id], onDelete: SetNull)
+  /// Quien la publicó o la devolvió por última vez.
+  revisadaPorId     String?
+  revisadaPor       Usuario?        @relation("PromocionRevisadaPor", fields: [revisadaPorId], references: [id], onDelete: SetNull)
+  publicadaEn       DateTime?
+  /// Por qué un ADMIN la devolvió a borrador. Se borra al reenviarla.
+  motivoDevolucion  String?         @db.VarChar(500)
+  /// Bloqueo optimista: cada edición manda la versión que leyó.
+  version           Int             @default(1)
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  imagenes PromocionImagen[]
+  anuncios PromocionAnuncio[]
+  medicos  PromocionMedico[]
+
+  @@index([estado, vigenteHasta])
+  @@index([especialidadId])
+  @@index([creadaPorId])
+  @@index([revisadaPorId])
+}
+
+/// Un banner por formato. Reemplazarlo crea otra fila (otro id, otra URL pública inmutable).
+model PromocionImagen {
+  id               String        @id @default(uuid())
+  promocionId      String
+  promocion        Promocion     @relation(fields: [promocionId], references: [id], onDelete: Cascade)
+  formato          FormatoBanner
+  /// Clave en R2: `promociones/<promocionId>/<id>.<ext>`.
+  clave            String        @db.VarChar(200)
+  mime             String        @db.VarChar(40)
+  ancho            Int
+  alto             Int
+  bytes            Int
+  /// Lo que lee un lector de pantalla. Obligatorio.
+  textoAlternativo String        @db.VarChar(200)
+  createdAt        DateTime      @default(now())
+
+  @@unique([promocionId, formato])
+}
+
+/// Un anuncio de Meta (el `source_id` del referral de Click-to-WhatsApp o el `ad_id`
+/// de Lead Ads) que publicita una promoción. Un anuncio, una promoción.
+model PromocionAnuncio {
+  anuncioId   String    @id @db.VarChar(64)
+  promocionId String
+  promocion   Promocion @relation(fields: [promocionId], references: [id], onDelete: Cascade)
+  createdAt   DateTime  @default(now())
+
+  @@index([promocionId])
+}
+
+model PromocionMedico {
+  promocionId    String
+  promocion      Promocion    @relation(fields: [promocionId], references: [id], onDelete: Cascade)
+  perfilMedicoId String
+  perfilMedico   PerfilMedico @relation(fields: [perfilMedicoId], references: [id], onDelete: Cascade)
+
+  @@id([promocionId, perfilMedicoId])
+  @@index([perfilMedicoId])
 }
