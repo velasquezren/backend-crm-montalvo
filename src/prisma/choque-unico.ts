@@ -63,3 +63,13 @@ export function campoDeIndice(candidato: string, tabla?: string): string {
   const prefijo = tabla ? `${tabla}_` : '';
   return prefijo && sinSufijo.startsWith(prefijo) ? sinSufijo.slice(prefijo.length) : sinSufijo;
 }
+
+/**
+ * ¿El error es un P2002 sobre `campo` de `tabla`? La forma corta de las tres de
+ * arriba para el caso corriente: «si chocó el slug, pruebo con otro; si chocó
+ * otra cosa, que suba».
+ */
+export function esChoqueUnicoEn(error: unknown, tabla: string, campo: string): boolean {
+  if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2002') return false;
+  return candidatosDeChoqueUnico(error).some(c => campoDeIndice(c, tabla) === campo);
+}

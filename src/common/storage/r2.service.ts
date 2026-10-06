@@ -141,6 +141,26 @@ export class R2Service {
     }
   }
 
+  /**
+   * El objeto tal cual, para servirlo desde la API (imágenes públicas de
+   * promociones y del directorio, que no pueden ir con una URL firmada que
+   * caduca: la landing y Meta las guardan en caché). `null` si no existe.
+   */
+  async leer(key: string): Promise<{ cuerpo: ReadableStream<Uint8Array>; tipo: string | null; bytes: number | null } | null> {
+    if (!this.client) return null;
+    const resp = await this.client.fetch(`${this.baseUrl}/${key}`, { method: 'GET', signal: AbortSignal.timeout(15_000) });
+    if (resp.status === 404) {
+      await resp.body?.cancel();
+      return null;
+    }
+    if (!resp.ok || !resp.body) {
+      await resp.body?.cancel();
+      throw new Error(`R2 GET ${resp.status}`);
+    }
+    const largo = Number(resp.headers.get('content-length'));
+    return { cuerpo: resp.body, tipo: resp.headers.get('content-type'), bytes: Number.isFinite(largo) && largo > 0 ? largo : null };
+  }
+
   async eliminar(key: string): Promise<void> {
     if (!this.client) return;
     await this.client.fetch(`${this.baseUrl}/${key}`, { method: 'DELETE' });

@@ -163,3 +163,28 @@ export function desplazarEnCalendarioClinica(instante: Date, cambio: { dias?: nu
   const base = instanteDe(p.anio, p.mes + (cambio.meses ?? 0), p.dia + (cambio.dias ?? 0), instante, p.hora, p.minuto);
   return new Date(base.getTime() + p.segundo * 1000 + instante.getUTCMilliseconds());
 }
+
+/**
+ * El día de calendario de La Paz como `Date` a medianoche UTC: la forma en que
+ * Prisma lee y escribe una columna `@db.Date`. Sirve para comparar «hoy» con
+ * vigencias y ausencias guardadas como fecha, sin que la zona del VPS (Estados
+ * Unidos) adelante el día entre las 20:00 y la medianoche.
+ */
+export function fechaCivilClinica(instante: Date): Date {
+  const p = partes(instante);
+  return new Date(Date.UTC(p.anio, p.mes - 1, p.dia));
+}
+
+/** «2026-10-13» → esa fecha civil (medianoche UTC), o `null` si no existe (31 de febrero). */
+export function fechaCivilDesdeTexto(texto: string): Date | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(texto);
+  if (!m) return null;
+  const [anio, mes, dia] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  const fecha = new Date(Date.UTC(anio, mes - 1, dia));
+  return fecha.getUTCFullYear() === anio && fecha.getUTCMonth() === mes - 1 && fecha.getUTCDate() === dia ? fecha : null;
+}
+
+/** Una fecha civil (`@db.Date`) como «2026-10-13». */
+export function textoDeFechaCivil(fecha: Date): string {
+  return fecha.toISOString().slice(0, 10);
+}

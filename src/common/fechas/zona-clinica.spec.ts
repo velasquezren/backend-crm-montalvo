@@ -106,3 +106,19 @@ describe('desplazarEnCalendarioClinica', () => {
     expect(desplazarEnCalendarioClinica(new Date('2026-10-28T02:00:00.000Z'), { dias: 7 }).toISOString()).toBe('2026-11-04T02:00:00.000Z');
   });
 });
+
+describe('fecha civil de La Paz (columnas @db.Date)', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { fechaCivilClinica, fechaCivilDesdeTexto, textoDeFechaCivil } = require('./zona-clinica') as typeof import('./zona-clinica');
+
+  it('a las 21:00 de La Paz sigue siendo el mismo día, aunque en UTC ya sea mañana', () => {
+    expect(textoDeFechaCivil(fechaCivilClinica(new Date('2026-10-14T01:00:00Z')))).toBe('2026-10-13');
+    expect(textoDeFechaCivil(fechaCivilClinica(new Date('2026-10-14T04:00:00Z')))).toBe('2026-10-14');
+  });
+
+  it('valida que la fecha exista', () => {
+    expect(fechaCivilDesdeTexto('2026-02-29')).toBeNull();
+    expect(fechaCivilDesdeTexto('2028-02-29')?.toISOString()).toBe('2028-02-29T00:00:00.000Z');
+    expect(fechaCivilDesdeTexto('13/10/2026')).toBeNull();
+  });
+});
