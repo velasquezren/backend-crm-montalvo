@@ -103,24 +103,36 @@ nunca versión, autor, anuncios, resultados, código de FileMaker ni claves de R
 | `GET /publico/promociones/:slug` | Una, si está visible |
 | `GET /publico/promociones/imagenes/:id` | El banner, solo si su promoción está visible |
 | `GET /publico/directorio/especialidades` | Activas, con cuántos médicos publicados tiene cada una |
-| `GET /publico/directorio/medicos?especialidad=` | Fichas publicadas con horario y resumen |
+| `GET /publico/directorio/medicos?especialidad=` | Fichas publicadas con horario, resumen y sus próximas 5 ausencias |
 | `GET /publico/directorio/medicos/:slug` | Una ficha con biografía y próximas ausencias |
 | `GET /publico/directorio/fotos/:id` | La foto, solo si la ficha está publicada |
 
 Las URL de imágenes son absolutas con `CRM_URL_PUBLICA` (la que ya usan las cabeceras de
 plantillas); sin ella, relativas.
 
-**Encaje con la reserva de la landing** (`booking/types.ts`): `Specialty` ← especialidad
-(`slug`, `nombre`, `descripcion`); `Doctor` ← ficha (`slug`, primera especialidad, `nombre`,
-`fotoUrl`, `resumenHorario`, `precioConsulta`). `getDays`/`getAvailability` siguen sin backend:
-no hay cupos reales hasta integrar la agenda de la clínica.
+**La landing la consume desde el 5/10** (repo `landing-montalvo`, `docs/integracion-crm.md`):
+promociones, staff médico, especialidades y la solicitud de consulta por WhatsApp de `/reservar`
+(día y franja preferidos, sin cupos: no hay agenda real hasta integrar la de la clínica).
+
+### Aviso a la landing (`common/landing/aviso-landing.service.ts`)
+
+Al cambiar algo que la landing muestra, el CRM llama a `LANDING_REVALIDAR_URL` con
+`Authorization: Bearer LANDING_REVALIDAR_SECRETO` y `{ etiquetas: [...] }`, y la landing descarta
+lo guardado al instante (sin el aviso, se renueva sola cada 5 minutos).
+
+- **Promociones**: solo si el cambio toca una PUBLICADA (editarla, publicar, pausar, archivar,
+  banners). Editar un borrador no avisa.
+- **Directorio**: especialidades siempre; una ficha solo si está publicada (o al publicarla u
+  ocultarla); ausencias siempre. Avisa también `promociones`, que muestran los nombres de médicos.
+- Agrupa lo que pasa en 1,5 s (subir tres banners es un aviso), se manda **después** de guardar y
+  nunca hace fallar la edición: un fallo queda en el log como `WARN` y la landing se renueva sola.
+- Sin las dos variables queda apagado, como R2 o WhatsApp sin credenciales.
 
 ## Pasos siguientes (no hechos)
 
 1. **Pantallas del CRM** (Angular): Promociones (lista por estado, editor con banners,
    revisión) y Directorio (especialidades, fichas, horario).
-2. **Landing**: leer esta API con revalidación (ISR) y, al publicar, avisarle para que se
-   revalide al instante. Usar el skill oficial `next-best-practices` de Vercel en ese repo.
+2. ~~**Landing**: leer esta API con revalidación (ISR) y avisarle al publicar~~ — hecho el 5/10.
 3. **Menú de WhatsApp**: que la opción «Promociones» del menú de atención lea las promociones
    publicadas para WhatsApp en vez de una lista escrita a mano (una sola fuente).
 4. **Ingesta**: reconocer el código `PRM-…` en el primer mensaje y atribuir la promoción

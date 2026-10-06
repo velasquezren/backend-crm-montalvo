@@ -1,5 +1,22 @@
 # Estado actual
 
+## Landing conectada al CRM — 5 de octubre de 2026
+
+La landing (`landing-montalvo`) lee la API pública: promociones (portada, listado y página por
+promoción con su código y mensaje de WhatsApp), staff médico por especialidad con ficha por médico,
+especialidades y `/reservar`, que deja de ser una demostración con datos ficticios y pasa a ser una
+**solicitud real por WhatsApp** (decisión del propietario: día y franja preferidos, horario y precio
+reales, sin cupos inventados ni pagos). ISR de 5 minutos más **aviso instantáneo** del CRM al publicar
+o editar (`AvisoLandingService`, [diseño](promociones-y-directorio.md#aviso-a-la-landing-commonlandingaviso-landingservicets)).
+El listado público de médicos trae además sus próximas ausencias.
+
+- Backend: sin migración. 5 unitarias nuevas del aviso; las integraciones de promociones y directorio
+  comprueban cuándo se avisa (y cuándo no) y las ausencias en el listado. 849 unitarias, integración en verde.
+- Activar el aviso: `LANDING_REVALIDAR_URL` y `LANDING_REVALIDAR_SECRETO` en el `.env` del servidor y
+  el mismo secreto como `CRM_REVALIDAR_SECRETO` en Vercel. Sin ellas, la landing se renueva cada 5 min.
+- **Falta de la clínica**: cargar y publicar especialidades, fichas y promociones; hoy la API pública
+  está vacía y la landing lo dice con honestidad (y no indexa esas páginas).
+
 ## Promociones y directorio médico — 5 de octubre de 2026 · DESPLEGADO
 
 **En producción desde el 5/10 a las 21:17 (La Paz)**: servidor en `93dfcbd` con 66 migraciones (entraron
@@ -25,7 +42,7 @@ siguen en el sistema de agenda de la clínica (el horario es informativo).
   (médicos con foto, horario semanal y ausencias; especialidades). 574 pruebas, build sin advertencias.
   El commit de enums anterior dejaba roto el build de `main` del frontend (faltaban las etiquetas de
   `EMERGENCIA`, que vive en la rama `menu-atencion`): se copiaron las mismas tres líneas de esa rama.
-- **Falta**: conectar la landing (ISR + revalidación al publicar), que el menú de
+- **Falta**: ~~conectar la landing~~ (hecho, arriba), que el menú de
   WhatsApp lea las promociones publicadas, reconocer el código `PRM-…` en la ingesta, y las
   reservas reales. Ver «Pasos siguientes» en el diseño.
 - `npm run sync:tipos` en el frontend por los enums `EstadoPromocion` y `FormatoBanner`.

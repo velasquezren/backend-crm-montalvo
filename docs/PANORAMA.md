@@ -118,6 +118,7 @@ Verificado por HTTP el 2026-09-22 con una cuenta de cada caso.
 | Cloudflare R2 | Media de los chats y de Mi Memoria (URLs firmadas); banners de promociones y fotos del directorio, servidos por la API con URL pública inmutable solo si están publicados | `.env` (`R2_*`) |
 | Web Push (VAPID) | Avisos al teléfono: mensaje entrante y recordatorios | `.env` (`VAPID_*`); **no regenerar las llaves** |
 | Portal de Resultados | Cola de informes y renovación de enlaces | `.env` (`PORTAL_RESULTADOS_*`, `RESULTADOS_*`) |
+| Landing pública (Next.js en Vercel) | Lee `/publico/*` con ISR; el CRM le avisa al publicar para que se renueve al instante (`AvisoLandingService`) | `.env` (`LANDING_REVALIDAR_*`) + `CRM_REVALIDAR_SECRETO` en Vercel |
 
 ## Límites conocidos
 

@@ -4,6 +4,7 @@ import { JwtModule } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
 
 import { AuditService } from '../../common/audit/audit.service';
+import { AvisoLandingService, EtiquetaLanding } from '../../common/landing/aviso-landing.service';
 import { fechaCivilClinica, textoDeFechaCivil } from '../../common/fechas/zona-clinica';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
@@ -37,6 +38,10 @@ const r2 = {
   async urlFirmada(clave: string) { return `https://r2.invalid/${clave}?firmada`; },
 };
 
+/** Los avisos que recibiría la landing, en orden. */
+const avisos: EtiquetaLanding[][] = [];
+const landing: Pick<AvisoLandingService, 'avisar'> = { avisar: (...etiquetas) => void avisos.push(etiquetas) };
+
 @Module({
   imports: [JwtModule.register({ secret: 'jwt-sintetico-directorio', signOptions: { expiresIn: '15m' } })],
   controllers: [DirectorioController, DirectorioPublicoController],
@@ -44,6 +49,7 @@ const r2 = {
     { provide: PrismaService, useValue: prisma },
     AuditService, AuthService, UsuariosService, DirectorioService,
     { provide: R2Service, useValue: r2 },
+    { provide: AvisoLandingService, useValue: landing },
     { provide: APP_GUARD, useClass: JwtAuthGuard }, { provide: APP_GUARD, useClass: RolesGuard },
   ],
 })
@@ -159,11 +165,14 @@ describe('fichas de médicos', () => {
     const gine = await especialidad('Obstetricia');
     const ficha = (await http('/directorio/medicos', 'POST', usuarios.admin.token, { nombrePublico: `${PREFIJO} Dra. Pública` })).body;
     expect((await http(`/directorio/medicos/${ficha['id']}/publicacion`, 'PUT', usuarios.admin.token, { publicado: true })).status).toBe(400);
+    avisos.length = 0;
     const conEspecialidad = await http(`/directorio/medicos/${ficha['id']}`, 'PATCH', usuarios.admin.token, {
       version: ficha['version'], especialidadIds: [gine.id], resumen: 'Control prenatal y parto humanizado', precioConsulta: 250, matricula: 'MAT-123',
     });
     expect(conEspecialidad.status).toBe(200);
+    expect(avisos).toEqual([]); // una ficha oculta no le interesa a la landing
     expect((await http(`/directorio/medicos/${ficha['id']}/publicacion`, 'PUT', usuarios.admin.token, { publicado: true })).body['publicado']).toBe(true);
+    expect(avisos).toEqual([['directorio', 'promociones']]);
     const oculta = (await http('/directorio/medicos', 'POST', usuarios.admin.token, { nombrePublico: `${PREFIJO} Dra. Oculta`, especialidadIds: [gine.id] })).body;
 
     const publicos = await http(`/publico/directorio/medicos?especialidad=${gine.slug}`);
@@ -193,6 +202,9 @@ describe('fichas de médicos', () => {
     expect(ausencia.status).toBe(201);
     const publica = await http(`/publico/directorio/medicos/${ficha['slug']}`);
     expect(publica.body['ausencias']).toEqual([{ desde: dia(3), hasta: dia(9), motivo: 'Congreso' }]);
+    /* También en el listado: la landing no ofrece a la paciente un día en que el médico no está. */
+    const listado = (await http(`/publico/directorio/medicos?especialidad=${esp.slug}`)).body['datos'] as Record<string, unknown>[];
+    expect(listado.find(m => m['slug'] === ficha['slug'])?.['ausencias']).toEqual([{ desde: dia(3), hasta: dia(9), motivo: 'Congreso' }]);
     expect((await http(`/directorio/medicos/${ficha['id']}/ausencias/${ausencia.body['id']}`, 'DELETE', usuarios.admin.token)).status).toBe(204);
     expect((await http(`/publico/directorio/medicos/${ficha['slug']}`)).body['ausencias']).toEqual([]);
   });

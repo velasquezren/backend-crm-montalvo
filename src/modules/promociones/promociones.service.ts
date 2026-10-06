@@ -19,6 +19,7 @@ import { UsuarioJwt } from '../../common/decorators/current-user.decorator';
 import { calcularPaginacion, paginar } from '../../common/dto/pagination.dto';
 import { fechaCivilClinica, fechaCivilDesdeTexto, textoDeFechaCivil } from '../../common/fechas/zona-clinica';
 import { enSegundoPlano } from '../../common/fiabilidad/en-segundo-plano';
+import { AvisoLandingService } from '../../common/landing/aviso-landing.service';
 import { urlPublica, validarImagenPublica } from '../../common/storage/imagen-publica';
 import { R2Service } from '../../common/storage/r2.service';
 import { aSlug } from '../../common/texto/slug';
@@ -101,6 +102,7 @@ export class PromocionesService {
     private readonly prisma: PrismaService,
     private readonly r2: R2Service,
     private readonly audit: AuditService,
+    private readonly landing: AvisoLandingService,
   ) {}
 
   /* ── Listado y detalle (CRM) ────────────────────────────────────────── */
@@ -284,7 +286,7 @@ export class PromocionesService {
     const esAdmin = cubreRol(usuario.rol, 'ADMIN');
     await this.validarReferencias(campos.especialidadId ?? null, medicoIds ?? []);
 
-    await this.prisma.$transaction(async tx => {
+    const estado = await this.prisma.$transaction(async tx => {
       const actual = await this.bloquear(tx, id);
       if (actual.version !== version) throw new ConflictException('Otra persona guardó cambios en esta promoción. Recárgala y vuelve a intentarlo.');
       if (!puedeEditar(actual.estado, esAdmin)) {
@@ -313,8 +315,10 @@ export class PromocionesService {
         const faltan = faltantesParaPublicar(this.paraPublicar(nueva, nueva.imagenes.map(i => i.formato)), fechaCivilClinica(new Date()));
         if (faltan.length) throw new BadRequestException(faltan);
       }
+      return nueva.estado;
     });
     await this.audit.registrar('Promocion', id, 'PROMOCION_EDITADA', usuario.sub, { campos: Object.keys(dto).filter(k => k !== 'version') });
+    this.avisarSiSeVe(estado);
     return this.obtener(id, usuario);
   }
 
@@ -331,7 +335,7 @@ export class PromocionesService {
     if (!cubreRol(usuario.rol, regla.rango)) throw new ForbiddenException('No tienes permiso para esa acción.');
     if (accion === 'devolver' && !motivo?.trim()) throw new BadRequestException('Di por qué la devuelves.');
 
-    await this.prisma.$transaction(async tx => {
+    const desde = await this.prisma.$transaction(async tx => {
       const actual = await this.bloquear(tx, id);
       if (!(regla.desde as readonly EstadoPromocion[]).includes(actual.estado)) {
         throw new ConflictException(`No se puede ${accion} una promoción en estado ${actual.estado}.`);
@@ -361,7 +365,10 @@ export class PromocionesService {
           cambios: { desde: actual.estado, hacia: regla.hacia, ...(motivo ? { motivo: motivo.trim() } : {}) },
         },
       });
+      return actual.estado;
     });
+    // Entra o sale de la landing: publicar, pausar o archivar una publicada.
+    this.avisarSiSeVe(desde, regla.hacia);
     return this.obtener(id, usuario);
   }
 
@@ -385,8 +392,9 @@ export class PromocionesService {
     const clave = `promociones/${id}/${imagenId}.${imagen.extension}`;
     await this.r2.subir(clave, new Uint8Array(archivo.buffer).slice().buffer, imagen.mime);
     let anterior: string | null = null;
+    let estado: EstadoPromocion;
     try {
-      await this.prisma.$transaction(async tx => {
+      estado = await this.prisma.$transaction(async tx => {
         const actual = await this.bloquear(tx, id);
         if (!puedeEditar(actual.estado, cubreRol(usuario.rol, 'ADMIN'))) throw new ForbiddenException('Esta promoción ya no se puede editar.');
         const previa = await tx.promocionImagen.findUnique({ where: { promocionId_formato: { promocionId: id, formato } }, select: { id: true, clave: true } });
@@ -398,6 +406,7 @@ export class PromocionesService {
           data: { id: imagenId, promocionId: id, formato, clave, mime: imagen.mime, ancho: imagen.ancho, alto: imagen.alto, bytes: imagen.bytes, textoAlternativo },
         });
         await tx.promocion.update({ where: { id }, data: { version: { increment: 1 } } });
+        return actual.estado;
       });
     } catch (error) {
       /* La fila no se guardó: el archivo recién subido no lo cita nadie. */
@@ -406,12 +415,13 @@ export class PromocionesService {
     }
     if (anterior) this.borrarDeR2(anterior);
     await this.audit.registrar('Promocion', id, 'BANNER_SUBIDO', usuario.sub, { formato, ancho: imagen.ancho, alto: imagen.alto });
+    this.avisarSiSeVe(estado);
     return this.obtener(id, usuario);
   }
 
   async quitarBanner(id: string, formato: FormatoBanner, usuario: UsuarioJwt) {
     let clave: string | null = null;
-    await this.prisma.$transaction(async tx => {
+    const estado = await this.prisma.$transaction(async tx => {
       const actual = await this.bloquear(tx, id);
       if (!puedeEditar(actual.estado, cubreRol(usuario.rol, 'ADMIN'))) throw new ForbiddenException('Esta promoción ya no se puede editar.');
       if (formato === FORMATO_OBLIGATORIO && ESTADOS_CON_BANNER_FIJO.includes(actual.estado)) {
@@ -422,9 +432,11 @@ export class PromocionesService {
       await tx.promocionImagen.delete({ where: { id: previa.id } });
       await tx.promocion.update({ where: { id }, data: { version: { increment: 1 } } });
       clave = previa.clave;
+      return actual.estado;
     });
     if (clave) this.borrarDeR2(clave);
     await this.audit.registrar('Promocion', id, 'BANNER_QUITADO', usuario.sub, { formato });
+    this.avisarSiSeVe(estado);
     return this.obtener(id, usuario);
   }
 
@@ -614,6 +626,14 @@ export class PromocionesService {
   }
 
   /* ── Internos ───────────────────────────────────────────────────────── */
+
+  /**
+   * Avisa a la landing si el cambio toca algo que ve el público: solo lo
+   * PUBLICADO sale en la API pública. Editar un borrador no la molesta.
+   */
+  private avisarSiSeVe(...estados: EstadoPromocion[]) {
+    if (estados.includes('PUBLICADA')) this.landing.avisar('promociones');
+  }
 
   /** La fila bloqueada hasta el final de la transacción, para decidir sobre su estado sin carreras. */
   private async bloquear(tx: Prisma.TransactionClient, id: string) {

@@ -16,6 +16,7 @@ import { AuditService } from '../../common/audit/audit.service';
 import { calcularPaginacion, paginar } from '../../common/dto/pagination.dto';
 import { fechaCivilClinica, fechaCivilDesdeTexto, textoDeFechaCivil } from '../../common/fechas/zona-clinica';
 import { enSegundoPlano } from '../../common/fiabilidad/en-segundo-plano';
+import { AvisoLandingService } from '../../common/landing/aviso-landing.service';
 import { urlPublica, validarImagenPublica } from '../../common/storage/imagen-publica';
 import { R2Service } from '../../common/storage/r2.service';
 import { aSlug } from '../../common/texto/slug';
@@ -52,6 +53,15 @@ const INCLUIR_FICHA = {
 
 type FichaConRelaciones = Prisma.PerfilMedicoGetPayload<{ include: typeof INCLUIR_FICHA }>;
 
+/** Ausencias que lleva cada médico en el listado público: la landing ofrece las próximas dos semanas. */
+const AUSENCIAS_EN_LISTADO = 5;
+
+const SELECT_AUSENCIA = { desde: true, hasta: true, motivoPublico: true } as const;
+
+function ausenciaPublica(a: { desde: Date; hasta: Date; motivoPublico: string | null }) {
+  return { desde: textoDeFechaCivil(a.desde), hasta: textoDeFechaCivil(a.hasta), motivo: a.motivoPublico };
+}
+
 function bloquePublico(b: BloqueHorario) {
   return { diaSemana: b.diaSemana, desde: horaDeMinutos(b.inicioMinuto), hasta: horaDeMinutos(b.finMinuto), lugar: b.lugar ?? null };
 }
@@ -72,6 +82,7 @@ export class DirectorioService {
     private readonly prisma: PrismaService,
     private readonly r2: R2Service,
     private readonly audit: AuditService,
+    private readonly landing: AvisoLandingService,
   ) {}
 
   /* ── Especialidades ─────────────────────────────────────────────────── */
@@ -109,6 +120,7 @@ export class DirectorioService {
       throw error;
     });
     await this.audit.registrar('Especialidad', creada.id, 'ESPECIALIDAD_CREADA', usuarioId, { nombre: creada.nombre });
+    this.landing.avisar('directorio', 'promociones');
     return creada;
   }
 
@@ -117,6 +129,7 @@ export class DirectorioService {
     try {
       const actualizada = await this.prisma.especialidad.update({ where: { id }, data: dto });
       await this.audit.registrar('Especialidad', id, 'ESPECIALIDAD_EDITADA', usuarioId, { ...dto });
+      this.landing.avisar('directorio', 'promociones');
       return actualizada;
     } catch (error) {
       if (esChoqueUnicoEn(error, 'Especialidad', 'nombre')) throw new ConflictException(`Ya existe la especialidad «${dto.nombre}».`);
@@ -263,7 +276,7 @@ export class DirectorioService {
       throw error;
     }
     await this.audit.registrar('PerfilMedico', id, 'FICHA_MEDICO_EDITADA', usuarioId, { campos: Object.keys(dto).filter(k => k !== 'version') });
-    return this.obtenerFicha(id);
+    return this.avisarSiPublicada(await this.obtenerFicha(id));
   }
 
   /** El horario semanal entero, de una vez. Vacío = «con cita a solicitud». */
@@ -283,7 +296,7 @@ export class DirectorioService {
       await tx.horarioMedico.createMany({ data: bloques.map(b => ({ ...b, perfilMedicoId: id })) });
     });
     await this.audit.registrar('PerfilMedico', id, 'HORARIO_MEDICO_GUARDADO', usuarioId, { bloques: bloques.length });
-    return this.obtenerFicha(id);
+    return this.avisarSiPublicada(await this.obtenerFicha(id));
   }
 
   async agregarAusencia(id: string, dto: CrearAusenciaDto, usuarioId: string) {
@@ -299,6 +312,7 @@ export class DirectorioService {
       data: { perfilMedicoId: id, desde, hasta, motivoPublico: dto.motivoPublico ?? null },
     });
     await this.audit.registrar('PerfilMedico', id, 'AUSENCIA_MEDICO_CREADA', usuarioId, { desde: dto.desde, hasta: dto.hasta });
+    this.landing.avisar('directorio');
     return { id: creada.id, desde: dto.desde, hasta: dto.hasta, motivoPublico: creada.motivoPublico };
   }
 
@@ -306,6 +320,7 @@ export class DirectorioService {
     const { count } = await this.prisma.ausenciaMedico.deleteMany({ where: { id: ausenciaId, perfilMedicoId: id } });
     if (!count) throw new NotFoundException('Esa ausencia no existe.');
     await this.audit.registrar('PerfilMedico', id, 'AUSENCIA_MEDICO_QUITADA', usuarioId, { ausenciaId });
+    this.landing.avisar('directorio');
   }
 
   /** Publicar exige al menos una especialidad activa: una ficha sin especialidad no se puede buscar. */
@@ -320,6 +335,7 @@ export class DirectorioService {
     }
     await this.prisma.perfilMedico.update({ where: { id }, data: { publicado, version: { increment: 1 } } });
     await this.audit.registrar('PerfilMedico', id, publicado ? 'FICHA_MEDICO_PUBLICADA' : 'FICHA_MEDICO_OCULTADA', usuarioId);
+    this.landing.avisar('directorio', 'promociones');
     return this.obtenerFicha(id);
   }
 
@@ -348,7 +364,7 @@ export class DirectorioService {
     });
     if (anterior.fotoClave) this.borrarDeR2(anterior.fotoClave);
     await this.audit.registrar('PerfilMedico', id, 'FOTO_MEDICO_SUBIDA', usuarioId, { ancho: imagen.ancho, alto: imagen.alto });
-    return this.obtenerFicha(id);
+    return this.avisarSiPublicada(await this.obtenerFicha(id));
   }
 
   async quitarFoto(id: string, usuarioId: string) {
@@ -358,7 +374,7 @@ export class DirectorioService {
     await this.prisma.perfilMedico.update({ where: { id }, data: { fotoId: null, fotoClave: null, fotoMime: null, version: { increment: 1 } } });
     this.borrarDeR2(ficha.fotoClave);
     await this.audit.registrar('PerfilMedico', id, 'FOTO_MEDICO_QUITADA', usuarioId);
-    return this.obtenerFicha(id);
+    return this.avisarSiPublicada(await this.obtenerFicha(id));
   }
 
   /** Médicos de la planilla de comisiones que todavía no tienen ficha: para enlazarlos al crearla. */
@@ -407,6 +423,7 @@ export class DirectorioService {
   }
 
   async medicosPublicos(query: QueryDirectorioPublicoDto) {
+    const hoy = fechaCivilClinica(new Date());
     const where: Prisma.PerfilMedicoWhereInput = {
       publicado: true,
       ...(query.especialidad
@@ -415,10 +432,24 @@ export class DirectorioService {
     };
     const { skip, take } = calcularPaginacion(query);
     const [filas, total] = await this.prisma.$transaction([
-      this.prisma.perfilMedico.findMany({ where, orderBy: [{ orden: 'asc' }, { nombrePublico: 'asc' }], skip, take, include: INCLUIR_FICHA }),
+      this.prisma.perfilMedico.findMany({
+        where,
+        orderBy: [{ orden: 'asc' }, { nombrePublico: 'asc' }],
+        skip,
+        take,
+        include: {
+          ...INCLUIR_FICHA,
+          // Las próximas, para que la landing no ofrezca un día en que el médico no está.
+          ausencias: { where: { hasta: { gte: hoy } }, orderBy: { desde: 'asc' }, take: AUSENCIAS_EN_LISTADO, select: SELECT_AUSENCIA },
+        },
+      }),
       this.prisma.perfilMedico.count({ where }),
     ]);
-    return paginar(filas.map(f => this.tarjetaPublica(f)), total, query);
+    return paginar(
+      filas.map(f => ({ ...this.tarjetaPublica(f), ausencias: f.ausencias.map(ausenciaPublica) })),
+      total,
+      query,
+    );
   }
 
   async medicoPublico(slug: string) {
@@ -427,7 +458,7 @@ export class DirectorioService {
       where: { slug, publicado: true },
       include: {
         ...INCLUIR_FICHA,
-        ausencias: { where: { hasta: { gte: hoy } }, orderBy: { desde: 'asc' }, select: { desde: true, hasta: true, motivoPublico: true } },
+        ausencias: { where: { hasta: { gte: hoy } }, orderBy: { desde: 'asc' }, select: SELECT_AUSENCIA },
       },
     });
     if (!f) throw new NotFoundException('Ese médico no está en el directorio.');
@@ -435,7 +466,7 @@ export class DirectorioService {
       ...this.tarjetaPublica(f),
       biografia: f.biografia,
       matricula: f.matricula,
-      ausencias: f.ausencias.map(a => ({ desde: textoDeFechaCivil(a.desde), hasta: textoDeFechaCivil(a.hasta), motivo: a.motivoPublico })),
+      ausencias: f.ausencias.map(ausenciaPublica),
     };
   }
 
@@ -449,6 +480,15 @@ export class DirectorioService {
       type: ficha.fotoMime ?? objeto.tipo ?? 'application/octet-stream',
       ...(objeto.bytes ? { length: objeto.bytes } : {}),
     });
+  }
+
+  /**
+   * Avisa a la landing si la ficha está a la vista. También renueva las
+   * promociones: muestran el nombre de los médicos que las atienden.
+   */
+  private avisarSiPublicada<T extends { publicado: boolean }>(ficha: T): T {
+    if (ficha.publicado) this.landing.avisar('directorio', 'promociones');
+    return ficha;
   }
 
   /** Lo que se publica de un médico. Nada interno: ni versión, ni código de FileMaker, ni la clave de R2. */

@@ -4,6 +4,7 @@ import { JwtModule } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
 
 import { AuditService } from '../../common/audit/audit.service';
+import { AvisoLandingService, EtiquetaLanding } from '../../common/landing/aviso-landing.service';
 import { fechaCivilClinica, textoDeFechaCivil } from '../../common/fechas/zona-clinica';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
@@ -39,6 +40,10 @@ const r2 = {
   async urlFirmada(clave: string) { return `https://r2.invalid/${clave}?firmada`; },
 };
 
+/** Los avisos que recibiría la landing, en orden. */
+const avisos: EtiquetaLanding[][] = [];
+const landing: Pick<AvisoLandingService, 'avisar'> = { avisar: (...etiquetas) => void avisos.push(etiquetas) };
+
 @Module({
   imports: [JwtModule.register({ secret: 'jwt-sintetico-promos', signOptions: { expiresIn: '15m' } })],
   controllers: [PromocionesController, PromocionesPublicoController],
@@ -46,6 +51,7 @@ const r2 = {
     { provide: PrismaService, useValue: prisma },
     AuditService, AuthService, UsuariosService, PromocionesService,
     { provide: R2Service, useValue: r2 },
+    { provide: AvisoLandingService, useValue: landing },
     { provide: APP_GUARD, useClass: JwtAuthGuard }, { provide: APP_GUARD, useClass: RolesGuard },
   ],
 })
@@ -275,12 +281,16 @@ describe('API pública (la landing)', () => {
 
   it('pausada desaparece de la landing y su banner deja de servirse', async () => {
     const id = await crearLista({ titulo: `${TITULO} pausable` });
+    /* Mientras es borrador, nada de lo que se haga con ella le interesa a la landing. */
+    avisos.length = 0;
     await http(`/promociones/${id}/publicar`, 'POST', usuarios.admin.token);
+    expect(avisos).toEqual([['promociones']]);
     const slug = (await prisma.promocion.findUniqueOrThrow({ where: { id } })).slug;
     const imagen = (await prisma.promocionImagen.findFirstOrThrow({ where: { promocionId: id } })).id;
     expect((await fetch(`${base}/publico/promociones/imagenes/${imagen}`)).status).toBe(200);
 
     await http(`/promociones/${id}/pausar`, 'POST', usuarios.admin.token);
+    expect(avisos).toEqual([['promociones'], ['promociones']]);
     expect((await http(`/publico/promociones/${slug}`)).status).toBe(404);
     expect((await fetch(`${base}/publico/promociones/imagenes/${imagen}`)).status).toBe(404);
   });
