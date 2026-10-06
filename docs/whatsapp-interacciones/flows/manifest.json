@@ -63,9 +63,12 @@
       "flowIds": {}
     },
     "prueba": {
-      "wabaId": null,
-      "flowIds": {},
-      "habilitado": false
+      "nota": "WABA de prueba de Meta (+1 555-194-8320), línea «PRUEBA · Número de Meta». Publicado con OK de René el 2026-10-06.",
+      "wabaId": "1699047341353103",
+      "flowIds": {
+        "solicitud-cita.v1.json": "1603800134806928"
+      },
+      "habilitado": true
     },
     "produccion": {
       "wabaId": null,

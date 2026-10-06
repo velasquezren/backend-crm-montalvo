@@ -146,5 +146,7 @@ test("un ambiente encendido declara su WABA y Flows publicados; de ahí sale el 
   assert.deepEqual(catalogo.map((f) => [f.id, f.wabaId, f.proposito, f.pantalla]), [["777", "1699047341353103", "SOLICITUD_CITA", "MOTIVO"]]);
   assert.match(fuenteDelCatalogo(catalogo), /FLOWS_PUBLICADOS: readonly FlowPublicado\[\] = \[/);
   /* Un ambiente apagado no aporta nada al catálogo. */
-  assert.deepEqual(catalogoPublicado(m, validarBorradores()), []);
+  const apagado = { ...m, ambientes: { ...m.ambientes, prueba: { wabaId: null, flowIds: {}, habilitado: false } } };
+  validarManifest(apagado);
+  assert.deepEqual(catalogoPublicado(apagado, validarBorradores()), []);
 });

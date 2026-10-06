@@ -1,5 +1,17 @@
 # Estado actual
 
+## Flow de cita desde el menú, publicado en la WABA de prueba — 6 de octubre de 2026
+
+- «Solicitar una cita» del menú abre el Flow `montalvo_solicitud_cita_v1` si la WABA de la línea lo
+  tiene publicado; la solicitud (`SOLICITUD_CITA`) nace igual con el toque y el Flow la completa
+  (especialidad, cuándo, horario). Sin Flow, o si no sale, la confirmación de siempre.
+- El catálogo que el CRM envía sale del manifest (`ambientes` encendidos) generado a
+  `src/modules/conversaciones/flows-publicados.ts` (`npm run flows:generar`); `check:flows` falla si
+  no coincide. **Producción sigue apagada** por regla del validador.
+- Publicado con OK de René SOLO en la WABA de prueba 1699047341353103: Flow `1603800134806928`.
+  Las especialidades siguen pendientes de confirmar por la clínica antes de publicarlo en Recepción.
+- Verificación: 876 unitarias, integración 42 suites · 805, `test:flows` 12.
+
 ## Interacciones solo en la línea de prueba — 6 de octubre de 2026
 
 René quiere probar todo (menú, emergencia, promociones, QR, Flows) con su número sin cambiar
