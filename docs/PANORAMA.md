@@ -13,6 +13,13 @@ versiones y evidencias en [auditoria-2026-10-01](auditoria-2026-10-01.md).
 
 ## Los tres productos
 
+**Agenda de reservas (6/10/2026):** la agenda real es ScriptCase + MySQL `clinica` en
+`montalvo-vps` (`23.95.128.187:/var/www/html/clinicaw`), que alimenta FileMaker. El CRM
+la **lee** (médicos y horas libres, `modules/agenda`) con un usuario MySQL de solo lectura;
+no escribe citas ni pagos. La fila «Agenda médica» de abajo (FastAPI) es otro sistema,
+histórico. Ver [auditoría VPS](auditoria-agenda-vps-2026-10-06.md) y
+[comprobación SQL](auditoria-agenda-sql-2026-10-06.md).
+
 | Producto | Qué es | Dónde corre | Cómo se despliega |
 | --- | --- | --- | --- |
 | **CRM Montalvo** | Atención por WhatsApp, leads, ventas, comisiones y finanzas de la clínica | API NestJS en `107.175.132.15` (`crm_backend`, `:3001`) · interfaz Angular en Vercel | Backend: a mano, receta en `crm-backend-arquitectura` §4 · Frontend: `git push` a `main` |
@@ -28,6 +35,7 @@ Los dos primeros comparten servidor y Postgres (bases separadas) y se hablan
 | Módulo | Qué hace | Quién entra |
 | --- | --- | --- |
 | `modules/auth` | Login, sesiones revocables, refresco con cookie, perfil propio | Todos |
+| `modules/agenda` | Lectura de la agenda ScriptCase para la landing: especialidades, médicos y horas libres (`vista_horas_libres`, hoy..hoy+29). mysql2 con usuario MySQL de **solo lectura** (columnas públicas de `medicos` y la vista), TLS verificado, transacción READ ONLY. No escribe en el legado ([auditoría](auditoria-agenda-vps-2026-10-06.md)) | Público, solo GET `/publico/agenda/*`; apagado salvo `AGENDA_VPS_LECTURA=on` |
 | `modules/usuarios` | Cuentas, roles y líneas de cada usuario | SUPER_ADMIN |
 | `modules/lineas-whatsapp` | Las cuatro líneas de WhatsApp y quién atiende cada una | Lectura: cada uno las suyas · edición: SUPER_ADMIN |
 | `modules/menu-atencion` | El menú con el que cada línea recibe a la paciente: qué opciones ofrece (persona, emergencia, cita, información, ubicación, promociones) y sus textos. Lo lee la ingesta; solo él escribe `MenuAtencion` ([diseño](menu-atencion.md)) | Edición: SUPER_ADMIN |

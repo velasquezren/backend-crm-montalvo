@@ -1,5 +1,32 @@
 # Estado actual
 
+## Agenda ScriptCase: lectura desde el CRM — 6 de octubre de 2026
+
+La landing consulta médicos y horas libres reales de la agenda (ScriptCase + MySQL
+`clinica` en `montalvo-vps`) a través de `GET /publico/agenda/*`. **Solo lectura**:
+reservas, pagos y caja siguen en ScriptCase, que alimenta FileMaker (ODBC).
+
+- Usuario MySQL `crm_agenda_lectura`@`107.175.132.15`: SELECT sobre columnas públicas de
+  `medicos` y sobre `vista_horas_libres`. TLS contra la CA del propio MySQL
+  (`/etc/crm-agenda/mysql-ca.pem`). Contraseña solo en el `.env` del servidor.
+- Variables `AGENDA_*` en el `.env`; se enciende con `AGENDA_VPS_LECTURA=on` (backend) y
+  la misma variable en Vercel (landing).
+- Hallazgos del legado sin tocar: `sc_ajax_combo()` indefinida, ID MAX+1, sin unicidad de
+  cupo, PAGADO ≠ confirmado por caja. Enlace real con FileMaker aún sin identificar: **no
+  escribir citas desde el CRM** hasta conocerlo.
+- [Auditoría VPS](auditoria-agenda-vps-2026-10-06.md) · [comprobación SQL](auditoria-agenda-sql-2026-10-06.md).
+
+## Recepción y Ventas — 6 de octubre de 2026
+
+- Promociones, plantillas de marketing y QR solo en líneas comerciales; el backend
+  también bloquea acciones antiguas y reintentos incompatibles.
+- Pedir otro comprobante y anular requieren agente/admin, igual que confirmar.
+- Se conserva atención compartida, historial, utilidades de servicio y permisos.
+- Sin migraciones ni dependencias nuevas.
+- Alcance y límites: [Recepción y Ventas](recepcion-y-ventas.md).
+- **Las entradas siguientes describen el estado previo de main y del piloto.**
+
+
 ## Revisión de pagos y validación general — 6 de octubre de 2026
 
 - Retomar un QR renueva el plazo del comprobante sin cambiar el importe congelado.
