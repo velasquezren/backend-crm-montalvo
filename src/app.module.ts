@@ -9,6 +9,7 @@ import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { LoggingInterceptor } from './common/logging/logging.interceptor';
 import { RolesGuard } from './common/guards/roles.guard';
 import { ActividadesModule } from './modules/actividades/actividades.module';
+import { AgendaModule } from './modules/agenda/agenda.module';
 import { CampanasModule } from './modules/campanas/campanas.module';
 import { DirectorioModule } from './modules/directorio/directorio.module';
 import { PromocionesModule } from './modules/promociones/promociones.module';
@@ -43,6 +44,7 @@ import { PrismaModule } from './prisma/prisma.module';
     ClientesModule,
     LeadsModule,
     ActividadesModule,
+    AgendaModule,
     CampanasModule,
     DirectorioModule,
     PromocionesModule,
