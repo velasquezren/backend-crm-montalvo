@@ -24,6 +24,7 @@ const config = new ConfigService(VALORES);
 class ModuloPrueba {}
 
 const PNG_QR = imagenSintetica('png', 400, 400);
+const WEBP_FOTO = imagenSintetica('webp', 400, 500);
 
 function fecha(dias: number) {
   const hoy = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/La_Paz', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
@@ -38,6 +39,7 @@ ejecutar('Agenda HTTP → adaptador TLS → MySQL real descartable', () => {
     // Valores sintéticos por entorno del proceso de prueba; nunca se lee un .env.
     qr = createServer((req, res) => {
       if (req.url === '/img/QR%20sintetico.png') { res.writeHead(200, { 'content-type': 'image/png' }); res.end(PNG_QR); return; }
+      if (req.url === '/img/Foto%20sintetica.webp') { res.writeHead(200, { 'content-type': 'image/webp' }); res.end(WEBP_FOTO); return; }
       res.writeHead(404); res.end();
     });
     await new Promise<void>(listo => qr.listen(0, '127.0.0.1', listo));
@@ -61,7 +63,9 @@ ejecutar('Agenda HTTP → adaptador TLS → MySQL real descartable', () => {
     expect(med.datos).toHaveLength(2);
     expect(med.datos[0].precio).toEqual({ importeCentavos: 40025, moneda: 'BOB' });
     expect(med.datos[1].precio).toBeNull();
-    expect(Object.keys(med.datos[0]).sort()).toEqual(['especialidadId','horarioInformativo','id','modalidad','nombre','precio']);
+    expect(Object.keys(med.datos[0]).sort()).toEqual(['especialidadId','fotoUrl','horarioInformativo','id','modalidad','nombre','precio']);
+    expect(med.datos[0].fotoUrl).toMatch(/^\/publico\/agenda\/fotos\/1\/[0-9a-f]{16}$/);
+    expect(med.datos[1].fotoUrl).toBeNull();
     expect(JSON.stringify(med)).not.toMatch(/secreto|privado|<b>|paciente/);
   });
   it('respeta ocupación de agenda_med (incluso BORRADO) y oculta reservas web PENDIENTE/PAGADO', async () => {
@@ -72,6 +76,27 @@ ejecutar('Agenda HTTP → adaptador TLS → MySQL real descartable', () => {
     // 09:00 CREADO y 10:00 BORRADO en agenda_med; 13:00 PENDIENTE en para_agendar;
     // 11:00 tiene una reserva ATENDIDO histórica, que no ocupa.
     expect(d.horarios.map(h => h.hora)).toEqual(['11:00', '14:00', '15:00']);
+  });
+  it('la foto del médico se sirve por el CRM, solo con su versión y solo si está activo', async () => {
+    const med = await (await get(`medicos?especialidadId=${(await (await get('especialidades')).json() as { datos: { id: string; nombre: string }[] }).datos.find(e => e.nombre === 'Especialidad sintética')!.id}`)).json() as { datos: { id: string; fotoUrl: string | null }[] };
+    const url = med.datos.find(m => m.id === '1')!.fotoUrl!;
+    const r = await fetch(`${base}${url}`);
+    expect(r.status).toBe(200);
+    expect(r.headers.get('content-type')).toBe('image/webp');
+    expect(r.headers.get('cache-control')).toContain('immutable');
+    expect(r.headers.get('cross-origin-resource-policy')).toBe('cross-origin');
+    expect(Buffer.compare(Buffer.from(await r.arrayBuffer()), WEBP_FOTO)).toBe(0);
+    expect((await fetch(`${base}${url.replace(/[0-9a-f]{16}$/, '0000000000000000')}`)).status).toBe(404);
+    expect((await fetch(`${base}${url.replace('/fotos/1/', '/fotos/4/')}`)).status).toBe(404);
+    expect((await fetch(`${base}/publico/agenda/fotos/1/..%2F..%2Fetc`)).status).toBe(404);
+  });
+  it('los días ofrecidos son solo los que tienen al menos una hora libre', async () => {
+    const dias = async (id: number) => ((await (await get(`dias?medicoId=${id}`)).json()) as { fechas: string[] }).fechas;
+    // El horario sintético es un solo día de la semana: se repite cada 7 días en los 30 de la vista.
+    expect(await dias(1)).toEqual([fecha(1), fecha(8), fecha(15), fecha(22), fecha(29)]);
+    expect(await dias(2)).toEqual([fecha(8), fecha(15), fecha(22), fecha(29)]); // el día 1 tiene su única hora ocupada
+    expect(await dias(3)).toEqual([]); // a solicitud
+    expect((await get('dias?medicoId=4')).status).toBe(503); // inactivo
   });
   it('distingue sin cupos, sin atención y a solicitud', async () => {
     for (const [id, dias, estado] of [[2,1,'SIN_CUPOS'],[1,2,'SIN_ATENCION'],[3,1,'A_SOLICITUD']] as const) {

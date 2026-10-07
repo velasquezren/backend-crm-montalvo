@@ -2,8 +2,8 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { CacheMemoria } from '../../common/cache/cache-memoria';
 import { calcularPaginacion, PaginationDto, RespuestaPaginada } from '../../common/dto/pagination.dto';
 import { AgendaVpsClient } from './agenda-vps.client';
-import { disponibilidadDeAgenda, EspecialidadAgenda, especialidadDeAgenda, fechaConsultable, MedicoAgenda, medicoDeAgenda, paginaAgenda } from './agenda.contrato';
-import { QueryDisponibilidadAgendaDto, QueryMedicosAgendaDto } from './dto/query-agenda.dto';
+import { diasDeAgenda, disponibilidadDeAgenda, EspecialidadAgenda, especialidadDeAgenda, fechaConsultable, MedicoAgenda, medicoDeAgenda, paginaAgenda } from './agenda.contrato';
+import { QueryDiasAgendaDto, QueryDisponibilidadAgendaDto, QueryMedicosAgendaDto } from './dto/query-agenda.dto';
 
 @Injectable()
 export class AgendaService {
@@ -44,6 +44,13 @@ export class AgendaService {
     if (!fechaConsultable(query.fecha)) throw new BadRequestException('Elegí una fecha válida dentro de los próximos 30 días, incluido hoy.');
     const crudo = await this.vps.leer('disponibilidad', new URLSearchParams({ medicoId: query.medicoId, fecha: query.fecha }));
     try { return disponibilidadDeAgenda(crudo, query.medicoId, query.fecha); }
+    catch { throw this.vps.noDisponible(); }
+  }
+
+  /** Días con horas libres en los próximos 30: la web solo ofrece esos. Sin caché, como la disponibilidad. */
+  async dias(query: QueryDiasAgendaDto) {
+    const crudo = await this.vps.leer('dias', new URLSearchParams({ medicoId: query.medicoId }));
+    try { return diasDeAgenda(crudo, query.medicoId); }
     catch { throw this.vps.noDisponible(); }
   }
 }

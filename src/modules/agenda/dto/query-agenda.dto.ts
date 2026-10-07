@@ -17,3 +17,9 @@ export class QueryDisponibilidadAgendaDto {
   @Matches(FECHA_AGENDA)
   fecha!: string;
 }
+
+export class QueryDiasAgendaDto {
+  @IsString()
+  @Matches(/^\d{1,10}$/)
+  medicoId!: string;
+}

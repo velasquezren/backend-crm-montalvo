@@ -8,12 +8,12 @@ import {
   StreamableFile,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { RowDataPacket } from 'mysql2/promise';
+import { PoolConnection, RowDataPacket } from 'mysql2/promise';
 import { ArchivoSubido } from '../../common/archivos/archivo-subido';
 import { CacheMemoria } from '../../common/cache/cache-memoria';
 import { validarImagenPublica } from '../../common/storage/imagen-publica';
 import { fechaConsultable } from './agenda.contrato';
-import { precioDelVps } from './agenda.sql';
+import { ARCHIVO_IMAGEN_AGENDA, precioDelVps, versionDeFoto } from './agenda.sql';
 import { registrarPagoEnAgenda, reservarEnAgenda } from './agenda-reserva.sql';
 import { AgendaReservaClient } from './agenda-reserva.client';
 import { firmarReferencia, leerReferencia } from './agenda-referencia';
@@ -21,9 +21,8 @@ import { AgendaTelegramService } from './agenda-telegram.service';
 import { AgendaVpsClient } from './agenda-vps.client';
 import { CrearReservaAgendaDto, PagoReservaAgendaDto } from './dto/reserva-agenda.dto';
 
-/** Un nombre de archivo de QR tal como lo guarda ScriptCase en `pagos_qr.Qr`. */
-const ARCHIVO_QR = /^[\w .()-]{1,150}\.(png|jpe?g|webp)$/i;
-const BYTES_MAXIMOS_QR = 2 * 1024 * 1024;
+/** Las fotos de la agenda llegan a ~200 KB; 3 MB ya no es una foto de ficha. */
+const BYTES_MAXIMOS_IMAGEN_AGENDA = 3 * 1024 * 1024;
 
 const limpiar = (texto: string) => texto.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim();
 
@@ -35,7 +34,7 @@ const limpiar = (texto: string) => texto.replace(/[\u0000-\u001f\u007f]/g, ' ').
 @Injectable()
 export class AgendaReservasService {
   private readonly secreto: string | null;
-  private readonly qrCache = new CacheMemoria<{ bytes: Buffer; tipo: string }>({ ttlMs: 10 * 60_000, maxEntradas: 20 });
+  private readonly imagenes = new CacheMemoria<{ bytes: Buffer; tipo: string }>({ ttlMs: 10 * 60_000, maxEntradas: 120 });
 
   constructor(
     private readonly config: ConfigService,
@@ -110,28 +109,49 @@ export class AgendaReservasService {
 
   /**
    * La imagen QR del banco del médico, la misma que muestra ScriptCase en su
-   * paso de pago. Se lee por HTTP dentro de la red de servidores y se sirve por
-   * HTTPS: hoy la paciente la recibe de ScriptCase en HTTP.
+   * paso de pago, solo si está vigente.
    */
   async qr(bancoId: number): Promise<StreamableFile> {
-    const imagen = await this.qrCache.resolver(String(bancoId), async () => {
-      const [fila] = await this.lectura.ejecutar(async conexion => {
-        const [filas] = await conexion.execute<RowDataPacket[]>(
-          `SELECT Qr, fecha_vence >= CURRENT_DATE() AS vigente, fecha_vence IS NULL AS sin_vencimiento
-             FROM pagos_qr WHERE qr_pk = ?`,
-          [bancoId],
-        );
-        return filas;
-      });
-      const archivo = typeof fila?.Qr === 'string' ? fila.Qr.trim() : '';
-      const vigente = Number(fila?.vigente) === 1 || Number(fila?.sin_vencimiento) === 1;
-      if (!archivo || !ARCHIVO_QR.test(archivo) || !vigente) throw new NotFoundException('No hay un QR vigente para este pago.');
+    return this.imagen(`qr:${bancoId}`, async conexion => {
+      const [filas] = await conexion.execute<RowDataPacket[]>(
+        `SELECT Qr AS archivo, (fecha_vence IS NULL OR fecha_vence >= CURRENT_DATE()) AS vigente FROM pagos_qr WHERE qr_pk = ?`,
+        [bancoId],
+      );
+      return Number(filas[0]?.vigente) === 1 ? filas[0]?.archivo : null;
+    });
+  }
+
+  /** La foto del médico que publica la agenda (`medicos.foto`), solo de médicos activos. */
+  async foto(medicoId: number, version: string): Promise<StreamableFile> {
+    return this.imagen(`foto:${medicoId}:${version}`, async conexion => {
+      const [filas] = await conexion.execute<RowDataPacket[]>(
+        `SELECT foto FROM medicos WHERE medico_pk = ? AND estado = 'ACTIVO'`,
+        [medicoId],
+      );
+      // Una versión que ya no coincide es una foto reemplazada: no se sirve la nueva con la URL vieja.
+      return versionDeFoto(filas[0]?.foto) === version ? filas[0]?.foto : null;
+    });
+  }
+
+  /**
+   * Una imagen de la carpeta pública de ScriptCase (`_lib/file/img`), leída por
+   * HTTP dentro de la red de servidores y servida por HTTPS: hoy la paciente la
+   * recibe de ScriptCase en HTTP. El nombre sale de la base, nunca del público.
+   */
+  private async imagen(
+    clave: string,
+    archivoDe: (conexion: PoolConnection) => Promise<unknown>,
+  ): Promise<StreamableFile> {
+    const imagen = await this.imagenes.resolver(clave, async () => {
+      const crudo = await this.lectura.ejecutar(archivoDe);
+      const archivo = typeof crudo === 'string' ? crudo.trim() : '';
+      if (!archivo || !ARCHIVO_IMAGEN_AGENDA.test(archivo)) throw new NotFoundException('Esa imagen no está disponible.');
       const base = this.config.get<string>('AGENDA_QR_BASE_URL') ?? 'http://23.95.128.187/clinicaw/_lib/file/img/';
       const respuesta = await fetch(base + encodeURIComponent(archivo), { redirect: 'error', signal: AbortSignal.timeout(8_000) });
       const tipo = respuesta.headers.get('content-type') ?? '';
-      if (!respuesta.ok || !/^image\/(png|jpeg|webp)$/.test(tipo)) throw new ServiceUnavailableException('No pudimos cargar el QR.');
+      if (!respuesta.ok || !/^image\/(png|jpeg|webp)$/.test(tipo)) throw new ServiceUnavailableException('No pudimos cargar la imagen.');
       const bytes = Buffer.from(await respuesta.arrayBuffer());
-      if (bytes.byteLength === 0 || bytes.byteLength > BYTES_MAXIMOS_QR) throw new ServiceUnavailableException('No pudimos cargar el QR.');
+      if (bytes.byteLength === 0 || bytes.byteLength > BYTES_MAXIMOS_IMAGEN_AGENDA) throw new ServiceUnavailableException('No pudimos cargar la imagen.');
       return { bytes, tipo };
     });
     return new StreamableFile(imagen.bytes, { type: imagen.tipo, length: imagen.bytes.byteLength });

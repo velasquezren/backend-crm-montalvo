@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Header, HttpCode, Param, ParseIntPipe, Post, Query, UploadedFile, UseInterceptors } from '@nestjs/common';
+import { Body, Controller, Get, Header, HttpCode, NotFoundException, Param, ParseIntPipe, Post, Query, UploadedFile, UseInterceptors } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { Throttle } from '@nestjs/throttler';
 import { ArchivoSubido } from '../../common/archivos/archivo-subido';
@@ -7,7 +7,7 @@ import { PaginationDto } from '../../common/dto/pagination.dto';
 import { BYTES_MAXIMOS_IMAGEN } from '../../common/storage/imagen-publica';
 import { AgendaReservasService } from './agenda-reservas.service';
 import { AgendaService } from './agenda.service';
-import { QueryDisponibilidadAgendaDto, QueryMedicosAgendaDto } from './dto/query-agenda.dto';
+import { QueryDiasAgendaDto, QueryDisponibilidadAgendaDto, QueryMedicosAgendaDto } from './dto/query-agenda.dto';
 import { CrearReservaAgendaDto, PagoReservaAgendaDto } from './dto/reserva-agenda.dto';
 
 /**
@@ -35,6 +35,19 @@ export class AgendaPublicaController {
   @Get('disponibilidad')
   @Header('Cache-Control', 'no-store')
   disponibilidad(@Query() query: QueryDisponibilidadAgendaDto) { return this.agenda.disponibilidad(query); }
+
+  @Get('dias')
+  @Header('Cache-Control', 'no-store')
+  dias(@Query() query: QueryDiasAgendaDto) { return this.agenda.dias(query); }
+
+  /** La versión va en la ruta y cambia con el archivo: la foto se puede guardar un año. */
+  @Get('fotos/:medicoId/:version')
+  @Header('Cache-Control', 'public, max-age=31536000, immutable')
+  @Header('Cross-Origin-Resource-Policy', 'cross-origin')
+  foto(@Param('medicoId', ParseIntPipe) medicoId: number, @Param('version') version: string) {
+    if (!/^[0-9a-f]{16}$/.test(version)) throw new NotFoundException('Esa imagen no está disponible.');
+    return this.reservas.foto(medicoId, version);
+  }
 
   /** Cinco reservas cada 10 minutos por IP: suficiente para una familia, poco para un bot. */
   @Post('reservas')

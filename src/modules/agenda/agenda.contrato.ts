@@ -1,3 +1,4 @@
+import { urlPublica } from '../../common/storage/imagen-publica';
 /** Contrato público de lectura v1 sobre el VPS auditado.
  * No representa tablas de ScriptCase ni autoriza reservas o pagos. */
 export interface EspecialidadAgenda { id: string; nombre: string }
@@ -8,6 +9,14 @@ export interface MedicoAgenda {
   horarioInformativo: string | null;
   modalidad: 'ONLINE' | 'A_SOLICITUD';
   precio: { importeCentavos: number; moneda: 'BOB' } | null;
+  /** Foto del médico servida por el CRM; `null` si la agenda no tiene una. */
+  fotoUrl: string | null;
+}
+export interface DiasAgenda {
+  medicoId: string;
+  zonaHoraria: 'America/La_Paz';
+  /** Fechas civiles con al menos una hora libre, en orden. */
+  fechas: string[];
 }
 export interface DisponibilidadAgenda {
   medicoId: string;
@@ -54,10 +63,14 @@ export function medicoDeAgenda(valor: unknown): MedicoAgenda {
     if (p.moneda !== 'BOB') invalido();
     precio = { importeCentavos: entero(p.importeCentavos, 0, 100_000_000), moneda: 'BOB' };
   }
+  const medicoId = id(v.id);
+  const version = v.fotoVersion === null || v.fotoVersion === undefined ? null : texto(v.fotoVersion, 16);
+  if (version !== null && !/^[0-9a-f]{16}$/.test(version)) invalido();
   return {
-    id: id(v.id), especialidadId: id(v.especialidadId), nombre: texto(v.nombre, 210),
+    id: medicoId, especialidadId: id(v.especialidadId), nombre: texto(v.nombre, 210),
     horarioInformativo: v.horarioInformativo === null ? null : texto(v.horarioInformativo, 600),
     modalidad: v.modalidad, precio,
+    fotoUrl: version ? urlPublica(`/publico/agenda/fotos/${medicoId}/${version}`) : null,
   };
 }
 
@@ -93,6 +106,13 @@ export function disponibilidadDeAgenda(valor: unknown, medicoId: string, fecha: 
     || new Set(horarios.map(h => h.hora)).size !== horarios.length) invalido();
   horarios.sort((a, b) => a.hora.localeCompare(b.hora));
   return { medicoId, fecha, zonaHoraria: 'America/La_Paz', consultadoEn, estado, horarios };
+}
+
+export function diasDeAgenda(valor: unknown, medicoId: string): DiasAgenda {
+  const v = objeto(valor);
+  if (v.version !== 1 || v.medicoId !== medicoId || v.zonaHoraria !== 'America/La_Paz' || !Array.isArray(v.fechas) || v.fechas.length > 31) invalido();
+  const fechas = (v.fechas as unknown[]).map(f => (typeof f === 'string' && FECHA_AGENDA.test(f) ? f : invalido()));
+  return { medicoId, zonaHoraria: 'America/La_Paz', fechas };
 }
 
 export function fechaConsultable(fecha: string, ahora = new Date()): boolean {

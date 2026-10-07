@@ -17,7 +17,13 @@ describe('Agenda: límites, privacidad y fallos cerrados', () => {
   });
   it('proyecta únicamente datos públicos y no campos añadidos por el origen', () => {
     expect(medicoDeAgenda({id:'1',especialidadId:'e',nombre:'Profesional',horarioInformativo:null,modalidad:'ONLINE',precio:null,password:'privado',telefono:'privado',paciente:'privado'}))
-      .toEqual({id:'1',especialidadId:'e',nombre:'Profesional',horarioInformativo:null,modalidad:'ONLINE',precio:null});
+      .toEqual({id:'1',especialidadId:'e',nombre:'Profesional',horarioInformativo:null,modalidad:'ONLINE',precio:null,fotoUrl:null});
+  });
+  it('la foto solo se arma con una versión válida, nunca con lo que mande el origen', () => {
+    const base = {id:'7',especialidadId:'e',nombre:'Profesional',horarioInformativo:null,modalidad:'ONLINE',precio:null};
+    expect(medicoDeAgenda({...base,fotoVersion:'0123456789abcdef'}).fotoUrl).toMatch(/\/publico\/agenda\/fotos\/7\/0123456789abcdef$/);
+    expect(() => medicoDeAgenda({...base,fotoVersion:'../../etc/passwd'})).toThrow();
+    expect(medicoDeAgenda({...base,fotoUrl:'https://otro.test/x.jpg'}).fotoUrl).toBeNull();
   });
   const base = () => ({version:1,medicoId:'1',fecha:'2026-10-07',zonaHoraria:'America/La_Paz',consultadoEn:new Date().toISOString(),estado:'DISPONIBLE',horarios:[{id:'1_0900',hora:'09:00'}]});
   it('rechaza horas antiguas, duplicadas, de otro médico o inconsistentes con el estado', () => {
