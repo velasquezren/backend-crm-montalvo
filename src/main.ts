@@ -1,4 +1,5 @@
 import { ValidationPipe } from '@nestjs/common';
+import type { CorsOptions } from '@nestjs/common/interfaces/external/cors-options.interface';
 import type { NextFunction, Request, Response } from 'express';
 import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
@@ -61,7 +62,14 @@ async function bootstrap(): Promise<void> {
     .map(o => o.trim())
     .filter(Boolean);
 
-  app.enableCors({
+  /* La landing pública (otro origen) llama solo a la agenda, sin cookies ni
+     credenciales: así un fallo en la landing no puede usar la sesión de una
+     agente que la visite. El resto del CRM conserva su CORS de siempre. */
+  const origenesLanding = (process.env.CORS_ORIGINS_LANDING ?? '')
+    .split(',')
+    .map(o => o.trim())
+    .filter(Boolean);
+  const corsCrm = {
     origin: origenes,
     credentials: true,
     /**
@@ -92,6 +100,13 @@ async function bootstrap(): Promise<void> {
      * preflights a unos pocos.
      */
     maxAge: 86400,
+  };
+  app.enableCors((req: Request, responder: (error: Error | null, opciones: CorsOptions) => void) => {
+    const origen = req.headers.origin;
+    if (req.url?.startsWith('/publico/agenda/') && origen && origenesLanding.includes(origen)) {
+      return responder(null, { origin: origen, credentials: false, methods: ['GET', 'POST'], maxAge: 86400 });
+    }
+    responder(null, corsCrm);
   });
 
   /* Sin esto, Nest no sabe con qué adapter servir los WebSocketGateway

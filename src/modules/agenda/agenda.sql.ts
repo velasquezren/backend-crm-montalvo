@@ -1,5 +1,6 @@
 import type { PoolConnection, RowDataPacket } from 'mysql2/promise';
 import { fechaConsultable, ID_AGENDA } from './agenda.contrato';
+import { ESTADOS_QUE_OCUPAN } from './agenda-reserva.sql';
 
 export type RecursoAgendaSql = 'especialidades' | 'medicos' | 'disponibilidad';
 type Fila = Record<string, unknown>;
@@ -90,12 +91,16 @@ async function disponibilidad(db: Lector, params: URLSearchParams) {
   const cuenta = await filas(db, `SELECT COUNT(*) AS total FROM horarios
     WHERE medico_pk = ? AND dia = ? AND estado = 'ACTIVO'`, [medicoId, dia]);
   if (entero(cuenta[0]?.total) === 0) return { ...base, estado: 'SIN_ATENCION', horarios: [] };
-  const libres = await filas(db, `SELECT DISTINCT DATE_FORMAT(hora_disponible, '%H:%i') AS hora
-    FROM vista_horas_libres WHERE medico_pk = ? AND fecha = ? AND estado = 'ACTIVO'
-      AND (fecha > CURRENT_DATE() OR (fecha = CURRENT_DATE() AND hora_disponible > CURRENT_TIME()))
-    ORDER BY hora LIMIT 289`, [medicoId, fecha]);
-  // La vista manda sobre ocupación, incluidos estados históricos. Solo se
-  // ocultan horas pasadas; nunca se promete un bloqueo o reserva transaccional.
+  const libres = await filas(db, `SELECT DISTINCT DATE_FORMAT(v.hora_disponible, '%H:%i') AS hora
+    FROM vista_horas_libres v WHERE v.medico_pk = ? AND v.fecha = ? AND v.estado = 'ACTIVO'
+      AND (v.fecha > CURRENT_DATE() OR (v.fecha = CURRENT_DATE() AND v.hora_disponible > CURRENT_TIME()))
+      AND NOT EXISTS (SELECT 1 FROM para_agendar p WHERE p.medico_pk = v.medico_pk AND p.fecha = v.fecha
+        AND p.hora = v.hora_disponible AND p.estado IN (${ESTADOS_QUE_OCUPAN.map(() => '?').join(',')}))
+    ORDER BY hora LIMIT 289`, [medicoId, fecha, ...ESTADOS_QUE_OCUPAN]);
+  // La vista manda sobre la ocupación de agenda_med, incluidos estados
+  // históricos. Además se ocultan las horas con una reserva web PENDIENTE o
+  // PAGADO (la vista de ScriptCase no las descuenta) y las ya pasadas. La
+  // reserva vuelve a comprobarlo dentro de su transacción.
   const horarios = libres.map(h => ({ id: `${medicoId}_${fecha}_${texto(h.hora).replace(':', '')}`, hora: texto(h.hora) }));
   return { ...base, estado: horarios.length ? 'DISPONIBLE' : 'SIN_CUPOS', horarios };
 }

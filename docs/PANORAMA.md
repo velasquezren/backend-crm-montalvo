@@ -15,8 +15,9 @@ versiones y evidencias en [auditoria-2026-10-01](auditoria-2026-10-01.md).
 
 **Agenda de reservas (6/10/2026):** la agenda real es ScriptCase + MySQL `clinica` en
 `montalvo-vps` (`23.95.128.187:/var/www/html/clinicaw`), que alimenta FileMaker. El CRM
-la **lee** (médicos y horas libres, `modules/agenda`) con un usuario MySQL de solo lectura;
-no escribe citas ni pagos. La fila «Agenda médica» de abajo (FastAPI) es otro sistema,
+la lee (médicos y horas libres) y, desde el 7/10, **registra reservas y comprobantes igual que
+el formulario público de ScriptCase** (`modules/agenda`), sin tocar `agenda_med` ni lo que
+consume FileMaker de otra forma. La fila «Agenda médica» de abajo (FastAPI) es otro sistema,
 histórico. Ver [auditoría VPS](auditoria-agenda-vps-2026-10-06.md) y
 [comprobación SQL](auditoria-agenda-sql-2026-10-06.md).
 
@@ -35,7 +36,7 @@ Los dos primeros comparten servidor y Postgres (bases separadas) y se hablan
 | Módulo | Qué hace | Quién entra |
 | --- | --- | --- |
 | `modules/auth` | Login, sesiones revocables, refresco con cookie, perfil propio | Todos |
-| `modules/agenda` | Lectura de la agenda ScriptCase para la landing: especialidades, médicos y horas libres (`vista_horas_libres`, hoy..hoy+29). mysql2 con usuario MySQL de **solo lectura** (columnas públicas de `medicos` y la vista), TLS verificado, transacción READ ONLY. No escribe en el legado ([auditoría](auditoria-agenda-vps-2026-10-06.md)) | Público, solo GET `/publico/agenda/*`; apagado salvo `AGENDA_VPS_LECTURA=on` |
+| `modules/agenda` | La agenda ScriptCase para la landing. **Lee** especialidades, médicos y horas libres (`vista_horas_libres`, menos reservas web PENDIENTE/PAGADO) con un usuario MySQL de solo lectura, y **reserva** con otro usuario que solo puede hacer el INSERT y el UPDATE del formulario público de ScriptCase (`para_agendar`: PENDIENTE → comprobante → PAGADO), con candado contra la doble reserva y el mismo aviso de Telegram. TLS verificado ([auditoría](auditoria-agenda-vps-2026-10-06.md)) | Público: `/publico/agenda/*` (GET, y POST de reserva y pago con límite propio); CORS solo para la landing, sin cookies |
 | `modules/usuarios` | Cuentas, roles y líneas de cada usuario | SUPER_ADMIN |
 | `modules/lineas-whatsapp` | Las cuatro líneas de WhatsApp y quién atiende cada una | Lectura: cada uno las suyas · edición: SUPER_ADMIN |
 | `modules/menu-atencion` | El menú con el que cada línea recibe a la paciente: qué opciones ofrece (persona, emergencia, cita, información, ubicación, promociones) y sus textos. Lo lee la ingesta; solo él escribe `MenuAtencion` ([diseño](menu-atencion.md)) | Edición: SUPER_ADMIN |

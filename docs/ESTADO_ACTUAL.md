@@ -1,5 +1,22 @@
 # Estado actual
 
+## Reserva real desde la landing — 7 de octubre de 2026
+
+Decisión del propietario: la reserva nueva de la landing reserva de verdad. El CRM escribe en
+`para_agendar` **exactamente** como el formulario público de ScriptCase (mismas 17 columnas,
+PENDIENTE, `uno = 1`, precio y banco copiados de `medicos`, id MAX+1) y el pago hace su mismo
+UPDATE (comprobante, NIT, razón social, PAGADO = a verificar por caja). Mismo aviso de Telegram.
+Así FileMaker y caja la reciben como cualquier reserva de ScriptCase.
+
+- Usuario MySQL `crm_agenda_reserva`: solo SELECT de lo necesario, INSERT de esas columnas y
+  UPDATE de comprobante/nit/razon_social/estado. No toca `agenda_med`, `medicos` ni nada más.
+- Mejoras sobre ScriptCase (sin cambiar el formato): la hora se comprueba libre dentro de la
+  transacción con un candado (`GET_LOCK`), también contra reservas PENDIENTE/PAGADO que la vista
+  de ScriptCase no descuenta; la disponibilidad pública las oculta; el pago exige una referencia
+  firmada que caduca a las 6 h (ScriptCase pasa el id en claro).
+- Pruebas: 13 contra MySQL 8.0.44 descartable con el esquema real (`scripts/probar-agenda-mysql.sh`):
+  columnas exactas, hora ocupada, dos reservas simultáneas, pago, referencia manipulada y permisos.
+
 ## Agenda ScriptCase: lectura desde el CRM — 6 de octubre de 2026
 
 La landing consulta médicos y horas libres reales de la agenda (ScriptCase + MySQL
