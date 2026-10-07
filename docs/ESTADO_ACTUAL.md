@@ -1,5 +1,33 @@
 # Estado actual
 
+## Directorio médico sobre la agenda (fase A) — 7 de octubre de 2026 · EN CURSO
+
+**Decisión del propietario:** los médicos, horarios y especialidades se editan
+**solo desde el CRM**; el panel de ScriptCase queda de respaldo. Editan
+administración y recepción (`puedeEditarAgendaClinica`); asistencia solo ve.
+La agenda MySQL sigue siendo la única lista: da los cupos, FileMaker la lee por
+ODBC y la landing la publica. Las fichas `PerfilMedico` del CRM (vacías) se
+retoman en la fase B para foto, biografía y publicación.
+
+- **Backend:** `/agenda/medicos` (listar, ficha con la grilla, editar, alta,
+  horario) y `/agenda/medicos/especialidades` (+ `renombrar` para unificar
+  duplicadas), con la cuenta MySQL `crm_agenda_admin` y el interruptor
+  `AGENDA_VPS_ADMIN`. Escribe como `form_medicos` / `form_horarios`: casillas
+  de 30 min que se encienden y apagan (nunca DELETE), una casilla nueva con
+  `orden` 0 y `cod_med` = `medicos.codigo`, alta con id MAX+1. El `codigo` de
+  FileMaker solo se escribe al crear. `horario_html` se regenera con la
+  plantilla de producción (`horario-html.ts`, comprobada byte a byte): con
+  casillas el médico se reserva en línea; sin ninguna, «a solicitud».
+- **Comprobado:** 30 pruebas contra MySQL 8.0.44 sintético (incluidos los
+  permisos del usuario nuevo) y la plantilla contra el HTML real del médico 20.
+- **Sin comprobar contra producción:** el corte mañana/tarde (13:00) del
+  recuadro. Solo se vio un médico con turno de mañana; al guardar, el recuadro
+  de un médico con tarde podría diferir del que escribió ScriptCase a mano.
+- **Para activarlo:** René ejecuta `scripts/agenda/crear-usuario-admin.sh`
+  (respalda `medicos`, `horarios` y `pagos_qr` en `/root/respaldos-agenda/` de
+  montalvo-vps y crea el usuario); luego desplegar y poner `AGENDA_VPS_ADMIN=on`.
+- **Falta:** la pantalla del frontend (Directorio sobre la agenda) y la fase B.
+
 ## Pantalla «Reservas» del CRM — 7 de octubre de 2026 · DESPLEGADO
 
 René: «mi CRM no ve las reservas». Ahora las ve, **solo lectura** (se confirman, cobran y

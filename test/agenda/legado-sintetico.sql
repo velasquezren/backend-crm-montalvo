@@ -3,7 +3,8 @@ CREATE DATABASE clinica CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
 USE clinica;
 SET NAMES utf8mb4;
 CREATE TABLE medicos (medico_pk INT PRIMARY KEY, codigo VARCHAR(50), nombre VARCHAR(200), sigla VARCHAR(5), especialidad VARCHAR(200), estado VARCHAR(10), horario_html TEXT, precio_con DECIMAL(10,2), orden INT, login VARCHAR(50), password VARCHAR(50), telefono VARCHAR(50), banco INT, foto VARCHAR(200));
-CREATE TABLE horarios (id_hora INT AUTO_INCREMENT PRIMARY KEY, medico_pk INT, cod_med VARCHAR(20), dia VARCHAR(20), hora TIME, estado VARCHAR(10));
+-- Como en producción (ibd2sdi, 7/10/2026), incluido el DEFAULT '1' de estado: quien inserta lo escribe siempre.
+CREATE TABLE horarios (id_hora INT AUTO_INCREMENT PRIMARY KEY, hora TIME NOT NULL, estado VARCHAR(10) DEFAULT '1', orden INT, dia VARCHAR(20) NOT NULL, medico_pk INT NOT NULL, cod_med VARCHAR(20), KEY fk_medico_horario (medico_pk));
 CREATE TABLE agenda_med (agendam_pk INT AUTO_INCREMENT PRIMARY KEY, cod_med VARCHAR(20), fecha DATE, hora TIME, estado VARCHAR(10), paciente VARCHAR(200));
 -- Columnas, tipos y nulabilidad de producción (ibd2sdi, 6/10/2026). Sin auto_increment, como allí.
 CREATE TABLE para_agendar (para_age INT NOT NULL PRIMARY KEY, medico_pk INT, fecha DATE, hora TIME, nombre_age VARCHAR(200), telefono_age VARCHAR(100), ci_age VARCHAR(100), obs VARCHAR(500), estado VARCHAR(10), nom_med VARCHAR(200), uno INT, fecha_registro DATE, hora_registro TIME, nit VARCHAR(20), razon_social VARCHAR(100), precio_con DECIMAL(10,2), banco INT, comprobante MEDIUMBLOB, sucursal VARCHAR(50));
@@ -55,3 +56,14 @@ INSERT INTO para_agendar (para_age,medico_pk,fecha,hora,nombre_age,telefono_age,
 (2,1,CURRENT_DATE()+INTERVAL 2 DAY,'09:00','María Sintética','+591 709-87654','111222','Primera consulta','PAGADO','Profesional sintético A',1,CURRENT_DATE(),'08:30','123456','Razón sintética',400.25,7,UNHEX('89504E470D0A1A0A0000000D49484452')),
 (3,2,CURRENT_DATE()+INTERVAL 3 DAY,'10:00','Ana 100% Sintética','70987654','333444',NULL,'PENDIENTE','Profesional sintético B',1,CURRENT_DATE(),'08:45',NULL,NULL,NULL,8,UNHEX('00112233445566778899')),
 (4,1,CURRENT_DATE()-INTERVAL 1 DAY,'09:00','María Sintética','70987654','111222',NULL,'ATENDIDO','Profesional sintético A',1,CURRENT_DATE()-INTERVAL 3 DAY,'10:00',NULL,NULL,400.25,7,NULL);
+-- Usuario de administración del Directorio (médicos y horarios): los mismos
+-- permisos que scripts/agenda/crear-usuario-admin.sh. Sin DELETE, sin el código
+-- de FileMaker de un médico existente, sin login/password, sin pacientes.
+CREATE USER 'crm_agenda_admin'@'%' IDENTIFIED BY 'solo-pruebas-sinteticas-admin-no-produccion-2026' REQUIRE SSL WITH MAX_USER_CONNECTIONS 3;
+GRANT SELECT (medico_pk, codigo, nombre, sigla, especialidad, telefono, estado, horario_html, orden, precio_con, banco, foto) ON clinica.medicos TO 'crm_agenda_admin'@'%';
+GRANT INSERT (medico_pk, codigo, nombre, sigla, especialidad, telefono, estado, horario_html, orden, precio_con, banco) ON clinica.medicos TO 'crm_agenda_admin'@'%';
+GRANT UPDATE (nombre, sigla, especialidad, telefono, estado, horario_html, orden, precio_con, banco) ON clinica.medicos TO 'crm_agenda_admin'@'%';
+GRANT SELECT (id_hora, medico_pk, cod_med, dia, hora, estado) ON clinica.horarios TO 'crm_agenda_admin'@'%';
+GRANT INSERT (hora, orden, dia, medico_pk, cod_med, estado) ON clinica.horarios TO 'crm_agenda_admin'@'%';
+GRANT UPDATE (estado) ON clinica.horarios TO 'crm_agenda_admin'@'%';
+GRANT SELECT (qr_pk, banco, fecha_vence) ON clinica.pagos_qr TO 'crm_agenda_admin'@'%';

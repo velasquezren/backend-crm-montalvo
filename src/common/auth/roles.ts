@@ -65,6 +65,19 @@ export function puedeVerAgendaClinica(rol: Rol): boolean {
   return tieneAlcanceGlobal(rol) || esRolOperativo(rol);
 }
 
+/**
+ * Roles que administran los médicos y horarios de la agenda de la clínica
+ * (Directorio médico), además de administración. Decisión del propietario
+ * (7/10/2026): administración y recepción. Asistencia ve la agenda pero no la
+ * edita. Es una CAPACIDAD, no un rango. Espejo: `core/auth/roles.ts`.
+ */
+export const ROLES_ADMINISTRAN_AGENDA: readonly Rol[] = [Rol.RECEPCION];
+
+/** ¿Este rol edita médicos, horarios y especialidades de la agenda? Administración siempre. */
+export function puedeEditarAgendaClinica(rol: Rol): boolean {
+  return tieneAlcanceGlobal(rol) || ROLES_ADMINISTRAN_AGENDA.includes(rol);
+}
+
 /** ¿`rol` alcanza el nivel de `rolMinimo`? */
 export function cubreRol(rol: Rol, rolMinimo: Rol): boolean {
   return RANGO_ROL[rol] >= RANGO_ROL[rolMinimo];

@@ -1,5 +1,8 @@
 import { Module } from '@nestjs/common';
+import { AgendaAdminClient } from './agenda-admin.client';
 import { AgendaConsultaClient } from './agenda-consulta.client';
+import { AgendaMedicosCrmController } from './agenda-medicos-crm.controller';
+import { AgendaMedicosCrmService } from './agenda-medicos-crm.service';
 import { AgendaPublicaController } from './agenda-publica.controller';
 import { AgendaReservasCrmController } from './agenda-reservas-crm.controller';
 import { AgendaReservasCrmService } from './agenda-reservas-crm.service';
@@ -10,10 +13,10 @@ import { AgendaService } from './agenda.service';
 import { AgendaVpsClient } from './agenda-vps.client';
 
 @Module({
-  controllers: [AgendaPublicaController, AgendaReservasCrmController],
+  controllers: [AgendaPublicaController, AgendaReservasCrmController, AgendaMedicosCrmController],
   providers: [
     AgendaService, AgendaVpsClient, AgendaReservaClient, AgendaReservasService, AgendaTelegramService,
-    AgendaConsultaClient, AgendaReservasCrmService,
+    AgendaConsultaClient, AgendaReservasCrmService, AgendaAdminClient, AgendaMedicosCrmService,
   ],
   exports: [AgendaService],
 })

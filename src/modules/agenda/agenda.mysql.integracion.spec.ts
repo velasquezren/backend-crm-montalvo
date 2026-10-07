@@ -8,6 +8,7 @@ import { AddressInfo, connect } from 'node:net';
 import { imagenSintetica } from '../../common/storage/imagen-sintetica';
 import { UsuarioJwt } from '../../common/decorators/current-user.decorator';
 import { PrismaService } from '../../prisma/prisma.service';
+import { AgendaMedicosCrmService } from './agenda-medicos-crm.service';
 import { AgendaReservasCrmService } from './agenda-reservas-crm.service';
 import { AgendaModule } from './agenda.module';
 import { AgendaVpsClient } from './agenda-vps.client';
@@ -21,6 +22,8 @@ const VALORES = {
   AGENDA_RESERVA_SECRETO: 'secreto-sintetico-de-referencias-de-pago-2026',
   AGENDA_VPS_CONSULTA: 'on', AGENDA_CONSULTA_USUARIO: 'crm_agenda_consulta',
   AGENDA_CONSULTA_PASSWORD: 'solo-pruebas-sinteticas-consulta-no-produccion-2026',
+  AGENDA_VPS_ADMIN: 'on', AGENDA_ADMIN_USUARIO: 'crm_agenda_admin',
+  AGENDA_ADMIN_PASSWORD: 'solo-pruebas-sinteticas-admin-no-produccion-2026',
   AGENDA_MYSQL_CA_ARCHIVO: process.env.AGENDA_MYSQL_TEST_CA ?? '',
   AGENDA_MYSQL_TLS_IDENTIDAD: 'MySQL_Server_8.0.44_Auto_Generated_Server_Certificate',
 };
@@ -359,6 +362,158 @@ ejecutar('Agenda HTTP → adaptador TLS → MySQL real descartable', () => {
           "INSERT INTO para_agendar (para_age) VALUES (999)",
         ]) {
           await expect(conn.query(sql)).rejects.toMatchObject({ code: expect.stringMatching(/ACCESS_DENIED/) });
+        }
+      } finally { await conn.end(); }
+    });
+  });
+
+  describe('Directorio del CRM: médicos y horarios de la agenda (cuenta de administración)', () => {
+    let medicos: AgendaMedicosCrmService;
+    const usuarios: Record<'recepcion' | 'asistente' | 'agente', UsuarioJwt> = {} as never;
+    const datos = { nombre: 'Profesional editado', sigla: 'Dra.', especialidad: 'Especialidad sintética', telefono: null, estado: 'ACTIVO' as const, precio: '350.5', bancoId: 8, orden: 5 };
+
+    async function limpiar() {
+      const ids = (await prisma.usuario.findMany({ where: { email: { endsWith: '@agenda-admin.test' } }, select: { id: true } })).map(u => u.id);
+      await prisma.auditLog.deleteMany({ where: { OR: [{ usuarioId: { in: ids } }, { entidad: { in: ['MedicoAgenda', 'EspecialidadAgenda'] } }] } });
+      await prisma.usuario.deleteMany({ where: { id: { in: ids } } });
+    }
+    beforeAll(async () => {
+      medicos = app.get(AgendaMedicosCrmService);
+      await limpiar();
+      for (const [clave, rol] of [['recepcion', 'RECEPCION'], ['asistente', 'ASISTENTE'], ['agente', 'AGENTE']] as const) {
+        const u = await prisma.usuario.create({ data: { nombre: `Persona ${clave}`, email: `${clave}@agenda-admin.test`, passwordHash: 'sin-uso', rol, activo: true } });
+        usuarios[clave] = { sub: u.id, email: u.email, nombre: u.nombre, rol };
+      }
+    });
+    afterAll(limpiar);
+    const filasDe = async <T,>(sql: string, valores: unknown[] = []) => {
+      const db = await conexionRoot();
+      try { return (await db.query<RowDataPacket[]>(sql, valores))[0] as T[]; } finally { await db.end(); }
+    };
+
+    it('lista activos e inactivos con su cuenta por estado, y las especialidades como están escritas', async () => {
+      const r = await medicos.listar({}, usuarios.asistente);
+      expect(r).toMatchObject({ total: 4, porEstado: { ACTIVO: 3, INACTIVO: 1 } });
+      expect(r.datos.map(m => m.id)).toEqual([1, 2, 3, 4]);
+      expect(r.datos[0]).toMatchObject({ codigo: 'A', reservaEnLinea: true, casillasActivas: 6, precio: '400.25', bancoId: 7 });
+      // El teléfono del médico sí lo ve el personal; su login y contraseña, nunca.
+      expect(JSON.stringify(r)).not.toMatch(/secreto|"privado"|login|password/);
+      expect((await medicos.listar({ estado: 'INACTIVO' }, usuarios.recepcion)).datos.map(m => m.id)).toEqual([4]);
+      expect((await medicos.listar({ buscar: 'solicitud' }, usuarios.recepcion)).datos.map(m => m.id)).toEqual([3]);
+      const esp = await medicos.especialidades({}, usuarios.recepcion);
+      expect(esp.datos).toEqual([
+        { nombre: 'Especialidad sintética', medicos: 2, activos: 2 },
+        { nombre: 'Oculta', medicos: 1, activos: 0 },
+        { nombre: 'Otra especialidad', medicos: 1, activos: 1 },
+      ]);
+      expect(await medicos.bancos(usuarios.recepcion)).toEqual([
+        { id: 7, nombre: 'Banco sintético', vence: fecha(30) }, { id: 8, nombre: 'Banco vencido', vence: fecha(-1) },
+      ]);
+    });
+
+    it('enciende casillas nuevas como el formulario de ScriptCase y regenera el recuadro de horario', async () => {
+      const ficha = await medicos.ficha(3, usuarios.recepcion);
+      expect(ficha.casillas).toEqual([]);
+      expect(ficha.grilla.horas).toHaveLength(28);
+      const activas = [
+        { dia: 'Lunes', hora: '09:00' }, { dia: 'Lunes', hora: '09:30' }, { dia: 'Lunes', hora: '14:00' }, { dia: 'Sabado', hora: '10:00' },
+      ] as const;
+      const nueva = await medicos.guardarHorario(3, { version: ficha.version, activas: [...activas] }, usuarios.recepcion);
+      expect(nueva.medico).toMatchObject({ reservaEnLinea: true, casillasActivas: 4 });
+      const filas = await filasDe<Record<string, unknown>>('SELECT dia, hora, estado, orden, cod_med FROM horarios WHERE medico_pk = 3 ORDER BY dia, hora');
+      expect(filas).toEqual([
+        { dia: 'Lunes', hora: '09:00:00', estado: 'ACTIVO', orden: 0, cod_med: 'C' },
+        { dia: 'Lunes', hora: '09:30:00', estado: 'ACTIVO', orden: 0, cod_med: 'C' },
+        { dia: 'Lunes', hora: '14:00:00', estado: 'ACTIVO', orden: 0, cod_med: 'C' },
+        { dia: 'Sabado', hora: '10:00:00', estado: 'ACTIVO', orden: 0, cod_med: 'C' },
+      ]);
+      const [{ horario_html: html }] = await filasDe<{ horario_html: string }>('SELECT horario_html FROM medicos WHERE medico_pk = 3');
+      expect(html).toContain('>9:00-9:30</td>');
+      expect(html).toContain('>14:00</td>');
+      expect(html).toContain('>10:00</td>');
+      // La web pública lo ofrece ya en línea: tiene días con horas libres.
+      expect(((await (await get('dias?medicoId=3')).json()) as { fechas: string[] }).fechas.length).toBeGreaterThan(0);
+      expect(await prisma.auditLog.count({ where: { entidad: 'MedicoAgenda', entidadId: '3', accion: 'HORARIO_AGENDA_GUARDADO', usuarioId: usuarios.recepcion.sub } })).toBe(1);
+    });
+
+    it('apagar casillas no borra filas; sin ninguna encendida el médico vuelve a «a solicitud»', async () => {
+      let ficha = await medicos.ficha(3, usuarios.recepcion);
+      ficha = await medicos.guardarHorario(3, { version: ficha.version, activas: [{ dia: 'Lunes', hora: '09:00' }] }, usuarios.recepcion);
+      expect(ficha.casillas.map(c => [c.dia, c.hora, c.activa])).toEqual([
+        ['Lunes', '09:00', true], ['Lunes', '09:30', false], ['Lunes', '14:00', false], ['Sabado', '10:00', false],
+      ]);
+      ficha = await medicos.guardarHorario(3, { version: ficha.version, activas: [] }, usuarios.recepcion);
+      expect(ficha.medico.reservaEnLinea).toBe(false);
+      expect(await filasDe('SELECT 1 FROM horarios WHERE medico_pk = 3')).toHaveLength(4);
+      expect(((await (await get('dias?medicoId=3')).json()) as { fechas: string[] }).fechas).toEqual([]);
+    });
+
+    it('no guarda encima de un cambio que la persona no vio, ni casillas inventadas', async () => {
+      const ficha = await medicos.ficha(3, usuarios.recepcion);
+      await medicos.guardarHorario(3, { version: ficha.version, activas: [{ dia: 'Martes', hora: '08:00' }] }, usuarios.recepcion);
+      await expect(medicos.guardarHorario(3, { version: ficha.version, activas: [] }, usuarios.recepcion))
+        .rejects.toMatchObject({ status: 409 });
+      await expect(medicos.actualizar(3, { ...datos, version: ficha.version }, usuarios.recepcion)).rejects.toMatchObject({ status: 409 });
+      const actual = await medicos.ficha(3, usuarios.recepcion);
+      await expect(medicos.guardarHorario(3, { version: actual.version, activas: [{ dia: 'Lunes', hora: '09:15' }] }, usuarios.recepcion))
+        .rejects.toMatchObject({ status: 400 });
+      // El rechazo no dejó nada a medias.
+      expect((await medicos.ficha(3, usuarios.recepcion)).version).toBe(actual.version);
+    });
+
+    it('edita los datos sin tocar el código de FileMaker y deja constancia de antes y después', async () => {
+      const ficha = await medicos.ficha(2, usuarios.recepcion);
+      const editada = await medicos.actualizar(2, { ...datos, version: ficha.version }, usuarios.recepcion);
+      expect(editada.medico).toMatchObject({ codigo: 'B', nombre: 'Profesional editado', sigla: 'Dra.', precio: '350.50', bancoId: 8, orden: 5 });
+      const [fila] = await filasDe<Record<string, unknown>>('SELECT codigo, telefono, login, password FROM medicos WHERE medico_pk = 2');
+      expect(fila).toEqual({ codigo: 'B', telefono: '', login: 'privado', password: 'secreto-sintetico' });
+      const audit = await prisma.auditLog.findFirstOrThrow({ where: { entidad: 'MedicoAgenda', entidadId: '2', accion: 'MEDICO_AGENDA_EDITADO' } });
+      expect(audit.cambios).toMatchObject({ antes: { nombre: 'Profesional sintético B', precio: null, bancoId: 8 }, despues: { nombre: 'Profesional editado', precio: '350.5' } });
+      await expect(medicos.actualizar(2, { ...datos, bancoId: 99, version: editada.version }, usuarios.recepcion)).rejects.toMatchObject({ status: 400 });
+      await expect(medicos.actualizar(99, { ...datos, version: editada.version }, usuarios.recepcion)).rejects.toMatchObject({ status: 404 });
+    });
+
+    it('da de alta un médico con id MAX+1 y su código; un código repetido se rechaza', async () => {
+      await expect(medicos.crear({ ...datos, codigo: 'a' }, usuarios.recepcion)).rejects.toMatchObject({ status: 409 });
+      const nuevo = await medicos.crear({ ...datos, codigo: 'NUEVO-1', nombre: 'Profesional nuevo', precio: null, bancoId: null }, usuarios.recepcion);
+      expect(nuevo.medico).toMatchObject({ id: 5, codigo: 'NUEVO-1', reservaEnLinea: false, casillasActivas: 0 });
+      const [fila] = await filasDe<Record<string, unknown>>('SELECT * FROM medicos WHERE medico_pk = 5');
+      expect(fila).toMatchObject({ codigo: 'NUEVO-1', nombre: 'Profesional nuevo', sigla: 'Dra.', telefono: '', estado: 'ACTIVO', horario_html: '', orden: 5, precio_con: null, banco: null, login: null, password: null });
+      // Con código, ya puede recibir casillas.
+      const ficha = await medicos.guardarHorario(5, { version: nuevo.version, activas: [{ dia: 'Viernes', hora: '16:00' }] }, usuarios.recepcion);
+      expect(ficha.medico.casillasActivas).toBe(1);
+      expect(await filasDe('SELECT 1 FROM horarios WHERE medico_pk = 5 AND cod_med = ?', ['NUEVO-1'])).toHaveLength(1);
+    });
+
+    it('renombrar una especialidad la unifica en todos sus médicos', async () => {
+      expect(await medicos.renombrarEspecialidad({ actual: 'Otra especialidad', nueva: 'Especialidad sintética' }, usuarios.recepcion)).toEqual({ medicos: 1 });
+      expect((await medicos.especialidades({}, usuarios.recepcion)).datos.map(e => e.nombre)).toEqual(['Especialidad sintética', 'Oculta']);
+      await expect(medicos.renombrarEspecialidad({ actual: 'No existe', nueva: 'X' }, usuarios.recepcion)).rejects.toMatchObject({ status: 404 });
+    });
+
+    it('ven recepción, asistencia y administración; editan recepción y administración', async () => {
+      await expect(medicos.listar({}, usuarios.agente)).rejects.toMatchObject({ status: 403 });
+      const ficha = await medicos.ficha(1, usuarios.asistente);
+      await expect(medicos.actualizar(1, { ...datos, version: ficha.version }, usuarios.asistente)).rejects.toMatchObject({ status: 403 });
+      await expect(medicos.guardarHorario(1, { version: ficha.version, activas: [] }, usuarios.asistente)).rejects.toMatchObject({ status: 403 });
+      await expect(medicos.crear({ ...datos, codigo: 'Z' }, usuarios.asistente)).rejects.toMatchObject({ status: 403 });
+    });
+
+    it('el usuario de administración no borra, no cambia códigos ni contraseñas y no ve pacientes', async () => {
+      const conn = await createConnection({
+        host: config.getOrThrow<string>('AGENDA_MYSQL_TLS_IDENTIDAD'),
+        stream: () => connect({ host: '127.0.0.1', port: 3307 }),
+        user: 'crm_agenda_admin', password: VALORES.AGENDA_ADMIN_PASSWORD, database: 'clinica',
+        ssl: { ca: readFileSync(process.env.AGENDA_MYSQL_TEST_CA!), rejectUnauthorized: true, verifyIdentity: true },
+      });
+      try {
+        for (const sql of [
+          'SELECT password FROM medicos', 'SELECT login FROM medicos', "UPDATE medicos SET codigo = 'X' WHERE 1=0",
+          "UPDATE medicos SET password = 'x' WHERE 1=0", 'DELETE FROM medicos WHERE 1=0', 'DELETE FROM horarios WHERE 1=0',
+          "UPDATE horarios SET cod_med = 'X' WHERE 1=0", 'SELECT nombre_age FROM para_agendar', 'SELECT paciente FROM agenda_med',
+          "INSERT INTO agenda_med (cod_med) VALUES ('x')", "UPDATE pagos_qr SET banco = 'x' WHERE 1=0",
+        ]) {
+          await expect(conn.query(sql)).rejects.toMatchObject({ code: expect.stringMatching(/ACCESS_DENIED|DENIED/) });
         }
       } finally { await conn.end(); }
     });
