@@ -20,7 +20,7 @@ nueva `agendaMedicoId` (migración `20261007220000`, solo añade).
   lunes–viernes», horas por semana, punto de «sin guardar» por pestaña y pie de
   acciones fijo. La pestaña «Fichas web» desapareció: las especialidades de la
   web viven en «Especialidades».
-- **Especialidades unificadas (7/10, después):** una sola lista, la de la
+- **Especialidades unificadas (7/10, desplegado: backend a5f9ac8, frontend e013fb0):** una sola lista, la de la
   agenda, cada una con su página web (`Especialidad`, reconocida por nombre sin
   mayúsculas ni tildes: `claveDeEspecialidad`). Se crean desde la agenda (una o
   «las que faltan»), renombrar en la agenda renombra la página (el slug no
