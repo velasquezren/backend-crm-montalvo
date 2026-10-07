@@ -1,9 +1,13 @@
 # Estado actual
 
-## Pantalla «Reservas» del CRM — 7 de octubre de 2026 · RAMAS `reservas-crm`, SIN DESPLEGAR
+## Pantalla «Reservas» del CRM — 7 de octubre de 2026 · DESPLEGADO
 
 René: «mi CRM no ve las reservas». Ahora las ve, **solo lectura** (se confirman, cobran y
-anulan en la agenda, como siempre). Backend y frontend en sus ramas `reservas-crm`.
+anulan en la agenda, como siempre). **En producción desde el 7/10 a las 16:10 (La Paz)**: backend
+`390247d` (respaldo `/root/backup-crm-20261007-*.sql.gz`), `AGENDA_VPS_CONSULTA=on`; frontend `e0e6fb5`
+en Vercel. Usuario `crm_agenda_consulta` verificado en producción: lee las 41 reservas por TLS
+(estados reales: ATENDIDO 38, PAGADO 3) y tiene denegados UPDATE, DELETE, INSERT, `agenda_med`
+y las columnas privadas de `medicos`.
 
 - `GET /agenda/reservas` (recepción, asistencia y ADMIN+: `puedeVerAgendaClinica`): rango de
   hasta 92 días (por defecto hoy + 29, en La Paz), estado, búsqueda por nombre, carnet,
