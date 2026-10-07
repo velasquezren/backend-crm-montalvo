@@ -53,6 +53,22 @@ const INCLUIR_FICHA = {
 
 type FichaConRelaciones = Prisma.PerfilMedicoGetPayload<{ include: typeof INCLUIR_FICHA }>;
 
+/** Lo que la agenda le pasa al directorio de uno de sus médicos. */
+export interface DatosFichaDeAgenda {
+  agendaMedicoId: number;
+  nombrePublico: string;
+  codigoFilemaker: string | null;
+  /** En Bs; null si la agenda no tiene precio (o tiene 0). */
+  precioConsulta: number | null;
+  bloques: BloqueHorario[];
+}
+
+export interface ResumenWebDeAgenda {
+  perfilId: string;
+  publicado: boolean;
+  fotoUrl: string | null;
+}
+
 /** Ausencias que lleva cada médico en el listado público: la landing ofrece las próximas dos semanas. */
 const AUSENCIAS_EN_LISTADO = 5;
 
@@ -177,6 +193,7 @@ export class DirectorioService {
         slug: f.slug,
         publicado: f.publicado,
         codigoFilemaker: f.medico?.codigo ?? null,
+        agendaMedicoId: f.agendaMedicoId,
         especialidades: f.especialidades.map(e => e.especialidad),
         resumenHorario: resumenDelHorario(f.horarios),
         fotoUrl: f.fotoClave ? await this.r2.urlFirmada(f.fotoClave) : null,
@@ -212,6 +229,7 @@ export class DirectorioService {
       publicado: f.publicado,
       orden: f.orden,
       version: f.version,
+      agendaMedicoId: f.agendaMedicoId,
       medico: f.medico,
       especialidades: f.especialidades.map(e => e.especialidad),
       horario: ordenarBloques(f.horarios).map(bloquePublico),
@@ -254,6 +272,7 @@ export class DirectorioService {
    */
   async actualizarFicha(id: string, dto: ActualizarPerfilMedicoDto, usuarioId: string) {
     const { version, especialidadIds, ...campos } = dto;
+    if (campos.precioConsulta !== undefined) await this.exigirSinAgenda(id, 'El precio de este médico se edita en la agenda.');
     if (especialidadIds) await this.exigirEspecialidadesActivas(especialidadIds);
     if (campos.medicoId) {
       const medico = await this.prisma.medico.findUnique({ where: { id: campos.medicoId }, select: { id: true } });
@@ -289,6 +308,7 @@ export class DirectorioService {
     }));
     const errores = erroresDelHorario(bloques);
     if (errores.length) throw new BadRequestException(errores);
+    await this.exigirSinAgenda(id, 'El horario de este médico se edita en la agenda: es el que da los cupos.');
     await this.prisma.$transaction(async tx => {
       await this.exigirVersion(tx, id, dto.version);
       await tx.perfilMedico.update({ where: { id }, data: { version: { increment: 1 } } });
@@ -393,6 +413,99 @@ export class DirectorioService {
       this.prisma.medico.count({ where }),
     ]);
     return paginar(datos, total, query);
+  }
+
+  /* ── Fichas de médicos de la AGENDA ─────────────────────────────────── */
+  /*
+   * La ficha web de un médico de la agenda de la clínica (ScriptCase): la agenda
+   * es dueña de su nombre, precio y horario —son los que dan los cupos—; la ficha
+   * pone lo que la agenda no tiene: foto, resumen, biografía, matrícula, las
+   * especialidades de la web y si se publica. El módulo `agenda` llama a estos
+   * métodos; nunca escribe estas tablas por su cuenta.
+   */
+
+  /** La ficha enlazada a un médico de la agenda, o null si todavía no tiene. */
+  async fichaDeAgenda(agendaMedicoId: number) {
+    const f = await this.prisma.perfilMedico.findUnique({ where: { agendaMedicoId }, select: { id: true } });
+    return f ? this.obtenerFicha(f.id) : null;
+  }
+
+  /**
+   * Crea la ficha web de un médico de la agenda: nace OCULTA, con el nombre, el
+   * precio y el horario de la agenda, y enlazada al médico de comisiones que
+   * tenga su mismo código de FileMaker (si lo hay y no tiene ya otra ficha).
+   */
+  async crearFichaDeAgenda(agenda: DatosFichaDeAgenda, usuarioId: string) {
+    const medico = agenda.codigoFilemaker
+      ? await this.prisma.medico.findFirst({ where: { codigo: agenda.codigoFilemaker, perfil: { is: null } }, select: { id: true } })
+      : null;
+    const creada = await this.conSlugLibre('PerfilMedico', aSlug(agenda.nombrePublico, 110), slug =>
+      this.prisma.perfilMedico.create({
+        data: {
+          nombrePublico: agenda.nombrePublico,
+          slug,
+          agendaMedicoId: agenda.agendaMedicoId,
+          medicoId: medico?.id,
+          precioConsulta: agenda.precioConsulta,
+          horarios: { create: agenda.bloques.map(({ diaSemana, inicioMinuto, finMinuto }) => ({ diaSemana, inicioMinuto, finMinuto })) },
+        },
+        select: { id: true },
+      }),
+    ).catch((error: unknown) => {
+      if (esChoqueUnicoEn(error, 'PerfilMedico', 'agendaMedicoId')) throw new ConflictException('Este médico ya tiene su ficha web.');
+      throw error;
+    });
+    await this.audit.registrar('PerfilMedico', creada.id, 'FICHA_MEDICO_CREADA', usuarioId, { agendaMedicoId: agenda.agendaMedicoId });
+    return this.obtenerFicha(creada.id);
+  }
+
+  /**
+   * Lleva a la ficha web el precio y el horario que se acaban de guardar en la
+   * agenda. Sin ficha enlazada no hace nada. No mueve la versión de la ficha a
+   * propósito: quien la tenga abierta para la biografía no recibe un 409 porque
+   * otra persona cambió el horario.
+   */
+  async sincronizarConAgenda(agendaMedicoId: number, datos: Pick<DatosFichaDeAgenda, 'precioConsulta' | 'bloques'>) {
+    const ficha = await this.prisma.perfilMedico.findUnique({ where: { agendaMedicoId }, select: { id: true, publicado: true } });
+    if (!ficha) return;
+    await this.prisma.$transaction([
+      this.prisma.perfilMedico.update({ where: { id: ficha.id }, data: { precioConsulta: datos.precioConsulta } }),
+      this.prisma.horarioMedico.deleteMany({ where: { perfilMedicoId: ficha.id } }),
+      this.prisma.horarioMedico.createMany({
+        data: datos.bloques.map(({ diaSemana, inicioMinuto, finMinuto }) => ({ perfilMedicoId: ficha.id, diaSemana, inicioMinuto, finMinuto })),
+      }),
+    ]);
+    this.avisarSiPublicada(ficha);
+  }
+
+  /** Para el listado del CRM: la ficha web (foto firmada y si está publicada) de cada médico de la agenda que tenga. */
+  async resumenDeAgenda(agendaMedicoIds: readonly number[]): Promise<Map<number, ResumenWebDeAgenda>> {
+    if (agendaMedicoIds.length === 0) return new Map();
+    const fichas = await this.prisma.perfilMedico.findMany({
+      where: { agendaMedicoId: { in: [...agendaMedicoIds] } },
+      select: { id: true, agendaMedicoId: true, publicado: true, fotoClave: true },
+    });
+    const pares = await Promise.all(
+      fichas.map(async f => [f.agendaMedicoId!, {
+        perfilId: f.id,
+        publicado: f.publicado,
+        fotoUrl: f.fotoClave ? await this.r2.urlFirmada(f.fotoClave) : null,
+      }] as const),
+    );
+    return new Map(pares);
+  }
+
+  /**
+   * Para la reserva web: la foto pública de los médicos de la agenda con ficha
+   * PUBLICADA y foto. Es la misma URL inmutable que sirve el directorio.
+   */
+  async fotosPublicasDeAgenda(agendaMedicoIds: readonly number[]): Promise<Map<number, string>> {
+    if (agendaMedicoIds.length === 0) return new Map();
+    const fichas = await this.prisma.perfilMedico.findMany({
+      where: { agendaMedicoId: { in: [...agendaMedicoIds] }, publicado: true, fotoId: { not: null } },
+      select: { agendaMedicoId: true, fotoId: true },
+    });
+    return new Map(fichas.map(f => [f.agendaMedicoId!, urlPublica(`/publico/directorio/fotos/${f.fotoId}`)]));
   }
 
   /* ── Directorio público (landing) ───────────────────────────────────── */
@@ -506,6 +619,13 @@ export class DirectorioService {
   }
 
   /* ── Internos ───────────────────────────────────────────────────────── */
+
+  /** Una ficha enlazada a la agenda recibe su precio y horario de allí: aquí no se tocan. */
+  private async exigirSinAgenda(id: string, mensaje: string) {
+    const f = await this.prisma.perfilMedico.findUnique({ where: { id }, select: { agendaMedicoId: true } });
+    if (!f) throw new NotFoundException('Esa ficha no existe.');
+    if (f.agendaMedicoId !== null) throw new BadRequestException(mensaje);
+  }
 
   private async fichaOFallar(id: string) {
     const f = await this.prisma.perfilMedico.findUnique({ where: { id }, select: { id: true } });

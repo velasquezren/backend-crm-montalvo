@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { CacheMemoria } from '../../common/cache/cache-memoria';
 import { calcularPaginacion, PaginationDto, RespuestaPaginada } from '../../common/dto/pagination.dto';
+import { DirectorioService } from '../directorio/directorio.service';
 import { AgendaVpsClient } from './agenda-vps.client';
 import { diasDeAgenda, disponibilidadDeAgenda, EspecialidadAgenda, especialidadDeAgenda, fechaConsultable, MedicoAgenda, medicoDeAgenda, paginaAgenda } from './agenda.contrato';
 import { QueryDiasAgendaDto, QueryDisponibilidadAgendaDto, QueryMedicosAgendaDto } from './dto/query-agenda.dto';
@@ -9,7 +10,10 @@ import { QueryDiasAgendaDto, QueryDisponibilidadAgendaDto, QueryMedicosAgendaDto
 export class AgendaService {
   private readonly especialidadesCache = new CacheMemoria<RespuestaPaginada<EspecialidadAgenda>>({ ttlMs: 30_000, maxEntradas: 30 });
   private readonly medicosCache = new CacheMemoria<RespuestaPaginada<MedicoAgenda>>({ ttlMs: 30_000, maxEntradas: 100 });
-  constructor(private readonly vps: AgendaVpsClient) {}
+  constructor(
+    private readonly vps: AgendaVpsClient,
+    private readonly directorio: DirectorioService,
+  ) {}
 
   private parametros(query: PaginationDto): URLSearchParams {
     const { take } = calcularPaginacion(query);
@@ -32,12 +36,24 @@ export class AgendaService {
     parametros.set('especialidadId', query.especialidadId);
     return this.medicosCache.resolver(parametros.toString(), async () => {
       const crudo = await this.vps.leer('medicos', parametros);
+      let pagina: RespuestaPaginada<MedicoAgenda>;
       try {
-        const pagina = paginaAgenda(crudo, query.pagina ?? 1, calcularPaginacion(query).take, medicoDeAgenda);
+        pagina = paginaAgenda(crudo, query.pagina ?? 1, calcularPaginacion(query).take, medicoDeAgenda);
         if (pagina.datos.some(m => m.especialidadId !== query.especialidadId)) throw new Error('Especialidad diferente');
-        return pagina;
       } catch { throw this.vps.noDisponible(); }
+      return this.conFotosDelDirectorio(pagina);
     });
+  }
+
+  /**
+   * La foto de la ficha web PUBLICADA, si el médico tiene, gana a la de
+   * ScriptCase: es la que la clínica cuida desde el CRM. Si el directorio no
+   * responde, la reserva sigue con la de ScriptCase.
+   */
+  private async conFotosDelDirectorio(pagina: RespuestaPaginada<MedicoAgenda>): Promise<RespuestaPaginada<MedicoAgenda>> {
+    const fotos = await this.directorio.fotosPublicasDeAgenda(pagina.datos.map(m => Number(m.id))).catch(() => new Map<number, string>());
+    if (fotos.size === 0) return pagina;
+    return { ...pagina, datos: pagina.datos.map(m => ({ ...m, fotoUrl: fotos.get(Number(m.id)) ?? m.fotoUrl })) };
   }
 
   async disponibilidad(query: QueryDisponibilidadAgendaDto) {

@@ -5,9 +5,11 @@ import { createConnection, RowDataPacket } from 'mysql2/promise';
 import { readFileSync } from 'node:fs';
 import { createServer, Server } from 'node:http';
 import { AddressInfo, connect } from 'node:net';
+import { AuditModule } from '../../common/audit/audit.module';
 import { imagenSintetica } from '../../common/storage/imagen-sintetica';
 import { UsuarioJwt } from '../../common/decorators/current-user.decorator';
 import { PrismaService } from '../../prisma/prisma.service';
+import { DirectorioService } from '../directorio/directorio.service';
 import { AgendaMedicosCrmService } from './agenda-medicos-crm.service';
 import { AgendaReservasCrmService } from './agenda-reservas-crm.service';
 import { AgendaModule } from './agenda.module';
@@ -33,7 +35,7 @@ const prisma = new PrismaService('postgresql://crm_app@127.0.0.1:5433/crm_test')
 @Global()
 @Module({ providers: [{ provide: PrismaService, useValue: prisma }], exports: [PrismaService] })
 class PrismaPrueba {}
-@Module({ imports: [ConfigModule.forRoot({ isGlobal: true, ignoreEnvFile: true }), PrismaPrueba, AgendaModule], providers: [] })
+@Module({ imports: [ConfigModule.forRoot({ isGlobal: true, ignoreEnvFile: true }), PrismaPrueba, AuditModule, AgendaModule], providers: [] })
 class ModuloPrueba {}
 
 const PNG_QR = imagenSintetica('png', 400, 400);
@@ -400,13 +402,13 @@ ejecutar('Agenda HTTP → adaptador TLS → MySQL real descartable', () => {
       expect(JSON.stringify(r)).not.toMatch(/secreto|"privado"|login|password/);
       expect((await medicos.listar({ estado: 'INACTIVO' }, usuarios.recepcion)).datos.map(m => m.id)).toEqual([4]);
       expect((await medicos.listar({ buscar: 'solicitud' }, usuarios.recepcion)).datos.map(m => m.id)).toEqual([3]);
-      const esp = await medicos.especialidades({}, usuarios.recepcion);
+      const esp = await medicos.especialidades({});
       expect(esp.datos).toEqual([
         { nombre: 'Especialidad sintética', medicos: 2, activos: 2 },
         { nombre: 'Oculta', medicos: 1, activos: 0 },
         { nombre: 'Otra especialidad', medicos: 1, activos: 1 },
       ]);
-      expect(await medicos.bancos(usuarios.recepcion)).toEqual([
+      expect(await medicos.bancos()).toEqual([
         { id: 7, nombre: 'Banco sintético', vence: fecha(30) }, { id: 8, nombre: 'Banco vencido', vence: fecha(-1) },
       ]);
     });
@@ -487,12 +489,43 @@ ejecutar('Agenda HTTP → adaptador TLS → MySQL real descartable', () => {
 
     it('renombrar una especialidad la unifica en todos sus médicos', async () => {
       expect(await medicos.renombrarEspecialidad({ actual: 'Otra especialidad', nueva: 'Especialidad sintética' }, usuarios.recepcion)).toEqual({ medicos: 1 });
-      expect((await medicos.especialidades({}, usuarios.recepcion)).datos.map(e => e.nombre)).toEqual(['Especialidad sintética', 'Oculta']);
+      expect((await medicos.especialidades({})).datos.map(e => e.nombre)).toEqual(['Especialidad sintética', 'Oculta']);
       await expect(medicos.renombrarEspecialidad({ actual: 'No existe', nueva: 'X' }, usuarios.recepcion)).rejects.toMatchObject({ status: 404 });
     });
 
-    it('ven recepción, asistencia y administración; editan recepción y administración', async () => {
-      await expect(medicos.listar({}, usuarios.agente)).rejects.toMatchObject({ status: 403 });
+    it('la ficha web nace oculta, enlazada, con el nombre, precio y horario de la agenda, y se mantiene al día', async () => {
+      await prisma.perfilMedico.deleteMany({ where: { agendaMedicoId: { not: null } } });
+      const especialidad = await prisma.especialidad.upsert({
+        where: { nombre: 'Especialidad web sintética' }, update: {}, create: { nombre: 'Especialidad web sintética', slug: 'especialidad-web-sintetica' },
+      });
+      let ficha = await medicos.crearPresentacion(1, usuarios.recepcion);
+      expect(ficha.presentacion).toMatchObject({ agendaMedicoId: 1, nombrePublico: 'Dra. Profesional sintético A', publicado: false, precioConsulta: 400.25 });
+      expect(ficha.presentacion!.horario.length).toBeGreaterThan(0);
+      await expect(medicos.crearPresentacion(1, usuarios.recepcion)).rejects.toMatchObject({ status: 409 });
+      // Sin especialidad web no se publica; con ella, sí. La foto pública de la reserva sale del directorio solo si hay foto.
+      await expect(medicos.publicarPresentacion(1, true, usuarios.recepcion)).rejects.toMatchObject({ status: 400 });
+      ficha = await medicos.actualizarPresentacion(1, { version: ficha.presentacion!.version, resumen: 'Control prenatal', especialidadIds: [especialidad.id] }, usuarios.recepcion);
+      ficha = await medicos.publicarPresentacion(1, true, usuarios.recepcion);
+      expect(ficha.presentacion).toMatchObject({ publicado: true, resumen: 'Control prenatal' });
+      const lista = await medicos.listar({ buscar: 'sintético A' }, usuarios.recepcion);
+      expect(lista.datos[0].web).toEqual({ perfilId: ficha.presentacion!.id, publicado: true, fotoUrl: null });
+      // Guardar el horario en la agenda lo lleva a la web: un solo turno el viernes de 16:00 a 16:30.
+      ficha = await medicos.guardarHorario(1, { version: ficha.version, activas: [{ dia: 'Viernes', hora: '16:00' }] }, usuarios.recepcion);
+      expect(ficha.presentacion!.horario).toEqual([{ diaSemana: 5, desde: '16:00', hasta: '16:30', lugar: null }]);
+      // El precio de una ficha enlazada no se edita por el directorio.
+      await expect(app.get(DirectorioService).actualizarFicha(ficha.presentacion!.id, { version: ficha.presentacion!.version, precioConsulta: 1 }, usuarios.recepcion.sub))
+        .rejects.toMatchObject({ status: 400 });
+      await expect(medicos.crearPresentacion(2, usuarios.asistente)).rejects.toMatchObject({ status: 403 });
+      await prisma.perfilMedico.deleteMany({ where: { agendaMedicoId: { not: null } } });
+      await prisma.especialidad.delete({ where: { id: especialidad.id } });
+    });
+
+    it('los ve cualquier sesión (ventas sin el teléfono del médico); editan recepción y administración', async () => {
+      const deVentas = await medicos.listar({}, usuarios.agente);
+      expect(deVentas.total).toBeGreaterThan(0);
+      expect(deVentas.datos.every(m => m.telefono === null)).toBe(true);
+      expect((await medicos.ficha(1, usuarios.agente)).medico.telefono).toBeNull();
+      expect((await medicos.ficha(1, usuarios.asistente)).medico.telefono).toBe('telefono-privado');
       const ficha = await medicos.ficha(1, usuarios.asistente);
       await expect(medicos.actualizar(1, { ...datos, version: ficha.version }, usuarios.asistente)).rejects.toMatchObject({ status: 403 });
       await expect(medicos.guardarHorario(1, { version: ficha.version, activas: [] }, usuarios.asistente)).rejects.toMatchObject({ status: 403 });

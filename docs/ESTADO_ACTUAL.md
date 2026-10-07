@@ -1,5 +1,27 @@
 # Estado actual
 
+## Directorio médico, fase B: ficha web unida a la agenda — 7 de octubre de 2026 · EN GITHUB, SIN DESPLEGAR
+
+Cada médico de la agenda tiene en su ficha del CRM tres pestañas: **Datos**,
+**Horario** y **Web**. La ficha web es un `PerfilMedico` enlazado por la columna
+nueva `agendaMedicoId` (migración `20261007220000`, solo añade).
+
+- Nace oculta con el nombre, el precio y el horario de la agenda; enlaza sola el
+  `Medico` de comisiones con el mismo código de FileMaker. Guardar datos u
+  horario en la agenda actualiza su precio y horario (sin mover su versión).
+  Por el directorio genérico ya no se edita el precio ni el horario de una
+  ficha enlazada (400).
+- Publicar exige una especialidad de la web; la pantalla muestra la lista de
+  lo que falta y una vista previa de la tarjeta.
+- La reserva web muestra la foto de la ficha publicada; si no hay, la de ScriptCase.
+- Los médicos de la agenda los ve cualquier sesión (ventas contesta «¿qué días
+  atiende?»); el teléfono del médico, solo quien gestiona citas.
+- Pantalla: grilla que se pinta arrastrando con el mouse, «copiar un día a
+  lunes–viernes», horas por semana, punto de «sin guardar» por pestaña y pie de
+  acciones fijo. La pestaña «Fichas web» desapareció: las especialidades de la
+  web viven en «Especialidades».
+- **Para desplegar:** backend (incluye la migración) y después el frontend.
+
 ## Directorio médico sobre la agenda (fase A) — 7 de octubre de 2026 · DESPLEGADO
 
 **Decisión del propietario:** los médicos, horarios y especialidades se editan

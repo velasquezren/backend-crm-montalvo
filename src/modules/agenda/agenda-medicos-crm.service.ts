@@ -1,14 +1,17 @@
-import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { ArchivoSubido } from '../../common/archivos/archivo-subido';
 import { puedeEditarAgendaClinica, puedeVerAgendaClinica } from '../../common/auth/roles';
 import { UsuarioJwt } from '../../common/decorators/current-user.decorator';
 import { calcularPaginacion, paginar, PaginationDto } from '../../common/dto/pagination.dto';
 import { Prisma } from '../../prisma/prisma-client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { DirectorioService } from '../directorio/directorio.service';
 import { AgendaAdminClient } from './agenda-admin.client';
 import {
   actualizarMedicoAgenda,
   crearMedicoAgenda,
   DatosMedicoAgenda,
+  FichaMedicoAgenda,
   fichaMedicoAgenda,
   guardarHorarioAgenda,
   listarBancosAgenda,
@@ -17,14 +20,29 @@ import {
   renombrarEspecialidadAgenda,
   ResultadoAdminAgenda,
 } from './agenda-admin.sql';
+import { bloquesDeCasillas, DiaAgenda } from './horario-html';
 import {
   ActualizarMedicoAgendaDto,
+  ActualizarPresentacionAgendaDto,
   CrearMedicoAgendaDto,
   DatosMedicoAgendaDto,
   GuardarHorarioAgendaDto,
   QueryMedicosAgendaAdminDto,
   RenombrarEspecialidadAgendaDto,
 } from './dto/medicos-agenda.dto';
+
+/** El precio de la agenda para la web: «400.00» → 400; sin precio o 0, null. */
+function precioWeb(precio: string | null): number | null {
+  const n = precio === null ? NaN : Number(precio);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+/** El horario de la web que corresponde a las casillas encendidas de una ficha. */
+function bloquesDeFicha(f: FichaMedicoAgenda) {
+  return bloquesDeCasillas(
+    f.casillas.filter(c => c.activa && (f.grilla.dias as readonly string[]).includes(c.dia)).map(c => ({ dia: c.dia as DiaAgenda, hora: c.hora })),
+  );
+}
 
 const MENSAJES: Record<Exclude<ResultadoAdminAgenda<unknown>, { ok: true }>['motivo'], string> = {
   NO_ENCONTRADO: 'Ese médico no está en la agenda.',
@@ -61,20 +79,34 @@ function datos(dto: DatosMedicoAgendaDto): DatosMedicoAgenda {
  * administrados desde el Directorio del CRM. Es la ÚNICA lista de médicos: la
  * agenda da los cupos, FileMaker la lee por ODBC y la landing la publica.
  *
- * Ven quien gestiona citas (`puedeVerAgendaClinica`); editan administración y
- * recepción (`puedeEditarAgendaClinica`). Cada cambio deja constancia en
+ * Ve cualquier sesión (el teléfono del médico, solo quien gestiona citas:
+ * `puedeVerAgendaClinica`); editan administración y recepción
+ * (`puedeEditarAgendaClinica`). Cada cambio deja constancia en
  * `AuditLog` dentro de la transacción de MySQL: si la constancia no se puede
  * guardar, el cambio se deshace.
+ *
+ * La PRESENTACIÓN web (foto, biografía, publicación) es una ficha del
+ * directorio enlazada al médico (`PerfilMedico.agendaMedicoId`): se gestiona
+ * desde aquí con los mismos permisos, pero la escribe su dueño,
+ * `DirectorioService`. Al guardar datos u horario en la agenda, la ficha
+ * recibe el precio y el horario nuevos.
  */
 @Injectable()
 export class AgendaMedicosCrmService {
+  private readonly logger = new Logger(AgendaMedicosCrmService.name);
+
   constructor(
     private readonly agenda: AgendaAdminClient,
     private readonly prisma: PrismaService,
+    private readonly directorio: DirectorioService,
   ) {}
 
-  private exigirVer(usuario: UsuarioJwt): void {
-    if (!puedeVerAgendaClinica(usuario.rol)) throw new ForbiddenException('Los médicos de la agenda los ven recepción, asistencia y administración.');
+  /**
+   * Quién atiende, de qué y cuándo lo ve cualquier sesión: también ventas lo
+   * necesita para contestar. El teléfono del médico, solo quien gestiona citas.
+   */
+  private paraQuienVe<T extends { telefono: string | null }>(medico: T, usuario: UsuarioJwt): T {
+    return puedeVerAgendaClinica(usuario.rol) ? medico : { ...medico, telefono: null };
   }
 
   private exigirEditar(usuario: UsuarioJwt): void {
@@ -91,31 +123,49 @@ export class AgendaMedicosCrmService {
   }
 
   async listar(query: QueryMedicosAgendaAdminDto, usuario: UsuarioJwt) {
-    this.exigirVer(usuario);
     const { skip, take } = calcularPaginacion(query);
     const r = await this.agenda.enTransaccion(db =>
       listarMedicosAgenda(db, { buscar: query.buscar, especialidad: query.especialidad, estado: query.estado, skip, take }),
     );
-    return { ...paginar(r.datos, r.total, query), porEstado: r.porEstado };
+    const web = await this.directorio.resumenDeAgenda(r.datos.map(m => m.id));
+    const datos = r.datos.map(m => ({ ...this.paraQuienVe(m, usuario), web: web.get(m.id) ?? null }));
+    return { ...paginar(datos, r.total, query), porEstado: r.porEstado };
   }
 
-  async especialidades(query: PaginationDto, usuario: UsuarioJwt) {
-    this.exigirVer(usuario);
+  async especialidades(query: PaginationDto) {
     const { skip, take } = calcularPaginacion(query);
     const r = await this.agenda.enTransaccion(db => listarEspecialidadesAgenda(db, skip, take));
     return paginar(r.datos, r.total, query);
   }
 
-  async bancos(usuario: UsuarioJwt) {
-    this.exigirVer(usuario);
+  async bancos() {
     return this.agenda.enTransaccion(db => listarBancosAgenda(db));
   }
 
   async ficha(id: number, usuario: UsuarioJwt) {
-    this.exigirVer(usuario);
+    const ficha = await this.leerFicha(id);
+    return { ...ficha, medico: this.paraQuienVe(ficha.medico, usuario), presentacion: await this.directorio.fichaDeAgenda(id) };
+  }
+
+  private async leerFicha(id: number): Promise<FichaMedicoAgenda> {
     const ficha = await this.agenda.enTransaccion(db => fichaMedicoAgenda(db, id));
     if (!ficha) throw errorDe('NO_ENCONTRADO');
     return ficha;
+  }
+
+  /**
+   * Tras guardar en la agenda: la ficha web (si hay) recibe el precio y el
+   * horario nuevos. La agenda ya quedó guardada; si esto falla, se registra y
+   * la web se pone al día en el próximo guardado.
+   */
+  private async sincronizarWeb(id: number, usuario: UsuarioJwt) {
+    const ficha = await this.leerFicha(id);
+    try {
+      await this.directorio.sincronizarConAgenda(id, { precioConsulta: precioWeb(ficha.medico.precio), bloques: bloquesDeFicha(ficha) });
+    } catch (error) {
+      this.logger.warn(`Ficha web del médico ${id} sin sincronizar: ${error instanceof Error ? error.message : 'error'}`);
+    }
+    return this.ficha(id, usuario);
   }
 
   async actualizar(id: number, dto: ActualizarMedicoAgendaDto, usuario: UsuarioJwt) {
@@ -134,7 +184,7 @@ export class AgendaMedicosCrmService {
       return resultado;
     });
     if (!r.ok) throw errorDe(r.motivo);
-    return this.ficha(id, usuario);
+    return this.sincronizarWeb(id, usuario);
   }
 
   async guardarHorario(id: number, dto: GuardarHorarioAgendaDto, usuario: UsuarioJwt) {
@@ -148,7 +198,7 @@ export class AgendaMedicosCrmService {
       return resultado;
     });
     if (!r.ok) throw errorDe(r.motivo);
-    return this.ficha(id, usuario);
+    return this.sincronizarWeb(id, usuario);
   }
 
   async crear(dto: CrearMedicoAgendaDto, usuario: UsuarioJwt) {
@@ -172,5 +222,56 @@ export class AgendaMedicosCrmService {
     });
     if (medicos === 0) throw new NotFoundException('Ningún médico tiene esa especialidad.');
     return { medicos };
+  }
+
+  /* ── Presentación web (ficha del directorio enlazada) ─────────────────── */
+
+  /** La ficha web del médico, o 404 si todavía no tiene. */
+  private async presentacionDe(id: number) {
+    const ficha = await this.directorio.fichaDeAgenda(id);
+    if (!ficha) throw new NotFoundException('Este médico todavía no tiene ficha web.');
+    return ficha;
+  }
+
+  /** Crea la ficha web del médico: oculta, con su nombre, precio y horario de la agenda. */
+  async crearPresentacion(id: number, usuario: UsuarioJwt) {
+    this.exigirEditar(usuario);
+    const f = await this.leerFicha(id);
+    await this.directorio.crearFichaDeAgenda({
+      agendaMedicoId: id,
+      nombrePublico: [f.medico.sigla, f.medico.nombre].filter(Boolean).join(' ').slice(0, 120),
+      codigoFilemaker: f.medico.codigo,
+      precioConsulta: precioWeb(f.medico.precio),
+      bloques: bloquesDeFicha(f),
+    }, usuario.sub);
+    return this.ficha(id, usuario);
+  }
+
+  async actualizarPresentacion(id: number, dto: ActualizarPresentacionAgendaDto, usuario: UsuarioJwt) {
+    this.exigirEditar(usuario);
+    const ficha = await this.presentacionDe(id);
+    await this.directorio.actualizarFicha(ficha.id, dto, usuario.sub);
+    return this.ficha(id, usuario);
+  }
+
+  async publicarPresentacion(id: number, publicado: boolean, usuario: UsuarioJwt) {
+    this.exigirEditar(usuario);
+    const ficha = await this.presentacionDe(id);
+    await this.directorio.publicar(ficha.id, publicado, usuario.sub);
+    return this.ficha(id, usuario);
+  }
+
+  async subirFoto(id: number, archivo: ArchivoSubido | undefined, usuario: UsuarioJwt) {
+    this.exigirEditar(usuario);
+    const ficha = await this.presentacionDe(id);
+    await this.directorio.subirFoto(ficha.id, archivo, usuario.sub);
+    return this.ficha(id, usuario);
+  }
+
+  async quitarFoto(id: number, usuario: UsuarioJwt) {
+    this.exigirEditar(usuario);
+    const ficha = await this.presentacionDe(id);
+    await this.directorio.quitarFoto(ficha.id, usuario.sub);
+    return this.ficha(id, usuario);
   }
 }

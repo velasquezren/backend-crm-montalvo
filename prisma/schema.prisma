@@ -1666,6 +1666,10 @@ model PerfilMedico {
   id             String   @id @default(uuid())
   medicoId       String?  @unique
   medico         Medico?  @relation(fields: [medicoId], references: [id], onDelete: SetNull)
+  /// El médico de la AGENDA de la clínica (ScriptCase, `medicos.medico_pk`) que
+  /// esta ficha presenta en la web. Con él, el precio y el horario de la ficha
+  /// los escribe la agenda al guardarse (`sincronizarConAgenda`), no se editan aquí.
+  agendaMedicoId Int?     @unique
   /// Como se presenta a pacientes: «Dra. Claudia Azogue Rivera».
   nombrePublico  String   @db.VarChar(120)
   slug           String   @unique @db.VarChar(120)

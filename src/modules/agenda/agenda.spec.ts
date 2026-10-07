@@ -3,6 +3,11 @@ import { AgendaVpsClient } from './agenda-vps.client';
 import { AgendaService } from './agenda.service';
 import { disponibilidadDeAgenda, fechaConsultable, medicoDeAgenda, paginaAgenda, especialidadDeAgenda } from './agenda.contrato';
 import { precioDelVps } from './agenda.sql';
+import { DirectorioService } from '../directorio/directorio.service';
+
+/** El directorio solo aporta fotos de fichas publicadas a la reserva web. */
+const directorio = (fotos: Map<number, string> = new Map()) =>
+  ({ fotosPublicasDeAgenda: jest.fn().mockResolvedValue(fotos) }) as unknown as DirectorioService;
 
 describe('Agenda: límites, privacidad y fallos cerrados', () => {
   it('solo acepta hoy..hoy+29 en La Paz, incluido cambio de mes y año', () => {
@@ -38,12 +43,12 @@ describe('Agenda: límites, privacidad y fallos cerrados', () => {
   it('apagada no abre ninguna conexión, ni aunque queden datos en caché', async () => {
     const cliente = new AgendaVpsClient(new ConfigService({AGENDA_VPS_LECTURA:'off'}));
     await expect(cliente.leer('especialidades',new URLSearchParams())).rejects.toMatchObject({status:503});
-    expect(() => new AgendaService(cliente).especialidades({})).toThrow();
+    expect(() => new AgendaService(cliente, directorio()).especialidades({})).toThrow();
   });
   it('catálogo deduplica cargas y disponibilidad siempre se consulta de nuevo', async () => {
     const cliente = new AgendaVpsClient(new ConfigService({AGENDA_VPS_LECTURA:'on'}));
     const leer = jest.spyOn(cliente,'leer').mockResolvedValue({version:1,pagina:1,limite:25,total:0,totalPaginas:1,datos:[]});
-    const servicio = new AgendaService(cliente);
+    const servicio = new AgendaService(cliente, directorio());
     await Promise.all([servicio.especialidades({}),servicio.especialidades({})]);
     expect(leer).toHaveBeenCalledTimes(1);
     const fecha = new Intl.DateTimeFormat('en-CA',{timeZone:'America/La_Paz',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
@@ -55,8 +60,19 @@ describe('Agenda: límites, privacidad y fallos cerrados', () => {
   it('una caída no se memoriza como catálogo vacío y el siguiente intento recupera', async () => {
     const cliente = new AgendaVpsClient(new ConfigService({AGENDA_VPS_LECTURA:'on'}));
     jest.spyOn(cliente,'leer').mockRejectedValueOnce(cliente.noDisponible()).mockResolvedValue({version:1,pagina:1,limite:25,total:0,totalPaginas:1,datos:[]});
-    const servicio = new AgendaService(cliente);
+    const servicio = new AgendaService(cliente, directorio());
     await expect(servicio.especialidades({})).rejects.toMatchObject({status:503});
     expect((await servicio.especialidades({})).datos).toEqual([]);
+  });
+  it('la foto de la ficha web publicada gana a la de ScriptCase; si el directorio falla, queda la de ScriptCase', async () => {
+    const cliente = new AgendaVpsClient(new ConfigService({AGENDA_VPS_LECTURA:'on'}));
+    const medico = (id: string) => ({id,especialidadId:'e'.repeat(64),nombre:'Profesional',horarioInformativo:null,modalidad:'ONLINE',precio:null,fotoVersion:'0123456789abcdef'});
+    jest.spyOn(cliente,'leer').mockResolvedValue({version:1,pagina:1,limite:25,total:2,totalPaginas:1,datos:[medico('1'),medico('2')]});
+    const conFoto = new AgendaService(cliente, directorio(new Map([[1, 'https://crm.test/publico/directorio/fotos/x']])));
+    const r = await conFoto.medicos({ especialidadId: 'e'.repeat(64) });
+    expect(r.datos.map(m => m.fotoUrl)).toEqual(['https://crm.test/publico/directorio/fotos/x', expect.stringMatching(/\/publico\/agenda\/fotos\/2\//)]);
+    const caido = { fotosPublicasDeAgenda: jest.fn().mockRejectedValue(new Error('sin base')) } as unknown as DirectorioService;
+    const r2 = await new AgendaService(cliente, caido).medicos({ especialidadId: 'e'.repeat(64) });
+    expect(r2.datos[0].fotoUrl).toMatch(/\/publico\/agenda\/fotos\/1\//);
   });
 });

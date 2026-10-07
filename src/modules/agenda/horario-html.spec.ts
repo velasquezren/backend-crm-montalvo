@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { CasillaActiva, DIAS_AGENDA, horarioHtml, horasDeLaGrilla } from './horario-html';
+import { bloquesDeCasillas, CasillaActiva, DIAS_AGENDA, horarioHtml, horasDeLaGrilla } from './horario-html';
 
 /** `horario_html` de un médico real (sin su nombre), copiado de la agenda el 7/10/2026: Lun–Vie 9:30 a 11:00. */
 const PRODUCCION = readFileSync(join(__dirname, '../../../test/agenda/horario-html-produccion.html'), 'utf8');
@@ -39,5 +39,19 @@ describe('horasDeLaGrilla', () => {
     expect(base[base.length - 1]).toBe('20:30');
     expect(base).toHaveLength(28);
     expect(horasDeLaGrilla(['06:30', '09:00'])).toEqual(['06:30', ...base]);
+  });
+});
+
+describe('bloquesDeCasillas', () => {
+  it('un bloque de mañana y uno de tarde por día, hasta el FINAL de la última casilla', () => {
+    expect(bloquesDeCasillas([
+      { dia: 'Martes', hora: '15:00' }, { dia: 'Lunes', hora: '09:30' }, { dia: 'Lunes', hora: '09:00' },
+      { dia: 'Lunes', hora: '11:00' }, { dia: 'Martes', hora: '18:30' }, { dia: 'Sabado', hora: '12:30' },
+    ])).toEqual([
+      { diaSemana: 1, inicioMinuto: 540, finMinuto: 690 },
+      { diaSemana: 2, inicioMinuto: 900, finMinuto: 1140 },
+      { diaSemana: 6, inicioMinuto: 750, finMinuto: 780 },
+    ]);
+    expect(bloquesDeCasillas([])).toEqual([]);
   });
 });

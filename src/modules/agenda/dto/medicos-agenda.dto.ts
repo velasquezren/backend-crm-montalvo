@@ -1,16 +1,20 @@
 import { Transform, Type } from 'class-transformer';
 import {
   ArrayMaxSize,
+  ArrayUnique,
   IsArray,
+  IsBoolean,
   IsIn,
   IsInt,
   IsNotEmpty,
   IsOptional,
   IsString,
+  IsUUID,
   Matches,
   Max,
   MaxLength,
   Min,
+  MinLength,
   ValidateNested,
 } from 'class-validator';
 import { PaginationDto } from '../../../common/dto/pagination.dto';
@@ -106,4 +110,33 @@ export class RenombrarEspecialidadAgendaDto {
 
   @Transform(recortar) @IsString() @IsNotEmpty() @MaxLength(200)
   nueva!: string;
+}
+
+/**
+ * La presentación web de un médico de la agenda: lo que la agenda no tiene.
+ * Nombre de la agenda, precio y horario NO van aquí: los da la agenda.
+ */
+export class ActualizarPresentacionAgendaDto {
+  @Type(() => Number) @IsInt() @Min(1)
+  version!: number;
+
+  @IsOptional() @Transform(recortar) @IsString() @MinLength(3) @MaxLength(120)
+  nombrePublico?: string;
+
+  @IsOptional() @Transform(recortar) @IsString() @MaxLength(300)
+  resumen?: string;
+
+  @IsOptional() @Transform(recortar) @IsString() @MaxLength(3000)
+  biografia?: string;
+
+  @IsOptional() @Transform(recortarONulo) @IsString() @MaxLength(40)
+  matricula?: string | null;
+
+  @IsOptional() @IsArray() @ArrayMaxSize(10) @ArrayUnique() @IsUUID('all', { each: true })
+  especialidadIds?: string[];
+}
+
+export class PublicarPresentacionAgendaDto {
+  @IsBoolean()
+  publicado!: boolean;
 }

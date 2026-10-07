@@ -100,3 +100,29 @@ export function horasDeLaGrilla(existentes: readonly string[]): string[] {
   }
   return [...new Set([...base, ...existentes])].sort();
 }
+
+/** Un bloque del horario informativo de la web (`HorarioMedico`): día ISO y minutos. */
+export interface BloqueDeAgenda {
+  /** ISO: 1 = lunes … 6 = sábado. */
+  diaSemana: number;
+  inicioMinuto: number;
+  finMinuto: number;
+}
+
+const minutos = (hora: string) => Number(hora.slice(0, 2)) * 60 + Number(hora.slice(3, 5));
+
+/**
+ * Las casillas como bloques del horario de la web: por día, un bloque de mañana
+ * y uno de tarde, de la primera casilla al final de la última (+30 min). Es lo
+ * mismo que dice el recuadro de `horario_html`, con la hora de fin real.
+ */
+export function bloquesDeCasillas(casillas: readonly CasillaActiva[]): BloqueDeAgenda[] {
+  const bloques: BloqueDeAgenda[] = [];
+  DIAS_AGENDA.forEach((dia, i) => {
+    for (const tarde of [false, true]) {
+      const horas = casillas.filter(c => c.dia === dia && (c.hora >= INICIO_TARDE) === tarde).map(c => minutos(c.hora)).sort((a, b) => a - b);
+      if (horas.length) bloques.push({ diaSemana: i + 1, inicioMinuto: horas[0], finMinuto: horas[horas.length - 1] + 30 });
+    }
+  });
+  return bloques;
+}

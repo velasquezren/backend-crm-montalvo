@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { DirectorioModule } from '../directorio/directorio.module';
 import { AgendaAdminClient } from './agenda-admin.client';
 import { AgendaConsultaClient } from './agenda-consulta.client';
 import { AgendaMedicosCrmController } from './agenda-medicos-crm.controller';
@@ -13,6 +14,7 @@ import { AgendaService } from './agenda.service';
 import { AgendaVpsClient } from './agenda-vps.client';
 
 @Module({
+  imports: [DirectorioModule],
   controllers: [AgendaPublicaController, AgendaReservasCrmController, AgendaMedicosCrmController],
   providers: [
     AgendaService, AgendaVpsClient, AgendaReservaClient, AgendaReservasService, AgendaTelegramService,
