@@ -1,6 +1,6 @@
 # Estado actual
 
-## Revisión de Reservas → Directorio — 7 de octubre de 2026
+## Revisión de Reservas → Directorio — 7 de octubre de 2026 · DESPLEGADO (backend 34a2b30, frontend 818c779, landing f531fc6)
 
 Revisión de punta a punta pedida por René. Lo que se corrigió:
 
