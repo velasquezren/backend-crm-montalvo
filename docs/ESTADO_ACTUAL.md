@@ -1,5 +1,34 @@
 # Estado actual
 
+## Pantalla «Reservas» del CRM — 7 de octubre de 2026 · RAMAS `reservas-crm`, SIN DESPLEGAR
+
+René: «mi CRM no ve las reservas». Ahora las ve, **solo lectura** (se confirman, cobran y
+anulan en la agenda, como siempre). Backend y frontend en sus ramas `reservas-crm`.
+
+- `GET /agenda/reservas` (recepción, asistencia y ADMIN+: `puedeVerAgendaClinica`): rango de
+  hasta 92 días (por defecto hoy + 29, en La Paz), estado, búsqueda por nombre, carnet,
+  teléfono con cualquier formato o número, y la cuenta por estado para los filtros.
+- `GET /agenda/reservas/conversacion/:id`: las próximas de la paciente de ese chat, para
+  quien puede ver el chat (también ventas); 404 si no.
+- `GET /agenda/reservas/:id/comprobante`: tipo real por sus bytes (imagen o PDF) y
+  constancia `COMPROBANTE_AGENDA_VISTO` en `AuditLog` ANTES de entregarlo.
+- Cuenta MySQL nueva `crm_agenda_consulta` (solo SELECT de esas columnas), bandera
+  `AGENDA_VPS_CONSULTA`. Frontend: pantalla `/reservas` y bloque «Próximas reservas» en la
+  ficha del chat.
+- **Arreglo encontrado al conectarlo**: el WIP hacía que `AgendaVpsClient` heredara el
+  constructor de `LectorAgenda`; por inyección `config` llegaba undefined y la agenda pública
+  de la landing respondía 500. Nunca llegó a producción (estaba en la rama). Constructor
+  explícito en las dos cuentas y prueba unitaria que lo atrapa (comprobada rompiéndolo).
+- `probar-agenda-mysql.sh` corre también sin docker con el MySQL 8.0.44 oficial descomprimido
+  (`AGENDA_MYSQL_BASEDIR`). Verificación: 21 pruebas MySQL, 904 unitarias, build, arranque
+  real (`/agenda/reservas` sin sesión → 401). Frontend: build, 639 pruebas.
+- **De paso, en producción (frontend `main`, 6f5ed71)**: el pipe `moneda` trata el valor como
+  dólares si no se le dice `'BOB'`. Precios de Promociones, «Vendido», precio de consulta del
+  Directorio y el monto del bloque «Pago» ya son Bs y se mostraban ×6,96 (Bs 280 → Bs 1.951,60).
+- Para desplegar: ver `docs/CONTINUAR-reservas-crm.md` (crear el usuario MySQL desde la
+  máquina con la clave de `montalvo-vps`, desplegar backend con `AGENDA_VPS_CONSULTA=on`, y
+  pasar las dos ramas a `main`).
+
 ## Reserva real desde la landing — 7 de octubre de 2026
 
 Decisión del propietario: la reserva nueva de la landing reserva de verdad. El CRM escribe en
