@@ -1,6 +1,6 @@
 # Estado actual
 
-## Directorio médico sobre la agenda (fase A) — 7 de octubre de 2026 · EN CURSO
+## Directorio médico sobre la agenda (fase A) — 7 de octubre de 2026 · DESPLEGADO
 
 **Decisión del propietario:** los médicos, horarios y especialidades se editan
 **solo desde el CRM**; el panel de ScriptCase queda de respaldo. Editan
@@ -23,10 +23,12 @@ retoman en la fase B para foto, biografía y publicación.
 - **Sin comprobar contra producción:** el corte mañana/tarde (13:00) del
   recuadro. Solo se vio un médico con turno de mañana; al guardar, el recuadro
   de un médico con tarde podría diferir del que escribió ScriptCase a mano.
-- **Para activarlo:** René ejecuta `scripts/agenda/crear-usuario-admin.sh`
-  (respalda `medicos`, `horarios` y `pagos_qr` en `/root/respaldos-agenda/` de
-  montalvo-vps y crea el usuario); luego desplegar y poner `AGENDA_VPS_ADMIN=on`.
-- **Falta:** la pantalla del frontend (Directorio sobre la agenda) y la fase B.
+- **Desplegado (7/10):** usuario `crm_agenda_admin` creado por René con
+  respaldo previo (`/root/respaldos-agenda/directorio-20261007-165749.sql` en
+  montalvo-vps), backend d902783 con `AGENDA_VPS_ADMIN=on`, frontend 3d2f796
+  (CI en verde). Verificado: TLS, 53 activos / 37 inactivos, 889 casillas
+  activas, y la cuenta tiene denegados password, DELETE, `codigo` y reservas.
+- **Falta:** la fase B (foto, biografía y publicación unidas a los médicos de la agenda).
 
 ## Pantalla «Reservas» del CRM — 7 de octubre de 2026 · DESPLEGADO
 
