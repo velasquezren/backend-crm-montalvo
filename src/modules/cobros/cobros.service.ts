@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, Logger, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 
 import { ArchivoSubido } from '../../common/archivos/archivo-subido';
@@ -58,6 +58,7 @@ export class CobrosService {
       select: { nombre: true, comercial: true, cobro: { include: { actualizadoPor: { select: { id: true, nombre: true } } } } },
     });
     if (!linea) throw new NotFoundException('Línea no encontrada');
+    if (!linea.comercial) throw new ForbiddenException('El cobro de promociones solo está disponible en líneas de Ventas.');
     const c = linea.cobro;
     return {
       lineaId,
@@ -113,14 +114,13 @@ export class CobrosService {
    * es inmutable y Meta la guarda en caché, así que un QR nuevo es otra URL.
    */
   async subirQr(lineaId: string, archivo: ArchivoSubido | undefined, usuarioId: string): Promise<CobroEditable> {
+    await this.exigirLinea(lineaId);
     if (!archivo) throw new BadRequestException('Falta la imagen del QR.');
     const imagen = validarImagenPublica(archivo.buffer);
     if ('error' in imagen) throw new BadRequestException(imagen.error);
     /* Un QR se escanea: por debajo de esto la cámara del teléfono no lo lee bien. */
     if (Math.min(imagen.ancho, imagen.alto) < 300) throw new BadRequestException('El QR es muy pequeño: sube una imagen de al menos 300 × 300 píxeles.');
     if (!this.r2.habilitado) throw new ServiceUnavailableException('El almacenamiento de imágenes no está configurado.');
-    await this.exigirLinea(lineaId);
-
     const imagenId = randomUUID();
     const clave = `cobros/${lineaId}/${imagenId}.${imagen.extension}`;
     await this.r2.subir(clave, new Uint8Array(archivo.buffer).slice().buffer, imagen.mime);
@@ -143,19 +143,20 @@ export class CobrosService {
 
   /** El QR que se puede mandar hoy por esta línea, o `null`. Ante la duda, no se ofrece pagar. */
   async listoPara(lineaId: string): Promise<CobroListo | null> {
-    const c = await this.prisma.cobroLinea.findUnique({ where: { lineaId } });
+    const c = await this.prisma.cobroLinea.findUnique({ where: { lineaId }, include: { linea: { select: { comercial: true } } } });
+    if (!c?.linea.comercial) return null;
     if (!c?.imagenClave || !c.imagenMime || !c.banco || !c.titular) return null;
     if (estadoDelCobro(c, fechaCivilClinica(new Date())) !== 'LISTO') return null;
     return { banco: c.banco, titular: c.titular, instrucciones: c.instrucciones, imagen: { clave: c.imagenClave, mime: c.imagenMime } };
   }
 
   private async exigirLinea(lineaId: string): Promise<void> {
-    const linea = await this.prisma.lineaWhatsapp.findUnique({ where: { id: lineaId }, select: { id: true } });
+    const linea = await this.prisma.lineaWhatsapp.findUnique({ where: { id: lineaId }, select: { id: true, comercial: true } });
     if (!linea) throw new NotFoundException('Línea no encontrada');
+    if (!linea.comercial) throw new ForbiddenException('El cobro de promociones solo está disponible en líneas de Ventas.');
   }
 
   private borrarDeR2(clave: string) {
     void enSegundoPlano(`borrar ${clave} de R2`, this.logger, () => this.r2.eliminar(clave));
   }
 }
-

@@ -83,7 +83,9 @@ export class PromocionesChatService {
   }
 
   /** La tarjeta para esta línea: con «Pagar ahora» solo si la línea tiene un QR vigente. */
-  async tarjeta(lineaId: string, promocion: PromocionChat): Promise<MensajePreparado> {
+  async tarjeta(lineaId: string, promocion: PromocionChat): Promise<MensajePreparado | null> {
+    const linea = await this.prisma.lineaWhatsapp.findUnique({ where: { id: lineaId }, select: { comercial: true } });
+    if (!linea?.comercial) return null;
     return tarjetaDePromocion(promocion, { puedePagar: Boolean(await this.cobros.listoPara(lineaId)) });
   }
 
@@ -108,6 +110,8 @@ export class PromocionesChatService {
       /* El mismo candado que los automáticos y la atención humana: dos toques
          simultáneos a «Pagar ahora» no abren dos pagos. */
       await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${conversacionId}, ${CANDADO_AUTOMATICOS}))::text`;
+      // La línea proviene del chat, nunca de un parámetro independiente.
+      if (!await tx.conversacion.findFirst({ where: { id: conversacionId, lineaId, linea: { comercial: true } }, select: { id: true } })) return null;
       const abierto = await tx.pagoPromocion.findFirst({
         where: { conversacionId, ...PAGO_EN_CURSO },
         orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
@@ -233,6 +237,7 @@ export class PromocionesChatService {
 
   /** El comprobante no sirve: vuelve a esperar uno, con el motivo, y se le pide otro. */
   async pedirOtroComprobante(conversacionId: string, pagoId: string, motivo: string, usuario: UsuarioJwt, soloAgenteId?: string): Promise<ResultadoAccionPago> {
+    if (!cubreRol(usuario.rol, 'AGENTE')) throw new ForbiddenException('La revisión de pagos corresponde a Ventas o administración.');
     await obtenerConversacionPropia(this.prisma, conversacionId, soloAgenteId);
     const anterior = await this.prisma.$transaction(async tx => {
       const pago = await tx.pagoPromocion.findFirst({ where: { id: pagoId, conversacionId }, select: { comprobanteMensajeId: true, estado: true } });
@@ -254,6 +259,7 @@ export class PromocionesChatService {
 
   /** Se cierra sin venta (desistió, pagó de otra forma). No le escribe: lo hace la persona si hace falta. */
   async anular(conversacionId: string, pagoId: string, usuario: UsuarioJwt, soloAgenteId?: string): Promise<PagoDelChat | null> {
+    if (!cubreRol(usuario.rol, 'AGENTE')) throw new ForbiddenException('La revisión de pagos corresponde a Ventas o administración.');
     await obtenerConversacionPropia(this.prisma, conversacionId, soloAgenteId);
     await this.prisma.$transaction(async tx => {
       const pago = await tx.pagoPromocion.findFirst({ where: { id: pagoId, conversacionId }, select: { comprobanteMensajeId: true } });

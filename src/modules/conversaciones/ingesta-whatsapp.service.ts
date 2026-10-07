@@ -213,7 +213,7 @@ export class IngestaWhatsappService {
         });
         if (interaccionOriginal !== undefined && interacciones) {
           const resultado = await guardarRespuesta(tx, creado.id, conversacion.id, telefono, interaccionOriginal);
-          if (resultado.promocionId && resultado.seleccionId === PAGAR_PROMOCION && resultado.estado === 'CORRELACIONADA') {
+          if (linea.comercial && resultado.promocionId && resultado.seleccionId === PAGAR_PROMOCION && resultado.estado === 'CORRELACIONADA') {
             /* «Pagar ahora» de una tarjeta VIGENTE: se le manda el QR aunque una persona
                ya esté en el chat, porque es lo que ella acaba de pedir. Si hoy no se puede
                cobrar, se pide una persona después (`enviarPago`). Un toque a una tarjeta
@@ -359,7 +359,7 @@ export class IngestaWhatsappService {
        milisegundos. Van en orden y no en paralelo: el acuse mira si ya hubo un
        automático reciente, y el pin no debe contar como tal. */
     /* El enlace de la landing escribe el código de la promoción (`PRM-…`). */
-    const codigo = !media && !esRespuestaBoton ? codigoEnTexto(contenido) : null;
+    const codigo = linea.comercial && !media && !esRespuestaBoton ? codigoEnTexto(contenido) : null;
     void enSegundoPlano('respuestas automáticas', this.logger, async () => {
       /* Vino por una promoción: queda atribuida y recibe su tarjeta, que hace de
          menú y de acuse a la vez. */
@@ -578,6 +578,7 @@ export class IngestaWhatsappService {
   /** La tarjeta de una promoción, una vez cada 30 min aunque la pida dos veces. */
   private async enviarTarjeta(conversacionId: string, telefono: string, lineaId: string, promocion: PromocionChat): Promise<boolean> {
     const tarjeta = await this.promocionesChat.tarjeta(lineaId, promocion);
+    if (!tarjeta) return false;
     const desde = new Date(this.ahora().getTime() - RESPUESTA_REPETIDA_MS);
     /* La pidió ella (escribió el código o la eligió de la lista): sale aunque espere a una persona. */
     return this.enviarOfertaAutomatica(conversacionId, telefono, tarjeta, { origen: 'PROMOCION', promocionId: promocion.id }, async tx =>
@@ -643,6 +644,10 @@ export class IngestaWhatsappService {
    * aquí aunque espere a una persona: las acaba de pedir ella.
    */
   private async responderSeleccion(conversacionId: string, telefono: string, lineaId: string, accion: AccionMenu, menu: MenuAtencion | null, mensajeId: string): Promise<void> {
+    if (accion.tipo === 'PROMOCIONES' || accion.tipo === 'PROMOCION') {
+      const linea = await this.prisma.lineaWhatsapp.findUnique({ where: { id: lineaId }, select: { comercial: true } });
+      if (!linea?.comercial) { await this.pedirRevision(conversacionId, mensajeId); return; }
+    }
     switch (accion.tipo) {
       case 'CITA': {
         /* Si la WABA de la línea tiene publicado el Flow de solicitud de cita, se lo

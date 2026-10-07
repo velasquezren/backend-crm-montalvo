@@ -58,7 +58,7 @@ export class MenuAtencionService {
       /* Uno guardado que ya no valida se devuelve igual, con sus errores, para
          que quien lo edite vea qué corregir en vez de un menú en blanco. */
       menu: menu ?? (fila ? comoMenu(fila) : null),
-      errores: fila && !menu ? erroresDelMenu(comoMenu(fila)) : [],
+      errores: fila ? [...(!menu ? erroresDelMenu(comoMenu(fila)) : []), ...erroresPorLinea(comoMenu(fila), linea.comercial)] : [],
       actualizadoEn: fila?.actualizadoEn ?? null,
       actualizadoPor: fila?.actualizadoPor ?? null,
       enviosHabilitados: interaccionesEnLinea(lineaId),
@@ -66,7 +66,7 @@ export class MenuAtencionService {
   }
 
   async guardar(lineaId: string, dto: GuardarMenuDto, usuarioId: string): Promise<MenuEditable> {
-    const existe = await this.prisma.lineaWhatsapp.findUnique({ where: { id: lineaId }, select: { id: true } });
+    const existe = await this.prisma.lineaWhatsapp.findUnique({ where: { id: lineaId }, select: { id: true, comercial: true } });
     if (!existe) throw new NotFoundException('Línea no encontrada');
 
     const menu = normalizarMenu({
@@ -82,7 +82,7 @@ export class MenuAtencionService {
         ...(o.tipo === 'RESPUESTA' ? { clave: o.clave ?? claveNueva() } : {}),
       })),
     });
-    const errores = erroresDelMenu(menu);
+    const errores = [...erroresDelMenu(menu), ...erroresPorLinea(menu, existe.comercial)];
     if (errores.length) throw new BadRequestException(errores);
 
     const datos = {
@@ -115,13 +115,21 @@ export class MenuAtencionService {
    */
   activoDe(lineaId: string): Promise<MenuAtencion | null> {
     return this.activos.resolver(lineaId, async () => {
-      const fila = await this.prisma.menuAtencion.findUnique({ where: { lineaId } });
+      const fila = await this.prisma.menuAtencion.findUnique({ where: { lineaId }, include: { linea: { select: { comercial: true } } } });
       if (!fila?.activo) return null;
       const menu = leerMenu(fila);
-      if (!menu) this.logger.warn(`El menú de la línea ${lineaId} no es válido: no se envía.`);
+      if (!menu || erroresPorLinea(menu, fila.linea.comercial).length) {
+        this.logger.warn(`El menú de la línea ${lineaId} no es válido: no se envía.`);
+        return null;
+      }
       return menu;
     });
   }
+}
+
+function erroresPorLinea(menu: MenuAtencion, comercial: boolean): string[] {
+  return !comercial && menu.opciones.some(o => o.tipo === 'PROMOCIONES')
+    ? ['Las promociones pertenecen a Ventas. Quita esa opción del menú de Atención.'] : [];
 }
 
 function claveNueva(): string {

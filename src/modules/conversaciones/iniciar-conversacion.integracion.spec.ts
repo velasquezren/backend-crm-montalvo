@@ -57,6 +57,9 @@ const PLANTILLAS: PlantillaMeta[] = [
   { name: 'pendiente', status: 'PENDING', category: 'UTILITY', language: 'es', components: [{ type: 'BODY', text: 'x' }] },
 ];
 
+// La plantilla sintética de servicio conserva variables; marketing se prueba por Ventas.
+PLANTILLAS.push({ ...PLANTILLAS[0], name: 'seguimiento_servicio', category: 'UTILITY' });
+
 class GatewayMudo {
   emitirActividad(): void {}
   notificarEntrante(): void {}
@@ -141,6 +144,8 @@ const seguimiento = (extra: Record<string, unknown> = {}) => ({
   ...extra,
 });
 
+const seguimientoServicio = (extra: Record<string, unknown> = {}) => seguimiento({ plantilla: 'seguimiento_servicio', ...extra });
+
 /** Los envíos a Meta salen en segundo plano; se espera a que lleguen. */
 async function esperarEnvios(n: number) {
   for (let i = 0; i < 50 && envios.length < n; i++) await new Promise(r => setTimeout(r, 10));
@@ -177,7 +182,7 @@ describe('iniciar una conversación', () => {
 
   it('un doble clic manda UNA plantilla, no dos', async () => {
     const ana = await agente('ana', [RECEPCION]);
-    const dto = { lineaId: RECEPCION, telefono: '+59170000001', ...seguimiento(), clientMessageId: '0b8a6a52-7a53-4b43-9e1e-4a4c3b7f7c11' };
+    const dto = { lineaId: RECEPCION, telefono: '+59170000001', ...seguimientoServicio(), clientMessageId: '0b8a6a52-7a53-4b43-9e1e-4a4c3b7f7c11' };
 
     const [a, b] = await Promise.all([
       service.iniciarConversacion(dto, ana.id, ana.id),
@@ -215,10 +220,17 @@ describe('iniciar una conversación', () => {
       expect(envios).toHaveLength(0);
     }
 
+    it('marketing desde Recepción no crea paciente ni conversación', async () => {
+      const ana = await agente('ana', [RECEPCION]);
+      await expect(service.iniciarConversacion({ lineaId: RECEPCION, telefono: '70000003', ...seguimiento() }, ana.id, ana.id))
+        .rejects.toThrow('no está aprobada');
+      await sinRastro();
+    });
+
     it('una variable vacía', async () => {
       const ana = await agente('ana', [RECEPCION]);
       await expect(
-        service.iniciarConversacion({ lineaId: RECEPCION, telefono: '70000003', ...seguimiento({ parametros: ['Lucía', ' '] }) }, ana.id, ana.id),
+        service.iniciarConversacion({ lineaId: RECEPCION, telefono: '70000003', ...seguimientoServicio({ parametros: ['Lucía', ' '] }) }, ana.id, ana.id),
       ).rejects.toThrow('Falta completar «2»');
       await sinRastro();
     });
@@ -234,7 +246,7 @@ describe('iniciar una conversación', () => {
     it('un número que no es un teléfono', async () => {
       const ana = await agente('ana', [RECEPCION]);
       await expect(
-        service.iniciarConversacion({ lineaId: RECEPCION, telefono: '12345678901234567', ...seguimiento() }, ana.id, ana.id),
+        service.iniciarConversacion({ lineaId: RECEPCION, telefono: '12345678901234567', ...seguimientoServicio() }, ana.id, ana.id),
       ).rejects.toThrow('no es un número de teléfono válido');
       await sinRastro();
     });
@@ -275,7 +287,7 @@ describe('enviar una plantilla en un chat existente', () => {
     await ingesta.procesarEntrante('+59170000005', 'Hola', 'wamid.5', 'Eva', undefined, undefined, false, RECEPCION);
     const conversacion = await prisma.conversacion.findFirstOrThrow();
 
-    const mensaje = await service.enviarPlantilla(conversacion.id, seguimiento(), ana.id, ana.id);
+    const mensaje = await service.enviarPlantilla(conversacion.id, seguimientoServicio(), ana.id, ana.id);
 
     expect(mensaje.contenido).toContain('Hola Lucía');
     expect(mensaje.contenido).not.toContain('{{');
@@ -283,7 +295,7 @@ describe('enviar una plantilla en un chat existente', () => {
     expect(envios[0]!.cuerpo).toMatchObject({
       type: 'template',
       template: {
-        name: 'seguimiento',
+        name: 'seguimiento_servicio',
         components: [{ type: 'body', parameters: [{ type: 'text', text: 'Lucía' }, { type: 'text', text: 'depilación láser' }] }],
       },
     });

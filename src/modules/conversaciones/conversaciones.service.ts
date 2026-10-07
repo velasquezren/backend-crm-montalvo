@@ -1,4 +1,5 @@
 import { pagoDelChat, promocionDelChat } from './pagos-chat';
+import { esOfertaComercial } from './interaccion-comercial';
 import { estadoDeIntentoAnterior, verificarIntencion, datosOferta, interaccionesEnLinea, OfertaInteraccion, prepararOferta, proyectarInteracciones } from './interacciones-integracion';
 import { MemoriaAgenteService } from '../memoria-agente/memoria-agente.service';
 import { whereAccesoConversacion as whereVisibilidad, SELECT_LINEA } from './acceso-conversacion';
@@ -630,6 +631,9 @@ export class ConversacionesService {
     /* En un piloto (`WHATSAPP_INTERACCIONES_LINEAS`), las demás líneas no mandan botones ni Flows. */
     if (interaccion !== undefined && !interaccionesEnLinea(conversacion.linea.id)) throw new BadRequestException('Interacciones desactivadas en esta línea');
     const oferta = interaccion === undefined ? undefined : prepararOferta(interaccion, conversacion.cliente.telefono);
+    if (oferta && !conversacion.linea.comercial && esOfertaComercial(oferta)) {
+      throw new BadRequestException('Las interacciones de promociones solo se envían desde líneas de Ventas.');
+    }
     if (oferta) contenido = oferta.mensaje.cuerpo;
     if (adjunto?.mediaKey) {
       const propia = await this.memoria.archivoPropio(agenteId, adjunto.mediaKey);

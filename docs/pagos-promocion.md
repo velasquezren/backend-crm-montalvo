@@ -5,6 +5,17 @@ QR por línea, y el CRM responde solo con la tarjeta de la promoción). Se const
 [promociones](promociones-y-directorio.md), el [menú de atención](menu-atencion.md) y la
 [atención humana](atencion-humana.md): no hay pasarela de pago ni otra bandeja.
 
+## Separación de líneas (preparación local, 2026-10-06)
+
+Promociones y QR pertenecen exclusivamente a líneas **comerciales**. Atención no
+configura cobros, no ofrece tarjetas por códigos `PRM-…`, ni crea leads por ellos.
+Un botón de pago antiguo recibido en Atención conserva su mensaje y pasa a revisión
+humana. Iniciar un pago exige que la línea del QR sea la de la conversación.
+Confirmar, pedir otro comprobante y anular requieren rol comercial (agente o admin)
+y acceso al chat. Los pagos históricos siguen visibles: no se borran ni se trasladan.
+
+Ver [alcance, pruebas y límites de esta preparación](recepcion-y-ventas.md).
+
 ## El recorrido
 
 ```

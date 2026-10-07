@@ -264,6 +264,135 @@ describe('el QR de la línea', () => {
   });
 });
 
+describe('separación de Atención y Ventas', () => {
+  it('Recepción rechaza QR y promociones incluso para admin; conserva mensajes sin crear leads', async () => {
+    await prisma.lineaWhatsapp.update({ where: { id: ventas }, data: { comercial: false } });
+    expect((await http(`/cobros/${ventas}`, 'GET', usuarios.admin.token)).status).toBe(403);
+    expect((await http(`/cobros/${ventas}`, 'PUT', usuarios.admin.token, { activo: false, banco: 'Banco', titular: 'Clínica' })).status).toBe(403);
+    expect((await http(`/menu-atencion/${ventas}`, 'PUT', usuarios.admin.token, {
+      activo: true, saludo: 'Hola', opciones: [
+        { tipo: 'PERSONA', titulo: 'Hablar con alguien' },
+        { tipo: 'PROMOCIONES', titulo: 'Promociones', respuesta: 'Elige una promoción' },
+      ],
+    })).status).toBe(400);
+    const entrada = texto(`Me interesa (${CODIGO})`);
+    expect((await webhook([entrada])).status).toBe(200);
+    expect((await webhook([entrada])).status).toBe(200);
+    await reposo();
+    const c = await chat();
+    expect(await prisma.mensaje.count({ where: { conversacionId: c.id, direccion: 'ENTRANTE' } })).toBe(1);
+    expect(await prisma.lead.count({ where: { clienteId: c.clienteId } })).toBe(0);
+    expect(await prisma.pagoPromocion.count({ where: { conversacionId: c.id } })).toBe(0);
+    expect(transporte.enviar).not.toHaveBeenCalled();
+  });
+
+  it('un QR y botón de pago antiguos no permiten cobrar desde Recepción: se pide revisión', async () => {
+    await configurarCobro();
+    const { chat: id, tarjeta } = await llegarPorLaLanding();
+    await reposo();
+    await prisma.lineaWhatsapp.update({ where: { id: ventas }, data: { comercial: false } });
+    transporte.enviar.mockClear();
+    expect(await app.get(CobrosService).listoPara(ventas)).toBeNull();
+    const entrada = toque(tarjeta, 'PAGAR_PROMOCION');
+    expect((await webhook([entrada])).status).toBe(200);
+    expect((await webhook([entrada])).status).toBe(200);
+    await reposo();
+    expect((await prisma.conversacion.findUniqueOrThrow({ where: { id } })).atencionMotivo).toBe('REVISION');
+    expect(await prisma.pagoPromocion.count({ where: { conversacionId: id } })).toBe(0);
+    expect(transporte.enviar).not.toHaveBeenCalled();
+  });
+
+  it('el reintento de una tarjeta antigua se detiene si la línea ya no es comercial', async () => {
+    const { chat: id } = await llegarPorLaLanding();
+    await reposo();
+    const [tarjeta] = await ofertas(id);
+    await prisma.lineaWhatsapp.update({ where: { id: ventas }, data: { comercial: false } });
+    await prisma.mensaje.update({ where: { id: tarjeta.id }, data: { estadoEnvio: 'FALLIDO', permiteReintento: true, proximoIntento: new Date() } });
+    transporte.enviar.mockClear();
+    await app.get(DespachadorSalienteService).interaccion({ mensajeId: tarjeta.id, conversacionId: id, telefono });
+    expect(transporte.enviar).not.toHaveBeenCalled();
+    expect(await prisma.mensaje.findUniqueOrThrow({ where: { id: tarjeta.id } })).toMatchObject({ estadoEnvio: 'FALLIDO', permiteReintento: false, proximoIntento: null });
+  });
+
+  it('el QR encolado antes del cambio no se reenvía por Recepción', async () => {
+    await configurarCobro();
+    const { chat: id, tarjeta } = await llegarPorLaLanding();
+    await pagar(id, tarjeta);
+    await reposo();
+    const qr = await prisma.mensaje.findFirstOrThrow({ where: { conversacionId: id, tipo: 'IMAGEN', automatico: true } });
+    await prisma.lineaWhatsapp.update({ where: { id: ventas }, data: { comercial: false } });
+    await prisma.mensaje.update({ where: { id: qr.id }, data: { estadoEnvio: 'FALLIDO', permiteReintento: true, proximoIntento: new Date() } });
+    transporte.enviar.mockClear();
+    await app.get(DespachadorSalienteService).texto({ mensajeId: qr.id, conversacionId: id, telefono }, qr.contenido, { key: qr.mediaKey!, mime: qr.mediaMime });
+    expect(transporte.enviar).not.toHaveBeenCalled();
+    expect(await prisma.mensaje.findUniqueOrThrow({ where: { id: qr.id } })).toMatchObject({ estadoEnvio: 'FALLIDO', permiteReintento: false, proximoIntento: null });
+  });
+
+  it('Recepción no puede enviar acciones comerciales desde el compositor ni plantillas de marketing', async () => {
+    await prisma.lineaWhatsapp.update({ where: { id: ventas }, data: { comercial: false } });
+    await webhook([texto('Consulta de atención')]);
+    await reposo();
+    const c = await chat();
+    const interactivo = await http(`/conversaciones/${c.id}/mensajes`, 'POST', usuarios.admin.token, {
+      contenido: 'Elige', clientMessageId: randomUUID(), interaccion: {
+        tipo: 'botones', cuerpo: 'Elige', opciones: [{ id: 'VIEW_PROMOTIONS', titulo: 'Ver opciones' }],
+      },
+    });
+    expect(interactivo.status).toBe(400);
+    transporte.listarPlantillas.mockResolvedValue([
+      { name: 'promo', status: 'APPROVED', category: 'MARKETING', language: 'es', components: [{ type: 'BODY', text: 'Promoción' }] },
+      { name: 'cita', status: 'APPROVED', category: 'UTILITY', language: 'es', components: [{ type: 'BODY', text: 'Solicitud de cita' }] },
+    ]);
+    const plantillas = app.get(EnvioPlantillasService);
+    expect((await plantillas.listarPlantillas(true, ventas)).map(p => p.nombre)).toEqual(['cita']);
+    expect((await plantillas.listarPlantillas(false, ventas)).map(p => p.nombre)).toEqual(['cita']);
+    expect((await http(`/conversaciones/${c.id}/plantilla`, 'POST', usuarios.admin.token, { plantilla: 'promo', idioma: 'es', parametros: [] })).status).toBe(400);
+    await expect(plantillas.enviarPlantillaDelSistema(c.id, { plantilla: 'promo', idioma: 'es', categoria: 'MARKETING', contenido: 'Promo' }, usuarios.admin.id)).rejects.toMatchObject({ status: 403 });
+    expect(await prisma.mensaje.count({ where: { conversacionId: c.id, direccion: 'SALIENTE' } })).toBe(0);
+    expect(transporte.enviar).not.toHaveBeenCalled();
+    // Utilidad sigue funcionando por la misma tubería.
+    expect((await http(`/conversaciones/${c.id}/plantilla`, 'POST', usuarios.admin.token, { plantilla: 'cita', idioma: 'es', parametros: [] })).status).toBe(201);
+  });
+
+  it('un rol de Recepción no puede revisar un pago aunque tenga acceso a esa línea', async () => {
+    await configurarCobro();
+    const { chat: id, tarjeta } = await llegarPorLaLanding();
+    await pagar(id, tarjeta);
+    await mandarComprobante(id);
+    const pago = await pagoAbierto(id);
+    const rec = await prisma.usuario.create({ data: {
+      nombre: 'Recepción sintética', email: 'rec@pagos.test', passwordHash: await bcrypt.hash('sintetico', 4), rol: 'RECEPCION', activo: true,
+      lineasWhatsapp: { create: { lineaId: ventas } },
+    } });
+    const token = (await app.get(AuthService).login({ email: rec.email, password: 'sintetico' })).access_token;
+    for (const accion of ['confirmar', 'pedir-otro', 'anular']) {
+      expect((await http(`/conversaciones/${id}/pagos/${pago.id}/${accion}`, 'POST', token, { motivo: 'Comprobante ilegible' })).status).toBe(403);
+    }
+    expect((await pagoAbierto(id)).estado).toBe('COMPROBANTE_ENVIADO');
+  });
+
+  it('no abre un pago utilizando el QR de otra línea comercial', async () => {
+    await configurarCobro();
+    const { chat: id } = await llegarPorLaLanding();
+    const otra = await prisma.lineaWhatsapp.create({ data: { nombre: 'PAGOS-otra', comercial: true, tokenEnv: 'TOKEN_INEXISTENTE_PAGOS' } });
+    await prisma.conversacion.update({ where: { id }, data: { lineaId: otra.id } });
+    expect(await app.get(PromocionesChatService).iniciar(id, ventas, promocionId)).toBeNull();
+    expect(await prisma.pagoPromocion.count({ where: { conversacionId: id } })).toBe(0);
+  });
+
+  it('un menú comercial heredado en Recepción queda visible para corregirlo, pero no se envía', async () => {
+    await prisma.lineaWhatsapp.update({ where: { id: ventas }, data: { comercial: false } });
+    await prisma.menuAtencion.create({ data: { lineaId: ventas, activo: true, saludo: 'Hola', opciones: [
+      { tipo: 'PERSONA', titulo: 'Hablar con alguien' },
+      { tipo: 'PROMOCIONES', titulo: 'Promociones', respuesta: 'Elige una promoción' },
+    ] } });
+    const menus = app.get(MenuAtencionService);
+    expect((await menus.editable(ventas)).errores).toContain('Las promociones pertenecen a Ventas. Quita esa opción del menú de Atención.');
+    expect(await menus.activoDe(ventas)).toBeNull();
+    expect(await prisma.menuAtencion.count({ where: { lineaId: ventas } })).toBe(1);
+  });
+});
+
 describe('de la landing al pago confirmado', () => {
   it('el código responde con la tarjeta (banner, precio, Pagar) y atribuye la promoción a su lead, sin menú ni acuse', async () => {
     await configurarCobro();

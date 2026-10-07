@@ -14,6 +14,7 @@ import {
 import { Prisma } from '../../prisma/prisma-client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ConversacionesGateway } from './conversaciones.gateway';
+import { esOfertaComercial } from './interaccion-comercial';
 
 /**
  * A quién y sobre qué fila va el envío.
@@ -123,6 +124,14 @@ export class DespachadorSalienteService {
 
   /** Texto del agente, con adjunto opcional guardado en R2. */
   async texto(destino: Destino, contenido: string, adjunto?: AdjuntoSaliente): Promise<void> {
+    // `cobros/` es el namespace privado de CobrosService. Un QR ya encolado
+    // tampoco debe salir por Atención al recuperar el proceso.
+    if (adjunto?.key.startsWith('cobros/') && !await this.prisma.conversacion.findFirst({
+      where: { id: destino.conversacionId, linea: { comercial: true } }, select: { id: true },
+    })) {
+      await this.detenerPorLinea(destino);
+      return;
+    }
     if (interaccionesHabilitadas() && await this.prisma.interaccionMensaje.findUnique({ where: { mensajeId: destino.mensajeId }, select: { mensajeId: true } })) {
       await this.interaccion(destino);
       return;
@@ -152,7 +161,7 @@ export class DespachadorSalienteService {
   /** Acuse con botonera de respuesta rápida. Degrada a texto plano si Meta lo rechaza. */
   async interaccion(destino: Destino): Promise<void> {
     if (!interaccionesHabilitadas()) return;
-    const fila = await this.prisma.mensaje.findFirst({ where: { id: destino.mensajeId, conversacionId: destino.conversacionId }, include: { interaccion: true, conversacion: { select: { cliente: { select: { telefono: true } } } } } });
+    const fila = await this.prisma.mensaje.findFirst({ where: { id: destino.mensajeId, conversacionId: destino.conversacionId }, include: { interaccion: true, conversacion: { select: { linea: { select: { comercial: true } }, cliente: { select: { telefono: true } } } } } });
     if (!fila?.interaccion || !fila.clientMessageId) return;
     const i = fila.interaccion;
     if (!i.privado || i.venceEn.getTime() < Date.now()) {
@@ -160,6 +169,10 @@ export class DespachadorSalienteService {
       return;
     }
     const oferta = descifrarInteraccion(i.privado, fila.clientMessageId) as OfertaInteraccion;
+    if (!fila.conversacion.linea.comercial && esOfertaComercial(oferta)) {
+      await this.detenerPorLinea(destino);
+      return;
+    }
     if (oferta.telefono !== destino.telefono || oferta.telefono !== fila.conversacion.cliente.telefono) {
       await this.prisma.mensaje.updateMany({ where: { id: fila.id, estadoEnvio: 'FALLIDO' }, data: { proximoIntento: null, permiteReintento: false } });
       return;
@@ -278,6 +291,17 @@ export class DespachadorSalienteService {
        tendría con qué rearmarla — y mandarla como texto plano es justo lo que
        Meta rechaza fuera de la ventana de 24 h, que es cuando se usan plantillas. */
     await this.registrarResultadoEnvio(destino, resultado, false);
+  }
+
+  /** No toca entregados ni resultados inciertos: solo intentos que aún no salieron. */
+  private async detenerPorLinea(destino: Destino): Promise<void> {
+    await this.prisma.mensaje.updateMany({
+      where: { id: destino.mensajeId, conversacionId: destino.conversacionId, OR: [
+        { estadoEnvio: 'FALLIDO' }, { estadoEnvio: 'ENVIADO', whatsappMsgId: null },
+      ] },
+      data: { estadoEnvio: 'FALLIDO', proximoIntento: null, permiteReintento: false },
+    });
+    this.gateway.emitirActividad(destino.conversacionId);
   }
 
   /** Arma el adjunto para Meta a partir de la clave de R2, firmando al vuelo. */

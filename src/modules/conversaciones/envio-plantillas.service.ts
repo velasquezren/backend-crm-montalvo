@@ -84,11 +84,12 @@ export class EnvioPlantillasService {
   async listarPlantillas(forceRefresh = false, lineaId?: string, soloAgenteId?: string): Promise<PlantillaResumen[]> {
     if (!lineaId) return [];
     const linea = await this.lineas.porId(lineaId, soloAgenteId);
+    const permitidas = (plantillas: PlantillaResumen[]) => linea.comercial ? plantillas : plantillas.filter(p => p.categoria !== 'MARKETING');
     const cuenta = this.lineas.credenciales(linea);
     const clave = `${linea.id}:${cuenta?.wabaId ?? ''}`;
     if (!forceRefresh) {
       const cacheado = this.cachePlantillas.obtener(clave);
-      if (cacheado) return cacheado;
+      if (cacheado) return permitidas(cacheado);
     }
 
     try {
@@ -104,11 +105,11 @@ export class EnvioPlantillasService {
         .map(p => resumirPlantilla(p, urlDeCabecera(p.name, process.env.CRM_URL_PUBLICA)));
 
       this.cachePlantillas.guardar(clave, resultado);
-      return resultado;
+      return permitidas(resultado);
     } catch (error) {
       this.logger.error('Excepción al listar plantillas de Meta', error);
       const respaldo = this.cachePlantillas.obtenerAunqueVencido(clave);
-      if (respaldo && !forceRefresh) return respaldo;
+      if (respaldo && !forceRefresh) return permitidas(respaldo);
       throw new ServiceUnavailableException('No se pudieron consultar las plantillas de WhatsApp. Vuelve a intentarlo.');
     }
   }
@@ -353,6 +354,9 @@ export class EnvioPlantillasService {
     agenteId: string,
   ) {
     const conversacionId = conversacion.id;
+    if (categoria === 'MARKETING' && !conversacion.linea.comercial) {
+      throw new ForbiddenException('Las plantillas de marketing solo se envían desde líneas de Ventas.');
+    }
     const oferta: OfertaInteraccion | undefined = despacho.respuestasRapidas?.length ? {
       mensaje: { tipo: 'texto', cuerpo: contenido }, telefono: conversacion.cliente.telefono,
       respuestasPlantilla: despacho.respuestasRapidas.map(b => ({ id: b.id, titulo: b.titulo })),

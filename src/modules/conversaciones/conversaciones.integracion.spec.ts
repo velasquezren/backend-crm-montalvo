@@ -1428,6 +1428,9 @@ describe('Acuse automático fuera de horario', () => {
       const s = servicioCon(conConfig(), MARTES);
       await s.procesarEntrante('+59176000020', '¿Dónde quedan?', 'wamid.u1');
       await esperarSalientes(2);
+      // Persistir el outbox ocurre antes del transporte en segundo plano.
+      const limiteDespacho = Date.now() + 2000;
+      while (enviados.length < 2 && Date.now() < limiteDespacho) await new Promise(r => setTimeout(r, 10));
 
       expect((await salientes()).map(m => [m.contenido, m.automatico])).toEqual([
         [TEXTO_UBICACION, true],

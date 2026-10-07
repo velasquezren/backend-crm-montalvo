@@ -4,6 +4,16 @@ Diseño del 2026-10-05. Se construye sobre la [atención humana](atencion-humana
 y las [interacciones de Meta](whatsapp-interacciones/FASE-2.md): no hay bandeja nueva,
 ni asignador nuevo, ni otro canal de tiempo real.
 
+## Separación de líneas (preparación local, 2026-10-06)
+
+`PROMOCIONES` solo se admite en líneas comerciales, tanto en el editor como en el
+servidor. Un menú heredado incompatible permanece visible con su error para
+corregirlo; no se envía ni se reescribe silenciosamente. La atención humana y las
+utilidades de servicio siguen disponibles como opciones: esta preparación no
+activa menús ni cambia las banderas de ninguna línea.
+
+Ver [Recepción y Ventas](recepcion-y-ventas.md).
+
 ## Qué es
 
 Cuando una paciente escribe a una línea y la conversación no está en curso, recibe
@@ -20,7 +30,7 @@ dirigido a la paciente tiene valor por defecto.
 | Solicitar una cita | Solicitud `SOLICITUD_CITA` (normal). No reserva nada | Confirmación, opcional |
 | Información | Se contesta sola con el texto. No pide persona | La información, obligatoria |
 | Ubicación | Se contesta sola con el mapa de la clínica | Una línea antes del mapa, opcional |
-| Promociones | Manda la lista que cargó la clínica. La elegida pasa a la asesora (`REVISION` con su título) | El texto de la lista, obligatorio |
+| Promociones (solo Ventas) | Lista de promociones vigentes del CRM; al elegir, tarjeta con precio y pago si existe QR válido | El texto de la lista, obligatorio |
 
 Reglas que valida el servidor (`erroresDelMenu`, la misma función al guardar y al
 leer):
