@@ -1,10 +1,17 @@
 import { Injectable } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { CuentaLectura, LectorAgenda } from './agenda-lector';
 import { consultarAgendaSql, RecursoAgendaSql } from './agenda.sql';
 
 /** La lectura PÚBLICA (landing): catálogo, horas libres y fotos. Sin datos de pacientes. */
 @Injectable()
 export class AgendaVpsClient extends LectorAgenda {
+  /* Constructor explícito: Nest inyecta por los tipos del constructor de ESTA
+     clase; heredado de `LectorAgenda` (sin decorador) quedaba sin ConfigService. */
+  constructor(config: ConfigService) {
+    super(config);
+  }
+
   protected readonly cuenta: CuentaLectura = {
     usuarioEsperado: 'crm_agenda_lectura',
     variableUsuario: 'AGENDA_MYSQL_USUARIO',

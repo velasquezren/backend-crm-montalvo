@@ -43,3 +43,15 @@ GRANT SELECT ON clinica.vista_horas_libres TO 'crm_agenda_reserva'@'%';
 GRANT SELECT (para_age,medico_pk,fecha,hora,estado,nombre_age,ci_age) ON clinica.para_agendar TO 'crm_agenda_reserva'@'%';
 GRANT INSERT (para_age,medico_pk,fecha,hora,nombre_age,telefono_age,ci_age,obs,estado,nom_med,uno,fecha_registro,hora_registro,nit,razon_social,precio_con,banco) ON clinica.para_agendar TO 'crm_agenda_reserva'@'%';
 GRANT UPDATE (comprobante,nit,razon_social,estado) ON clinica.para_agendar TO 'crm_agenda_reserva'@'%';
+-- Usuario de consulta del CRM (pantalla Reservas): los mismos permisos que
+-- scripts/agenda/crear-usuario-consulta.sh, solo SELECT.
+CREATE USER 'crm_agenda_consulta'@'%' IDENTIFIED BY 'solo-pruebas-sinteticas-consulta-no-produccion-2026' REQUIRE SSL WITH MAX_USER_CONNECTIONS 4;
+GRANT SELECT (para_age, medico_pk, fecha, hora, nombre_age, telefono_age, ci_age, obs, estado, nom_med, fecha_registro, hora_registro, nit, razon_social, precio_con, comprobante) ON clinica.para_agendar TO 'crm_agenda_consulta'@'%';
+GRANT SELECT (medico_pk, nombre, especialidad) ON clinica.medicos TO 'crm_agenda_consulta'@'%';
+-- Reservas de pacientes para la pantalla Reservas, en días sin horario (no alteran
+-- los cupos de las otras pruebas) y con ids bajo el 5 (la próxima reserva sigue siendo la 6).
+-- El teléfono, como lo escribe la gente: con 591 y signos, o el local solo.
+INSERT INTO para_agendar (para_age,medico_pk,fecha,hora,nombre_age,telefono_age,ci_age,obs,estado,nom_med,uno,fecha_registro,hora_registro,nit,razon_social,precio_con,banco,comprobante) VALUES
+(2,1,CURRENT_DATE()+INTERVAL 2 DAY,'09:00','María Sintética','+591 709-87654','111222','Primera consulta','PAGADO','Profesional sintético A',1,CURRENT_DATE(),'08:30','123456','Razón sintética',400.25,7,UNHEX('89504E470D0A1A0A0000000D49484452')),
+(3,2,CURRENT_DATE()+INTERVAL 3 DAY,'10:00','Ana 100% Sintética','70987654','333444',NULL,'PENDIENTE','Profesional sintético B',1,CURRENT_DATE(),'08:45',NULL,NULL,NULL,8,UNHEX('00112233445566778899')),
+(4,1,CURRENT_DATE()-INTERVAL 1 DAY,'09:00','María Sintética','70987654','111222',NULL,'ATENDIDO','Profesional sintético A',1,CURRENT_DATE()-INTERVAL 3 DAY,'10:00',NULL,NULL,400.25,7,NULL);

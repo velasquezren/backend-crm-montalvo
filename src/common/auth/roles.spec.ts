@@ -2,6 +2,7 @@ import { Rol } from '../../prisma/prisma-client';
 
 import {
   puedeEntregarResultados,
+  puedeVerAgendaClinica,
   RANGO_ROL,
   ROLES_ALCANCE_GLOBAL,
   ROLES_OPERATIVOS,
@@ -76,5 +77,18 @@ describe('ROLES_ALCANCE_GLOBAL', () => {
       expect(ROLES_ALCANCE_GLOBAL.includes(rol)).toBe(tieneAlcanceGlobal(rol));
     }
     expect([...ROLES_ALCANCE_GLOBAL].sort()).toEqual([Rol.ADMIN, Rol.SUPER_ADMIN].sort());
+  });
+});
+
+/* La tabla entera: la agenda completa tiene datos de pacientes de toda la clínica. */
+describe('quién ve la agenda completa de la clínica (pantalla Reservas)', () => {
+  it.each([
+    [Rol.RECEPCION, true],
+    [Rol.ASISTENTE, true],
+    [Rol.AGENTE, false],
+    [Rol.ADMIN, true],
+    [Rol.SUPER_ADMIN, true],
+  ])('%s → %s', (rol, ve) => {
+    expect(puedeVerAgendaClinica(rol)).toBe(ve);
   });
 });

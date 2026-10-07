@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { CuentaLectura, LectorAgenda } from './agenda-lector';
 
 /**
@@ -8,6 +9,12 @@ import { CuentaLectura, LectorAgenda } from './agenda-lector';
  */
 @Injectable()
 export class AgendaConsultaClient extends LectorAgenda {
+  /* Constructor explícito: Nest inyecta por los tipos del constructor de ESTA
+     clase; heredado de `LectorAgenda` (sin decorador) quedaba sin ConfigService. */
+  constructor(config: ConfigService) {
+    super(config);
+  }
+
   protected readonly cuenta: CuentaLectura = {
     usuarioEsperado: 'crm_agenda_consulta',
     variableUsuario: 'AGENDA_CONSULTA_USUARIO',

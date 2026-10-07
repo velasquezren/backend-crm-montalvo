@@ -36,7 +36,7 @@ Los dos primeros comparten servidor y Postgres (bases separadas) y se hablan
 | Módulo | Qué hace | Quién entra |
 | --- | --- | --- |
 | `modules/auth` | Login, sesiones revocables, refresco con cookie, perfil propio | Todos |
-| `modules/agenda` | La agenda ScriptCase para la landing. **Lee** especialidades, médicos y horas libres (`vista_horas_libres`, menos reservas web PENDIENTE/PAGADO) con un usuario MySQL de solo lectura, y **reserva** con otro usuario que solo puede hacer el INSERT y el UPDATE del formulario público de ScriptCase (`para_agendar`: PENDIENTE → comprobante → PAGADO), con candado contra la doble reserva y el mismo aviso de Telegram. TLS verificado ([auditoría](auditoria-agenda-vps-2026-10-06.md)) | Público: `/publico/agenda/*` (GET, y POST de reserva y pago con límite propio); CORS solo para la landing, sin cookies |
+| `modules/agenda` | La agenda ScriptCase para la landing. **Lee** especialidades, médicos y horas libres (`vista_horas_libres`, menos reservas web PENDIENTE/PAGADO) con un usuario MySQL de solo lectura, y **reserva** con otro usuario que solo puede hacer el INSERT y el UPDATE del formulario público de ScriptCase (`para_agendar`: PENDIENTE → comprobante → PAGADO), con candado contra la doble reserva y el mismo aviso de Telegram. Para el CRM, una tercera cuenta de **solo consulta** lee las reservas con los datos de la paciente: la pantalla Reservas, las próximas de una paciente en su chat y el comprobante (cada apertura queda en `AuditLog`). TLS verificado ([auditoría](auditoria-agenda-vps-2026-10-06.md)) | Público: `/publico/agenda/*` (GET, y POST de reserva y pago con límite propio); CORS solo para la landing, sin cookies. Con sesión: `/agenda/reservas` y su comprobante (recepción, asistencia y ADMIN+: `puedeVerAgendaClinica`), `/agenda/reservas/conversacion/:id` (quien ve ese chat) |
 | `modules/usuarios` | Cuentas, roles y líneas de cada usuario | SUPER_ADMIN |
 | `modules/lineas-whatsapp` | Las cuatro líneas de WhatsApp y quién atiende cada una | Lectura: cada uno las suyas · edición: SUPER_ADMIN |
 | `modules/menu-atencion` | El menú con el que cada línea recibe a la paciente: qué opciones ofrece (persona, emergencia, cita, información, ubicación, promociones) y sus textos. Lo lee la ingesta; solo él escribe `MenuAtencion` ([diseño](menu-atencion.md)) | Edición: SUPER_ADMIN |
@@ -81,7 +81,7 @@ si añades otra, añádela aquí con su motivo.
 | --- | --- | --- | --- |
 | `modules/clientes` | Lead, Conversacion | `cascadaDeReasignacion` (desde `update`/`reasignarAgente`) y `reclamarSiNoTieneDuena` | Reasignar una paciente mueve a la vez sus leads y sus chats de la línea comercial, en la misma transacción |
 | `modules/usuarios` | Conversacion | `UsuariosService.update`, al quitar líneas o desactivar | Libera los chats que la persona ya no puede atender, en la misma transacción que el cambio de permisos |
-| varios | AuditLog | conversaciones, usuarios, lineas-whatsapp, menu-atencion, promociones, cobros | Escriben la bitácora dentro de su propia transacción cuando el registro tiene que ser atómico con el cambio; fuera de una transacción se usa `AuditService` |
+| varios | AuditLog | conversaciones, usuarios, lineas-whatsapp, menu-atencion, promociones, cobros, agenda | Escriben la bitácora dentro de su propia transacción cuando el registro tiene que ser atómico con el cambio; fuera de una transacción se usa `AuditService`. `agenda` la escribe directo y ANTES de entregar un comprobante: sin constancia no se entrega |
 
 ## Frontend del CRM — pantallas (`src/app/features/`)
 

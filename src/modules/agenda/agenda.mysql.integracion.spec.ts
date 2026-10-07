@@ -1,4 +1,4 @@
-import { INestApplication, Module, ValidationPipe } from '@nestjs/common';
+import { Global, INestApplication, Module, ValidationPipe } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import { createConnection, RowDataPacket } from 'mysql2/promise';
@@ -6,6 +6,9 @@ import { readFileSync } from 'node:fs';
 import { createServer, Server } from 'node:http';
 import { AddressInfo, connect } from 'node:net';
 import { imagenSintetica } from '../../common/storage/imagen-sintetica';
+import { UsuarioJwt } from '../../common/decorators/current-user.decorator';
+import { PrismaService } from '../../prisma/prisma.service';
+import { AgendaReservasCrmService } from './agenda-reservas-crm.service';
 import { AgendaModule } from './agenda.module';
 import { AgendaVpsClient } from './agenda-vps.client';
 
@@ -16,11 +19,18 @@ const VALORES = {
   AGENDA_MYSQL_USUARIO: 'crm_agenda_lectura', AGENDA_MYSQL_PASSWORD: 'solo-pruebas-sinteticas-no-produccion-2026',
   AGENDA_RESERVA_USUARIO: 'crm_agenda_reserva', AGENDA_RESERVA_PASSWORD: 'solo-pruebas-sinteticas-reserva-no-produccion-2026',
   AGENDA_RESERVA_SECRETO: 'secreto-sintetico-de-referencias-de-pago-2026',
+  AGENDA_VPS_CONSULTA: 'on', AGENDA_CONSULTA_USUARIO: 'crm_agenda_consulta',
+  AGENDA_CONSULTA_PASSWORD: 'solo-pruebas-sinteticas-consulta-no-produccion-2026',
   AGENDA_MYSQL_CA_ARCHIVO: process.env.AGENDA_MYSQL_TEST_CA ?? '',
   AGENDA_MYSQL_TLS_IDENTIDAD: 'MySQL_Server_8.0.44_Auto_Generated_Server_Certificate',
 };
 const config = new ConfigService(VALORES);
-@Module({ imports: [ConfigModule.forRoot({ isGlobal: true, ignoreEnvFile: true }), AgendaModule], providers: [] })
+/* La pantalla Reservas también lee Postgres (el chat y la constancia del comprobante): la base descartable. */
+const prisma = new PrismaService('postgresql://crm_app@127.0.0.1:5433/crm_test');
+@Global()
+@Module({ providers: [{ provide: PrismaService, useValue: prisma }], exports: [PrismaService] })
+class PrismaPrueba {}
+@Module({ imports: [ConfigModule.forRoot({ isGlobal: true, ignoreEnvFile: true }), PrismaPrueba, AgendaModule], providers: [] })
 class ModuloPrueba {}
 
 const PNG_QR = imagenSintetica('png', 400, 400);
@@ -49,7 +59,7 @@ ejecutar('Agenda HTTP → adaptador TLS → MySQL real descartable', () => {
     await app.listen(0, '127.0.0.1');
     base = await app.getUrl();
   });
-  afterAll(async () => { await app?.close(); qr?.close(); });
+  afterAll(async () => { await app?.close(); qr?.close(); await prisma.$disconnect(); });
   const get = (ruta: string) => fetch(`${base}/publico/agenda/${ruta}`);
 
   it('catálogo real paginado y proyección sin campos privados', async () => {
@@ -246,5 +256,111 @@ ejecutar('Agenda HTTP → adaptador TLS → MySQL real descartable', () => {
     expect(Buffer.compare(Buffer.from(await r.arrayBuffer()), PNG_QR)).toBe(0);
     expect((await fetch(`${base}/publico/agenda/qr/8`)).status).toBe(404);
     expect((await fetch(`${base}/publico/agenda/qr/99`)).status).toBe(404);
+  });
+  describe('pantalla Reservas del CRM (cuenta de consulta, solo lectura)', () => {
+    const TELEFONO = '+59170987654';
+    let reservas: AgendaReservasCrmService;
+    const usuarios: Record<'recepcion' | 'conAcceso' | 'sinAcceso', UsuarioJwt> = {} as never;
+    let chat: string;
+
+    async function limpiar() {
+      const ids = (await prisma.usuario.findMany({ where: { email: { endsWith: '@agenda-crm.test' } }, select: { id: true } })).map(u => u.id);
+      await prisma.auditLog.deleteMany({ where: { OR: [{ usuarioId: { in: ids } }, { entidad: 'ReservaAgenda' }] } });
+      await prisma.cliente.deleteMany({ where: { telefono: TELEFONO } });
+      await prisma.lineaWhatsapp.deleteMany({ where: { nombre: 'AGENDA-CRM-ventas' } });
+      await prisma.usuario.deleteMany({ where: { id: { in: ids } } });
+    }
+    beforeAll(async () => {
+      reservas = app.get(AgendaReservasCrmService);
+      await limpiar();
+      const linea = await prisma.lineaWhatsapp.create({ data: { nombre: 'AGENDA-CRM-ventas', telefono: '+59170009901', phoneNumberId: 'meta-agenda-crm', tokenEnv: 'TOKEN_INEXISTENTE_AGENDA', comercial: true } });
+      const definiciones = [['recepcion', 'RECEPCION', true], ['conAcceso', 'AGENTE', true], ['sinAcceso', 'AGENTE', false]] as const;
+      for (const [clave, rol, acceso] of definiciones) {
+        const u = await prisma.usuario.create({ data: {
+          nombre: `Persona ${clave}`, email: `${clave}@agenda-crm.test`, passwordHash: 'sin-uso', rol, activo: true,
+          ...(acceso ? { lineasWhatsapp: { create: { lineaId: linea.id } } } : {}),
+        } });
+        usuarios[clave] = { sub: u.id, email: u.email, nombre: u.nombre, rol };
+      }
+      const cliente = await prisma.cliente.create({ data: { nombre: 'Paciente de agenda sintética', telefono: TELEFONO } });
+      chat = (await prisma.conversacion.create({ data: { clienteId: cliente.id, lineaId: linea.id } })).id;
+    });
+    afterAll(limpiar);
+
+    it('lista el rango con la cuenta por estado, el precio en centavos y el teléfono listo para abrir su chat', async () => {
+      const r = await reservas.listar({ desde: fecha(2), hasta: fecha(3) }, usuarios.recepcion);
+      expect(r).toMatchObject({ total: 2, desde: fecha(2), hasta: fecha(3), porEstado: { PAGADO: 1, PENDIENTE: 1 } });
+      expect(r.datos.map(d => d.id)).toEqual([2, 3]);
+      expect(r.datos[0]).toMatchObject({
+        estado: 'PAGADO', paciente: 'María Sintética', medico: 'Profesional sintético A', especialidad: 'Especialidad sintética',
+        precio: { importeCentavos: 40025, moneda: 'BOB' }, telefono: '+591 709-87654', telefonoE164: TELEFONO,
+        nit: '123456', razonSocial: 'Razón sintética', tieneComprobante: true, hora: '09:00',
+      });
+      /* Sin rango: hoy y los próximos 30 días; lo de ayer no aparece. */
+      const porDefecto = await reservas.listar({}, usuarios.recepcion);
+      expect(porDefecto.desde).toBe(fecha(0));
+      expect(porDefecto.datos.map(d => d.id)).toEqual(expect.arrayContaining([2, 3]));
+      expect(porDefecto.datos.map(d => d.id)).not.toContain(4);
+    });
+
+    it('filtra por estado y busca por nombre (con % literal), carnet, número o teléfono con cualquier formato', async () => {
+      /* Mañana tiene las reservas que crean las pruebas de arriba: los estados se miran en los días 2 y 3. */
+      const soloSinteticas = { desde: fecha(2), hasta: fecha(3) };
+      expect((await reservas.listar({ ...soloSinteticas, estado: 'PAGADO' }, usuarios.recepcion)).datos.map(d => d.id)).toEqual([2]);
+      const rango = { desde: fecha(-1), hasta: fecha(3) };
+      const ids = async (extra: Record<string, string>) => (await reservas.listar({ ...rango, ...extra }, usuarios.recepcion)).datos.map(d => d.id);
+      expect(await ids({ buscar: '100%' })).toEqual([3]);
+      expect(await ids({ buscar: '%' })).toEqual([3]);
+      expect(await ids({ buscar: '111222' })).toEqual([4, 2]);
+      expect(await ids({ buscar: '709 87 654' })).toEqual([4, 2, 3]);
+      expect(await ids({ buscar: '3' })).toEqual(expect.arrayContaining([3]));
+      /* El filtro de estado no cambia la cuenta por estado: los chips siguen mostrando todo el rango. */
+      expect((await reservas.listar({ ...soloSinteticas, estado: 'PAGADO' }, usuarios.recepcion)).porEstado).toEqual({ PAGADO: 1, PENDIENTE: 1 });
+    });
+
+    it('la agenda completa no la ve una agente de ventas; un rango imposible o de más de un trimestre se rechaza', async () => {
+      await expect(reservas.listar({}, usuarios.conAcceso)).rejects.toMatchObject({ status: 403 });
+      await expect(reservas.listar({ desde: '2026-02-31' }, usuarios.recepcion)).rejects.toMatchObject({ status: 400 });
+      await expect(reservas.listar({ desde: fecha(3), hasta: fecha(2) }, usuarios.recepcion)).rejects.toMatchObject({ status: 400 });
+      await expect(reservas.listar({ desde: fecha(0), hasta: fecha(92) }, usuarios.recepcion)).rejects.toMatchObject({ status: 400 });
+      expect((await reservas.listar({ desde: fecha(0), hasta: fecha(91) }, usuarios.recepcion)).hasta).toBe(fecha(91));
+    });
+
+    it('desde el chat: las próximas de esa paciente (con y sin 591), solo para quien puede ver el chat', async () => {
+      const deAgente = await reservas.deConversacion(chat, usuarios.conAcceso);
+      expect(deAgente.map(r => r.id)).toEqual([2, 3]);
+      await expect(reservas.deConversacion(chat, usuarios.sinAcceso)).rejects.toMatchObject({ status: 404 });
+      await expect(reservas.deConversacion('00000000-0000-4000-8000-000000000000', usuarios.recepcion)).rejects.toMatchObject({ status: 404 });
+    });
+
+    it('el comprobante se entrega por su tipo real y deja constancia de quién lo abrió', async () => {
+      const archivo = await reservas.comprobante(2, usuarios.recepcion);
+      expect(archivo.getHeaders()).toMatchObject({ type: 'image/png', disposition: 'inline; filename="comprobante-2.png"' });
+      const partes: Buffer[] = [];
+      for await (const parte of archivo.getStream()) partes.push(Buffer.from(parte as Uint8Array));
+      expect(Buffer.concat(partes).subarray(0, 4).toString('hex')).toBe('89504e47');
+      expect(await prisma.auditLog.count({ where: { entidad: 'ReservaAgenda', entidadId: '2', accion: 'COMPROBANTE_AGENDA_VISTO', usuarioId: usuarios.recepcion.sub } })).toBe(1);
+      await expect(reservas.comprobante(3, usuarios.recepcion)).rejects.toMatchObject({ status: 415 });
+      await expect(reservas.comprobante(4, usuarios.recepcion)).rejects.toMatchObject({ status: 404 });
+      await expect(reservas.comprobante(2, usuarios.conAcceso)).rejects.toMatchObject({ status: 403 });
+    });
+
+    it('el usuario de consulta solo lee lo que la pantalla muestra: no escribe ni ve otras tablas', async () => {
+      const conn = await createConnection({
+        host: config.getOrThrow<string>('AGENDA_MYSQL_TLS_IDENTIDAD'),
+        stream: () => connect({ host: '127.0.0.1', port: 3307 }),
+        user: 'crm_agenda_consulta', password: 'solo-pruebas-sinteticas-consulta-no-produccion-2026', database: 'clinica',
+        ssl: { ca: readFileSync(process.env.AGENDA_MYSQL_TEST_CA!), rejectUnauthorized: true, verifyIdentity: true },
+      });
+      try {
+        for (const sql of [
+          'SELECT paciente FROM agenda_med', 'SELECT password FROM medicos', 'SELECT banco FROM para_agendar',
+          "UPDATE para_agendar SET estado = 'ATENDIDO' WHERE 1=0", 'DELETE FROM para_agendar WHERE 1=0',
+          "INSERT INTO para_agendar (para_age) VALUES (999)",
+        ]) {
+          await expect(conn.query(sql)).rejects.toMatchObject({ code: expect.stringMatching(/ACCESS_DENIED/) });
+        }
+      } finally { await conn.end(); }
+    });
   });
 });
