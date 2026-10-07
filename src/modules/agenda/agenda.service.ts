@@ -57,7 +57,7 @@ export class AgendaService {
   }
 
   async disponibilidad(query: QueryDisponibilidadAgendaDto) {
-    if (!fechaConsultable(query.fecha)) throw new BadRequestException('Elegí una fecha válida dentro de los próximos 30 días, incluido hoy.');
+    if (!fechaConsultable(query.fecha)) throw new BadRequestException('Elige una fecha válida dentro de los próximos 30 días, incluido hoy.');
     const crudo = await this.vps.leer('disponibilidad', new URLSearchParams({ medicoId: query.medicoId, fecha: query.fecha }));
     try { return disponibilidadDeAgenda(crudo, query.medicoId, query.fecha); }
     catch { throw this.vps.noDisponible(); }

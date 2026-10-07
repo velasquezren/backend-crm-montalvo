@@ -1,6 +1,7 @@
 import { Logger, OnModuleDestroy, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Pool, PoolConnection } from 'mysql2/promise';
+import { CuposAgenda } from './agenda-cupos';
 import { crearPoolAgenda } from './agenda-mysql';
 
 /** Una cuenta MySQL de solo lectura sobre la agenda y el interruptor que la enciende. */
@@ -24,7 +25,7 @@ export interface CuentaLectura {
 export abstract class LectorAgenda implements OnModuleDestroy {
   private readonly logger = new Logger(this.constructor.name);
   private pool?: Pool;
-  private enCurso = 0;
+  private cupos?: CuposAgenda;
   private ultimoAviso = 0;
 
   protected abstract readonly cuenta: CuentaLectura;
@@ -42,8 +43,12 @@ export abstract class LectorAgenda implements OnModuleDestroy {
 
   /** Una consulta dentro de una transacción de solo lectura, con tiempo máximo. */
   async ejecutar<T>(trabajo: (conexion: PoolConnection) => Promise<T>): Promise<T> {
-    if (!this.habilitada() || this.enCurso >= this.cuenta.conexiones) throw this.noDisponible();
-    this.enCurso++;
+    if (!this.habilitada()) throw this.noDisponible();
+    /* Fila corta: un pico (la pantalla Reservas y el bloque del chat a la vez)
+       espera un instante por una conexión en vez de fallar. Llena o vencida, 503. */
+    this.cupos ??= new CuposAgenda(this.cuenta.conexiones, 1_500, this.cuenta.conexiones * 3);
+    const devolverCupo = await this.cupos.tomar();
+    if (!devolverCupo) throw this.noDisponible();
     let conexion: PoolConnection | undefined;
     let reloj: ReturnType<typeof setTimeout> | undefined;
     let terminada = false;
@@ -69,7 +74,7 @@ export abstract class LectorAgenda implements OnModuleDestroy {
     } finally {
       if (reloj) clearTimeout(reloj);
       if (!terminada) conexion?.release();
-      this.enCurso--;
+      devolverCupo();
     }
   }
 

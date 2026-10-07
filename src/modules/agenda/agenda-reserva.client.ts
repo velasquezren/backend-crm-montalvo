@@ -26,6 +26,6 @@ export class AgendaReservaClient extends EscritorAgenda {
     conexiones: 2,
     candado: 'crm_agenda_reserva',
     codigoNoDisponible: 'RESERVA_NO_DISPONIBLE',
-    mensajeNoDisponible: 'No pudimos registrar la reserva. Volvé a intentarlo o escribinos por WhatsApp.',
+    mensajeNoDisponible: 'No pudimos registrar la reserva. Vuelve a intentarlo o escríbenos por WhatsApp.',
   };
 }

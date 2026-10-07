@@ -53,7 +53,7 @@ export class AgendaReservasService {
 
   async reservar(dto: CrearReservaAgendaDto) {
     const secreto = this.exigirHabilitada();
-    if (!fechaConsultable(dto.fecha)) throw new BadRequestException('Elegí una fecha de los próximos 30 días.');
+    if (!fechaConsultable(dto.fecha)) throw new BadRequestException('Elige una fecha de los próximos 30 días.');
     const telefono = dto.telefono.replace(/\D/g, '').replace(/^591(?=\d{8}$)/, '');
     const datos = {
       medicoId: Number(dto.medicoId),
@@ -64,12 +64,12 @@ export class AgendaReservasService {
       ci: limpiar(dto.ci),
       observaciones: limpiar(dto.observaciones ?? ''),
     };
-    if (datos.nombre.length < 3) throw new BadRequestException('Escribí el nombre completo.');
+    if (datos.nombre.length < 3) throw new BadRequestException('Escribe el nombre completo.');
 
     const resultado = await this.reservas.enTransaccion(conexion => reservarEnAgenda(conexion, datos));
     if (!resultado.ok) {
       throw resultado.motivo === 'HORA_NO_DISPONIBLE'
-        ? new ConflictException({ codigo: 'HORA_NO_DISPONIBLE', message: 'Esa hora acaba de ocuparse. Elegí otra, por favor.' })
+        ? new ConflictException({ codigo: 'HORA_NO_DISPONIBLE', message: 'Esa hora acaba de ocuparse. Elige otra, por favor.' })
         : new NotFoundException({ codigo: 'MEDICO_NO_DISPONIBLE', message: 'Ese profesional ya no está disponible en línea.' });
     }
     this.telegram.nuevaCita(datos.nombre, datos.ci);
@@ -88,12 +88,12 @@ export class AgendaReservasService {
     const secreto = this.exigirHabilitada();
     const paraAge = leerReferencia(dto.referencia, secreto);
     if (paraAge === null) {
-      throw new GoneException({ codigo: 'REFERENCIA_VENCIDA', message: 'Este enlace de pago venció. Enviá tu comprobante por WhatsApp.' });
+      throw new GoneException({ codigo: 'REFERENCIA_VENCIDA', message: 'Este enlace de pago venció. Envía tu comprobante por WhatsApp.' });
     }
     if (!archivo) throw new BadRequestException('Falta el comprobante.');
     // Solo imágenes, comprobadas por sus bytes: es lo que ScriptCase muestra en «ver_qr».
     const imagen = validarImagenPublica(archivo.buffer);
-    if ('error' in imagen) throw new BadRequestException('Subí una foto o captura del comprobante (JPG, PNG o WebP, hasta 5 MB).');
+    if ('error' in imagen) throw new BadRequestException('Sube una foto o captura del comprobante (JPG, PNG o WebP, hasta 5 MB).');
 
     const resultado = await this.reservas.enTransaccion(conexion =>
       registrarPagoEnAgenda(conexion, paraAge, archivo.buffer, (dto.nit ?? '').trim(), limpiar(dto.razonSocial ?? '')),

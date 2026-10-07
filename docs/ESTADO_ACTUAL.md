@@ -1,5 +1,28 @@
 # Estado actual
 
+## Revisión de Reservas → Directorio — 7 de octubre de 2026
+
+Revisión de punta a punta pedida por René. Lo que se corrigió:
+
+- **Conexiones a la agenda (fallo real latente).** La cuenta de administración
+  tenía 2 conexiones sin fila: al abrir el Directorio salen tres pedidos a la
+  vez y uno podía fallar al azar con «no disponible». Ahora todas las cuentas
+  pasan por `CuposAgenda` (fila corta con tope de tiempo y de largo) y dejan una
+  conexión de margen bajo su `MAX_USER_CONNECTIONS`: MySQL tarda un instante en
+  soltar una conexión cerrada. Prueba: 8 pedidos simultáneos, ninguno falla.
+- **Leer no toma el candado de escritura.** `EscritorAgenda.consultar()` lee en
+  una transacción READ ONLY con tiempo máximo; mirar médicos ya no espera detrás
+  de quien guarda un horario.
+- **Un solo orden.** La ficha web toma el orden de la agenda: el médico sale en
+  el mismo lugar en la reserva en línea y en «Staff médico».
+- **Tono.** Sin voseo: el CRM habla de tú; la reserva de la landing también
+  (ya decía «tu consulta»). Queda abierto si TODA la landing pasa a usted, que
+  es como habla el resto de sus páginas.
+- **Reservas** se refresca sola cada 2 minutos con la pestaña a la vista (la
+  agenda no avisa por el socket), tiene «Actualizar», y el médico de una reserva
+  —también en el bloque del chat— enlaza a su ficha y horario en el Directorio
+  (`/directorio?medico=<id>`).
+
 ## Directorio médico, fase B: ficha web unida a la agenda — 7 de octubre de 2026 · DESPLEGADO
 
 Cada médico de la agenda tiene en su ficha del CRM tres pestañas: **Datos**,

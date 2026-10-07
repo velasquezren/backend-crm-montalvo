@@ -69,9 +69,9 @@ export class AgendaReservasCrmService {
   private rango(query: QueryReservasAgendaDto): { desde: string; hasta: string } {
     const desde = query.desde ? fechaCivilDesdeTexto(query.desde) : hoyEnLaClinica();
     const hasta = query.hasta ? fechaCivilDesdeTexto(query.hasta) : desde && sumarDias(desde, DIAS_POR_DEFECTO - 1);
-    if (!desde || !hasta) throw new BadRequestException('Elegí fechas que existan.');
+    if (!desde || !hasta) throw new BadRequestException('Elige fechas que existan.');
     if (hasta < desde) throw new BadRequestException('La fecha final no puede ser anterior a la inicial.');
-    if ((hasta.getTime() - desde.getTime()) / DIA + 1 > DIAS_MAXIMOS) throw new BadRequestException(`Elegí un rango de hasta ${DIAS_MAXIMOS} días.`);
+    if ((hasta.getTime() - desde.getTime()) / DIA + 1 > DIAS_MAXIMOS) throw new BadRequestException(`Elige un rango de hasta ${DIAS_MAXIMOS} días.`);
     return { desde: textoDeFechaCivil(desde), hasta: textoDeFechaCivil(hasta) };
   }
 

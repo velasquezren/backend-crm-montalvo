@@ -84,6 +84,8 @@ export interface DatosFichaDeAgenda {
   codigoFilemaker: string | null;
   /** En Bs; null si la agenda no tiene precio (o tiene 0). */
   precioConsulta: number | null;
+  /** El orden de la agenda: el médico sale en el mismo lugar en la reserva y en «Staff médico». */
+  orden: number;
   bloques: BloqueHorario[];
 }
 
@@ -296,7 +298,9 @@ export class DirectorioService {
    */
   async actualizarFicha(id: string, dto: ActualizarPerfilMedicoDto, usuarioId: string) {
     const { version, especialidadIds, ...campos } = dto;
-    if (campos.precioConsulta !== undefined) await this.exigirSinAgenda(id, 'El precio de este médico se edita en la agenda.');
+    if (campos.precioConsulta !== undefined || campos.orden !== undefined) {
+      await this.exigirSinAgenda(id, 'El precio y el orden de este médico se editan en la agenda.');
+    }
     if (especialidadIds) await this.exigirEspecialidadesActivas(especialidadIds);
     if (campos.medicoId) {
       const medico = await this.prisma.medico.findUnique({ where: { id: campos.medicoId }, select: { id: true } });
@@ -472,6 +476,7 @@ export class DirectorioService {
           agendaMedicoId: agenda.agendaMedicoId,
           medicoId: medico?.id,
           precioConsulta: agenda.precioConsulta,
+          orden: agenda.orden,
           ...(pagina?.activa ? { especialidades: { create: [{ especialidadId: pagina.id }] } } : {}),
           horarios: { create: agenda.bloques.map(({ diaSemana, inicioMinuto, finMinuto }) => ({ diaSemana, inicioMinuto, finMinuto })) },
         },
@@ -486,16 +491,16 @@ export class DirectorioService {
   }
 
   /**
-   * Lleva a la ficha web el precio y el horario que se acaban de guardar en la
-   * agenda. Sin ficha enlazada no hace nada. No mueve la versión de la ficha a
+   * Lleva a la ficha web el precio, el orden y el horario que se acaban de
+   * guardar en la agenda. Sin ficha enlazada no hace nada. No mueve la versión de la ficha a
    * propósito: quien la tenga abierta para la biografía no recibe un 409 porque
    * otra persona cambió el horario.
    */
-  async sincronizarConAgenda(agendaMedicoId: number, datos: Pick<DatosFichaDeAgenda, 'precioConsulta' | 'bloques'>) {
+  async sincronizarConAgenda(agendaMedicoId: number, datos: Pick<DatosFichaDeAgenda, 'precioConsulta' | 'orden' | 'bloques'>) {
     const ficha = await this.prisma.perfilMedico.findUnique({ where: { agendaMedicoId }, select: { id: true, publicado: true } });
     if (!ficha) return;
     await this.prisma.$transaction([
-      this.prisma.perfilMedico.update({ where: { id: ficha.id }, data: { precioConsulta: datos.precioConsulta } }),
+      this.prisma.perfilMedico.update({ where: { id: ficha.id }, data: { precioConsulta: datos.precioConsulta, orden: datos.orden } }),
       this.prisma.horarioMedico.deleteMany({ where: { perfilMedicoId: ficha.id } }),
       this.prisma.horarioMedico.createMany({
         data: datos.bloques.map(({ diaSemana, inicioMinuto, finMinuto }) => ({ perfilMedicoId: ficha.id, diaSemana, inicioMinuto, finMinuto })),

@@ -17,8 +17,9 @@ export class AgendaVpsClient extends LectorAgenda {
     variableUsuario: 'AGENDA_MYSQL_USUARIO',
     variablePassword: 'AGENDA_MYSQL_PASSWORD',
     bandera: 'AGENDA_VPS_LECTURA',
-    conexiones: 4,
-    mensajeNoDisponible: 'No pudimos consultar la agenda. Podés continuar en la agenda de la clínica o contactar con recepción.',
+    /* Una menos que su MAX_USER_CONNECTIONS (4), por la misma razón que la de administración; los picos esperan en fila. */
+    conexiones: 3,
+    mensajeNoDisponible: 'No pudimos consultar la agenda. Vuelve a intentarlo en un momento o escríbenos por WhatsApp.',
   };
 
   leer(recurso: RecursoAgendaSql, parametros: URLSearchParams): Promise<unknown> {

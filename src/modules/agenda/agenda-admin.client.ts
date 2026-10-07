@@ -23,9 +23,11 @@ export class AgendaAdminClient extends EscritorAgenda {
     variableUsuario: 'AGENDA_ADMIN_USUARIO',
     variablePassword: 'AGENDA_ADMIN_PASSWORD',
     bandera: 'AGENDA_VPS_ADMIN',
+    /* Una menos que su MAX_USER_CONNECTIONS (3): MySQL tarda un instante en soltar una
+       conexión destruida, y abrir otra en ese momento rebota. Los picos esperan en `CuposAgenda`. */
     conexiones: 2,
     candado: 'crm_agenda_admin',
     codigoNoDisponible: 'AGENDA_NO_DISPONIBLE',
-    mensajeNoDisponible: 'No pudimos guardar en la agenda de la clínica. Probá de nuevo en un momento.',
+    mensajeNoDisponible: 'La agenda de la clínica no respondió. Vuelve a intentarlo en un momento.',
   };
 }

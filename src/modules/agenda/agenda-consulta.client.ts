@@ -21,6 +21,6 @@ export class AgendaConsultaClient extends LectorAgenda {
     variablePassword: 'AGENDA_CONSULTA_PASSWORD',
     bandera: 'AGENDA_VPS_CONSULTA',
     conexiones: 3,
-    mensajeNoDisponible: 'No pudimos consultar la agenda de la clínica. Probá de nuevo en un momento.',
+    mensajeNoDisponible: 'La agenda de la clínica no respondió. Vuelve a intentarlo en un momento.',
   };
 }

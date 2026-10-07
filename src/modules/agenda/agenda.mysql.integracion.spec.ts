@@ -413,6 +413,14 @@ ejecutar('Agenda HTTP → adaptador TLS → MySQL real descartable', () => {
       ]);
     });
 
+    it('un pico de pedidos a la vez (abrir el Directorio son tres) espera su turno: ninguno falla', async () => {
+      // La cuenta usa 2 conexiones; sin la fila de espera, el tercer pedido salía 503 al azar.
+      const pedidos = Array.from({ length: 8 }, (_, i) =>
+        i % 3 === 0 ? medicos.listar({}, usuarios.recepcion) : i % 3 === 1 ? medicos.especialidades({}) : medicos.bancos(),
+      );
+      await expect(Promise.all(pedidos)).resolves.toHaveLength(8);
+    });
+
     it('enciende casillas nuevas como el formulario de ScriptCase y regenera el recuadro de horario', async () => {
       const ficha = await medicos.ficha(3, usuarios.recepcion);
       expect(ficha.casillas).toEqual([]);
@@ -517,7 +525,7 @@ ejecutar('Agenda HTTP → adaptador TLS → MySQL real descartable', () => {
         where: { nombre: 'Especialidad web sintética' }, update: {}, create: { nombre: 'Especialidad web sintética', slug: 'especialidad-web-sintetica' },
       });
       let ficha = await medicos.crearPresentacion(1, usuarios.recepcion);
-      expect(ficha.presentacion).toMatchObject({ agendaMedicoId: 1, nombrePublico: 'Dra. Profesional sintético A', publicado: false, precioConsulta: 400.25, especialidades: [] });
+      expect(ficha.presentacion).toMatchObject({ agendaMedicoId: 1, nombrePublico: 'Dra. Profesional sintético A', publicado: false, precioConsulta: 400.25, orden: 1, especialidades: [] });
       expect(ficha.presentacion!.horario.length).toBeGreaterThan(0);
       await expect(medicos.crearPresentacion(1, usuarios.recepcion)).rejects.toMatchObject({ status: 409 });
       // Sin especialidad web no se publica; con ella, sí. La foto pública de la reserva sale del directorio solo si hay foto.

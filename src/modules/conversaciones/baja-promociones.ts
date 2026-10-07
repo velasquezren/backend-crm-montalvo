@@ -24,4 +24,4 @@ export function esPedidoDeBaja(textoDelBoton: string): boolean {
  * Mismo voseo que las plantillas de Ventas.
  */
 export const CONFIRMACION_BAJA =
-  'Listo, no te enviaremos más promociones. Si necesitás algo de la clínica, escribinos por aquí cuando quieras.';
+  'Listo, no te enviaremos más promociones. Si necesitas algo de la clínica, escríbenos por aquí cuando quieras.';

@@ -47,7 +47,7 @@ function bloquesDeFicha(f: FichaMedicoAgenda) {
 
 const MENSAJES: Record<Exclude<ResultadoAdminAgenda<unknown>, { ok: true }>['motivo'], string> = {
   NO_ENCONTRADO: 'Ese médico no está en la agenda.',
-  CONFLICTO: 'Alguien cambió esta ficha mientras la editabas. Volvé a abrirla para ver lo último.',
+  CONFLICTO: 'Otra persona cambió este médico mientras lo editabas. Carga lo último antes de guardar.',
   BANCO_INEXISTENTE: 'Ese QR de cobro ya no está en la agenda.',
   SIN_CODIGO: 'Este médico no tiene código de FileMaker: sin él la agenda no puede darle horas nuevas.',
   CASILLA_INVALIDA: 'Una de las casillas del horario no es válida.',
@@ -125,7 +125,7 @@ export class AgendaMedicosCrmService {
 
   async listar(query: QueryMedicosAgendaAdminDto, usuario: UsuarioJwt) {
     const { skip, take } = calcularPaginacion(query);
-    const r = await this.agenda.enTransaccion(db =>
+    const r = await this.agenda.consultar(db =>
       listarMedicosAgenda(db, { buscar: query.buscar, especialidad: query.especialidad, estado: query.estado, skip, take }),
     );
     const web = await this.directorio.resumenDeAgenda(r.datos.map(m => m.id));
@@ -136,7 +136,7 @@ export class AgendaMedicosCrmService {
   /** Las especialidades de la agenda, cada una con su página web (o null si no tiene). */
   async especialidades(query: PaginationDto) {
     const { skip, take } = calcularPaginacion(query);
-    const r = await this.agenda.enTransaccion(db => listarEspecialidadesAgenda(db, skip, take));
+    const r = await this.agenda.consultar(db => listarEspecialidadesAgenda(db, skip, take));
     const paginas = await this.directorio.paginasDeEspecialidades(r.datos.map(e => e.nombre));
     const datos = r.datos.map(e => ({ ...e, pagina: paginas.get(claveDeEspecialidad(e.nombre)) ?? null }));
     return paginar(datos, r.total, query);
@@ -148,7 +148,7 @@ export class AgendaMedicosCrmService {
    */
   async crearPaginas(nombres: readonly string[], usuario: UsuarioJwt) {
     this.exigirEditar(usuario);
-    const r = await this.agenda.enTransaccion(db => listarEspecialidadesAgenda(db, 0, 500));
+    const r = await this.agenda.consultar(db => listarEspecialidadesAgenda(db, 0, 500));
     const deLaAgenda = new Map(r.datos.map(e => [claveDeEspecialidad(e.nombre), e.nombre] as const));
     const validas = nombres.map(n => deLaAgenda.get(claveDeEspecialidad(n))).filter((n): n is string => !!n);
     if (validas.length === 0) throw new NotFoundException('Esas especialidades no están en la agenda.');
@@ -162,7 +162,7 @@ export class AgendaMedicosCrmService {
   }
 
   async bancos() {
-    return this.agenda.enTransaccion(db => listarBancosAgenda(db));
+    return this.agenda.consultar(db => listarBancosAgenda(db));
   }
 
   async ficha(id: number, usuario: UsuarioJwt) {
@@ -171,7 +171,7 @@ export class AgendaMedicosCrmService {
   }
 
   private async leerFicha(id: number): Promise<FichaMedicoAgenda> {
-    const ficha = await this.agenda.enTransaccion(db => fichaMedicoAgenda(db, id));
+    const ficha = await this.agenda.consultar(db => fichaMedicoAgenda(db, id));
     if (!ficha) throw errorDe('NO_ENCONTRADO');
     return ficha;
   }
@@ -184,7 +184,7 @@ export class AgendaMedicosCrmService {
   private async sincronizarWeb(id: number, usuario: UsuarioJwt) {
     const ficha = await this.leerFicha(id);
     try {
-      await this.directorio.sincronizarConAgenda(id, { precioConsulta: precioWeb(ficha.medico.precio), bloques: bloquesDeFicha(ficha) });
+      await this.directorio.sincronizarConAgenda(id, { precioConsulta: precioWeb(ficha.medico.precio), orden: ficha.medico.orden, bloques: bloquesDeFicha(ficha) });
     } catch (error) {
       this.logger.warn(`Ficha web del médico ${id} sin sincronizar: ${error instanceof Error ? error.message : 'error'}`);
     }
@@ -271,6 +271,7 @@ export class AgendaMedicosCrmService {
       codigoFilemaker: f.medico.codigo,
       especialidad: f.medico.especialidad,
       precioConsulta: precioWeb(f.medico.precio),
+      orden: f.medico.orden,
       bloques: bloquesDeFicha(f),
     }, usuario.sub);
     return this.ficha(id, usuario);
