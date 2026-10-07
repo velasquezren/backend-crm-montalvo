@@ -54,6 +54,17 @@ export function puedeEntregarResultados(rol: Rol): boolean {
   return tieneAlcanceGlobal(rol) || ROLES_ENTREGA_RESULTADOS.includes(rol);
 }
 
+/**
+ * ¿Este rol ve TODAS las reservas de la agenda de la clínica (pantalla
+ * Reservas)? Quien gestiona las citas: recepción, asistente y administración.
+ * Una agente de ventas ve las de una paciente solo desde su chat, si puede ver
+ * ese chat. Es una CAPACIDAD, no un rango: recepción está por debajo de una
+ * agente y aun así es quien confirma las citas. Espejo: `core/auth/roles.ts`.
+ */
+export function puedeVerAgendaClinica(rol: Rol): boolean {
+  return tieneAlcanceGlobal(rol) || esRolOperativo(rol);
+}
+
 /** ¿`rol` alcanza el nivel de `rolMinimo`? */
 export function cubreRol(rol: Rol, rolMinimo: Rol): boolean {
   return RANGO_ROL[rol] >= RANGO_ROL[rolMinimo];

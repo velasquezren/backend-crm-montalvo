@@ -11,7 +11,7 @@ import { createPool, Pool } from 'mysql2/promise';
  */
 export function crearPoolAgenda(
   config: ConfigService,
-  cuenta: { usuarioEsperado: string; variableUsuario: string; variablePassword: string; conexiones: number },
+  cuenta: { readonly usuarioEsperado: string; readonly variableUsuario: string; readonly variablePassword: string; readonly conexiones: number },
 ): Pool {
   const host = config.get<string>('AGENDA_MYSQL_HOST') ?? '';
   const identidad = config.get<string>('AGENDA_MYSQL_TLS_IDENTIDAD') ?? '';
