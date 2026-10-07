@@ -1,6 +1,6 @@
 # Estado actual
 
-## Directorio médico, fase B: ficha web unida a la agenda — 7 de octubre de 2026 · EN GITHUB, SIN DESPLEGAR
+## Directorio médico, fase B: ficha web unida a la agenda — 7 de octubre de 2026 · DESPLEGADO
 
 Cada médico de la agenda tiene en su ficha del CRM tres pestañas: **Datos**,
 **Horario** y **Web**. La ficha web es un `PerfilMedico` enlazado por la columna
@@ -20,7 +20,7 @@ nueva `agendaMedicoId` (migración `20261007220000`, solo añade).
   lunes–viernes», horas por semana, punto de «sin guardar» por pestaña y pie de
   acciones fijo. La pestaña «Fichas web» desapareció: las especialidades de la
   web viven en «Especialidades».
-- **Para desplegar:** backend (incluye la migración) y después el frontend.
+- **Desplegado (7/10):** backend 1de60c8 (migración aplicada, respaldo previo `/root/backup-crm-20261007-173408.sql.gz`) y frontend c1adbef (CI en verde).
 
 ## Directorio médico sobre la agenda (fase A) — 7 de octubre de 2026 · DESPLEGADO
 
