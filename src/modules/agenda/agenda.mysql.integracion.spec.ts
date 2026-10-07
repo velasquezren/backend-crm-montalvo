@@ -404,9 +404,9 @@ ejecutar('Agenda HTTP → adaptador TLS → MySQL real descartable', () => {
       expect((await medicos.listar({ buscar: 'solicitud' }, usuarios.recepcion)).datos.map(m => m.id)).toEqual([3]);
       const esp = await medicos.especialidades({});
       expect(esp.datos).toEqual([
-        { nombre: 'Especialidad sintética', medicos: 2, activos: 2 },
-        { nombre: 'Oculta', medicos: 1, activos: 0 },
-        { nombre: 'Otra especialidad', medicos: 1, activos: 1 },
+        { nombre: 'Especialidad sintética', medicos: 2, activos: 2, pagina: null },
+        { nombre: 'Oculta', medicos: 1, activos: 0, pagina: null },
+        { nombre: 'Otra especialidad', medicos: 1, activos: 1, pagina: null },
       ]);
       expect(await medicos.bancos()).toEqual([
         { id: 7, nombre: 'Banco sintético', vence: fecha(30) }, { id: 8, nombre: 'Banco vencido', vence: fecha(-1) },
@@ -487,6 +487,24 @@ ejecutar('Agenda HTTP → adaptador TLS → MySQL real descartable', () => {
       expect(await filasDe('SELECT 1 FROM horarios WHERE medico_pk = 5 AND cod_med = ?', ['NUEVO-1'])).toHaveLength(1);
     });
 
+    it('la página web de cada especialidad se crea desde la agenda y la acompaña al renombrarla', async () => {
+      await prisma.especialidad.deleteMany({ where: { nombre: { in: ['Oculta', 'Oculta renombrada', 'Especialidad sintética', 'Otra especialidad'] } } });
+      // Solo las que existen en la agenda; escrita distinto («oculta») es la misma.
+      expect(await medicos.crearPaginas(['oculta', 'Inventada'], usuarios.recepcion)).toEqual({ creadas: 1 });
+      expect(await medicos.crearPaginas(['Oculta'], usuarios.recepcion)).toEqual({ creadas: 0 });
+      await expect(medicos.crearPaginas(['Inventada'], usuarios.recepcion)).rejects.toMatchObject({ status: 404 });
+      await expect(medicos.crearPaginas(['Oculta'], usuarios.asistente)).rejects.toMatchObject({ status: 403 });
+      let pagina = (await medicos.especialidades({})).datos.find(e => e.nombre === 'Oculta')!.pagina!;
+      expect(pagina).toMatchObject({ nombre: 'Oculta', slug: 'oculta', activa: true, publicados: 0 }); // con el nombre de la agenda
+      await medicos.actualizarPagina(pagina.id, { descripcion: 'Descripción sintética' }, usuarios.recepcion);
+      // Renombrar en la agenda renombra la página; su dirección no cambia.
+      await medicos.renombrarEspecialidad({ actual: 'Oculta', nueva: 'Oculta renombrada' }, usuarios.recepcion);
+      pagina = (await medicos.especialidades({})).datos.find(e => e.nombre === 'Oculta renombrada')!.pagina!;
+      expect(pagina).toMatchObject({ nombre: 'Oculta renombrada', slug: 'oculta', descripcion: 'Descripción sintética' });
+      await medicos.renombrarEspecialidad({ actual: 'Oculta renombrada', nueva: 'Oculta' }, usuarios.recepcion);
+      await prisma.especialidad.deleteMany({ where: { id: pagina.id } });
+    });
+
     it('renombrar una especialidad la unifica en todos sus médicos', async () => {
       expect(await medicos.renombrarEspecialidad({ actual: 'Otra especialidad', nueva: 'Especialidad sintética' }, usuarios.recepcion)).toEqual({ medicos: 1 });
       expect((await medicos.especialidades({})).datos.map(e => e.nombre)).toEqual(['Especialidad sintética', 'Oculta']);
@@ -499,11 +517,17 @@ ejecutar('Agenda HTTP → adaptador TLS → MySQL real descartable', () => {
         where: { nombre: 'Especialidad web sintética' }, update: {}, create: { nombre: 'Especialidad web sintética', slug: 'especialidad-web-sintetica' },
       });
       let ficha = await medicos.crearPresentacion(1, usuarios.recepcion);
-      expect(ficha.presentacion).toMatchObject({ agendaMedicoId: 1, nombrePublico: 'Dra. Profesional sintético A', publicado: false, precioConsulta: 400.25 });
+      expect(ficha.presentacion).toMatchObject({ agendaMedicoId: 1, nombrePublico: 'Dra. Profesional sintético A', publicado: false, precioConsulta: 400.25, especialidades: [] });
       expect(ficha.presentacion!.horario.length).toBeGreaterThan(0);
       await expect(medicos.crearPresentacion(1, usuarios.recepcion)).rejects.toMatchObject({ status: 409 });
       // Sin especialidad web no se publica; con ella, sí. La foto pública de la reserva sale del directorio solo si hay foto.
       await expect(medicos.publicarPresentacion(1, true, usuarios.recepcion)).rejects.toMatchObject({ status: 400 });
+      // Con la página de su especialidad de la agenda ya creada, la ficha nace en ella.
+      await medicos.crearPaginas(['Especialidad sintética'], usuarios.recepcion);
+      const conPagina = await medicos.crearPresentacion(2, usuarios.recepcion);
+      expect(conPagina.presentacion!.especialidades.map(e => e.nombre)).toEqual(['Especialidad sintética']);
+      await prisma.perfilMedico.deleteMany({ where: { agendaMedicoId: 2 } });
+      await prisma.especialidad.deleteMany({ where: { nombre: 'Especialidad sintética' } });
       ficha = await medicos.actualizarPresentacion(1, { version: ficha.presentacion!.version, resumen: 'Control prenatal', especialidadIds: [especialidad.id] }, usuarios.recepcion);
       ficha = await medicos.publicarPresentacion(1, true, usuarios.recepcion);
       expect(ficha.presentacion).toMatchObject({ publicado: true, resumen: 'Control prenatal' });

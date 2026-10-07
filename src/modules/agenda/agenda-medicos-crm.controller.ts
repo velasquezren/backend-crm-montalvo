@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Header, Param, ParseIntPipe, Patch, Post, Put, Query, UploadedFile, UseInterceptors } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Header, Param, ParseIntPipe, ParseUUIDPipe, Patch, Post, Put, Query, UploadedFile, UseInterceptors } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ArchivoSubido } from '../../common/archivos/archivo-subido';
 import { CurrentUser, UsuarioJwt } from '../../common/decorators/current-user.decorator';
@@ -8,7 +8,9 @@ import { BYTES_MAXIMOS_IMAGEN } from '../../common/storage/imagen-publica';
 import { AgendaMedicosCrmService } from './agenda-medicos-crm.service';
 import {
   ActualizarMedicoAgendaDto,
+  ActualizarPaginaEspecialidadDto,
   ActualizarPresentacionAgendaDto,
+  CrearPaginasEspecialidadDto,
   CrearMedicoAgendaDto,
   GuardarHorarioAgendaDto,
   PublicarPresentacionAgendaDto,
@@ -42,6 +44,16 @@ export class AgendaMedicosCrmController {
   @Header('Cache-Control', 'private, no-store')
   especialidades(@Query() query: PaginationDto) {
     return this.medicos.especialidades(query);
+  }
+
+  @Post('especialidades/paginas')
+  crearPaginas(@Body() dto: CrearPaginasEspecialidadDto, @CurrentUser() usuario: UsuarioJwt) {
+    return this.medicos.crearPaginas(dto.nombres, usuario);
+  }
+
+  @Patch('especialidades/paginas/:id')
+  actualizarPagina(@Param('id', ParseUUIDPipe) id: string, @Body() dto: ActualizarPaginaEspecialidadDto, @CurrentUser() usuario: UsuarioJwt) {
+    return this.medicos.actualizarPagina(id, dto, usuario);
   }
 
   @Post('especialidades/renombrar')

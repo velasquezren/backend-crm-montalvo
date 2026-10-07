@@ -53,10 +53,34 @@ const INCLUIR_FICHA = {
 
 type FichaConRelaciones = Prisma.PerfilMedicoGetPayload<{ include: typeof INCLUIR_FICHA }>;
 
+/**
+ * La clave con que se reconoce la página web de una especialidad de la agenda:
+ * sin mayúsculas, tildes ni espacios de más. Es la misma regla que aplica la
+ * colación de la agenda (utf8mb4_0900_ai_ci), así que «Pediatría» y
+ * «pediatria» son la misma especialidad allí y aquí.
+ */
+export function claveDeEspecialidad(nombre: string): string {
+  return nombre.normalize('NFD').replace(/\p{Diacritic}/gu, '').replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
+/** La página web de una especialidad, como la ve la pestaña Especialidades. */
+export interface PaginaDeEspecialidad {
+  id: string;
+  nombre: string;
+  slug: string;
+  descripcion: string;
+  activa: boolean;
+  orden: number;
+  /** Médicos con ficha web PUBLICADA en esta página. */
+  publicados: number;
+}
+
 /** Lo que la agenda le pasa al directorio de uno de sus médicos. */
 export interface DatosFichaDeAgenda {
   agendaMedicoId: number;
   nombrePublico: string;
+  /** La especialidad escrita en la agenda: si tiene página web, la ficha nace en ella. */
+  especialidad: string | null;
   codigoFilemaker: string | null;
   /** En Bs; null si la agenda no tiene precio (o tiene 0). */
   precioConsulta: number | null;
@@ -439,6 +463,7 @@ export class DirectorioService {
     const medico = agenda.codigoFilemaker
       ? await this.prisma.medico.findFirst({ where: { codigo: agenda.codigoFilemaker, perfil: { is: null } }, select: { id: true } })
       : null;
+    const pagina = agenda.especialidad ? (await this.paginasDeEspecialidades([agenda.especialidad])).get(claveDeEspecialidad(agenda.especialidad)) : undefined;
     const creada = await this.conSlugLibre('PerfilMedico', aSlug(agenda.nombrePublico, 110), slug =>
       this.prisma.perfilMedico.create({
         data: {
@@ -447,6 +472,7 @@ export class DirectorioService {
           agendaMedicoId: agenda.agendaMedicoId,
           medicoId: medico?.id,
           precioConsulta: agenda.precioConsulta,
+          ...(pagina?.activa ? { especialidades: { create: [{ especialidadId: pagina.id }] } } : {}),
           horarios: { create: agenda.bloques.map(({ diaSemana, inicioMinuto, finMinuto }) => ({ diaSemana, inicioMinuto, finMinuto })) },
         },
         select: { id: true },
@@ -493,6 +519,51 @@ export class DirectorioService {
       }] as const),
     );
     return new Map(pares);
+  }
+
+  /**
+   * La página web de cada especialidad de la agenda, por su clave
+   * (`claveDeEspecialidad`). Son decenas: se leen todas y se cruzan en memoria.
+   */
+  async paginasDeEspecialidades(nombres: readonly string[]): Promise<Map<string, PaginaDeEspecialidad>> {
+    if (nombres.length === 0) return new Map();
+    const buscadas = new Set(nombres.map(claveDeEspecialidad));
+    const filas = await this.prisma.especialidad.findMany({
+      select: {
+        id: true, nombre: true, slug: true, descripcion: true, activa: true, orden: true,
+        _count: { select: { medicos: { where: { perfilMedico: { publicado: true } } } } },
+      },
+    });
+    return new Map(
+      filas
+        .filter(e => buscadas.has(claveDeEspecialidad(e.nombre)))
+        .map(({ _count, ...e }) => [claveDeEspecialidad(e.nombre), { ...e, publicados: _count.medicos }] as const),
+    );
+  }
+
+  /** Crea la página web de las especialidades que no tienen. Devuelve cuántas creó. */
+  async crearPaginasDeEspecialidades(nombres: readonly string[], usuarioId: string): Promise<number> {
+    const existentes = await this.paginasDeEspecialidades(nombres);
+    const faltan = new Map<string, string>();
+    for (const n of nombres) {
+      const clave = claveDeEspecialidad(n);
+      if (clave && !existentes.has(clave) && !faltan.has(clave)) faltan.set(clave, n.trim().slice(0, 80));
+    }
+    for (const nombre of faltan.values()) await this.crearEspecialidad({ nombre }, usuarioId);
+    return faltan.size;
+  }
+
+  /**
+   * Al renombrar una especialidad en la agenda, su página web la acompaña: si
+   * la vieja tiene página y la nueva no, se renombra (la dirección `slug` no
+   * cambia). Si las dos tienen, se dejan como están: unificarlas es decisión
+   * de quien edita.
+   */
+  async renombrarPaginaDeEspecialidad(actual: string, nueva: string, usuarioId: string): Promise<void> {
+    const paginas = await this.paginasDeEspecialidades([actual, nueva]);
+    const vieja = paginas.get(claveDeEspecialidad(actual));
+    if (!vieja || paginas.has(claveDeEspecialidad(nueva)) || claveDeEspecialidad(actual) === claveDeEspecialidad(nueva)) return;
+    await this.actualizarEspecialidad(vieja.id, { nombre: nueva.trim().slice(0, 80) }, usuarioId);
   }
 
   /**

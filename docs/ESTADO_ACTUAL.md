@@ -20,6 +20,11 @@ nueva `agendaMedicoId` (migración `20261007220000`, solo añade).
   lunes–viernes», horas por semana, punto de «sin guardar» por pestaña y pie de
   acciones fijo. La pestaña «Fichas web» desapareció: las especialidades de la
   web viven en «Especialidades».
+- **Especialidades unificadas (7/10, después):** una sola lista, la de la
+  agenda, cada una con su página web (`Especialidad`, reconocida por nombre sin
+  mayúsculas ni tildes: `claveDeEspecialidad`). Se crean desde la agenda (una o
+  «las que faltan»), renombrar en la agenda renombra la página (el slug no
+  cambia) y una ficha web nueva nace en la página de su especialidad.
 - **Desplegado (7/10):** backend 1de60c8 (migración aplicada, respaldo previo `/root/backup-crm-20261007-173408.sql.gz`) y frontend c1adbef (CI en verde).
 
 ## Directorio médico sobre la agenda (fase A) — 7 de octubre de 2026 · DESPLEGADO

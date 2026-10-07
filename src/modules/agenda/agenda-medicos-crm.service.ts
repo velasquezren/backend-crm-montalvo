@@ -5,7 +5,8 @@ import { UsuarioJwt } from '../../common/decorators/current-user.decorator';
 import { calcularPaginacion, paginar, PaginationDto } from '../../common/dto/pagination.dto';
 import { Prisma } from '../../prisma/prisma-client';
 import { PrismaService } from '../../prisma/prisma.service';
-import { DirectorioService } from '../directorio/directorio.service';
+import { ActualizarEspecialidadDto } from '../directorio/dto/especialidad.dto';
+import { claveDeEspecialidad, DirectorioService } from '../directorio/directorio.service';
 import { AgendaAdminClient } from './agenda-admin.client';
 import {
   actualizarMedicoAgenda,
@@ -132,10 +133,32 @@ export class AgendaMedicosCrmService {
     return { ...paginar(datos, r.total, query), porEstado: r.porEstado };
   }
 
+  /** Las especialidades de la agenda, cada una con su página web (o null si no tiene). */
   async especialidades(query: PaginationDto) {
     const { skip, take } = calcularPaginacion(query);
     const r = await this.agenda.enTransaccion(db => listarEspecialidadesAgenda(db, skip, take));
-    return paginar(r.datos, r.total, query);
+    const paginas = await this.directorio.paginasDeEspecialidades(r.datos.map(e => e.nombre));
+    const datos = r.datos.map(e => ({ ...e, pagina: paginas.get(claveDeEspecialidad(e.nombre)) ?? null }));
+    return paginar(datos, r.total, query);
+  }
+
+  /**
+   * Crea la página web de las especialidades indicadas que todavía no tienen.
+   * Solo de especialidades que existen en la agenda: la web no inventa otras.
+   */
+  async crearPaginas(nombres: readonly string[], usuario: UsuarioJwt) {
+    this.exigirEditar(usuario);
+    const r = await this.agenda.enTransaccion(db => listarEspecialidadesAgenda(db, 0, 500));
+    const deLaAgenda = new Map(r.datos.map(e => [claveDeEspecialidad(e.nombre), e.nombre] as const));
+    const validas = nombres.map(n => deLaAgenda.get(claveDeEspecialidad(n))).filter((n): n is string => !!n);
+    if (validas.length === 0) throw new NotFoundException('Esas especialidades no están en la agenda.');
+    return { creadas: await this.directorio.crearPaginasDeEspecialidades(validas, usuario.sub) };
+  }
+
+  /** Descripción, orden y si se muestra. El nombre lo pone la agenda (renombrar allí). */
+  async actualizarPagina(id: string, dto: Omit<ActualizarEspecialidadDto, 'nombre'>, usuario: UsuarioJwt) {
+    this.exigirEditar(usuario);
+    return this.directorio.actualizarEspecialidad(id, { descripcion: dto.descripcion, activa: dto.activa, orden: dto.orden }, usuario.sub);
   }
 
   async bancos() {
@@ -221,6 +244,11 @@ export class AgendaMedicosCrmService {
       return cambiados;
     });
     if (medicos === 0) throw new NotFoundException('Ningún médico tiene esa especialidad.');
+    try {
+      await this.directorio.renombrarPaginaDeEspecialidad(dto.actual, dto.nueva, usuario.sub);
+    } catch (error) {
+      this.logger.warn(`Página web de «${dto.actual}» sin renombrar: ${error instanceof Error ? error.message : 'error'}`);
+    }
     return { medicos };
   }
 
@@ -241,6 +269,7 @@ export class AgendaMedicosCrmService {
       agendaMedicoId: id,
       nombrePublico: [f.medico.sigla, f.medico.nombre].filter(Boolean).join(' ').slice(0, 120),
       codigoFilemaker: f.medico.codigo,
+      especialidad: f.medico.especialidad,
       precioConsulta: precioWeb(f.medico.precio),
       bloques: bloquesDeFicha(f),
     }, usuario.sub);

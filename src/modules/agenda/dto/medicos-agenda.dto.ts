@@ -140,3 +140,20 @@ export class PublicarPresentacionAgendaDto {
   @IsBoolean()
   publicado!: boolean;
 }
+
+export class CrearPaginasEspecialidadDto {
+  @IsArray() @ArrayMaxSize(100) @IsString({ each: true }) @MaxLength(200, { each: true })
+  nombres!: string[];
+}
+
+/** La página web de una especialidad: el nombre no va, lo pone la agenda. */
+export class ActualizarPaginaEspecialidadDto {
+  @IsOptional() @Transform(recortar) @IsString() @MaxLength(600)
+  descripcion?: string;
+
+  @IsOptional() @IsBoolean()
+  activa?: boolean;
+
+  @IsOptional() @Type(() => Number) @IsInt() @Min(0) @Max(9999)
+  orden?: number;
+}
