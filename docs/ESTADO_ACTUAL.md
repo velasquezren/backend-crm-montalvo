@@ -1,6 +1,6 @@
 # Estado actual
 
-## Agenda ↔ FileMaker entendida; horas libres corregidas — 7 de octubre de 2026 · EN GITHUB, FALTA PERMISO Y DESPLIEGUE
+## Agenda ↔ FileMaker entendida; horas libres corregidas — 7 de octubre de 2026 · DESPLEGADO
 
 **Cómo circula una reserva** (binlog de la agenda, 4/6–7/10/2026, solo conteos):
 la reserva entra en `para_agendar` PENDIENTE (web o ScriptCase, 26) → recepción
@@ -12,7 +12,9 @@ nueva `CREADO` (898 de 946; 601 a otra hora).
 
 - **Horas libres (fallo de fondo).** `vista_horas_libres` de ScriptCase cuenta
   como ocupada cualquier fila de `agenda_med`, también las anuladas y las
-  movidas: ~1.000 horas bloqueadas para siempre. El CRM calcula ahora con
+  movidas, y nunca las libera. Medido en producción tras desplegar: en los
+  próximos 30 días recupera 2 horas (3.602 → 3.604): casi todas las anulaciones
+  históricas son de fechas pasadas. Crece con cada anulación futura. El CRM calcula ahora con
   `horasLibres` (`agenda-ocupacion.sql.ts`): ocupan solo `CREADO` y las reservas
   web PENDIENTE/PAGADO, igual que la agenda que ve el médico. La vista no se toca.
 - **MySQL 8.0.44 re-ejecuta mal esa sentencia preparada** (la segunda vez en la
@@ -24,9 +26,9 @@ nueva `CREADO` (898 de 946; 601 a otra hora).
   `agendaMedicoId` en la ficha pública; en la landing, «Reservar en línea» de la
   ficha del médico abre la reserva web con él ya elegido (`/reservar?profesional=`).
 - **IA**: [herramientas y límites](ia-herramientas.md), sobre services que ya existen.
-- **Para desplegar**: René ejecuta `scripts/agenda/permisos-ocupacion.sh` (lectura
-  de `agenda_med`: código, fecha, hora y estado; nada de pacientes) ANTES del
-  backend; después el frontend y la landing.
+- **Desplegado (7/10)**: permisos (`permisos-ocupacion.sh`), backend 99a2d83,
+  frontend 69e9e89, landing 277fc71. Verificado: 23 de 24 médicos en línea con
+  días libres (el 24.º no tiene casillas), 44 ms de media por consulta.
 
 ## Revisión de Reservas → Directorio — 7 de octubre de 2026 · DESPLEGADO (backend 34a2b30, frontend 818c779, landing f531fc6)
 
