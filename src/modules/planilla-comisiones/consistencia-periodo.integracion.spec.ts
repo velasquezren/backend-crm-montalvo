@@ -58,8 +58,16 @@ async function cerrar() {
   for (const usuario of administradores) await ciclo.aprobar(periodoId, usuario);
 }
 
+// El cálculo incluye todas las vendedoras activas, aunque no tengan ventas.
+// Otras suites comparten crm_test: aislar este equipo de una persona sin borrar
+// sus fixtures ni depender del orden de Jest. Se restaura al terminar.
+let equipoPrevio: string[] = [];
 beforeAll(async () => {
   await prisma.$connect();
+  equipoPrevio = (await prisma.vendedoraComision.findMany({
+    where: { activa: true, codigo: { not: 'F03-V' } }, select: { id: true },
+  })).map(v => v.id);
+  await prisma.vendedoraComision.updateMany({ where: { id: { in: equipoPrevio } }, data: { activa: false } });
   await config.asegurarConfiguracion();
   await prisma.$executeRawUnsafe('CREATE TABLE f03_fallos_audit (accion text PRIMARY KEY)');
   await prisma.$executeRawUnsafe(`CREATE FUNCTION f03_auditoria_falla() RETURNS trigger LANGUAGE plpgsql AS $$
@@ -107,6 +115,7 @@ afterAll(async () => {
   await prisma.vendedoraComision.deleteMany({ where: { codigo: 'F03-V' } });
   await prisma.auditLog.deleteMany({ where: { usuarioId: { in: administradores ?? [] } } });
   await prisma.usuario.deleteMany({ where: { email: { endsWith: '@f03.test' } } });
+  await prisma.vendedoraComision.updateMany({ where: { id: { in: equipoPrevio } }, data: { activa: true } });
   await prisma.$disconnect();
 });
 

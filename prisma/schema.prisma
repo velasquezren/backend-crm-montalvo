@@ -392,6 +392,8 @@ enum EstadoReservaChat {
   PAGO_REGISTRADO
   /// No se pudo llevar a la agenda: lo resuelve una persona desde el chat.
   REVISION
+  /// Recepción ya gestionó la reserva en la agenda. No certifica un pago.
+  GESTIONADA
 }
 
 /// Pago comercial: un único pago abierto por conversación, bajo candado.
@@ -479,6 +481,7 @@ model SilencioLinea {
 }
 
 model Conversacion {
+  actividadesReserva Actividad[]
   primerContacto PrimerContactoWhatsapp?
   id                 String    @id @default(uuid())
   cliente            Cliente   @relation(fields: [clienteId], references: [id], onDelete: Cascade)
@@ -1503,16 +1506,28 @@ model Actividad {
   /// no reflejaba la realidad.
   duracionMinutos Int             @default(30)
   estado          EstadoActividad @default(PENDIENTE)
-  cliente         Cliente         @relation(fields: [clienteId], references: [id], onDelete: Cascade)
-  clienteId       String
+  cliente         Cliente?        @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  clienteId       String?
   /// Lead puntual del pipeline al que se ata esta actividad, si aplica —
   /// opcional porque también se agenda seguimiento sobre un cliente ya
   /// convertido, fuera del pipeline. `SetNull` (no Cascade): perder el lead no
   /// debe borrar el recordatorio, solo desvincularlo.
   lead            Lead?           @relation(fields: [leadId], references: [id], onDelete: SetNull)
   leadId          String?
-  agente          Usuario         @relation(fields: [agenteId], references: [id])
-  agenteId        String
+  agente          Usuario?        @relation(fields: [agenteId], references: [id])
+  agenteId        String?
+  /// Tarea compartida, única por reserva externa. La agenda conserva la autoridad.
+  reservaAgenda   Int?            @unique
+  reservaEstado   String?         @db.VarChar(32)
+  reservaFecha    DateTime?
+  reservaMedico   String?         @db.VarChar(160)
+  reservaPaciente String?         @db.VarChar(120)
+  reservaRevisadaEn DateTime?
+  conversacionId  String?
+  conversacion    Conversacion?   @relation(fields: [conversacionId], references: [id], onDelete: SetNull)
+  /// La relación puede borrarse; no convertir entonces una reserva de chat en una pública.
+  reservaDeChat   Boolean         @default(false)
+  avisoEnProcesoHasta DateTime?
   completadaEn    DateTime?
   /// Cuándo se mandó el push de recordatorio (barrido periódico en
   /// `ActividadesService`, cada 5 min). Evita notificar dos veces la misma
@@ -1535,6 +1550,8 @@ model Actividad {
   updatedAt       DateTime        @updatedAt
 
   @@index([agenteId, fechaProgramada])
+  @@index([reservaRevisadaEn, id])
+  @@index([conversacionId])
   @@index([agenteId, estado])
   @@index([clienteId])
   @@index([leadId])

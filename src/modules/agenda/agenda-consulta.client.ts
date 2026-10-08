@@ -4,8 +4,9 @@ import { CuentaLectura, LectorAgenda } from './agenda-lector';
 
 /**
  * La lectura INTERNA del CRM: las reservas con los datos de la paciente y su
- * comprobante. Usuario `crm_agenda_consulta`, solo SELECT; solo la usan rutas
- * con sesión. Apagada salvo `AGENDA_VPS_CONSULTA=on`.
+ * comprobante. Usuario `crm_agenda_consulta`, solo SELECT; la usan rutas
+ * con sesión y el seguimiento interno de reservas. Apagada salvo
+ * `AGENDA_VPS_CONSULTA=on`.
  */
 @Injectable()
 export class AgendaConsultaClient extends LectorAgenda {

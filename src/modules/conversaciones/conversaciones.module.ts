@@ -51,6 +51,6 @@ import { WhatsappWebhookController } from './webhooks/whatsapp-webhook.controlle
     WhatsappCloudService,
     AlertasWhatsappService,
   ],
-  exports: [ConversacionesService, EnvioPlantillasService, ConversacionesGateway],
+  exports: [ConversacionesService, EnvioPlantillasService, ConversacionesGateway, ComprobantesReservaChatService],
 })
 export class ConversacionesModule {}

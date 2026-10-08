@@ -106,13 +106,15 @@ export class PushService implements OnModuleInit {
    * No añade autorización: quién merece el aviso lo sigue decidiendo quien
    * llama. Esto solo descarta a quien ya no puede entrar.
    */
-  async enviarAUsuario(usuarioId: string, payload: PushNotificationPayload): Promise<void> {
+  async enviarAUsuario(usuarioId: string, payload: PushNotificationPayload,
+    opciones: { reintentar?: boolean } = {}): Promise<void> {
     if (!this.habilitado) return;
     await this.despachar(
       await this.prisma.pushSubscription.findMany({
         where: { usuarioId, usuario: { activo: true } },
       }),
       payload,
+      opciones.reintentar,
     );
   }
 
@@ -145,18 +147,20 @@ export class PushService implements OnModuleInit {
    * siempre. Cualquier otro error se registra y no se toca nada: puede ser un
    * corte transitorio y borrar por eso dejaría a la agente sin notificaciones.
    *
-   * Nada de aquí lanza: esto corre en segundo plano detrás de un webhook que ya
-   * respondió, y un fallo notificando no puede perder el mensaje de la paciente.
+   * Por defecto no lanza: un fallo notificando no puede perder un mensaje.
+   * Un trabajador con reclamación durable puede pedir el error para reintentar.
    */
   private async despachar(
     subs: PushSubscription[],
     payload: PushNotificationPayload,
+    reintentar = false,
   ): Promise<void> {
     if (subs.length === 0) return;
     /* La forma la decide `cuerpoPush`, y no es cosmética: el Service Worker de
        Angular descarta en silencio un payload sin `notification.title`. */
     const cuerpo = cuerpoPush(payload);
     const opciones = opcionesEntrega(payload);
+    let fallos = 0;
 
     await Promise.all(
       subs.map(async sub => {
@@ -174,11 +178,11 @@ export class PushService implements OnModuleInit {
               .catch(() => undefined);
             return;
           }
-          this.logger.warn(
-            `No se pudo notificar a ${sub.endpoint}: ${error.message ?? String(err)}`,
-          );
+          fallos++;
+          this.logger.warn('No se pudo entregar una notificación push');
         }
       }),
     );
+    if (reintentar && fallos) throw new Error('Entrega push pendiente de reintento');
   }
 }

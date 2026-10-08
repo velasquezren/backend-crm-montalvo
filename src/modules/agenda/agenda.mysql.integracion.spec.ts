@@ -21,6 +21,8 @@ import { AgendaModule } from './agenda.module';
 import { AgendaReservasService } from './agenda-reservas.service';
 import { abrirCierreReserva } from '../../common/whatsapp/flows/token-flow';
 import { AgendaVpsClient } from './agenda-vps.client';
+import { AgendaConsultaClient } from './agenda-consulta.client';
+import { reservasParaSeguimiento, reservasPorIds } from './agenda-consulta.sql';
 
 // Suite separada: scripts/probar-agenda-mysql.sh crea y destruye SU MySQL.
 const ejecutar = process.env.AGENDA_MYSQL_TEST === 'on' ? describe : describe.skip;
@@ -83,6 +85,20 @@ ejecutar('Agenda HTTP → adaptador TLS → MySQL real descartable', () => {
   });
   afterAll(async () => { await app?.close(); qr?.close(); await prisma.$disconnect(); });
   const get = (ruta: string) => fetch(`${base}/publico/agenda/${ruta}`);
+
+  it('el seguimiento pagina por clave y vuelve a consultar estados por ids con la cuenta de solo lectura', async () => {
+    const lector = app.get(AgendaConsultaClient);
+    const primera = await lector.ejecutar(db => reservasParaSeguimiento(db, fecha(0), 0, 1));
+    expect(primera).toHaveLength(1);
+    const siguiente = await lector.ejecutar(db => reservasParaSeguimiento(db, fecha(0), primera[0]!.id, 1));
+    expect(siguiente).toHaveLength(1);
+    expect(siguiente[0]!.id).toBeGreaterThan(primera[0]!.id);
+    const ids = [primera[0]!.id, siguiente[0]!.id];
+    const releidas = await lector.ejecutar(db => reservasPorIds(db, ids));
+    expect(releidas.map(r => r.id)).toEqual(ids);
+    expect(releidas[0]!.estado).toBe(primera[0]!.estado);
+    expect(await lector.ejecutar(db => reservasPorIds(db, [9999999]))).toEqual([]);
+  });
 
   it('catálogo real paginado y proyección sin campos privados', async () => {
     const r = await get('especialidades');

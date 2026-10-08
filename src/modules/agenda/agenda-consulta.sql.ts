@@ -149,3 +149,21 @@ export async function comprobanteDeReserva(db: Lector, id: number): Promise<Buff
   const [fila] = await filas(db, 'SELECT comprobante FROM para_agendar WHERE para_age = ?', [id]);
   return Buffer.isBuffer(fila?.comprobante) && fila.comprobante.byteLength > 0 ? fila.comprobante : null;
 }
+
+/** Descubrimiento con cursor: cada pasada tiene trabajo acotado y ningún
+ * OFFSET creciente. Al acabar se reinicia para detectar cambios externos. */
+export async function reservasParaSeguimiento(db: Lector, desde: string, despues: number, limite: number): Promise<FilaReservaAgenda[]> {
+  return (await filas(db, `SELECT ${COLUMNAS} FROM para_agendar p
+    LEFT JOIN medicos m ON m.medico_pk = p.medico_pk
+    WHERE p.para_age > ? AND p.fecha >= ? ORDER BY p.para_age LIMIT ?`,
+    [despues, desde, String(limite)])).map(aReserva);
+}
+
+/** Reconciliar las ya conocidas aunque cambien a una fecha pasada o se borren. */
+export async function reservasPorIds(db: Lector, ids: readonly number[]): Promise<FilaReservaAgenda[]> {
+  if (!ids.length) return [];
+  if (ids.length > 100) throw new Error('Lote de reservas demasiado grande');
+  return (await filas(db, `SELECT ${COLUMNAS} FROM para_agendar p
+    LEFT JOIN medicos m ON m.medico_pk = p.medico_pk
+    WHERE p.para_age IN (${ids.map(() => '?').join(',')}) ORDER BY p.para_age`, [...ids])).map(aReserva);
+}

@@ -3,6 +3,7 @@ import { enSegundoPlano } from '../../common/fiabilidad/en-segundo-plano';
 import { BYTES_MAXIMOS_IMAGEN } from '../../common/storage/imagen-publica';
 import { R2Service } from '../../common/storage/r2.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import { Prisma } from '../../prisma/prisma-client';
 import { AgendaReservasService } from '../agenda/agenda-reservas.service';
 import { ConversacionesGateway } from './conversaciones.gateway';
 import { interaccionesEnLinea, interaccionesHabilitadas } from './interacciones-integracion';
@@ -39,6 +40,34 @@ export class ComprobantesReservaChatService implements OnModuleInit, OnModuleDes
     this.intervalo.unref();
   }
   onModuleDestroy(): void { clearInterval(this.intervalo); }
+
+  /** La agenda es autoridad sobre la gestión. Cerrar la espera evita asociar
+   * una imagen futura al QR de una reserva que recepción ya gestionó. */
+  async reconciliarAgenda(reservaAgenda: number, estado: string, tieneComprobante: boolean, tx: Prisma.TransactionClient): Promise<string[]> {
+    if (estado === 'PENDIENTE') {
+      const anterior = await tx.reservaChat.findUnique({ where: { reservaAgenda }, select: { id: true, estado: true, conversacionId: true } });
+      if (anterior?.estado === 'GESTIONADA') {
+        const { count } = await tx.reservaChat.updateMany({ where: { id: anterior.id, estado: 'GESTIONADA' }, data: {
+          estado: 'REVISION', detalle: 'La reserva volvió a pendiente en la agenda. Recepción debe revisar el seguimiento anterior.', proximoIntento: null,
+        } });
+        if (count) return [anterior.conversacionId];
+      }
+      return [];
+    }
+    const destino = estado === 'ATENDIDO' ? 'GESTIONADA'
+      : estado === 'PAGADO' && tieneComprobante ? 'PAGO_REGISTRADO'
+      : estado === 'NO_ENCONTRADA' ? 'REVISION' : null;
+    if (!destino) return [];
+    const cambiadas: string[] = [];
+    const filas = await tx.reservaChat.findMany({ where: { reservaAgenda, estado: { not: destino } },
+      select: { id: true, conversacionId: true, estado: true } });
+    for (const fila of filas) {
+      const { count } = await tx.reservaChat.updateMany({ where: { id: fila.id, estado: fila.estado },
+        data: { estado: destino, proximoIntento: null, detalle: estado === 'NO_ENCONTRADA' ? DETALLE.NO_ENCONTRADA : null } });
+      if (count) cambiadas.push(fila.conversacionId);
+    }
+    return cambiadas;
+  }
 
   async procesar(ahora = new Date()): Promise<number> {
     if (this.corriendo || !interaccionesHabilitadas()) return 0;

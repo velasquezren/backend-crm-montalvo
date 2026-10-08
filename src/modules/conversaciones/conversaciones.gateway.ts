@@ -190,6 +190,13 @@ export class ConversacionesGateway implements OnGatewayInit, OnGatewayConnection
     void this.emitirAutenticados('actividad:recordatorio', a => a.sub === agenteId, () => ({ actividadId, agenteId }))
       .catch(() => this.logger.warn('No se pudo difundir el recordatorio'));
   }
+
+  /** Refresco dirigido sin datos clínicos. La campana consulta el REST escopado. */
+  async emitirCambioActividad(actividadId: string, ven: readonly string[], avisar: readonly string[] = []): Promise<void> {
+    const visibles = new Set(ven), notificar = new Set(avisar);
+    await this.emitirAutenticados('actividad:cambio', a => visibles.has(a.sub), usuarioId =>
+      ({ actividadId, avisar: notificar.has(usuarioId) }));
+  }
 }
 
 /** Primera línea del mensaje, acotada a lo que cabe en una notificación. */

@@ -74,9 +74,15 @@ registrada y recepción coordina el cobro: no se inventa un importe ni se cancel
 la reserva. El QR se sirve desde R2 mediante el almacenamiento existente.
 
 Estados de seguimiento: `SIN_PAGO`, `ESPERANDO_COMPROBANTE`,
-`COMPROBANTE_RECIBIDO`, `PAGO_REGISTRADO`, `REVISION`. El chat proyecta únicamente
+`COMPROBANTE_RECIBIDO`, `PAGO_REGISTRADO`, `REVISION`, `GESTIONADA`. El chat proyecta únicamente
 estado y explicación controlada: no muestra claves R2, tokens ni JSON arbitrario.
 `PAGO_REGISTRADO` se presenta como comprobante registrado, pendiente de Caja.
+
+Con [seguimiento de reservas](reservas-actividades.md) activo, la agenda cierra
+la espera del QR al detectar `ATENDIDO` (`GESTIONADA` en el chat). No certifica
+cobro ni atención clínica. Si recepción vuelve a dejarla pendiente, pasa a
+revisión humana sin reactivar el QR anterior. Esta conciliación comparte la
+transacción de la actividad y descarta lecturas atrasadas.
 
 ## Privacidad y límites pendientes
 

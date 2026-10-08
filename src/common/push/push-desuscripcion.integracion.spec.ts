@@ -107,6 +107,34 @@ beforeEach(async () => {
 
 const AVISO = { titulo: 'WhatsApp: María Fernanda', mensaje: 'Hola, quería consultar por…' };
 
+describe('push de trabajadores con reintento durable', () => {
+  it('propaga el fallo temporal cuando se solicita y conserva la suscripción', async () => {
+    const a = await crearUsuaria('reintento');
+    await push.guardarSuscripcion(a.id, suscripcion(TABLET));
+    enviarNotificacion.mockRejectedValueOnce({ statusCode: 503 });
+    await expect(push.enviarAUsuario(a.id, AVISO, { reintentar: true })).rejects.toThrow('pendiente de reintento');
+    expect(await prisma.pushSubscription.count()).toBe(1);
+    await push.enviarAUsuario(a.id, AVISO, { reintentar: true });
+    expect(enviados).toEqual([TABLET]);
+  });
+
+  it('la entrega habitual conserva el comportamiento sin excepción', async () => {
+    const a = await crearUsuaria('aviso-habitual');
+    await push.guardarSuscripcion(a.id, suscripcion(TABLET));
+    enviarNotificacion.mockRejectedValueOnce({ statusCode: 503 });
+    await expect(push.enviarAUsuario(a.id, AVISO)).resolves.toBeUndefined();
+    expect(await prisma.pushSubscription.count()).toBe(1);
+  });
+
+  it('una suscripción caducada se elimina sin reintentar un destino inexistente', async () => {
+    const a = await crearUsuaria('destino-caducado');
+    await push.guardarSuscripcion(a.id, suscripcion(TABLET));
+    enviarNotificacion.mockRejectedValueOnce({ statusCode: 410 });
+    await expect(push.enviarAUsuario(a.id, AVISO, { reintentar: true })).resolves.toBeUndefined();
+    expect(await prisma.pushSubscription.count()).toBe(0);
+  });
+});
+
 describe('F09 · /push/desuscribir', () => {
   it('Caso A · borra únicamente la suscripción de quien la pide', async () => {
     const a = await crearUsuaria('agente-a');

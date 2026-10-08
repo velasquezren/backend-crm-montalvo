@@ -1,5 +1,32 @@
 # Estado actual
 
+## Reservas → Actividades → campanita — 8 de octubre de 2026 · IMPLEMENTADO LOCAL
+
+- [Comportamiento, permisos y operación](reservas-actividades.md). Una tarea
+  automática compartida por reserva, con fuente en la agenda MySQL; acceso por
+  chat/línea o rol clínico. Enlaces al detalle, reserva y conversación. Las tareas
+  manuales conservan sus reglas. No se crean citas en FileMaker.
+- `ATENDIDO` se presenta como «Gestionada» y completa el seguimiento. Nuevo estado
+  `ReservaChat.GESTIONADA` cierra el QR pendiente; no certifica pago ni atención.
+  `PAGADO` sigue requiriendo revisión del comprobante. Actualización atómica y
+  protección contra lecturas atrasadas; no se cancelan reservas por fallos de red.
+- Migración aditiva `20261008160000_reservas_actividades`; `RESERVAS_ACTIVIDADES`
+  apagado por defecto. Publicar backend primero, frontend después, activar el
+  trabajador interno al final. No se ha modificado producción ni activado menús.
+- Validación final: 917 unitarias backend; suite completa PostgreSQL con 849
+  pruebas aprobadas, incluidas las regresiones de lecturas atrasadas, QR y push.
+  Frontend: 660 pruebas. Arranque completo de Nest/DI sobre la base temporal aprobado.
+  Tipos de pruebas y builds oficiales aprobados. Las 39 pruebas MySQL requieren
+  su entorno aislado, no disponible en esta estación; no se presentan como
+  ejecutadas. Las dos consultas nuevas se comprobaron en producción solo en
+  lectura: cuatro filas, coincidencia por IDs y fechas válidas; todas gestionadas.
+- La repetición completa reprodujo contaminación entre suites de comisiones:
+  una vendedora activa ajena generaba una liquidación adicional. El fixture de
+  consistencia ahora aísla su equipo y restaura el anterior; la suite pasó sobre
+  la misma base con residuos. No cambió el cálculo financiero de producción.
+- No se enviaron mensajes ni se crearon reservas reales. La sincronización de
+  estado no cambia el intervalo de 30 minutos del menú ni la política del Flow.
+
 ## Flow de cita desde el menú: identificación de línea — 8 de octubre de 2026 · DESPLEGADO
 
 - Se reprodujo el incidente del número de prueba: el Flow llegaba y figuraba leído,

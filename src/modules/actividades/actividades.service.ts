@@ -20,6 +20,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { ClientesService } from '../clientes/clientes.service';
 import { whereAccesoConversacion } from '../conversaciones/acceso-conversacion';
 import { ConversacionesGateway } from '../conversaciones/conversaciones.gateway';
+import { whereAccesoActividad } from './acceso-actividad';
 import { CreateActividadDto, RepetirActividadDto } from './dto/create-actividad.dto';
 import { QueryActividadDto } from './dto/query-actividad.dto';
 import { UpdateActividadDto } from './dto/update-actividad.dto';
@@ -118,7 +119,7 @@ export class ActividadesService implements OnModuleInit, OnModuleDestroy {
     if (this.intervalo) clearInterval(this.intervalo);
   }
 
-  private construirWhere(query: QueryActividadDto, soloAgenteId?: string): Prisma.ActividadWhereInput {
+  private async construirWhere(query: QueryActividadDto, soloAgenteId?: string): Promise<Prisma.ActividadWhereInput> {
     const busqueda = terminoBusqueda(query.q);
 
     return {
@@ -128,7 +129,8 @@ export class ActividadesService implements OnModuleInit, OnModuleDestroy {
       leadId: query.leadId,
       // Un AGENTE siempre queda acotado a lo suyo — no existe un "pool sin
       // asignar" para tareas personales, a diferencia de Leads/Conversaciones.
-      agenteId: soloAgenteId ?? query.agenteId,
+      agenteId: soloAgenteId ? undefined : query.agenteId,
+      AND: [await whereAccesoActividad(this.prisma, soloAgenteId)],
       fechaProgramada: {
         gte: query.desde,
         lte: query.hasta,
@@ -138,6 +140,8 @@ export class ActividadesService implements OnModuleInit, OnModuleDestroy {
             OR: [
               { titulo: { contains: busqueda, mode: 'insensitive' } },
               { notas: { contains: busqueda, mode: 'insensitive' } },
+              { reservaPaciente: { contains: busqueda, mode: 'insensitive' } },
+              { reservaMedico: { contains: busqueda, mode: 'insensitive' } },
               { cliente: { nombre: { contains: busqueda, mode: 'insensitive' } } },
               { cliente: { telefono: { contains: busqueda, mode: 'insensitive' } } },
               { cliente: { pac: { contains: busqueda, mode: 'insensitive' } } },
@@ -149,7 +153,7 @@ export class ActividadesService implements OnModuleInit, OnModuleDestroy {
   }
 
   async findAll(query: QueryActividadDto, soloAgenteId?: string) {
-    const where = this.construirWhere(query, soloAgenteId);
+    const where = await this.construirWhere(query, soloAgenteId);
     const { skip, take } = calcularPaginacion(query);
 
     const [datos, total] = await this.prisma.$transaction([
@@ -172,7 +176,7 @@ export class ActividadesService implements OnModuleInit, OnModuleDestroy {
    * total real, no solo cuántas tarjetas cargó.
    */
   async resumen(query: QueryActividadDto, soloAgenteId?: string) {
-    const where = this.construirWhere(query, soloAgenteId);
+    const where = await this.construirWhere(query, soloAgenteId);
     /* Los tres cortes, en la zona de la clínica y no en la del proceso.
        `new Date(anio, mes, dia)` partía el día donde el VPS creyera que era
        medianoche —está en Estados Unidos—, así que entre las 20:00 y las 24:00
@@ -206,7 +210,7 @@ export class ActividadesService implements OnModuleInit, OnModuleDestroy {
       where: { id },
       include: INCLUYE_ACTIVIDAD,
     });
-    if (!actividad || !this.enAlcance(actividad, soloAgenteId)) {
+    if (!actividad || !await this.enAlcance(actividad, soloAgenteId)) {
       throw new NotFoundException(`Actividad ${id} no encontrada`);
     }
     return actividad;
@@ -324,14 +328,16 @@ export class ActividadesService implements OnModuleInit, OnModuleDestroy {
   async update(id: string, dto: UpdateActividadDto, soloAgenteId?: string, usuario?: UsuarioJwt) {
     const existente = await this.prisma.actividad.findUnique({
       where: { id },
-      select: { id: true, agenteId: true, clienteId: true, leadId: true },
+      select: { id: true, agenteId: true, reservaAgenda: true, clienteId: true, leadId: true },
     });
-    if (!existente || !this.enAlcance(existente, soloAgenteId)) {
+    if (!existente || !await this.enAlcance(existente, soloAgenteId)) {
       throw new NotFoundException(`Actividad ${id} no encontrada`);
     }
 
+    this.exigirManual(existente);
+
     if (dto.clienteId !== undefined || dto.leadId !== undefined) {
-      const clienteId = dto.clienteId ?? existente.clienteId;
+      const clienteId = dto.clienteId ?? existente.clienteId!;
       await this.validarPaciente(clienteId, soloAgenteId, usuario);
       if (usuario && esRolOperativo(usuario.rol) && dto.leadId) {
         throw new BadRequestException('Este rol agenda sobre el paciente, sin vincular leads comerciales.');
@@ -375,12 +381,13 @@ export class ActividadesService implements OnModuleInit, OnModuleDestroy {
   async actualizarEstado(id: string, dto: UpdateEstadoActividadDto, soloAgenteId?: string) {
     const existente = await this.prisma.actividad.findUnique({
       where: { id },
-      select: { id: true, agenteId: true },
+      select: { id: true, agenteId: true, reservaAgenda: true },
     });
-    if (!existente || !this.enAlcance(existente, soloAgenteId)) {
+    if (!existente || !await this.enAlcance(existente, soloAgenteId)) {
       throw new NotFoundException(`Actividad ${id} no encontrada`);
     }
 
+    this.exigirManual(existente);
     const { estado, notas } = dto;
 
     return this.prisma.actividad.update({
@@ -420,11 +427,12 @@ export class ActividadesService implements OnModuleInit, OnModuleDestroy {
   private async origenDeSerie(id: string, soloAgenteId?: string) {
     const origen = await this.prisma.actividad.findUnique({
       where: { id },
-      select: { id: true, agenteId: true, serieId: true, estado: true, fechaProgramada: true },
+      select: { id: true, agenteId: true, reservaAgenda: true, serieId: true, estado: true, fechaProgramada: true },
     });
-    if (!origen || !this.enAlcance(origen, soloAgenteId)) {
+    if (!origen || !await this.enAlcance(origen, soloAgenteId)) {
       throw new NotFoundException(`Actividad ${id} no encontrada`);
     }
+    this.exigirManual(origen);
     if (!origen.serieId) {
       /* Una actividad suelta no es una serie de una: ofrecer «y las siguientes»
          sobre ella no significaría nada. Para esas están los endpoints de
@@ -520,17 +528,23 @@ export class ActividadesService implements OnModuleInit, OnModuleDestroy {
   async remove(id: string, soloAgenteId?: string): Promise<{ ok: true }> {
     const existente = await this.prisma.actividad.findUnique({
       where: { id },
-      select: { id: true, agenteId: true },
+      select: { id: true, agenteId: true, reservaAgenda: true },
     });
-    if (!existente || !this.enAlcance(existente, soloAgenteId)) {
+    if (!existente || !await this.enAlcance(existente, soloAgenteId)) {
       throw new NotFoundException(`Actividad ${id} no encontrada`);
     }
+    this.exigirManual(existente);
     await this.prisma.actividad.delete({ where: { id } });
     return { ok: true };
   }
 
-  private enAlcance(actividad: { agenteId: string }, soloAgenteId?: string): boolean {
-    return !soloAgenteId || actividad.agenteId === soloAgenteId;
+  private exigirManual(actividad: { reservaAgenda: number | null }): void {
+    if (actividad.reservaAgenda !== null) throw new BadRequestException('Esta tarea se actualiza desde la agenda. Abre la reserva para gestionarla.');
+  }
+
+  private async enAlcance(actividad: { id: string; agenteId: string | null; reservaAgenda: number | null }, soloAgenteId?: string): Promise<boolean> {
+    if (actividad.reservaAgenda === null) return !soloAgenteId || actividad.agenteId === soloAgenteId;
+    return !!await this.prisma.actividad.findFirst({ where: { id: actividad.id, ...await whereAccesoActividad(this.prisma, soloAgenteId) }, select: { id: true } });
   }
 
   /**
@@ -546,6 +560,7 @@ export class ActividadesService implements OnModuleInit, OnModuleDestroy {
     const pendientes = await this.prisma.actividad.findMany({
       where: {
         estado: 'PENDIENTE',
+        reservaAgenda: null,
         notificadaEn: null,
         fechaProgramada: { lte: limite },
       },
@@ -581,9 +596,10 @@ export class ActividadesService implements OnModuleInit, OnModuleDestroy {
    * bucle de `procesarWebhook` (`crm-backend-module`).
    */
   private async notificarRecordatorio(
-    actividad: { id: string; titulo: string; agenteId: string; cliente: { nombre: string } },
+    actividad: { id: string; titulo: string; agenteId: string | null; cliente: { nombre: string } | null },
     ahora: Date,
   ): Promise<void> {
+    if (!actividad.agenteId || !actividad.cliente) return;
     try {
       // Dos canales independientes, a propósito: el push llega aunque la
       // pestaña esté cerrada; el WebSocket es instantáneo si la agente ya
