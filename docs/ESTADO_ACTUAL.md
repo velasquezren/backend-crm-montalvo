@@ -1,5 +1,29 @@
 # Estado actual
 
+## Menús de Recepción y Ventas creados — 8 de octubre de 2026 · GUARDADOS, APAGADOS
+
+René pidió crear ambos menús sin habilitarlos. Se guardaron en producción mediante
+`MenuAtencionService.guardar`, con su auditoría, el 8/10 a las 10:08 (La Paz).
+
+- **Recepción:** Reservar una cita, Hablar con una persona, Consultar horarios y
+  Cómo llegar. **Ventas:** las mismas opciones más Ver promociones.
+- Saludo propio de cada línea. «Consultar horarios» dirige a «Reservar una cita»
+  para consultar disponibilidad real por médico, con salida a una persona.
+- La opción de emergencia del menú de prueba contenía «Texto de prueba: falta el
+  aprobado por la clínica». No se copió a los menús reales; queda pendiente un
+  texto aprobado si la clínica decide añadirla.
+- Los dos menús tienen `activo=false`, `enviosHabilitados=false`, cero errores y
+  `formularioCita=RESERVA`; `activoDe` devuelve null. Se validaron también DTO y
+  formato del mensaje de lista, con y sin promociones disponibles.
+- La consulta previa a Meta confirmó ambos Flows `PUBLISHED`, cero errores de
+  validación y llaves `VALID`. No se republicaron Flows ni se cambiaron llaves.
+- La configuración del servidor, las filas de las líneas y el menú de prueba se
+  comprobaron idénticos antes y después. No hubo reinicio, mensajes ni reservas de
+  prueba. La única línea habilitada para interacciones sigue siendo la de prueba.
+- Para activarlos en el futuro todavía se necesita autorización: habilitar la
+  línea concreta en el servidor y encender su menú. Guardarlos no los activa.
+
+
 ## Comprobante de reserva por chat — 7 de octubre de 2026 · DESPLEGADO, solo número de prueba
 
 Se completó el trabajo iniciado en otra sesión. Ver [flujo, límites y operación](reservas-pago-chat.md).
