@@ -1,11 +1,11 @@
 import type { PoolConnection, RowDataPacket } from 'mysql2/promise';
 import { fechaConsultable, ID_AGENDA } from './agenda.contrato';
 import { createHash } from 'node:crypto';
-import { ESTADOS_QUE_OCUPAN } from './agenda-reserva.sql';
+import { horasLibres } from './agenda-ocupacion.sql';
 
-export type RecursoAgendaSql = 'especialidades' | 'medicos' | 'disponibilidad' | 'dias';
+export type RecursoAgendaSql = 'especialidades' | 'medicos' | 'medico' | 'disponibilidad' | 'dias';
 type Fila = Record<string, unknown>;
-type Lector = Pick<PoolConnection, 'execute'>;
+type Lector = Pick<PoolConnection, 'execute' | 'query'>;
 const DIAS = ['Domingo', 'Lunes', 'Martes', 'Miercoles', 'Jueves', 'Viernes', 'Sabado'];
 
 // Especialidad es TEXTO, no una tabla. La clave derivada sirve para navegar;
@@ -47,7 +47,46 @@ function modalidad(v: unknown): 'ONLINE' | 'A_SOLICITUD' {
   return v === 1 || v === '1' ? 'ONLINE' : 'A_SOLICITUD';
 }
 
+/** Lo que la web muestra de un médico. Sin HTML, teléfonos, login, contraseña ni códigos clínicos. */
+const COLUMNAS_TARJETA = `m.medico_pk, m.nombre, m.sigla, m.foto, (LENGTH(TRIM(COALESCE(m.horario_html, ''))) > 0) AS horario_publicado, m.precio_con`;
+
+/** Las tarjetas públicas de unos médicos (filas con `COLUMNAS_TARJETA` y `especialidad_id`), con su horario en una frase. */
+async function tarjetasDeMedicos(db: Lector, medicos: Fila[]): Promise<Fila[]> {
+  // Siete grupos por profesional, no las filas individuales del calendario.
+  const ids = medicos.map(m => entero(m.medico_pk));
+  const horarios = ids.length ? await filas(db, `SELECT medico_pk, dia,
+    DATE_FORMAT(MIN(hora), '%H:%i') AS primera, DATE_FORMAT(MAX(hora), '%H:%i') AS ultima
+    FROM horarios WHERE estado = 'ACTIVO' AND medico_pk IN (${ids.map(() => '?').join(',')})
+    GROUP BY medico_pk, dia`, ids) : [];
+  return medicos.map(m => {
+    const id = String(entero(m.medico_pk));
+    const nombre = [typeof m.sigla === 'string' ? m.sigla.trim() : '', texto(m.nombre).trim()].filter(Boolean).join(' ');
+    const semanal = horarios.filter(h => String(h.medico_pk) === id)
+      .sort((a, b) => (DIAS.indexOf(texto(a.dia)) + 6) % 7 - (DIAS.indexOf(texto(b.dia)) + 6) % 7)
+      .map(h => `${texto(h.dia)}: ${h.primera === h.ultima ? texto(h.primera) : `entre ${texto(h.primera)} y ${texto(h.ultima)}`}`).join(' · ');
+    return { id, especialidadId: texto(m.especialidad_id), nombre, modalidad: modalidad(m.horario_publicado),
+      horarioInformativo: semanal || null, precio: precioDelVps(m.precio_con), fotoVersion: versionDeFoto(m.foto) };
+  });
+}
+
+/**
+ * UN médico activo con su especialidad: lo que la web necesita para abrir la
+ * reserva con él ya elegido (el botón «Reservar» de su ficha). `medico: null`
+ * si no existe, está inactivo o no tiene especialidad.
+ */
+async function medicoPorId(db: Lector, params: URLSearchParams) {
+  const medicoId = params.get('medicoId') ?? '';
+  if (!/^\d{1,10}$/.test(medicoId)) throw new Error('Consulta inválida');
+  const [fila] = await filas(db, `${ESPECIALIDADES} SELECT ${COLUMNAS_TARJETA}, SHA2(e.nombre, 256) AS especialidad_id, e.nombre AS especialidad_nombre
+    FROM medicos m JOIN especialidades e ON TRIM(m.especialidad) = e.nombre
+    WHERE m.estado = 'ACTIVO' AND m.medico_pk = ?`, [medicoId]);
+  if (!fila) return { version: 1, medico: null, especialidad: null };
+  const [medico] = await tarjetasDeMedicos(db, [fila]);
+  return { version: 1, medico, especialidad: { id: texto(fila.especialidad_id), nombre: texto(fila.especialidad_nombre) } };
+}
+
 export async function consultarAgendaSql(db: Lector, recurso: RecursoAgendaSql, params: URLSearchParams): Promise<unknown> {
+  if (recurso === 'medico') return medicoPorId(db, params);
   if (recurso === 'disponibilidad') return disponibilidad(db, params);
   if (recurso === 'dias') return dias(db, params);
   const pagina = Number(params.get('pagina'));
@@ -68,32 +107,18 @@ export async function consultarAgendaSql(db: Lector, recurso: RecursoAgendaSql, 
       WHERE m.estado = 'ACTIVO' AND SHA2(e.nombre, 256) = ?`;
     const cuenta = await filas(db, `${ESPECIALIDADES} SELECT COUNT(*) AS total ${origen}`, [especialidadId]);
     total = entero(cuenta[0]?.total);
-    const medicos = await filas(db, `${ESPECIALIDADES} SELECT m.medico_pk, m.nombre, m.sigla, m.foto, (LENGTH(TRIM(COALESCE(m.horario_html, ''))) > 0) AS horario_publicado, m.precio_con
+    const medicos = await filas(db, `${ESPECIALIDADES} SELECT ${COLUMNAS_TARJETA}, SHA2(e.nombre, 256) AS especialidad_id
       ${origen} ORDER BY m.orden, m.nombre, m.medico_pk LIMIT ? OFFSET ?`, [especialidadId, String(limite), String(offset)]);
-    // Siete grupos por profesional. No trasladar HTML, teléfonos, login,
-    // contraseña, códigos clínicos ni filas individuales del calendario.
-    const ids = medicos.map(m => entero(m.medico_pk));
-    const horarios = ids.length ? await filas(db, `SELECT medico_pk, dia,
-      DATE_FORMAT(MIN(hora), '%H:%i') AS primera, DATE_FORMAT(MAX(hora), '%H:%i') AS ultima
-      FROM horarios WHERE estado = 'ACTIVO' AND medico_pk IN (${ids.map(() => '?').join(',')})
-      GROUP BY medico_pk, dia`, ids) : [];
-    datos = medicos.map(m => {
-      const id = String(entero(m.medico_pk));
-      const nombre = [typeof m.sigla === 'string' ? m.sigla.trim() : '', texto(m.nombre).trim()].filter(Boolean).join(' ');
-      const semanal = horarios.filter(h => String(h.medico_pk) === id)
-        .sort((a, b) => (DIAS.indexOf(texto(a.dia)) + 6) % 7 - (DIAS.indexOf(texto(b.dia)) + 6) % 7)
-        .map(h => `${texto(h.dia)}: ${h.primera === h.ultima ? texto(h.primera) : `entre ${texto(h.primera)} y ${texto(h.ultima)}`}`).join(' · ');
-      return { id, especialidadId, nombre, modalidad: modalidad(m.horario_publicado),
-        horarioInformativo: semanal || null, precio: precioDelVps(m.precio_con), fotoVersion: versionDeFoto(m.foto) };
-    });
+    datos = await tarjetasDeMedicos(db, medicos);
   }
   return { version: 1, datos, total, pagina, limite, totalPaginas: Math.max(1, Math.ceil(total / limite)) };
 }
 
-/** Una fila de `vista_horas_libres v` que se puede ofrecer: futura y sin reserva web que la ocupe. */
-const HORA_LIBRE = `(v.fecha > CURRENT_DATE() OR (v.fecha = CURRENT_DATE() AND v.hora_disponible > CURRENT_TIME()))
-      AND NOT EXISTS (SELECT 1 FROM para_agendar p WHERE p.medico_pk = v.medico_pk AND p.fecha = v.fecha
-        AND p.hora = v.hora_disponible AND p.estado IN (${ESTADOS_QUE_OCUPAN.map(() => '?').join(',')}))`;
+/** Hoy y hoy + n días, en el calendario de la clínica (la sesión MySQL va en -04:00). */
+async function rangoDesdeHoy(db: Lector, dias: number): Promise<{ desde: string; hasta: string }> {
+  const [fila] = await filas(db, `SELECT DATE_FORMAT(CURRENT_DATE(), '%Y-%m-%d') AS desde, DATE_FORMAT(CURRENT_DATE() + INTERVAL ${dias} DAY, '%Y-%m-%d') AS hasta`);
+  return { desde: texto(fila?.desde), hasta: texto(fila?.hasta) };
+}
 
 /** Los días de los próximos 30 con al menos una hora libre: la web solo ofrece esos. */
 async function dias(db: Lector, params: URLSearchParams) {
@@ -103,10 +128,8 @@ async function dias(db: Lector, params: URLSearchParams) {
   if (medicos.length !== 1) throw new Error('Profesional no disponible');
   const base = { version: 1, medicoId, zonaHoraria: 'America/La_Paz', consultadoEn: new Date().toISOString() };
   if (modalidad(medicos[0].horario_publicado) === 'A_SOLICITUD') return { ...base, fechas: [] };
-  const libres = await filas(db, `SELECT DISTINCT DATE_FORMAT(v.fecha, '%Y-%m-%d') AS fecha
-    FROM vista_horas_libres v WHERE v.medico_pk = ? AND v.estado = 'ACTIVO' AND ${HORA_LIBRE}
-    ORDER BY fecha LIMIT 31`, [medicoId, ...ESTADOS_QUE_OCUPAN]);
-  return { ...base, fechas: libres.map(f => texto(f.fecha)).filter(f => fechaConsultable(f)) };
+  const libres = await horasLibres(db, { medicoId: Number(medicoId), ...(await rangoDesdeHoy(db, 29)) });
+  return { ...base, fechas: [...new Set(libres.map(l => l.fecha))].filter(f => fechaConsultable(f)).slice(0, 31) };
 }
 
 async function disponibilidad(db: Lector, params: URLSearchParams) {
@@ -121,14 +144,10 @@ async function disponibilidad(db: Lector, params: URLSearchParams) {
   const cuenta = await filas(db, `SELECT COUNT(*) AS total FROM horarios
     WHERE medico_pk = ? AND dia = ? AND estado = 'ACTIVO'`, [medicoId, dia]);
   if (entero(cuenta[0]?.total) === 0) return { ...base, estado: 'SIN_ATENCION', horarios: [] };
-  const libres = await filas(db, `SELECT DISTINCT DATE_FORMAT(v.hora_disponible, '%H:%i') AS hora
-    FROM vista_horas_libres v WHERE v.medico_pk = ? AND v.fecha = ? AND v.estado = 'ACTIVO'
-      AND ${HORA_LIBRE}
-    ORDER BY hora LIMIT 289`, [medicoId, fecha, ...ESTADOS_QUE_OCUPAN]);
-  // La vista manda sobre la ocupación de agenda_med, incluidos estados
-  // históricos. Además se ocultan las horas con una reserva web PENDIENTE o
-  // PAGADO (la vista de ScriptCase no las descuenta) y las ya pasadas. La
-  // reserva vuelve a comprobarlo dentro de su transacción.
-  const horarios = libres.map(h => ({ id: `${medicoId}_${fecha}_${texto(h.hora).replace(':', '')}`, hora: texto(h.hora) }));
+  // Solo ocupa lo vigente (ver agenda-ocupacion.sql.ts): una cita CREADO de
+  // agenda_med o una reserva web PENDIENTE/PAGADO. Las horas pasadas no salen.
+  // La reserva vuelve a comprobarlo dentro de su transacción.
+  const libres = await horasLibres(db, { medicoId: Number(medicoId), desde: fecha, hasta: fecha });
+  const horarios = libres.slice(0, 289).map(h => ({ id: `${medicoId}_${fecha}_${h.hora.replace(':', '')}`, hora: h.hora }));
   return { ...base, estado: horarios.length ? 'DISPONIBLE' : 'SIN_CUPOS', horarios };
 }

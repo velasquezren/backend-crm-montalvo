@@ -1,4 +1,7 @@
 import type { PoolConnection, ResultSetHeader, RowDataPacket } from 'mysql2/promise';
+import { ESTADOS_QUE_OCUPAN, horasLibres } from './agenda-ocupacion.sql';
+
+export { ESTADOS_QUE_OCUPAN };
 
 /**
  * Escritura en la agenda ScriptCase, IGUAL que su formulario público «Reserva»
@@ -14,16 +17,14 @@ import type { PoolConnection, ResultSetHeader, RowDataPacket } from 'mysql2/prom
  *
  * Así FileMaker y caja reciben la reserva web exactamente como las de
  * ScriptCase. Dos mejoras que ScriptCase no tiene, y que no cambian el formato:
- * la hora se vuelve a comprobar libre DENTRO de la transacción (también contra
- * reservas PENDIENTE/PAGADO, que la vista de ScriptCase no descuenta), y los
+ * la hora se vuelve a comprobar libre DENTRO de la transacción (con
+ * `horasLibres`: también contra reservas PENDIENTE/PAGADO, que la vista de
+ * ScriptCase no descuenta), y los
  * escritores del CRM se serializan con un candado de MySQL.
  */
 
-type Conexion = Pick<PoolConnection, 'execute'>;
+type Conexion = Pick<PoolConnection, 'execute' | 'query'>;
 type Fila = Record<string, unknown>;
-
-/** Las reservas que todavía ocupan la hora, aunque no hayan pasado a `agenda_med`. */
-export const ESTADOS_QUE_OCUPAN = ['PENDIENTE', 'PAGADO'] as const;
 
 export interface DatosReserva {
   medicoId: number;
@@ -62,24 +63,10 @@ export async function reservarEnAgenda(db: Conexion, d: DatosReserva): Promise<R
   );
   if (!medico) return { ok: false, motivo: 'MEDICO_NO_DISPONIBLE' };
 
-  const libre = await filas(
-    db,
-    `SELECT 1 FROM vista_horas_libres
-      WHERE medico_pk = ? AND fecha = ? AND hora_disponible = ? AND estado = 'ACTIVO'
-        AND (fecha > CURRENT_DATE() OR (fecha = CURRENT_DATE() AND hora_disponible > CURRENT_TIME()))
-      LIMIT 1`,
-    [d.medicoId, d.fecha, `${d.hora}:00`],
-  );
+  // Libre según lo vigente (agenda-ocupacion.sql.ts): ni cita CREADO en
+  // agenda_med ni reserva web PENDIENTE/PAGADO, y todavía no pasada.
+  const libre = await horasLibres(db, { medicoId: d.medicoId, desde: d.fecha, hasta: d.fecha, hora: d.hora });
   if (libre.length === 0) return { ok: false, motivo: 'HORA_NO_DISPONIBLE' };
-
-  const tomada = await filas(
-    db,
-    `SELECT 1 FROM para_agendar
-      WHERE medico_pk = ? AND fecha = ? AND hora = ? AND estado IN (${ESTADOS_QUE_OCUPAN.map(() => '?').join(',')})
-      LIMIT 1`,
-    [d.medicoId, d.fecha, `${d.hora}:00`, ...ESTADOS_QUE_OCUPAN],
-  );
-  if (tomada.length > 0) return { ok: false, motivo: 'HORA_NO_DISPONIBLE' };
 
   const precio = medico.precio_con === null || medico.precio_con === undefined ? null : String(medico.precio_con);
   const bancoId = medico.banco === null || medico.banco === undefined ? null : Number(medico.banco);

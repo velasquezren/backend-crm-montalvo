@@ -83,14 +83,27 @@ ejecutar('Agenda HTTP → adaptador TLS → MySQL real descartable', () => {
     expect(med.datos[1].fotoUrl).toBeNull();
     expect(JSON.stringify(med)).not.toMatch(/secreto|privado|<b>|paciente/);
   });
-  it('respeta ocupación de agenda_med (incluso BORRADO) y oculta reservas web PENDIENTE/PAGADO', async () => {
+  it('un médico por su número, con su especialidad: lo que abre la reserva desde su ficha web', async () => {
+    const r = await get('medicos/1');
+    expect(r.status).toBe(200);
+    const cuerpo = await r.json() as { medico: Record<string, unknown>; especialidad: { id: string; nombre: string } };
+    expect(cuerpo.especialidad.nombre).toBe('Especialidad sintética');
+    expect(cuerpo.medico).toMatchObject({ id: '1', especialidadId: cuerpo.especialidad.id, modalidad: 'ONLINE' });
+    expect(JSON.stringify(cuerpo)).not.toMatch(/secreto|privado|<b>|paciente/);
+    expect(((await (await get('medicos/3')).json()) as { medico: { modalidad: string } }).medico.modalidad).toBe('A_SOLICITUD');
+    for (const id of ['4', '999']) expect((await get(`medicos/${id}`)).status).toBe(404); // inactivo, inexistente
+    expect((await get('medicos/1%27')).status).toBe(400);
+  });
+
+  it('ocupan solo las citas vigentes de agenda_med (CREADO) y las reservas web PENDIENTE/PAGADO', async () => {
     const r = await get(`disponibilidad?medicoId=1&fecha=${fecha(1)}`);
     const d = await r.json() as { estado: string; horarios: { hora: string }[] };
     expect(r.status).toBe(200);
     expect(d.estado).toBe('DISPONIBLE');
-    // 09:00 CREADO y 10:00 BORRADO en agenda_med; 13:00 PENDIENTE en para_agendar;
-    // 11:00 tiene una reserva ATENDIDO histórica, que no ocupa.
-    expect(d.horarios.map(h => h.hora)).toEqual(['11:00', '14:00', '15:00']);
+    // 09:00 CREADO en agenda_med ocupa; 10:00 BORRADO (cita anulada en FileMaker) NO:
+    // la vista de ScriptCase la seguía dando por ocupada para siempre.
+    // 13:00 PENDIENTE en para_agendar ocupa; 11:00 ATENDIDO (ya gestionada) no.
+    expect(d.horarios.map(h => h.hora)).toEqual(['10:00', '11:00', '14:00', '15:00']);
   });
   it('la foto del médico se sirve por el CRM, solo con su versión y solo si está activo', async () => {
     const med = await (await get(`medicos?especialidadId=${(await (await get('especialidades')).json() as { datos: { id: string; nombre: string }[] }).datos.find(e => e.nombre === 'Especialidad sintética')!.id}`)).json() as { datos: { id: string; fotoUrl: string | null }[] };
@@ -108,6 +121,8 @@ ejecutar('Agenda HTTP → adaptador TLS → MySQL real descartable', () => {
   it('los días ofrecidos son solo los que tienen al menos una hora libre', async () => {
     const dias = async (id: number) => ((await (await get(`dias?medicoId=${id}`)).json()) as { fechas: string[] }).fechas;
     // El horario sintético es un solo día de la semana: se repite cada 7 días en los 30 de la vista.
+    // Dos médicos seguidos por la MISMA conexión: así se vio que MySQL 8.0.44 re-ejecuta mal la
+    // sentencia preparada de horasLibres (la segunda ignoraba las citas). Por eso va con query().
     expect(await dias(1)).toEqual([fecha(1), fecha(8), fecha(15), fecha(22), fecha(29)]);
     expect(await dias(2)).toEqual([fecha(8), fecha(15), fecha(22), fecha(29)]); // el día 1 tiene su única hora ocupada
     expect(await dias(3)).toEqual([]); // a solicitud
@@ -191,7 +206,7 @@ ejecutar('Agenda HTTP → adaptador TLS → MySQL real descartable', () => {
     } finally { await db.end(); }
     // La hora deja de ofrecerse.
     const d = await (await get(`disponibilidad?medicoId=1&fecha=${fecha(1)}`)).json() as { horarios: { hora: string }[] };
-    expect(d.horarios.map(h => h.hora)).toEqual(['11:00', '15:00']);
+    expect(d.horarios.map(h => h.hora)).toEqual(['10:00', '11:00', '15:00']);
   });
 
   it('una hora ocupada (agenda_med, reserva web o ya pasada) no se reserva', async () => {

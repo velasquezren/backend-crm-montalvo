@@ -3,7 +3,7 @@
  *
  * - `horarios`: una fila por casilla de 30 minutos, día por día (Lunes…Sabado,
  *   sin tildes y sin Domingo), que se enciende o apaga con `estado` ACTIVO /
- *   INACTIVO. Es lo que da cupos: la vista `vista_horas_libres` sale de aquí.
+ *   INACTIVO. Es lo que da cupos (`agenda-ocupacion.sql.ts` y la vista de ScriptCase).
  * - `medicos.horario_html`: el recuadro verde de 6 × 2 cm que muestran la web de
  *   ScriptCase y la landing. Además decide la modalidad: con HTML el médico se
  *   reserva en línea; vacío, «a solicitud» (`agenda.sql.ts`).

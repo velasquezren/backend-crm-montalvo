@@ -32,6 +32,11 @@ export class AgendaPublicaController {
   @Header('Cache-Control', 'no-store')
   medicos(@Query() query: QueryMedicosAgendaDto) { return this.agenda.medicos(query); }
 
+  /** Un médico con su especialidad: la web lo usa para abrir la reserva con él ya elegido. */
+  @Get('medicos/:medicoId')
+  @Header('Cache-Control', 'no-store')
+  medico(@Param('medicoId', ParseIntPipe) medicoId: number) { return this.agenda.medico(medicoId); }
+
   @Get('disponibilidad')
   @Header('Cache-Control', 'no-store')
   disponibilidad(@Query() query: QueryDisponibilidadAgendaDto) { return this.agenda.disponibilidad(query); }

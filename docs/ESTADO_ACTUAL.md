@@ -1,5 +1,33 @@
 # Estado actual
 
+## Agenda ↔ FileMaker entendida; horas libres corregidas — 7 de octubre de 2026 · EN GITHUB, FALTA PERMISO Y DESPLIEGUE
+
+**Cómo circula una reserva** (binlog de la agenda, 4/6–7/10/2026, solo conteos):
+la reserva entra en `para_agendar` PENDIENTE (web o ScriptCase, 26) → recepción
+la carga en **FileMaker**, que escribe `agenda_med` CREADO por ODBC desde la IP
+de la clínica (8.769 citas; 3 conexiones permanentes) → recepción marca la
+reserva `ATENDIDO` (17 de 23, ANTES de la hora de la cita). FileMaker nunca
+borra: anular = `BORRADO` (412 futuras), cambiar = la vieja `MODIFICADO` + una
+nueva `CREADO` (898 de 946; 601 a otra hora).
+
+- **Horas libres (fallo de fondo).** `vista_horas_libres` de ScriptCase cuenta
+  como ocupada cualquier fila de `agenda_med`, también las anuladas y las
+  movidas: ~1.000 horas bloqueadas para siempre. El CRM calcula ahora con
+  `horasLibres` (`agenda-ocupacion.sql.ts`): ocupan solo `CREADO` y las reservas
+  web PENDIENTE/PAGADO, igual que la agenda que ve el médico. La vista no se toca.
+- **MySQL 8.0.44 re-ejecuta mal esa sentencia preparada** (la segunda vez en la
+  misma conexión ignora las citas). Va con `query()`; la prueba de días con dos
+  médicos seguidos lo fija.
+- **Estados en el CRM**: PENDIENTE «Por confirmar», PAGADO «Pago por verificar»,
+  ATENDIDO «Confirmada» (antes «Atendida», que no es lo que significa).
+- **Reservar con un médico**: `GET /publico/agenda/medicos/:id` y
+  `agendaMedicoId` en la ficha pública; en la landing, «Reservar en línea» de la
+  ficha del médico abre la reserva web con él ya elegido (`/reservar?profesional=`).
+- **IA**: [herramientas y límites](ia-herramientas.md), sobre services que ya existen.
+- **Para desplegar**: René ejecuta `scripts/agenda/permisos-ocupacion.sh` (lectura
+  de `agenda_med`: código, fecha, hora y estado; nada de pacientes) ANTES del
+  backend; después el frontend y la landing.
+
 ## Revisión de Reservas → Directorio — 7 de octubre de 2026 · DESPLEGADO (backend 34a2b30, frontend 818c779, landing f531fc6)
 
 Revisión de punta a punta pedida por René. Lo que se corrigió:

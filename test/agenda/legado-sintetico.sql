@@ -33,7 +33,10 @@ INSERT INTO para_agendar (para_age,medico_pk,fecha,hora,nombre_age,ci_age,estado
 (5,1,CURRENT_DATE()+INTERVAL 1 DAY,'11:00','Paciente sintético','ci-sintetico','ATENDIDO',1);
 CREATE USER 'crm_agenda_lectura'@'%' IDENTIFIED BY 'solo-pruebas-sinteticas-no-produccion-2026' REQUIRE SSL WITH MAX_USER_CONNECTIONS 4;
 GRANT SELECT (medico_pk,nombre,sigla,especialidad,estado,horario_html,precio_con,orden,foto) ON clinica.medicos TO 'crm_agenda_lectura'@'%';
-GRANT SELECT (medico_pk,dia,hora,estado) ON clinica.horarios TO 'crm_agenda_lectura'@'%';
+GRANT SELECT (medico_pk,dia,hora,estado,cod_med) ON clinica.horarios TO 'crm_agenda_lectura'@'%';
+-- Horas libres calculadas por el CRM (agenda-ocupacion.sql.ts): de agenda_med solo
+-- quién, cuándo y si está vigente; nunca la paciente. Lo mismo da scripts/agenda/permisos-ocupacion.sh.
+GRANT SELECT (cod_med,fecha,hora,estado) ON clinica.agenda_med TO 'crm_agenda_lectura'@'%';
 GRANT SELECT ON clinica.vista_horas_libres TO 'crm_agenda_lectura'@'%';
 GRANT SELECT (medico_pk,fecha,hora,estado) ON clinica.para_agendar TO 'crm_agenda_lectura'@'%';
 GRANT SELECT (qr_pk,Qr,fecha_vence) ON clinica.pagos_qr TO 'crm_agenda_lectura'@'%';
@@ -41,6 +44,8 @@ GRANT SELECT (qr_pk,Qr,fecha_vence) ON clinica.pagos_qr TO 'crm_agenda_lectura'@
 CREATE USER 'crm_agenda_reserva'@'%' IDENTIFIED BY 'solo-pruebas-sinteticas-reserva-no-produccion-2026' REQUIRE SSL WITH MAX_USER_CONNECTIONS 3;
 GRANT SELECT (medico_pk,nombre,estado,precio_con,banco) ON clinica.medicos TO 'crm_agenda_reserva'@'%';
 GRANT SELECT ON clinica.vista_horas_libres TO 'crm_agenda_reserva'@'%';
+GRANT SELECT (medico_pk,dia,hora,estado,cod_med) ON clinica.horarios TO 'crm_agenda_reserva'@'%';
+GRANT SELECT (cod_med,fecha,hora,estado) ON clinica.agenda_med TO 'crm_agenda_reserva'@'%';
 GRANT SELECT (para_age,medico_pk,fecha,hora,estado,nombre_age,ci_age) ON clinica.para_agendar TO 'crm_agenda_reserva'@'%';
 GRANT INSERT (para_age,medico_pk,fecha,hora,nombre_age,telefono_age,ci_age,obs,estado,nom_med,uno,fecha_registro,hora_registro,nit,razon_social,precio_con,banco) ON clinica.para_agendar TO 'crm_agenda_reserva'@'%';
 GRANT UPDATE (comprobante,nit,razon_social,estado) ON clinica.para_agendar TO 'crm_agenda_reserva'@'%';

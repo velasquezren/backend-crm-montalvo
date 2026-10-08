@@ -74,6 +74,17 @@ export function medicoDeAgenda(valor: unknown): MedicoAgenda {
   };
 }
 
+/** Un médico con su especialidad (`GET /publico/agenda/medicos/:id`); `null` si no está disponible. */
+export function medicoConEspecialidadDeAgenda(valor: unknown): { medico: MedicoAgenda; especialidad: EspecialidadAgenda } | null {
+  const v = objeto(valor);
+  if (v.version !== 1) invalido();
+  if (v.medico === null) return null;
+  const medico = medicoDeAgenda(v.medico);
+  const especialidad = especialidadDeAgenda(v.especialidad);
+  if (medico.especialidadId !== especialidad.id) invalido();
+  return { medico, especialidad };
+}
+
 export function paginaAgenda<T extends { id: string }>(valor: unknown, pagina: number, limite: number, leer: (v: unknown) => T) {
   const v = objeto(valor);
   if (v.version !== 1 || v.pagina !== pagina || v.limite !== limite) invalido();

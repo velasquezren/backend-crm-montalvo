@@ -689,6 +689,8 @@ export class DirectorioService {
       especialidades: f.especialidades.filter(e => e.especialidad.activa).map(e => ({ slug: e.especialidad.slug, nombre: e.especialidad.nombre })),
       fotoUrl: f.fotoId ? urlPublica(`/publico/directorio/fotos/${f.fotoId}`) : null,
       precioConsulta: f.precioConsulta?.toNumber() ?? null,
+      /** Con él la web abre la reserva en línea con este médico ya elegido (`/publico/agenda/medicos/:id`). */
+      agendaMedicoId: f.agendaMedicoId === null ? null : String(f.agendaMedicoId),
       horario: ordenarBloques(f.horarios).map(bloquePublico),
       resumenHorario: resumenDelHorario(f.horarios),
     };
