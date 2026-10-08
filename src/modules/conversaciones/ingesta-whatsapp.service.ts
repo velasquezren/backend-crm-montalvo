@@ -10,7 +10,8 @@ import { enSegundoPlano } from '../../common/fiabilidad/en-segundo-plano';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ClientesService, nombreProvisional } from '../clientes/clientes.service';
 import { PrimerContactoService } from '../leads/primer-contacto.service';
-import { datosOferta, flowDeCita, FlowPublicado, guardarRespuesta, interaccionesEnLinea, OfertaInteraccion, prepararOferta } from './interacciones-integracion';
+import { datosOferta, descifrarInteraccion, flowDeCita, FlowPublicado, guardarRespuesta, interaccionesEnLinea, OfertaInteraccion, prepararOferta } from './interacciones-integracion';
+import { abrirTokenFlow } from '../../common/whatsapp/flows/token-flow';
 import { MenuAtencionService } from '../menu-atencion/menu-atencion.service';
 import { MensajePreparado } from '../../common/whatsapp/interacciones/mensaje-interactivo';
 import {
@@ -696,7 +697,7 @@ export class IngestaWhatsappService {
            persona); el Flow solo la completa. Sin Flow, la confirmación de siempre. */
         const linea = await this.prisma.lineaWhatsapp.findUnique({ where: { id: lineaId }, select: { wabaId: true } });
         const flow = flowDeCita(linea?.wabaId);
-        if (flow) { await this.enviarFlowDeCita(conversacionId, telefono, flow, accion.confirmacion); return; }
+        if (flow) { await this.enviarFlowDeCita(conversacionId, telefono, lineaId, flow, accion.confirmacion); return; }
         if (accion.confirmacion) await this.responderTexto(conversacionId, telefono, accion.confirmacion, { respetaPausa: false, noRepetir: true });
         return;
       }
@@ -741,7 +742,7 @@ export class IngestaWhatsappService {
    * una sola vez cada 30 min. Es una oferta de UN uso (sin `origen`): completarlo
    * dos veces deja la segunda respuesta como `DUPLICADA`.
    */
-  private async enviarFlowDeCita(conversacionId: string, telefono: string, flow: FlowPublicado, confirmacion: string | null): Promise<void> {
+  private async enviarFlowDeCita(conversacionId: string, telefono: string, lineaId: string, flow: FlowPublicado, confirmacion: string | null): Promise<void> {
     try {
       /* El de reserva (con endpoint) agenda de verdad: elige médico, día y hora libres
          de la agenda. El de solicitud solo pregunta y una persona propone la hora. */
@@ -754,10 +755,27 @@ export class IngestaWhatsappService {
           ? { tipo: 'flow', cuerpo, cta: 'Reservar cita', flowId: flow.id, modo: 'published', inicio: { accion: 'data_exchange' } }
           : { tipo: 'flow', cuerpo, cta: 'Solicitar cita', flowId: flow.id, modo: 'published', inicio: { accion: 'navigate', pantalla: flow.pantalla } },
         telefono,
+        lineaId,
       );
       const desde = new Date(this.ahora().getTime() - RESPUESTA_REPETIDA_MS);
-      const [fila] = await this.guardarMensajeAutomatico(conversacionId, [{ oferta }], async tx =>
-        !!(await tx.mensaje.findFirst({ where: { conversacionId, automatico: true, contenido: cuerpo, interaccion: { isNot: null }, createdAt: { gte: desde } }, select: { id: true } })),
+      const [fila] = await this.guardarMensajeAutomatico(conversacionId, [{ oferta }], async tx => {
+        const anterior = await tx.mensaje.findFirst({
+          where: { conversacionId, automatico: true, contenido: cuerpo, interaccion: { isNot: null }, createdAt: { gte: desde } },
+          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+          select: { clientMessageId: true, interaccion: { select: { privado: true } } },
+        });
+        if (!anterior) return false;
+        if (!reserva) return true;
+        // Un enlace antiguo sin línea no abre la agenda: permitir reemplazarlo
+        // al pedir cita otra vez, sin esperar el intervalo antirrepetición.
+        if (!anterior.clientMessageId || !anterior.interaccion?.privado) return false;
+        try {
+          const previa = descifrarInteraccion(anterior.interaccion.privado, anterior.clientMessageId) as OfertaInteraccion;
+          if (previa.mensaje.tipo !== 'flow' || previa.mensaje.flowId !== flow.id) return false;
+          const token = abrirTokenFlow(previa.mensaje.correlacion);
+          return token?.lineaId === lineaId && token.telefono === telefono.replace(/^\+/, '');
+        } catch { return false; }
+      },
         { respetaPausa: false },
       ) ?? [];
       if (fila) await this.despachador.interaccion({ mensajeId: fila.id, conversacionId, telefono });

@@ -1,5 +1,35 @@
 # Estado actual
 
+## Flow de cita desde el menú: identificación de línea — 8 de octubre de 2026
+
+- Se reprodujo el incidente del número de prueba: el Flow llegaba y figuraba leído,
+  pero su token no incluía `lineaId`. El endpoint endurecido lo rechaza con 427
+  antes de consultar la agenda. `enviarFlowDeCita` era el único envío de ofertas
+  que no pasaba la línea a `prepararOferta`; ahora la recibe del chat.
+- El intervalo antirrepetición de 30 minutos conserva los formularios válidos,
+  pero ya no bloquea uno nuevo si el anterior tiene un token inválido, sin línea
+  o de otro Flow. No se modifican los mensajes anteriores ni se relaja el control
+  de líneas habilitadas.
+- Regresión desde webhook firmado → menú → transporte → token → servicio Flow:
+  probada en una línea sintética comercial y otra de atención. Comprueba carga de
+  especialidades/médicos, recuperación del enlace anterior, ausencia de duplicados
+  y rechazo al apagar la línea. Ambos casos fallaron antes de sus correcciones.
+- El diagnóstico de producción confirmó menú de prueba activo y sin cambios,
+  agenda accesible y token sin línea en los formularios recientes. La consulta
+  cifrada de solo lectura reprodujo 427 sin línea y 200 con ella: nueve
+  especialidades reservables, médicos y días/horas reales. No creó reservas.
+- Tras actualizar, pedir un menú nuevo escribiendo «menú», elegir «Solicitar una
+  cita» y abrir el formulario recién recibido. Los enlaces anteriores conservan
+  su token y no se reparan al desplegar.
+- Recepción y Ventas conservan sus menús apagados y siguen fuera del piloto.
+- Validación: build oficial, tipos de pruebas, 917 unitarias, 15 contratos Flow y
+  836 integraciones en PostgreSQL descartable limpio aprobadas. Las 38 de MySQL
+  requieren su fixture aparte y no se ejecutaron en esta corrección; la agenda
+  de producción se comprobó únicamente mediante consultas de lectura cifradas.
+  Repetir la suite completa sobre la misma base había dejado una vendedora ajena
+  al fixture de consistencia de planilla (cuatro fallos); la ejecución limpia
+  pasó completa sin cambios en el código financiero.
+
 ## Menús de Recepción y Ventas creados — 8 de octubre de 2026 · GUARDADOS, APAGADOS
 
 René pidió crear ambos menús sin habilitarlos. Se guardaron en producción mediante

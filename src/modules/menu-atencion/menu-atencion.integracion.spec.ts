@@ -43,6 +43,10 @@ import { CierreInactividadService } from '../conversaciones/cierre-inactividad.s
 import { WhatsappWebhookController } from '../conversaciones/webhooks/whatsapp-webhook.controller';
 import { datosOferta, OfertaInteraccion } from '../conversaciones/interacciones-integracion';
 import { FLOWS_PUBLICADOS } from '../conversaciones/flows-publicados';
+import { AgendaFlowService } from '../agenda/agenda-flow.service';
+import { AgendaService } from '../agenda/agenda.service';
+import { AgendaReservasService } from '../agenda/agenda-reservas.service';
+import { abrirTokenFlow, sellarTokenFlow } from '../../common/whatsapp/flows/token-flow';
 
 /* El catálogo generado, con un Flow de cita publicado en una WABA sintética. Solo
    la línea que tenga esa WABA lo usa; las demás no tienen WABA en estas pruebas. */
@@ -51,6 +55,9 @@ jest.mock('../conversaciones/flows-publicados', () => ({
     id: '900', wabaId: 'waba-sintetica-menu', version: 'solicitud-cita.v1', pantalla: 'MOTIVO', proposito: 'SOLICITUD_CITA',
     respuestas: { especialidad: ['GINECOLOGIA', 'MATERNIDAD'] }, etiquetas: { especialidad: 'Especialidad' },
     titulos: { especialidad: { GINECOLOGIA: 'Ginecología', MATERNIDAD: 'Maternidad' } },
+  }, {
+    id: '901', wabaId: 'waba-sintetica-reserva', version: 'reserva-cita.v1', pantalla: 'ESPECIALIDAD',
+    proposito: 'RESERVA_CITA', endpoint: true, respuestas: {},
   }],
 }));
 import { MenuAtencionController } from './menu-atencion.controller';
@@ -92,6 +99,12 @@ const config = new ConfigService({
     { provide: PushService, useValue: push },
     { provide: AlertasWhatsappService, useValue: { procesar: async () => undefined } },
     { provide: MediaEntranteService, useValue: { despertar: () => undefined } },
+    AgendaFlowService,
+    { provide: AgendaService, useValue: {
+      especialidades: async () => ({ datos: [{ id: 'esp-sintetica', nombre: 'Especialidad sintética' }] }),
+      medicos: async () => ({ datos: [{ id: '20', nombre: 'Médica sintética', modalidad: 'ONLINE', horarioInformativo: '', precio: null }] }),
+    } },
+    { provide: AgendaReservasService, useValue: { reservar: jest.fn() } },
     { provide: APP_GUARD, useClass: JwtAuthGuard }, { provide: APP_GUARD, useClass: RolesGuard },
   ],
 })
@@ -421,6 +434,56 @@ describe('qué hace cada opción', () => {
     expect((await prisma.mensaje.findUniqueOrThrow({ where: { whatsappMsgId: segunda.id }, include: { interaccion: true } })).interaccion?.estado).toBe('DUPLICADA');
     await reposo();
     expect(await ofertasEnviadas(chat)).toHaveLength(2);
+  });
+
+  it.each(['recepcion', 'ventas'] as const)('el Flow que abre el menú de %s carga especialidades y médicos con el token de esa línea', async canal => {
+    const linea = canal === 'recepcion' ? recepcion : comercial;
+    const phoneId = canal === 'recepcion' ? PHONE_RECEPCION : PHONE_COMERCIAL;
+    await prisma.lineaWhatsapp.update({ where: { id: linea }, data: { wabaId: 'waba-sintetica-reserva' } });
+    await guardarMenu(linea, menuRecepcion());
+    const { chat, menu } = await recibirMenu(linea, phoneId);
+    expect((await webhook([toque(menu, 'BOOK_APPOINTMENT')], phoneId)).status).toBe(200);
+    await esperar(async () => (await ofertasEnviadas(chat)).length === 2);
+    const enviado = transporte.enviar.mock.calls.map(c => c[1] as { interactive?: { type: string; action: { parameters: { flow_id: string; flow_token: string } } } })
+      .find(c => c.interactive?.type === 'flow');
+    const token = enviado!.interactive!.action.parameters.flow_token;
+    expect(enviado?.interactive?.action.parameters.flow_id).toBe('901');
+    expect(abrirTokenFlow(token)).toMatchObject({ telefono: telefono.slice(1), lineaId: linea });
+    const flow = app.get(AgendaFlowService);
+    await expect(flow.responder({ action: 'INIT', flow_token: token })).resolves.toMatchObject({
+      screen: 'ESPECIALIDAD', data: { especialidades: [{ id: 'esp-sintetica', title: 'Especialidad sintética' }] },
+    });
+    await expect(flow.responder({ action: 'data_exchange', flow_token: token, data: { paso: 'especialidad', especialidad: 'esp-sintetica' } })).resolves.toMatchObject({
+      screen: 'MEDICO', data: { medicos: [expect.objectContaining({ id: '20', title: 'Médica sintética' })] },
+    });
+    // Un enlace anterior sin línea no debe bloquear uno nuevo durante 30 minutos.
+    const previa = (await ofertasEnviadas(chat))[1];
+    const ofertaAnterior: OfertaInteraccion = {
+      telefono, flow: FLOWS_PUBLICADOS[1],
+      mensaje: { tipo: 'flow', cuerpo: previa.contenido, flowId: '901', cta: 'Reservar cita', modo: 'published',
+        inicio: { accion: 'data_exchange' }, correlacion: sellarTokenFlow(telefono.slice(1)) },
+    };
+    await prisma.interaccionMensaje.update({ where: { mensajeId: previa.id }, data: datosOferta(ofertaAnterior, previa.clientMessageId!) });
+    const pedirOtraVez = async (cantidadPrevia: number) => {
+      expect((await webhook([texto('menú')], phoneId)).status).toBe(200);
+      await esperar(async () => (await ofertasEnviadas(chat)).length === cantidadPrevia + 1);
+      const nuevoMenu = (await ofertasEnviadas(chat)).at(-1)!;
+      expect((await webhook([toque(nuevoMenu.whatsappMsgId!, 'BOOK_APPOINTMENT')], phoneId)).status).toBe(200);
+    };
+    await pedirOtraVez(2);
+    await esperar(async () => (await ofertasEnviadas(chat)).length === 4);
+    const formularios = () => transporte.enviar.mock.calls.map(c => c[1] as { interactive?: { type: string; action: { parameters: { flow_token: string } } } })
+      .filter(c => c.interactive?.type === 'flow');
+    expect(formularios()).toHaveLength(2);
+    expect(abrirTokenFlow(formularios().at(-1)!.interactive!.action.parameters.flow_token)?.lineaId).toBe(linea);
+    // Con un formulario correcto y reciente, se conserva la protección contra duplicados.
+    await pedirOtraVez(4);
+    await reposo();
+    expect(formularios()).toHaveLength(2);
+    // Apagar la línea sigue invalidando el mismo token: corregir el envío no debilita el piloto.
+    process.env['WHATSAPP_INTERACCIONES_LINEAS'] = '';
+    await expect(flow.responder({ action: 'INIT', flow_token: token })).rejects.toThrow();
+    expect(app.get(AgendaReservasService).reservar).not.toHaveBeenCalled();
   });
 
   it('«Solicitar una cita» sin Flow publicado en la WABA de la línea: la confirmación de siempre', async () => {
