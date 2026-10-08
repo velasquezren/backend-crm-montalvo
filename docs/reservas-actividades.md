@@ -2,7 +2,9 @@
 
 Publicado y activo desde el 8/10/2026. Versiones y comprobaciones en
 [ESTADO_ACTUAL](ESTADO_ACTUAL.md). Ventas y Recepción se activaron por petición
-expresa posterior de René; la línea de prueba permanece habilitada.
+expresa posterior de René; la línea de prueba permanece habilitada. A las 16:44
+del mismo día René pidió apagar únicamente el menú de Recepción. Ventas y el
+seguimiento de reservas siguen activos; no reactivar ese menú al desplegar.
 
 ## Comportamiento
 
@@ -64,8 +66,9 @@ conservan sus acciones, responsables y recordatorios.
    sin avisarlas; las pendientes iniciales sí generan avisos internos.
 4. Conservar la lista explícita de interacciones WhatsApp y los activos Meta.
    El seguimiento de Actividades no envía WhatsApps a pacientes. Los menús de
-   Ventas y Recepción están activos por la autorización del 8/10, además de prueba;
-   no extender la lista a otras líneas como parte de un despliegue de reservas.
+   Ventas y prueba siguen activos; el de Recepción se apagó por petición posterior
+   del 8/10, conservando esa línea en la lista de interacciones. No reactivarlo ni
+   extender la lista a otras líneas como parte de un despliegue de reservas.
 
 Para detener sincronización y avisos, apagar `RESERVAS_ACTIVIDADES` y reiniciar
 el backend. Conserva las tareas y sus fechas de última consulta; no las borra.

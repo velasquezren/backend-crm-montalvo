@@ -2,7 +2,9 @@
 
 Preparación y despliegue inicial del 7/10/2026 en la línea de prueba. Desde el
 8/10, René autorizó y se activaron también Recepción y Ventas, con sus menús y
-Flows de reserva. [Estado y comprobaciones](ESTADO_ACTUAL.md). No se envían
+Flows de reserva. Posteriormente, a las 16:44 del 8/10, René pidió desactivar
+únicamente el menú de Recepción; se conservan la línea, el Flow y el seguimiento
+de reservas. Ventas sigue activo. [Estado y comprobaciones](ESTADO_ACTUAL.md). No se envían
 mensajes ni se crean reservas reales para probar el despliegue.
 
 ## Dónde se configura cada cosa

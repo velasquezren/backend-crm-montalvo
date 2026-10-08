@@ -1,5 +1,53 @@
 # Estado actual
 
+## Entrega a la otra máquina — 8 de octubre de 2026 · estado final de los menús
+
+Esta entrada prevalece sobre las activaciones históricas descritas abajo.
+Los últimos cambios fueron de configuración en la base de producción, mediante
+`MenuAtencionService.guardar` y con auditoría; no requieren desplegar otro binario.
+
+- **Ventas: menú activo. Recepción: menú desactivado**, por petición posterior
+  expresa de René a las 16:44 (La Paz). Se conservaron su saludo y opciones para
+  poder reactivarlo. No reactivar Recepción al sincronizar o desplegar.
+- En los dos menús se sustituyó «Consultar horarios» por **«Emergencia»** a las
+  15:15, conservando las demás opciones. Texto aprobado por René:
+  «Si tu vida o la de tu bebé corre peligro, acude ya a la emergencia más cercana.
+  Recepción te escribirá enseguida.» La respuesta usa el circuito existente de
+  emergencia declarada, orientación y prioridad crítica; no implica llamadas.
+- Ventas conserva Reservar una cita, Ver promociones, Hablar con una persona,
+  Emergencia y Cómo llegar. Recepción conserva las mismas salvo promociones,
+  pero su menú está apagado. Prueba y las otras líneas no se modificaron.
+- La lista `WHATSAPP_INTERACCIONES_LINEAS` sigue incluyendo prueba, Ventas y
+  Recepción. **Desactivar el menú no desactiva la línea ni todos sus circuitos**.
+  `RESERVAS_ACTIVIDADES=on` continúa activo. Los menús enviados anteriormente
+  no se editan; la caché del menú puede tardar hasta 60 segundos en actualizarse.
+- Respaldo de la sustitución:
+  `/root/backup-crm-menu-emergencia-20261008-191555.sql.gz`.
+  Respaldo de la desactivación:
+  `/root/backup-crm-menu-recepcion-off-20261008-204421.sql.gz`.
+  Ambos superaron 1 MB y la comprobación gzip. Se verificaron contenido,
+  auditoría, conservación de las demás líneas y health/DB 200; no hubo reinicio.
+  Las 80 pruebas unitarias existentes de menú y atención humana pasaron antes
+  de la sustitución. No se enviaron mensajes ni se crearon reservas de prueba.
+
+### Consultas investigadas, todavía sin implementación
+
+- **Llamadas de urgencia por WhatsApp:** solicitadas solo ante una emergencia
+  declarada y a un número configurable, aún no definido. Consulta de Meta:
+  Recepción/Ventas con llamadas `NOT_SET`, límite `TIER_250`, negocio sin
+  verificación (`141010`) y nombre visible pendiente de aprobación. No se
+  implementaron ni habilitaron llamadas. Falta resolver elegibilidad en Meta,
+  definir línea emisora/destinatario, permiso de llamada y transporte de audio.
+  El SID de Twilio proporcionado no constituye una integración configurada.
+- **Reacciones de WhatsApp:** se diagnosticó que una reacción puede acabar como
+  interacción desconocida y abrir atención `REVISION` sin que se haya pedido una
+  persona. No está corregido; no se modificó el chat histórico. No confundir
+  `REVISION` con emergencia ni usarla para disparar llamadas.
+- **Imagen de promoción:** los envíos nuevos consultan el banner cuadrado actual
+  de la promoción. Limitación pendiente: `enviarTarjeta` deduplica durante
+  30 minutos por el texto, por lo que cambiar solo la imagen puede impedir el
+  reenvío a quien ya recibió esa tarjeta. No se cambió esa regla en esta sesión.
+
 ## Reservas, campanita y menús de Ventas/Recepción — 8 de octubre de 2026 · DESPLEGADO Y ACTIVO
 
 - René autorizó publicar la integración y **encender ambos menús**. Esta decisión
