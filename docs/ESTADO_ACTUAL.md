@@ -1,6 +1,6 @@
 # Estado actual
 
-## Comprobante de reserva por chat — 7 de octubre de 2026 · validado para despliegue
+## Comprobante de reserva por chat — 7 de octubre de 2026 · DESPLEGADO, solo número de prueba
 
 Se completó el trabajo iniciado en otra sesión. Ver [flujo, límites y operación](reservas-pago-chat.md).
 
@@ -22,6 +22,22 @@ Se completó el trabajo iniciado en otra sesión. Ver [flujo, límites y operaci
   **15 de contratos Flow**. Angular: **653 pruebas**. Builds oficiales y tipos aprobados.
 - Mantener exclusivamente la **línea de prueba** habilitada. Recepción y Ventas
   conservan las interacciones nuevas apagadas. No se enviaron mensajes reales.
+- **Publicado y verificado:** backend `f631fb1`, CRM Angular `12969ca` (código UI
+  `d6a9d21`), landing existente `277fc71` ya publicada en Vercel, sin cambios en
+  esta fase. El frontend fija su CI al SHA del backend que contiene el nuevo enum.
+  GitHub Actions de backend y frontend aprobados; Vercel marcó el despliegue
+  `6926513647` del CRM como exitoso. También pasan las nueve pruebas de build.
+- **Operación:** respaldo verificado de 5.066.477 bytes antes del despliegue;
+  migración aditiva aplicada, 69 migraciones al día, compilación anterior al
+  reinicio y cero reinicios inesperados. Health/DB 200, validación login 400,
+  recurso protegido 401, catálogo de agenda accesible y cero errores de arranque.
+  Única línea habilitada en servidor: `b54b50e5-f8e7-4b09-bfd4-f168cd219327`
+  («PRUEBA · Número de Meta»). La reserva web permanece activa.
+- **Para otra máquina:** hacer `git pull --ff-only` de ambos repos, `npm ci` y
+  generar Prisma; aplicar la migración únicamente en la base local que vayas a
+  usar. No copiar secretos desde Git ni ejecutar pruebas sobre producción.
+  El PostgreSQL descartable usado aquí se detuvo y se restauró el contenedor
+  local previo `crm-test-pg`, sin borrar su base.
 
 
 ## Reservar por WhatsApp (Flow con endpoint) — 7 de octubre de 2026 · PUBLICADO EN LA WABA DE PRUEBA
