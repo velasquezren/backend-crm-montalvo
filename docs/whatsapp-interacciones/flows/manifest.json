@@ -95,6 +95,14 @@
       },
       "habilitado": true
     },
+    "ventas": {
+      "nota": "Línea «Ventas y publicidad Montalvo» (comercial), WABA real. Reserva publicada con OK de René el 2026-10-07; misma llave del servidor que el número de prueba.",
+      "wabaId": "1011426071679964",
+      "flowIds": {
+        "reserva-cita.v1.json": "2329810907756138"
+      },
+      "habilitado": true
+    },
     "produccion": {
       "wabaId": null,
       "flowIds": {},

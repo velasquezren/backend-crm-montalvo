@@ -33,8 +33,14 @@ IA, más adelante, solo tendrá que abrirlo ([herramientas](ia-herramientas.md))
   CRM Montalvo; Meta hizo su ping al endpoint (200). Menú de la línea de prueba
   con «CITA»; `WHATSAPP_INTERACCIONES_LINEAS` = solo esa línea. El negocio no
   tiene verificación empresarial (`141010`, LIMITED): no impidió publicar.
-- **Producción**: no. Para Recepción hace falta su propia WABA, la llave en su
-  número y el mismo procedimiento; antes, probarlo a fondo en el de prueba.
+- **Ventas (7/10, con OK de René)**: misma llave del servidor registrada en el
+  número 1282222481630881 (`VALID`); Flow `2329810907756138` PUBLICADO en la WABA
+  real 1011426071679964 (ambiente `ventas` del manifest). Para que lo vean las
+  pacientes falta: el menú de la línea (no tiene) y sumar su id a
+  `WHATSAPP_INTERACCIONES_LINEAS`. `flow-llaves.sh` ya NO genera llave si existe:
+  reutiliza la del servidor (`--rotar` para cambiarla, y re-registrar en todos).
+- **Recepción**: no. La WABA real «Clínica Montalvo» no tiene verificación
+  empresarial (LIMITED, igual que Ventas).
 
 ## Agenda ↔ FileMaker entendida; horas libres corregidas — 7 de octubre de 2026 · DESPLEGADO
 

@@ -133,7 +133,9 @@ test("el manifest no apunta a ningún activo remoto ni habilita producción", ()
 });
 
 test("un ambiente encendido declara su WABA y Flows publicados; de ahí sale el catálogo que el CRM envía", () => {
-  const m = leer("manifest.json");
+  /* Solo los ambientes base: los reales encendidos (ventas…) no entran en esta prueba. */
+  const real = leer("manifest.json");
+  const m = { ...real, ambientes: { desarrollo: real.ambientes.desarrollo, prueba: real.ambientes.prueba, produccion: real.ambientes.produccion } };
   const prueba = { wabaId: "1699047341353103", flowIds: { "solicitud-cita.v1.json": "777" }, habilitado: true };
   const conPrueba = { ...m, ambientes: { ...m.ambientes, prueba } };
   validarManifest(conPrueba);
