@@ -1,8 +1,9 @@
 # Reserva y comprobante por WhatsApp
 
-Preparación y despliegue solicitado el 7/10/2026. Piloto exclusivamente en la
-línea de prueba; Recepción y Ventas permanecen fuera de la lista habilitada.
-No se envían mensajes ni se crean reservas reales para probar el despliegue.
+Preparación y despliegue inicial del 7/10/2026 en la línea de prueba. Desde el
+8/10, René autorizó y se activaron también Recepción y Ventas, con sus menús y
+Flows de reserva. [Estado y comprobaciones](ESTADO_ACTUAL.md). No se envían
+mensajes ni se crean reservas reales para probar el despliegue.
 
 ## Dónde se configura cada cosa
 
@@ -110,8 +111,8 @@ el primero. Los conteos finales y versiones quedan en `ESTADO_ACTUAL.md`.
 
 Desplegar: respaldo de PostgreSQL, migración aditiva, generación Prisma, build y
 reinicio según la receta del repositorio. No requiere publicar otro Flow ni
-cambiar los activos Meta. Conservar `WHATSAPP_INTERACCIONES_LINEAS` exclusivamente
-con el ID de la línea de prueba. No usar `todas`.
+cambiar los activos Meta. Conservar `WHATSAPP_INTERACCIONES_LINEAS` con los IDs
+explícitos de prueba, Ventas y Recepción autorizados el 8/10. No usar `todas`.
 
 Reversión operativa: apagar interacciones o retirar la línea de la lista; la cola
 deja de procesar. Si es necesario volver al commit previo, dejar la tabla aditiva

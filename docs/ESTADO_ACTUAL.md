@@ -1,6 +1,40 @@
 # Estado actual
 
-## Reservas → Actividades → campanita — 8 de octubre de 2026 · IMPLEMENTADO LOCAL
+## Reservas, campanita y menús de Ventas/Recepción — 8 de octubre de 2026 · DESPLEGADO Y ACTIVO
+
+- René autorizó publicar la integración y **encender ambos menús**. Esta decisión
+  sustituye la limitación anterior de mantener Ventas/Recepción apagadas.
+- Backend `21a07e2`, migración `20261008160000_reservas_actividades` aplicada
+  (70 migraciones). Frontend `6011961` publicado en Vercel y verificado en el
+  dominio real: 96 archivos JS idénticos al build local y tres equivalentes salvo
+  sello de compilación/referencias; sello servido `6011961`. GitHub Actions de
+  ambos commits aprobado.
+- Respaldo previo al despliegue:
+  `/root/backup-crm-reservas-actividades-20261008-180246.sql.gz` (5.128.225 bytes),
+  más `backup-crm-reservas-actividades-20261008-180246-dist.tar.gz`. Respaldo previo
+  a activar: `/root/backup-crm-activacion-20261008-180927.sql.gz` (5.128.518 bytes)
+  y `.env` resguardado en `/root` con permisos 600. Gzip de ambos respaldos verificado.
+- Activación a las 14:09 (La Paz): `RESERVAS_ACTIVIDADES=on` y lista explícita de
+  interacciones con prueba, Ventas y Recepción; **no** `todas`. Solo cambiaron esas
+  dos variables. Menús activados mediante `MenuAtencionService.guardar`, con
+  auditoría verificada, conservando textos/opciones. Línea de prueba y demás
+  filas de líneas intactas; laboratorios/otras líneas siguen fuera.
+- Meta: Flows `PUBLISHED`, cero errores de validación y llaves `VALID` en las
+  tres líneas. Prueba cifrada del endpoint desplegado, por cada línea: HTTP 200,
+  nueve especialidades, cuatro médicos de la primera, 21 días del médico
+  consultado y cuatro horas del día muestreado. Disponibilidad variable. Token
+  sin línea sigue rechazado con 427. No se crearon citas ni enviaron mensajes
+  de prueba a pacientes.
+- Verificación del trabajador real: cuatro reservas futuras consultadas y cuatro
+  actividades sincronizadas, todas completadas por `ATENDIDO`, cero duplicadas;
+  dos seguimientos QR conciliados a `GESTIONADA`. No había reservas pendientes
+  que notificar en esa consulta. La campanita avisará de las nuevas pendientes.
+- Health/DB 200, validación de login 400, Actividades sin sesión 401,
+  `NRestarts=0`; servicios de Resultados activos. Backend compilado antes de
+  reiniciar. Recargar el CRM para tomar el frontend nuevo; pedir «menú» en cada
+  línea para comprobarlo visualmente. Abrir un Flow nuevo, no uno antiguo.
+
+### Implementación y validación de la integración
 
 - [Comportamiento, permisos y operación](reservas-actividades.md). Una tarea
   automática compartida por reserva, con fuente en la agenda MySQL; acceso por
@@ -11,8 +45,8 @@
   `PAGADO` sigue requiriendo revisión del comprobante. Actualización atómica y
   protección contra lecturas atrasadas; no se cancelan reservas por fallos de red.
 - Migración aditiva `20261008160000_reservas_actividades`; `RESERVAS_ACTIVIDADES`
-  apagado por defecto. Publicar backend primero, frontend después, activar el
-  trabajador interno al final. No se ha modificado producción ni activado menús.
+  apagado por defecto en nuevas instalaciones. En producción se publicó backend
+  primero, frontend después y se activó el trabajador interno al final.
 - Validación final: 917 unitarias backend; suite completa PostgreSQL con 849
   pruebas aprobadas, incluidas las regresiones de lecturas atrasadas, QR y push.
   Frontend: 660 pruebas. Arranque completo de Nest/DI sobre la base temporal aprobado.

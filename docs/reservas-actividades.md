@@ -1,6 +1,8 @@
 # Reservas, Actividades y campanita
 
-Implementado el 8/10/2026. Pendiente de publicación y activación en producción.
+Publicado y activo desde el 8/10/2026. Versiones y comprobaciones en
+[ESTADO_ACTUAL](ESTADO_ACTUAL.md). Ventas y Recepción se activaron por petición
+expresa posterior de René; la línea de prueba permanece habilitada.
 
 ## Comportamiento
 
@@ -60,8 +62,10 @@ conservan sus acciones, responsables y recordatorios.
    `AGENDA_VPS_CONSULTA=on`. Reiniciar solo `crm_backend` y verificar health, acceso,
    conteos y tareas. El primer barrido crea completadas para las ya gestionadas,
    sin avisarlas; las pendientes iniciales sí generan avisos internos.
-4. Conservar la lista de interacciones WhatsApp, los menús y activos Meta. Esta
-   integración no habilita Recepción/Ventas ni envía WhatsApps a pacientes.
+4. Conservar la lista explícita de interacciones WhatsApp y los activos Meta.
+   El seguimiento de Actividades no envía WhatsApps a pacientes. Los menús de
+   Ventas y Recepción están activos por la autorización del 8/10, además de prueba;
+   no extender la lista a otras líneas como parte de un despliegue de reservas.
 
 Para detener sincronización y avisos, apagar `RESERVAS_ACTIVIDADES` y reiniciar
 el backend. Conserva las tareas y sus fechas de última consulta; no las borra.
