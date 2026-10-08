@@ -1,5 +1,29 @@
 # Estado actual
 
+## Comprobante de reserva por chat — 7 de octubre de 2026 · validado para despliegue
+
+Se completó el trabajo iniciado en otra sesión. Ver [flujo, límites y operación](reservas-pago-chat.md).
+
+- La agenda del VPS sigue siendo la fuente: el menú solo abre el Flow. El editor
+  explica de dónde salen especialidades, médicos y horas, con enlace al Directorio.
+- Cierre cifrado vinculado al teléfono, línea, token y caducidad; el endpoint
+  rechaza líneas apagadas. Tokens antiguos sin línea requieren abrir un Flow nuevo.
+- `ReservaChat` y su QR pendiente se guardan en la misma transacción del webhook.
+  Despacho con `clientMessageId` estable y sin reenvíos ciegos ante incertidumbre.
+- Comprobante único, asociado solo después del QR enviado; cobros ambiguos pasan
+  a revisión. Cola durable con reclamaciones, límites de multimedia y reintentos.
+  No sobrescribe el comprobante de una reserva ya gestionada.
+- El chat muestra pendiente, revisión o comprobante registrado; Caja sigue
+  verificando el pago. No se cambia el circuito con FileMaker ni el de la landing.
+- PostgreSQL descartable: **834 pruebas de integración aprobadas**. Las omitidas
+  corresponden a fixtures Excel privados y la suite MySQL, ejecutada por separado.
+- MySQL 8.0.44 descartable: **38 aprobadas**, incluyendo el Flow cifrado completo
+  y comprobante condicional sin sobrescritura. Backend: **917 unitarias** y
+  **15 de contratos Flow**. Angular: **653 pruebas**. Builds oficiales y tipos aprobados.
+- Mantener exclusivamente la **línea de prueba** habilitada. Recepción y Ventas
+  conservan las interacciones nuevas apagadas. No se enviaron mensajes reales.
+
+
 ## Reservar por WhatsApp (Flow con endpoint) — 7 de octubre de 2026 · PUBLICADO EN LA WABA DE PRUEBA
 
 Fase 1 del plan de IA: el formulario de reserva DENTRO de WhatsApp, sin IA. La

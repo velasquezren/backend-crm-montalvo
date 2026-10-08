@@ -630,7 +630,7 @@ export class ConversacionesService {
     if (interaccion !== undefined && (!clientMessageId || adjunto?.mediaKey)) throw new BadRequestException('Una interacción exige clientMessageId y no admite adjunto');
     /* En un piloto (`WHATSAPP_INTERACCIONES_LINEAS`), las demás líneas no mandan botones ni Flows. */
     if (interaccion !== undefined && !interaccionesEnLinea(conversacion.linea.id)) throw new BadRequestException('Interacciones desactivadas en esta línea');
-    const oferta = interaccion === undefined ? undefined : prepararOferta(interaccion, conversacion.cliente.telefono);
+    const oferta = interaccion === undefined ? undefined : prepararOferta(interaccion, conversacion.cliente.telefono, conversacion.linea.id);
     if (oferta && !conversacion.linea.comercial && esOfertaComercial(oferta)) {
       throw new BadRequestException('Las interacciones de promociones solo se envían desde líneas de Ventas.');
     }

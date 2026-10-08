@@ -164,7 +164,7 @@ test("Flow con endpoint: pasa, y su contrato son los campos que devuelve el CRM"
   assert.equal(contrato.pantalla, "ESPECIALIDAD");
   assert.equal(contrato.proposito, "RESERVA_CITA");
   assert.equal(contrato.endpoint, true);
-  assert.deepEqual(Object.keys(contrato.campos), ["reserva", "resumen"]);
+  assert.deepEqual(Object.keys(contrato.campos), ["reserva", "resumen", "pago"]);
   assert.deepEqual(contrato.respuestas, {});
 });
 

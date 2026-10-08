@@ -10,7 +10,7 @@ import { APP_GUARD, NestFactory } from '@nestjs/core';
 import { ConfigService } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
 import { createHmac, randomUUID } from 'node:crypto';
-import { abrirTokenFlow, sellarTokenFlow } from '../../common/whatsapp/flows/token-flow';
+import { abrirTokenFlow, sellarTokenFlow, sellarCierreReserva } from '../../common/whatsapp/flows/token-flow';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import * as bcrypt from 'bcryptjs';
@@ -238,12 +238,12 @@ it('Flow de reserva (con endpoint): token sellado, abre pidiendo su pantalla, y 
   const oferta: OfertaInteraccion = { telefono, mensaje: { tipo: 'flow', cuerpo: 'Reservar', flowId: flow.id, correlacion: token, cta: 'Reservar cita', modo: 'published', inicio: { accion: 'data_exchange' } }, flow };
   const m = await prisma.mensaje.create({ data: { conversacionId: chat, direccion: 'SALIENTE', contenido: 'Reservar', clientMessageId, whatsappMsgId: randomUUID(), interaccion: { create: datosOferta(oferta, clientMessageId) } } });
   // Lo que devuelve NUESTRO endpoint al cerrar el Flow (extension_message_response), y Meta reenvía al chat.
-  const params = { flow_token: token, flow_version: 'reserva-cita.v1', reserva: '123', resumen: 'Dra. Sintética · jueves 8 de octubre · 09:30' };
+  const params = { flow_token: token, flow_version: 'reserva-cita.v1', reserva: '123', resumen: 'Dra. Sintética · jueves 8 de octubre · 09:30', pago: sellarCierreReserva({ telefono: telefono.replace(/^\+/, ''), reserva: 123, montoCentavos: null, qrClave: null }, token) };
   const raw = { ...respuesta(m.whatsappMsgId!), interactive: { type: 'nfm_reply', nfm_reply: { name: 'flow', body: 'Sent', response_json: JSON.stringify(params) } } };
   expect((await webhook([raw])).status).toBe(200);
   const entrada = await prisma.mensaje.findUniqueOrThrow({ where: { whatsappMsgId: raw.id }, include: { interaccion: true } });
   expect(entrada.interaccion?.estado).toBe('CORRELACIONADA');
-  expect(entrada.contenido).toBe('Reservó por el chat: N.º 123 · Dra. Sintética · jueves 8 de octubre · 09:30. Pendiente de confirmar en FileMaker.');
+  expect(entrada.contenido).toBe('Reservó por el chat: N.º 123. Consulta el detalle en Reservas. Pendiente de confirmar en FileMaker.');
   expect((entrada.interaccion?.vista as Record<string, unknown>)['proposito']).toBe('RESERVA_CITA');
   expect(JSON.stringify(entrada.interaccion?.vista)).not.toContain(token);
   const conversacion = await prisma.conversacion.findUniqueOrThrow({ where: { id: chat }, select: { atencionMotivo: true } });

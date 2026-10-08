@@ -64,3 +64,22 @@ describe('token del Flow', () => {
     expect(() => sellarTokenFlow('70012345; drop')).toThrow();
   });
 });
+
+describe('cierre de reserva sellado', () => {
+  beforeAll(() => { process.env['WHATSAPP_INTERACCIONES_KEY'] = Buffer.alloc(32, 9).toString('base64'); });
+  it('solo el mismo Flow, teléfono y periodo pueden recuperar el cierre', async () => {
+    const { sellarCierreReserva, abrirCierreReserva } = await import('./token-flow');
+    const token = sellarTokenFlow('59170012345', Date.now(), 'linea-piloto');
+    const cierre = { telefono:'59170012345', reserva:123, montoCentavos:40025, qrClave:'agenda/qr/7-0123456789abcdef.png' };
+    const sello = sellarCierreReserva(cierre, token);
+    expect(sello.length).toBeLessThanOrEqual(500);
+    expect(abrirCierreReserva(sello, token)).toEqual(cierre);
+    expect(abrirCierreReserva(sello, sellarTokenFlow('59170012345', Date.now(), 'otra-linea'))).toBeNull();
+    expect(abrirCierreReserva(sello, token, Date.now()+86400001)).toBeNull();
+    expect(abrirCierreReserva(sello+'.extra', token)).toBeNull();
+    expect(() => sellarCierreReserva({...cierre,telefono:'59170054321'},token)).toThrow();
+    const incoherente = sellarCierreReserva({...cierre,qrClave:null},token);
+    expect(abrirCierreReserva(incoherente,token)).toBeNull();
+    expect(abrirTokenFlow(token)?.lineaId).toBe('linea-piloto');
+  });
+});

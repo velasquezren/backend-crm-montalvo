@@ -29,6 +29,7 @@ import { DespachadorSalienteService } from './despachador-saliente.service';
 import { MediaEntranteService, MediaEntrante } from './media-entrante.service';
 import { CONTENIDO_PIN, TEXTO_UBICACION, UBICACION_CLINICA } from './ubicacion-clinica';
 import { registrarComprobante } from './pagos-chat';
+import { comprobanteAmbiguo, marcarComprobanteDeReserva, PagoDeReserva, registrarReservaDeChat, TEXTO_COMPROBANTE_RESERVA } from './reservas-chat';
 import { codigoEnTexto, HABLAR_CON_PERSONA, PAGAR_PROMOCION, TEXTO_COMPROBANTE_RECIBIDO, TEXTO_PERSONA_TARJETA } from './promocion-chat';
 import { PromocionesChatService } from './promociones-chat.service';
 import type { PromocionChat } from '../promociones/promociones.service';
@@ -192,10 +193,13 @@ export class IngestaWhatsappService {
     let accion = null as AccionMenu | null;
     /* Tocó «Pagar ahora» en la tarjeta de esta promoción. */
     let pagarPromocion = null as string | null;
-    /* La imagen o documento que mandó era el comprobante de un pago pendiente. */
-    let comprobante = false;
+    /* La imagen o documento que mandó era el comprobante de un pago pendiente:
+       de una promoción o de una reserva hecha por el chat. */
+    let comprobante = null as 'PROMOCION' | 'RESERVA' | null;
     /* Completó el Flow de reserva: ya hay una reserva en la agenda para confirmar. */
     let reservoPorChat = false;
+    /* Y se cobra por el chat: el QR del médico que hay que mandarle. */
+    let pagoDeReserva = null as PagoDeReserva | null;
     try {
       mensaje = await this.prisma.$transaction(async tx => {
         const creado = await tx.mensaje.create({
@@ -216,6 +220,7 @@ export class IngestaWhatsappService {
         if (interaccionOriginal !== undefined && interacciones) {
           const resultado = await guardarRespuesta(tx, creado.id, conversacion.id, telefono, interaccionOriginal);
           reservoPorChat = resultado.propositoFlow === 'RESERVA_CITA' && resultado.estado === 'CORRELACIONADA';
+          if (reservoPorChat && resultado.reservaChat) pagoDeReserva = await registrarReservaDeChat(tx, conversacion.id, resultado.reservaChat);
           if (linea.comercial && resultado.promocionId && resultado.seleccionId === PAGAR_PROMOCION && resultado.estado === 'CORRELACIONADA') {
             /* «Pagar ahora» de una tarjeta VIGENTE: se le manda el QR aunque una persona
                ya esté en el chat, porque es lo que ella acaba de pedir. Si hoy no se puede
@@ -253,12 +258,19 @@ export class IngestaWhatsappService {
              clasifica mensajes, solo reconoce dos listas cerradas de frases. */
           pedido = esAvisoDeEmergencia(contenido) ? 'EMERGENCIA' : esPedidoDePersona(contenido) ? 'SOLICITUD_EXPLICITA' : null;
           if (pedido && await registrarSolicitudAtencion(tx, conversacion.id, pedido, creado.id, this.ahora())) solicitud = pedido;
-        } else if (media && (media.tipo === 'IMAGEN' || media.tipo === 'DOCUMENTO') && await registrarComprobante(tx, conversacion.id, creado.id)) {
-          /* Había un pago esperando su comprobante: esta foto o PDF lo es. Pasa a
-             «Atención» para que una persona lo verifique, en la misma transacción. */
-          comprobante = true;
-          pedido = 'COMPROBANTE_PAGO';
-          if (await registrarSolicitudAtencion(tx, conversacion.id, pedido, creado.id, this.ahora())) solicitud = pedido;
+        } else if (media && (media.tipo === 'IMAGEN' || media.tipo === 'DOCUMENTO')) {
+          /* Asociar solo si hay un único cobro posible; si es una reserva,
+             ComprobantesReservaChatService lleva la imagen a la agenda. */
+          if (await comprobanteAmbiguo(tx, conversacion.id)) {
+            pedido = 'REVISION';
+            if (await registrarSolicitudAtencion(tx, conversacion.id, pedido, creado.id, this.ahora())) solicitud = pedido;
+          } else comprobante = await registrarComprobante(tx, conversacion.id, creado.id) ? 'PROMOCION'
+            : await marcarComprobanteDeReserva(tx, conversacion.id, creado.id, this.ahora()) ? 'RESERVA' : null;
+          /* Pasa a «Atención» para que una persona lo verifique, en la misma transacción. */
+          if (comprobante) {
+            pedido = 'COMPROBANTE_PAGO';
+            if (await registrarSolicitudAtencion(tx, conversacion.id, pedido, creado.id, this.ahora())) solicitud = pedido;
+          }
         }
         await tx.conversacion.update({
           where: { id: conversacion.id },
@@ -320,10 +332,11 @@ export class IngestaWhatsappService {
     }
     /* Mandó el comprobante: que sepa que llegó y que lo verifica una persona. */
     if (comprobante) {
+      const acuse = comprobante === 'RESERVA' ? TEXTO_COMPROBANTE_RESERVA : TEXTO_COMPROBANTE_RECIBIDO;
       void enSegundoPlano('acuse de comprobante', this.logger, () =>
         /* Cada comprobante registrado es un evento propio (tras «pedir otro», el
            nuevo también merece su acuse); un webhook repetido ya no llega aquí. */
-        this.responderTexto(conversacion.id, cliente.telefono, TEXTO_COMPROBANTE_RECIBIDO, { respetaPausa: false, noRepetir: false }),
+        this.responderTexto(conversacion.id, cliente.telefono, acuse, { respetaPausa: false, noRepetir: false }),
       );
     }
 
@@ -335,6 +348,12 @@ export class IngestaWhatsappService {
       if (elegida && elegida.tipo !== 'EMERGENCIA') {
         void enSegundoPlano('respuesta del menú de atención', this.logger, () =>
           this.responderSeleccion(conversacion.id, cliente.telefono, lineaId, elegida, menu, mensaje.id),
+        );
+      }
+      const reservaAPagar = pagoDeReserva;
+      if (reservaAPagar) {
+        void enSegundoPlano('QR de la reserva', this.logger, () =>
+          this.enviarPagoDeReserva(conversacion.id, cliente.telefono, reservaAPagar),
         );
       }
       const promocionAPagar = pagarPromocion;
@@ -619,6 +638,19 @@ export class IngestaWhatsappService {
   }
 
   /**
+   * El QR del médico tras reservar con el Flow. Lo acaba de pedir ella al
+   * reservar: sale aunque el chat espere a una persona. Una sola vez por
+   * reserva: el registro de la transacción ya descartó los webhooks repetidos.
+   */
+  private async enviarPagoDeReserva(conversacionId: string, telefono: string, pago: PagoDeReserva): Promise<void> {
+    try {
+      await this.despachador.texto({ mensajeId: pago.mensajeId, conversacionId, telefono }, pago.texto, pago.media);
+    } catch {
+      this.logger.error('No se pudo despachar el QR de una reserva; queda en la cola existente');
+    }
+  }
+
+  /**
    * Una oferta del menú (el menú o la lista de promociones): se guarda bajo el
    * candado de automáticos, se retira si entretanto alguien pidió una persona y
    * se despacha. Devuelve si SALIÓ: un menú que Meta rechazó no cuenta como
@@ -629,7 +661,11 @@ export class IngestaWhatsappService {
     { respetaPausa = true } = {},
   ): Promise<boolean> {
     try {
-      const filas = await this.guardarMensajeAutomatico(conversacionId, [{ oferta: { ...prepararOferta(mensaje, telefono), ...origen } }], yaHecho, { respetaPausa });
+      const { lineaId } = await this.prisma.conversacion.findUniqueOrThrow({
+        where: { id: conversacionId }, select: { lineaId: true },
+      });
+      const oferta = { ...prepararOferta(mensaje, telefono, lineaId ?? undefined), ...origen };
+      const filas = await this.guardarMensajeAutomatico(conversacionId, [{ oferta }], yaHecho, { respetaPausa });
       if (!filas || (respetaPausa && !(await this.sigueSinPausa(conversacionId, filas)))) return false;
       await this.despachador.interaccion({ mensajeId: filas[0].id, conversacionId, telefono });
       const enviada = await this.prisma.mensaje.findUnique({ where: { id: filas[0].id }, select: { estadoEnvio: true } });

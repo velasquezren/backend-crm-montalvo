@@ -18,6 +18,8 @@ import { DirectorioService } from '../directorio/directorio.service';
 import { AgendaMedicosCrmService } from './agenda-medicos-crm.service';
 import { AgendaReservasCrmService } from './agenda-reservas-crm.service';
 import { AgendaModule } from './agenda.module';
+import { AgendaReservasService } from './agenda-reservas.service';
+import { abrirCierreReserva } from '../../common/whatsapp/flows/token-flow';
 import { AgendaVpsClient } from './agenda-vps.client';
 
 // Suite separada: scripts/probar-agenda-mysql.sh crea y destruye SU MySQL.
@@ -320,7 +322,9 @@ ejecutar('Agenda HTTP → adaptador TLS → MySQL real descartable', () => {
 
   it('Flow de reserva: de la especialidad a la reserva en para_agendar, cifrado de punta a punta', async () => {
     expect((await pantallaDelFlow({ action: 'ping' })).respuesta).toEqual({ data: { status: 'active' } });
-    const token = sellarTokenFlow('59170012345');
+    process.env['WHATSAPP_INTERACCIONES'] = 'on';
+    process.env['WHATSAPP_INTERACCIONES_LINEAS'] = 'linea-flow-sintetica';
+    const token = sellarTokenFlow('59170012345', Date.now(), 'linea-flow-sintetica');
     type Opcion = { id: string; title: string; description?: string };
     const paso = async (data: Record<string, unknown>) => (await pantallaDelFlow({ action: 'data_exchange', flow_token: token, screen: 'X', data })).respuesta as { screen: string; data: Record<string, unknown> };
 
@@ -349,6 +353,7 @@ ejecutar('Agenda HTTP → adaptador TLS → MySQL real descartable', () => {
     const params = (fin.data['extension_message_response'] as { params: Record<string, string> }).params;
     expect(params).toMatchObject({ flow_token: token, flow_version: 'reserva-cita.v1' });
     expect(params['resumen']).toContain('10:00');
+    expect(abrirCierreReserva(params['pago'], token)).toMatchObject({ telefono:'59170012345', reserva:Number(params['reserva']), montoCentavos:null, qrClave:null });
     const db = await conexionRoot();
     try {
       const [[fila]] = await db.query<RowDataPacket[]>('SELECT * FROM para_agendar WHERE para_age = ?', [Number(params['reserva'])]);
@@ -363,14 +368,14 @@ ejecutar('Agenda HTTP → adaptador TLS → MySQL real descartable', () => {
 
   it('Flow de reserva: token ajeno 427, cifrado roto 421, firma falsa 403; un celular extranjero no reserva', async () => {
     expect((await pantallaDelFlow({ action: 'INIT', flow_token: 'token-inventado' })).status).toBe(427);
-    expect((await pantallaDelFlow({ action: 'INIT', flow_token: sellarTokenFlow('59170012345') }, false)).status).toBe(403);
+    expect((await pantallaDelFlow({ action: 'INIT', flow_token: sellarTokenFlow('59170012345', Date.now(), 'linea-flow-sintetica') }, false)).status).toBe(403);
     const roto = await fetch(`${base}/whatsapp/flows/agenda`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'x-hub-signature-256': `sha256=${createHmac('sha256', SECRETO_APP_META).update('{"encrypted_flow_data":"AAAAAAAAAAAAAAAAAAAAAAAA","encrypted_aes_key":"AAAAAAAAAAAAAAAAAAAAAAAA","initial_vector":"AAAAAAAAAAAA"}').digest('hex')}` },
       body: '{"encrypted_flow_data":"AAAAAAAAAAAAAAAAAAAAAAAA","encrypted_aes_key":"AAAAAAAAAAAAAAAAAAAAAAAA","initial_vector":"AAAAAAAAAAAA"}',
     });
     expect(roto.status).toBe(421);
-    const extranjero = (await pantallaDelFlow({ action: 'data_exchange', flow_token: sellarTokenFlow('15551948320'), data: { paso: 'confirmar', medico: '1', fecha: fecha(1), hora: '11:00', nombre: 'Prueba', ci: '1234567' } })).respuesta;
+    const extranjero = (await pantallaDelFlow({ action: 'data_exchange', flow_token: sellarTokenFlow('15551948320', Date.now(), 'linea-flow-sintetica'), data: { paso: 'confirmar', medico: '1', fecha: fecha(1), hora: '11:00', nombre: 'Prueba', ci: '1234567' } })).respuesta;
     expect(extranjero).toMatchObject({ screen: 'DATOS', data: { aviso: expect.stringContaining('celulares de Bolivia') } });
   });
 
@@ -695,4 +700,24 @@ ejecutar('Agenda HTTP → adaptador TLS → MySQL real descartable', () => {
       } finally { await conn.end(); }
     });
   });
+  it('comprobante de chat: guarda la imagen real una vez sin confirmar el pago ni sobrescribir', async () => {
+    const db = await conexionRoot();
+    try {
+      await db.query("INSERT INTO para_agendar (para_age, medico_pk, fecha, hora, nombre_age, telefono_age, ci_age, estado) VALUES (99999,1,CURRENT_DATE(),'23:59:00','Sintético','70012345','1234567','PENDIENTE')");
+      const servicio=app.get(AgendaReservasService);
+      expect(await servicio.registrarPagoDesdeChat(99999,PNG_QR)).toBe('REGISTRADO');
+      expect(await servicio.registrarPagoDesdeChat(99999,WEBP_FOTO)).toBe('YA_NO_PENDIENTE');
+      const [[r]]=await db.query<RowDataPacket[]>('SELECT estado, comprobante FROM para_agendar WHERE para_age=99999');
+      expect(r.estado).toBe('PAGADO');
+      expect(Buffer.from(r.comprobante)).toEqual(PNG_QR);
+      expect(await servicio.registrarPagoDesdeChat(99998,PNG_QR)).toBe('NO_ENCONTRADA');
+      expect(await servicio.registrarPagoDesdeChat(99999,Buffer.from('no-imagen'))).toBe('NO_ES_IMAGEN');
+    } finally { await db.end(); }
+  });
+  it('un Flow emitido para una línea apagada o sin línea no consulta ni reserva', async () => {
+    const token=sellarTokenFlow('59170012345',Date.now(),'linea-apagada');
+    expect((await pantallaDelFlow({action:'INIT',flow_token:token})).status).toBe(427);
+    expect((await pantallaDelFlow({action:'INIT',flow_token:sellarTokenFlow('59170012345')})).status).toBe(427);
+  });
+
 });

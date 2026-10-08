@@ -1,3 +1,5 @@
+import { AgendaModule } from '../agenda/agenda.module';
+import { ComprobantesReservaChatService } from './comprobantes-reserva-chat.service';
 import { CierreInactividadService } from './cierre-inactividad.service';
 import { CabecerasPlantillaController } from './cabeceras-plantilla.controller';
 import { MemoriaAgenteModule } from '../memoria-agente/memoria-agente.module';
@@ -30,7 +32,7 @@ import { ReintentoSalienteService } from './reintento-saliente.service';
 import { WhatsappWebhookController } from './webhooks/whatsapp-webhook.controller';
 
 @Module({
-  imports: [LeadsModule, MemoriaAgenteModule, LineasWhatsappModule, MenuAtencionModule, CobrosModule, PromocionesModule, VentasModule, ClientesModule, StorageModule, PushModule, AuthModule],
+  imports: [AgendaModule, LeadsModule, MemoriaAgenteModule, LineasWhatsappModule, MenuAtencionModule, CobrosModule, PromocionesModule, VentasModule, ClientesModule, StorageModule, PushModule, AuthModule],
   controllers: [ConversacionesController, WhatsappWebhookController, CabecerasPlantillaController],
   providers: [
     ConversacionesService,
@@ -44,6 +46,7 @@ import { WhatsappWebhookController } from './webhooks/whatsapp-webhook.controlle
     MediaEntranteService,
     ReintentoSalienteService,
     CierreInactividadService,
+    ComprobantesReservaChatService,
     MetaSignatureGuard,
     WhatsappCloudService,
     AlertasWhatsappService,

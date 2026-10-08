@@ -4,7 +4,7 @@ import { randomBytes } from 'node:crypto';
 import { CacheMemoria } from '../../common/cache/cache-memoria';
 import { Prisma } from '../../prisma/prisma-client';
 import { PrismaService } from '../../prisma/prisma.service';
-import { interaccionesEnLinea } from '../conversaciones/interacciones-integracion';
+import { formularioDeCita, interaccionesEnLinea } from '../conversaciones/interacciones-integracion';
 import { GuardarMenuDto } from './dto/guardar-menu.dto';
 import { erroresDelMenu, leerMenu, MenuAtencion, normalizarMenu } from './menu-atencion';
 
@@ -19,10 +19,16 @@ export interface MenuEditable {
   actualizadoEn: Date | null;
   actualizadoPor: { id: string; nombre: string } | null;
   /**
-   * `WHATSAPP_INTERACCIONES` del servidor. Apagada, ningún menú sale aunque esté
-   * activo: la pantalla lo dice para que nadie crea que ya funciona.
+   * ¿Esta línea tiene las interacciones encendidas en el servidor
+   * (`interaccionesEnLinea`)? Apagada, su menú no sale aunque esté activo: la
+   * pantalla lo dice para que nadie crea que ya funciona.
    */
   enviosHabilitados: boolean;
+  /**
+   * Qué abre la opción «Cita» EN ESTA LÍNEA: el formulario de reserva (si su WABA
+   * lo tiene publicado), el de solicitud, o ninguno (solo pasa a «Atención»).
+   */
+  formularioCita: 'RESERVA' | 'SOLICITUD' | null;
 }
 
 /**
@@ -46,6 +52,7 @@ export class MenuAtencionService {
       select: {
         nombre: true,
         comercial: true,
+        wabaId: true,
         menuAtencion: { include: { actualizadoPor: { select: { id: true, nombre: true } } } },
       },
     });
@@ -62,6 +69,7 @@ export class MenuAtencionService {
       actualizadoEn: fila?.actualizadoEn ?? null,
       actualizadoPor: fila?.actualizadoPor ?? null,
       enviosHabilitados: interaccionesEnLinea(lineaId),
+      formularioCita: formularioDeCita(linea.wabaId),
     };
   }
 

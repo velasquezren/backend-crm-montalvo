@@ -2,7 +2,7 @@ import { BadRequestException, ConflictException, ServiceUnavailableException } f
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
 import { Prisma } from '../../prisma/prisma-client';
 import { PrismaService } from '../../prisma/prisma.service';
-import { sellarTokenFlow } from '../../common/whatsapp/flows/token-flow';
+import { abrirCierreReserva, CierreReserva, sellarTokenFlow } from '../../common/whatsapp/flows/token-flow';
 import { MensajePreparado, contenidoMeta, validarMensaje } from '../../common/whatsapp/interacciones/mensaje-interactivo';
 import { objeto, parsearRespuesta } from '../../common/whatsapp/interacciones/respuesta-interactiva';
 import { ResultadoRespuesta } from './atencion-humana';
@@ -121,6 +121,12 @@ export function flowDeCita(wabaId: string | null | undefined): FlowPublicado | n
   return deLaWaba.find(f => f.proposito === 'RESERVA_CITA') ?? deLaWaba.find(f => f.proposito === 'SOLICITUD_CITA') ?? null;
 }
 
+/** Para la pantalla del menú: qué formulario abre «Cita» en las líneas de esta WABA. */
+export function formularioDeCita(wabaId: string | null | undefined): 'RESERVA' | 'SOLICITUD' | null {
+  const flow = flowDeCita(wabaId);
+  return flow?.proposito === 'RESERVA_CITA' ? 'RESERVA' : flow?.proposito === 'SOLICITUD_CITA' ? 'SOLICITUD' : null;
+}
+
 export interface OfertaInteraccion {
   mensaje: MensajePreparado;
   telefono: string;
@@ -143,7 +149,7 @@ export interface OfertaInteraccion {
   /** Metadatos de transporte; no forman parte de la intención ni llegan a UI. */
   metaIdsAnteriores?: string[];
 }
-export function prepararOferta(entrada: unknown, telefono: string): OfertaInteraccion {
+export function prepararOferta(entrada: unknown, telefono: string, lineaId?: string): OfertaInteraccion {
   if (!interaccionesHabilitadas()) throw new BadRequestException('Interacciones desactivadas');
   try {
     // El validador comprueba cada campo usado por el constructor, sin ejecutar datos del cliente.
@@ -151,7 +157,7 @@ export function prepararOferta(entrada: unknown, telefono: string): OfertaIntera
     /* La correlación la pone SIEMPRE el servidor: aleatoria, o el token sellado si
        el Flow tiene endpoint. Nunca la que venga en la petición. */
     const flowPedido = candidato?.['tipo'] === 'flow' ? catalogoFlows().find(f => f.id === candidato['flowId']) : undefined;
-    const correlacion = flowPedido?.endpoint ? sellarTokenFlow(telefono.replace(/^\+/, '')) : randomBytes(32).toString('hex');
+    const correlacion = flowPedido?.endpoint ? sellarTokenFlow(telefono.replace(/^\+/, ''), Date.now(), lineaId) : randomBytes(32).toString('hex');
     const m = (candidato?.['tipo'] === 'flow' ? { ...candidato, correlacion } : entrada) as MensajePreparado;
     validarMensaje(m);
     if (m.tipo === 'texto') throw new Error('Usar el envío de texto existente');
@@ -218,6 +224,7 @@ export async function guardarRespuesta(
   let datosFlow: { etiqueta: string; valor: string }[] | undefined;
   let origenOferta: OfertaInteraccion['origen'];
   let promocionOferta: string | undefined;
+  let reservaChat: CierreReserva | undefined;
   let cuerpo = r.seleccion?.tipo === 'nfm_reply' ? 'Formulario recibido; requiere revisión humana. No confirma una cita.' : 'Respuesta interactiva recibida; requiere revisión humana.';
   if (r.estado === 'valida' && r.contextoId && r.seleccion) {
     const fuente = await tx.mensaje.findFirst({
@@ -255,10 +262,21 @@ export async function guardarRespuesta(
           /* La reserva la hizo NUESTRO endpoint y estos datos los devolvió él al cerrar el
              Flow (`extension_message_response`): la paciente no los escribe. */
           if (propositoFlow === 'RESERVA_CITA') {
-            cuerpo = `Reservó por el chat: N.º ${String(seleccion.datos['reserva'])} · ${String(seleccion.datos['resumen'])}. Pendiente de confirmar en FileMaker.`;
+            /* El sello lo puso el endpoint para ESTE teléfono y ESTA reserva: un cierre
+               copiado de otro chat o con el número cambiado no se cree, lo ve una persona. */
+            const cierre = abrirCierreReserva(seleccion.datos['pago'], seleccion.correlacion ?? '');
+            if (cierre && cierre.telefono === telefono.replace(/^\+/, '') && String(cierre.reserva) === seleccion.datos['reserva']) {
+              reservaChat = cierre;
+              cuerpo = `Reservó por el chat: N.º ${cierre.reserva}. Consulta el detalle en Reservas. Pendiente de confirmar en FileMaker.`;
+            } else {
+              propositoFlow = undefined;
+              estado = 'INVALIDA';
+              cuerpo = 'Formulario de reserva con datos que no coinciden; requiere revisión humana.';
+            }
           }
         }
         if (!vigente) estado = 'CADUCADA';
+        else if (estado === 'INVALIDA') { /* Sello incorrecto: no consumir la oferta. */ }
         else if (guardada.origen) estado = 'CORRELACIONADA';
         else {
           const reclamo = await tx.interaccionMensaje.updateMany({ where: { mensajeId: fuente.id, consumidaPor: null }, data: { consumidaPor: mensajeId } });
@@ -279,6 +297,7 @@ export async function guardarRespuesta(
     ...(propositoFlow ? { propositoFlow } : {}),
     ...(origenOferta === 'MENU_ATENCION' ? { deMenu: true } : {}),
     ...(origenOferta === 'PROMOCION' && promocionOferta ? { promocionId: promocionOferta } : {}),
+    ...(reservaChat ? { reservaChat } : {}),
   };
 }
 

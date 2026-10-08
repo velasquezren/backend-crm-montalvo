@@ -1,8 +1,9 @@
 import { HttpException, Injectable, Logger } from '@nestjs/common';
 import { plainToInstance } from 'class-transformer';
 import { validateSync } from 'class-validator';
+import { interaccionesEnLinea } from '../conversaciones/interacciones-integracion';
 import { CacheMemoria } from '../../common/cache/cache-memoria';
-import { abrirTokenFlow } from '../../common/whatsapp/flows/token-flow';
+import { abrirTokenFlow, sellarCierreReserva } from '../../common/whatsapp/flows/token-flow';
 import { AgendaReservasService } from './agenda-reservas.service';
 import { AgendaService } from './agenda.service';
 import { EspecialidadAgenda, MedicoAgenda } from './agenda.contrato';
@@ -42,6 +43,13 @@ export class TokenFlowInvalido extends Error {}
 const MAX_TITULO = 30;
 const MAX_DESCRIPCION = 300;
 const MAX_RADIOS = 20;
+/**
+ * Lo que se espera al QR del médico antes de cerrar el Flow. La reserva ya está
+ * hecha: WhatsApp corta a los 10 s y la paciente vería un error sobre una reserva
+ * que sí existe. Sin QR a tiempo, recepción coordina el pago (como con la web);
+ * la copia sigue en segundo plano y la siguiente paciente ya la encuentra.
+ */
+const ESPERA_QR_MS = 3_000;
 
 const recortar = (texto: string, max: number) => (texto.length <= max ? texto : `${texto.slice(0, max - 1).trimEnd()}…`);
 const texto = (v: unknown) => (typeof v === 'string' ? v.trim() : '');
@@ -87,7 +95,7 @@ export class AgendaFlowService {
       return { data: { acknowledged: true } };
     }
     const token = abrirTokenFlow(p.flow_token);
-    if (!token) throw new TokenFlowInvalido();
+    if (!token?.lineaId || !interaccionesEnLinea(token.lineaId)) throw new TokenFlowInvalido();
 
     if (p.action === 'INIT' || p.action === 'BACK') return this.especialidades();
     if (p.action !== 'data_exchange') return this.especialidades();
@@ -222,11 +230,17 @@ export class AgendaFlowService {
     try {
       const reserva = await this.reservas.reservar(dto);
       const resumen = `${reserva.medico} · ${fechaLarga(reserva.fecha)} · ${reserva.hora}`;
+      const { precio, bancoId } = reserva.pago;
+      const qrClave = precio && bancoId !== null ? await this.qrATiempo(bancoId) : null;
+      /* El chat cobra solo con monto Y QR: uno sin el otro no se puede pagar. */
+      const pago = sellarCierreReserva({
+        telefono, reserva: reserva.codigo, montoCentavos: qrClave && precio ? precio.importeCentavos : null, qrClave,
+      }, flowToken);
       return {
         screen: 'SUCCESS',
         data: {
           extension_message_response: {
-            params: { flow_token: flowToken, flow_version: VERSION_FLOW_RESERVA, reserva: String(reserva.codigo), resumen: recortar(resumen, 200) },
+            params: { flow_token: flowToken, flow_version: VERSION_FLOW_RESERVA, reserva: String(reserva.codigo), resumen: recortar(resumen, 200), pago },
           },
         },
       };
@@ -240,5 +254,11 @@ export class AgendaFlowService {
       this.logger.warn(`Reserva por Flow no completada: ${error instanceof Error ? error.message : 'error'}`);
       return this.horas(medicoId, fecha, 'No pudimos registrar la reserva. Vuelve a intentarlo o escríbenos por el chat.', previo);
     }
+  }
+
+  private qrATiempo(bancoId: number): Promise<string | null> {
+    let reloj: NodeJS.Timeout | undefined;
+    const limite = new Promise<null>(resolver => { reloj = setTimeout(() => resolver(null), ESPERA_QR_MS); reloj.unref(); });
+    return Promise.race([this.reservas.prepararQr(bancoId), limite]).finally(() => clearTimeout(reloj));
   }
 }

@@ -114,7 +114,8 @@ export class ReintentoSalienteService implements OnModuleInit, OnModuleDestroy {
         ...(interaccionesHabilitadas() ? {} : { interaccion: { is: null } }),
         /* Un automático no se reenvía en un chat que pidió una persona: la
            pausa de la automatización vale también para los reintentos. */
-        OR: [{ automatico: false }, { conversacion: { automatizacionPausadaEn: null } }],
+        OR: [{ automatico: false }, { conversacion: { automatizacionPausadaEn: null } },
+          { reservaQr: { is: { estado: 'ESPERANDO_COMPROBANTE' } }, conversacion: { atencionTomadaEn: null } }],
       },
       select: {
         id: true,

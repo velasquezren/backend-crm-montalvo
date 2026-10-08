@@ -4,6 +4,7 @@ import { UsuarioJwt } from '../../common/decorators/current-user.decorator';
 import { calcularPaginacion, paginar } from '../../common/dto/pagination.dto';
 import { fechaCivilClinica, fechaCivilDesdeTexto, textoDeFechaCivil } from '../../common/fechas/zona-clinica';
 import { normalizarTelefono } from '../../common/telefono/telefono';
+import { EstadoReservaChat } from '../../prisma/prisma-client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { whereAccesoConversacion } from '../conversaciones/acceso-conversacion';
 import { AgendaConsultaClient } from './agenda-consulta.client';
@@ -24,6 +25,7 @@ export interface ReservaAgendaCrm extends Omit<FilaReservaAgenda, 'precio'> {
   precio: { importeCentavos: number; moneda: 'BOB' } | null;
   /** E.164 si el teléfono escrito en la agenda es válido: con él se abre su conversación. */
   telefonoE164: string | null;
+  pagoChat?: { estado: EstadoReservaChat; detalle: string | null };
 }
 
 function presentar(f: FilaReservaAgenda): ReservaAgendaCrm {
@@ -100,7 +102,13 @@ export class AgendaReservasCrmService {
     const local = digitos.startsWith('591') && digitos.length === 11 ? digitos.slice(3) : digitos;
     if (local.length < 7) return [];
     const desde = textoDeFechaCivil(hoyEnLaClinica());
-    return (await this.agenda.ejecutar(db => reservasPorTelefono(db, local, desde, RESERVAS_EN_EL_CHAT))).map(presentar);
+    const reservas = (await this.agenda.ejecutar(db => reservasPorTelefono(db, local, desde, RESERVAS_EN_EL_CHAT))).map(presentar);
+    const pagos = await this.prisma.reservaChat.findMany({ where: { conversacionId, reservaAgenda: { in: reservas.map(r => r.id) } },
+      select: { reservaAgenda: true, estado: true, detalle: true } });
+    return reservas.map(r => {
+      const pago = pagos.find(p => p.reservaAgenda === r.id);
+      return pago ? { ...r, pagoChat: { estado: pago.estado, detalle: pago.detalle } } : r;
+    });
   }
 
   /**

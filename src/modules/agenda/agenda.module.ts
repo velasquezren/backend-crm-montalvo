@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { StorageModule } from '../../common/storage/storage.module';
 import { DirectorioModule } from '../directorio/directorio.module';
 import { AgendaAdminClient } from './agenda-admin.client';
 import { AgendaConsultaClient } from './agenda-consulta.client';
@@ -16,12 +17,12 @@ import { AgendaService } from './agenda.service';
 import { AgendaVpsClient } from './agenda-vps.client';
 
 @Module({
-  imports: [DirectorioModule],
+  imports: [DirectorioModule, StorageModule],
   controllers: [AgendaPublicaController, AgendaReservasCrmController, AgendaMedicosCrmController, AgendaFlowController],
   providers: [
     AgendaService, AgendaVpsClient, AgendaReservaClient, AgendaReservasService, AgendaTelegramService,
     AgendaConsultaClient, AgendaReservasCrmService, AgendaAdminClient, AgendaMedicosCrmService, AgendaFlowService,
   ],
-  exports: [AgendaService],
+  exports: [AgendaService, AgendaReservasService],
 })
 export class AgendaModule {}

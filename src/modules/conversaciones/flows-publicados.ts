@@ -68,6 +68,10 @@ export const FLOWS_PUBLICADOS: readonly FlowPublicado[] = [
       "resumen": {
         "tipo": "texto",
         "max": 200
+      },
+      "pago": {
+        "tipo": "texto",
+        "max": 500
       }
     },
     "proposito": "RESERVA_CITA",
@@ -89,6 +93,10 @@ export const FLOWS_PUBLICADOS: readonly FlowPublicado[] = [
       "resumen": {
         "tipo": "texto",
         "max": 200
+      },
+      "pago": {
+        "tipo": "texto",
+        "max": 500
       }
     },
     "proposito": "RESERVA_CITA",
@@ -110,6 +118,10 @@ export const FLOWS_PUBLICADOS: readonly FlowPublicado[] = [
       "resumen": {
         "tipo": "texto",
         "max": 200
+      },
+      "pago": {
+        "tipo": "texto",
+        "max": 500
       }
     },
     "proposito": "RESERVA_CITA",

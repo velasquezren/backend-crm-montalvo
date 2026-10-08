@@ -1,4 +1,5 @@
 import { MotivoAtencion, Prisma } from '../../prisma/prisma-client';
+import { CierreReserva } from '../../common/whatsapp/flows/token-flow';
 
 /*
  * Atención humana: cuándo una conversación necesita a una PERSONA, con qué
@@ -87,6 +88,8 @@ export interface ResultadoRespuesta {
   deMenu?: boolean;
   /** La opción estaba en la tarjeta de esta promoción. */
   promocionId?: string;
+  /** Reservó con el Flow: el cierre sellado por el endpoint, ya verificado. */
+  reservaChat?: CierreReserva;
 }
 
 const ESTADOS_DE_OFERTA_NUESTRA = new Set(['CORRELACIONADA', 'CADUCADA']);

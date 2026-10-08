@@ -2,7 +2,7 @@ import { AdjuntoSaliente, contenidoAdjunto } from './contenido-adjunto';
 import { LineasWhatsappService } from '../lineas-whatsapp/lineas-whatsapp.service';
 import { Injectable, Logger } from '@nestjs/common';
 import { botonPlantilla } from '../../common/whatsapp/interacciones/mensaje-interactivo';
-import { cifrarInteraccion, contenidoOferta, descifrarInteraccion, interaccionesHabilitadas, OfertaInteraccion } from './interacciones-integracion';
+import { cifrarInteraccion, contenidoOferta, descifrarInteraccion, interaccionesEnLinea, interaccionesHabilitadas, OfertaInteraccion } from './interacciones-integracion';
 import { permiteReintentarError } from '../../common/whatsapp/error-envio';
 
 import { R2Service } from '../../common/storage/r2.service';
@@ -131,6 +131,19 @@ export class DespachadorSalienteService {
     })) {
       await this.detenerPorLinea(destino);
       return;
+    }
+    if (adjunto?.key.startsWith('agenda/qr/')) {
+      const m = await this.prisma.mensaje.findFirst({ where: { id: destino.mensajeId, conversacionId: destino.conversacionId },
+        select: { reservaQr: { select: { estado: true } }, conversacion: { select: { lineaId: true, atencionTomadaEn: true, cliente: { select: { telefono: true } } } } } });
+      if (!m || !interaccionesEnLinea(m.conversacion.lineaId) || m.reservaQr?.estado !== 'ESPERANDO_COMPROBANTE'
+        || m.conversacion.atencionTomadaEn || m.conversacion.cliente.telefono !== destino.telefono) {
+        await this.detenerPorLinea(destino); return;
+      }
+      // Una caída después de reclamar se trata como incierta, no como permiso
+      // para volver a enviar. Se reconcilia con los estados de Meta existentes.
+      const toma = await this.prisma.mensaje.updateMany({ where: { id: destino.mensajeId, estadoEnvio: 'FALLIDO', whatsappMsgId: null, permiteReintento: true },
+        data: { estadoEnvio: 'INCIERTO', proximoIntento: null } });
+      if (!toma.count) return;
     }
     if (interaccionesHabilitadas() && await this.prisma.interaccionMensaje.findUnique({ where: { mensajeId: destino.mensajeId }, select: { mensajeId: true } })) {
       await this.interaccion(destino);

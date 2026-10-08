@@ -75,6 +75,10 @@
           "resumen": {
             "tipo": "texto",
             "max": 200
+          },
+          "pago": {
+            "tipo": "texto",
+            "max": 500
           }
         }
       },

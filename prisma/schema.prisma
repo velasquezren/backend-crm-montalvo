@@ -346,9 +346,55 @@ enum EstadoPagoPromocion {
   ANULADO
 }
 
-/// Un pago de promoción por WhatsApp. Lo escribe `PagosChatService` (conversaciones).
-/// Como mucho uno abierto (PENDIENTE o COMPROBANTE_ENVIADO) por conversación: se
-/// garantiza bajo el candado de automáticos de la conversación.
+/// Una reserva hecha por WhatsApp (Flow «Reservar una cita»), vista desde el chat.
+/// La reserva de verdad vive en la agenda (`para_agendar`); esto solo recuerda
+/// que a ESTE chat se le mandó el QR de ESA reserva, para que la foto que mande
+/// después llegue a la agenda como su comprobante. Dueño: módulo `conversaciones`
+/// (`conversaciones/reservas-chat.ts`); la ingesta llama a sus funciones dentro de su
+/// transacción, igual que con los pagos de promociones.
+model ReservaChat {
+  id                   String            @id @default(uuid())
+  conversacionId       String
+  conversacion         Conversacion      @relation(fields: [conversacionId], references: [id], onDelete: Cascade)
+  /// `para_agendar.para_age`: el número de la reserva en la agenda.
+  reservaAgenda        Int               @unique
+  /// Lo que se le pidió pagar, congelado al reservar. Null: sin pago por chat.
+  monto                Decimal?          @db.Decimal(10, 2)
+  /// La imagen del QR del médico en R2, la que se le mandó.
+  qrClave              String?           @db.VarChar(120)
+  estado               EstadoReservaChat
+  /// La imagen que ella mandó como comprobante.
+  comprobanteMensajeId String?           @unique
+  comprobanteMensaje   Mensaje?          @relation("ComprobanteReservaChat", fields: [comprobanteMensajeId], references: [id], onDelete: SetNull)
+  qrMensajeId          String?           @unique
+  qrMensaje            Mensaje?          @relation("QrReservaChat", fields: [qrMensajeId], references: [id], onDelete: SetNull)
+  comprobanteRecibidoEn DateTime?
+  proximoIntento       DateTime?
+  /// Intentos de llevar el comprobante a la agenda.
+  intentos             Int               @default(0)
+  /// Por qué quedó en revisión (para quien lo atiende).
+  detalle              String?           @db.VarChar(300)
+  createdAt            DateTime          @default(now())
+  updatedAt            DateTime          @updatedAt
+
+  @@index([conversacionId, estado])
+  @@index([estado, updatedAt])
+}
+
+enum EstadoReservaChat {
+  /// El médico no tiene precio o QR vigente: recepción coordina el pago.
+  SIN_PAGO
+  /// Se le mandó el QR; la próxima foto (72 h) es su comprobante.
+  ESPERANDO_COMPROBANTE
+  /// Mandó la foto; falta llevarla a la agenda.
+  COMPROBANTE_RECIBIDO
+  /// La agenda la tiene: `para_agendar` en PAGADO, para que caja la verifique.
+  PAGO_REGISTRADO
+  /// No se pudo llevar a la agenda: lo resuelve una persona desde el chat.
+  REVISION
+}
+
+/// Pago comercial: un único pago abierto por conversación, bajo candado.
 model PagoPromocion {
   id                   String              @id @default(uuid())
   conversacionId       String
@@ -444,6 +490,7 @@ model Conversacion {
   agente             Usuario?  @relation("ConversacionAgente", fields: [agenteId], references: [id])
   agenteId           String?
   mensajes           Mensaje[]
+  reservasChat       ReservaChat[]
   pagosPromocion     PagoPromocion[]
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
@@ -544,6 +591,8 @@ model InteraccionMensaje {
 }
 
 model Mensaje {
+  reservaQr          ReservaChat? @relation("QrReservaChat")
+  reservaComprobante ReservaChat? @relation("ComprobanteReservaChat")
   primerContacto PrimerContactoWhatsapp?
   id             String           @id @default(uuid())
   conversacion   Conversacion     @relation(fields: [conversacionId], references: [id], onDelete: Cascade)
