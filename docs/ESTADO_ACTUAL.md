@@ -1,5 +1,39 @@
 # Estado actual
 
+## Reservar por WhatsApp (Flow con endpoint) — 7 de octubre de 2026 · EN GITHUB, FALTA PUBLICAR EN META
+
+Fase 1 del plan de IA: el formulario de reserva DENTRO de WhatsApp, sin IA. La
+IA, más adelante, solo tendrá que abrirlo ([herramientas](ia-herramientas.md)).
+
+- **Flow** `docs/whatsapp-interacciones/flows/reserva-cita.v1.json` (7.3, data_api
+  3.0): especialidad → médico → día → hora y datos (nombre, carnet, motivo).
+  Si la hora se ocupó mientras escribía, la MISMA pantalla vuelve con las horas
+  al día y lo escrito precargado.
+- **Endpoint** `POST /whatsapp/flows/agenda` (`agenda-flow.controller.ts` /
+  `agenda-flow.service.ts`): `MetaSignatureGuard`, cifrado del protocolo
+  (`common/whatsapp/flows/cifrado-flow.ts`), 421 / 427 como pide Meta. Lee con
+  `AgendaService` y reserva con `AgendaReservasService.reservar`: la reserva entra
+  en `para_agendar` PENDIENTE con Telegram, como la web. Solo celulares de Bolivia.
+- **Quién es**: el `flow_token` es un token SELLADO con el teléfono del chat
+  (`token-flow.ts`, subclave de `WHATSAPP_INTERACCIONES_KEY`, 24 h); la paciente
+  nunca escribe su teléfono.
+- **Chat**: «Solicitar una cita» del menú abre este Flow si la WABA lo tiene
+  publicado (si no, el de solicitud). Al terminar, el chat dice «Reservó por el
+  chat: N.º … · médico · día · hora. Pendiente de confirmar en FileMaker», nace una
+  solicitud de cita en «Atención» y suena «Reservó una cita por el chat».
+- **Validador**: rama propia para Flows con endpoint (rutas sin ciclos, opciones
+  siempre dinámicas, datos sensibles en `sensitive`, etiquetas ≤ 20 de Meta,
+  «Recepción confirmará» en la pantalla final).
+- **Verificación**: reserva completa cifrada contra el MySQL sintético (36), la
+  respuesta del Flow en el chat (integración 820), validador 15, unitarias 916.
+- **Para activarlo en el número de prueba** (cada paso remoto, con OK de René):
+  1. Desplegar el backend (el endpoint queda listo; nada se envía todavía).
+  2. `scripts/whatsapp/flow-llaves.sh <phone_number_id>` en el servidor.
+  3. `scripts/whatsapp/flow-publicar.sh 1699047341353103 <json>` → borrador y
+     errores de Meta; con cero errores, `--publicar <id>`.
+  4. Anotar el id en `manifest.json` → `ambientes.prueba.flowIds`,
+     `npm run flows:generar`, desplegar.
+
 ## Agenda ↔ FileMaker entendida; horas libres corregidas — 7 de octubre de 2026 · DESPLEGADO
 
 **Cómo circula una reserva** (binlog de la agenda, 4/6–7/10/2026, solo conteos):

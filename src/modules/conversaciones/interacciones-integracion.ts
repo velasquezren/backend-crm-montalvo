@@ -2,6 +2,7 @@ import { BadRequestException, ConflictException, ServiceUnavailableException } f
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
 import { Prisma } from '../../prisma/prisma-client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { sellarTokenFlow } from '../../common/whatsapp/flows/token-flow';
 import { MensajePreparado, contenidoMeta, validarMensaje } from '../../common/whatsapp/interacciones/mensaje-interactivo';
 import { objeto, parsearRespuesta } from '../../common/whatsapp/interacciones/respuesta-interactiva';
 import { ResultadoRespuesta } from './atencion-humana';
@@ -58,8 +59,18 @@ export interface FlowAutorizado {
   /** Valores cerrados del borrador aprobado, nunca datos personales libres. */
   respuestas: Record<string, readonly string[]>;
   campos?: Record<string, { tipo: 'texto' | 'fecha' | 'booleano'; max?: number }>;
-  /** Para qué sirve este Flow. `SOLICITUD_CITA` lo convierte en una solicitud de cita (no en una cita). */
-  proposito?: 'SOLICITUD_CITA';
+  /**
+   * Para qué sirve este Flow. `SOLICITUD_CITA` lo convierte en una solicitud de
+   * cita (no en una cita). `RESERVA_CITA` reserva DE VERDAD en la agenda, por su
+   * endpoint (`agenda-flow.service.ts`); recepción la confirma en FileMaker.
+   */
+  proposito?: 'SOLICITUD_CITA' | 'RESERVA_CITA';
+  /**
+   * Con endpoint (data_api 3.0): abre pidiendo su primera pantalla al CRM
+   * (`data_exchange`) y su `flow_token` es el token SELLADO con el teléfono del
+   * chat, porque el endpoint no recibe otra cosa para saber quién es.
+   */
+  endpoint?: true;
   /** Cómo se llama cada campo en pantalla («Especialidad»). Sin etiqueta, el campo no se muestra. */
   etiquetas?: Record<string, string>;
   /** El texto de cada valor cerrado (`GINECOLOGIA` → «Ginecología»). */
@@ -93,9 +104,14 @@ export interface FlowPublicado extends FlowAutorizado {
  */
 export function catalogoFlows(): readonly FlowPublicado[] { return FLOWS_PUBLICADOS; }
 
-/** El Flow de solicitud de cita publicado en la WABA de esta línea, si hay. */
+/**
+ * El Flow de cita publicado en la WABA de esta línea, si hay: el que RESERVA
+ * en la agenda antes que el que solo pide una cita.
+ */
 export function flowDeCita(wabaId: string | null | undefined): FlowPublicado | null {
-  return (wabaId && catalogoFlows().find(f => f.wabaId === wabaId && f.proposito === 'SOLICITUD_CITA')) || null;
+  if (!wabaId) return null;
+  const deLaWaba = catalogoFlows().filter(f => f.wabaId === wabaId);
+  return deLaWaba.find(f => f.proposito === 'RESERVA_CITA') ?? deLaWaba.find(f => f.proposito === 'SOLICITUD_CITA') ?? null;
 }
 
 export interface OfertaInteraccion {
@@ -125,21 +141,27 @@ export function prepararOferta(entrada: unknown, telefono: string): OfertaIntera
   try {
     // El validador comprueba cada campo usado por el constructor, sin ejecutar datos del cliente.
     const candidato = objeto(entrada);
-    const m = (candidato?.['tipo'] === 'flow' ? { ...candidato, correlacion: randomBytes(32).toString('hex') } : entrada) as MensajePreparado;
+    /* La correlación la pone SIEMPRE el servidor: aleatoria, o el token sellado si
+       el Flow tiene endpoint. Nunca la que venga en la petición. */
+    const flowPedido = candidato?.['tipo'] === 'flow' ? catalogoFlows().find(f => f.id === candidato['flowId']) : undefined;
+    const correlacion = flowPedido?.endpoint ? sellarTokenFlow(telefono.replace(/^\+/, '')) : randomBytes(32).toString('hex');
+    const m = (candidato?.['tipo'] === 'flow' ? { ...candidato, correlacion } : entrada) as MensajePreparado;
     validarMensaje(m);
     if (m.tipo === 'texto') throw new Error('Usar el envío de texto existente');
     let flow: FlowAutorizado | undefined;
     if (m.tipo === 'flow') {
-      flow = catalogoFlows().find(f => f.id === m.flowId);
-      if (!flow || m.modo !== 'published' || m.inicio.accion !== 'navigate' || m.inicio.pantalla !== flow.pantalla)
-        throw new Error('Flow no autorizado en el catálogo local');
+      flow = flowPedido;
+      const inicioValido = flow?.endpoint
+        ? m.inicio.accion === 'data_exchange'
+        : m.inicio.accion === 'navigate' && m.inicio.pantalla === flow?.pantalla;
+      if (!flow || m.modo !== 'published' || !inicioValido) throw new Error('Flow no autorizado en el catálogo local');
     }
     // Reconstrucción explícita: no conservar claves arbitrarias de la petición.
     const base = { cuerpo: m.cuerpo, ...(m.cabecera ? { cabecera: m.cabecera } : {}), ...(m.pie ? { pie: m.pie } : {}) };
     const opcion = (o: { id: string; titulo: string; descripcion?: string }) => ({ id: o.id, titulo: o.titulo, ...(o.descripcion ? { descripcion: o.descripcion } : {}) });
     const mensaje: MensajePreparado = m.tipo === 'botones' ? { ...base, tipo: 'botones', opciones: m.opciones.map(opcion), ...(m.imagenCabecera ? { imagenCabecera: m.imagenCabecera } : {}) }
       : m.tipo === 'lista' ? { ...base, tipo: 'lista', boton: m.boton, secciones: m.secciones.map(s => ({ titulo: s.titulo, opciones: s.opciones.map(opcion) })) }
-      : { ...base, tipo: 'flow', flowId: m.flowId, correlacion: m.correlacion, cta: m.cta, modo: 'published', inicio: { accion: 'navigate', pantalla: flow!.pantalla } };
+      : { ...base, tipo: 'flow', flowId: m.flowId, correlacion: m.correlacion, cta: m.cta, modo: 'published', inicio: flow!.endpoint ? { accion: 'data_exchange' } : { accion: 'navigate', pantalla: flow!.pantalla } };
     return { mensaje, telefono, ...(flow ? { flow } : {}) };
   } catch {
     throw new BadRequestException('Interacción inválida o Flow no autorizado');
@@ -223,6 +245,11 @@ export async function guardarRespuesta(
           propositoFlow = guardada.flow!.proposito;
           datosFlow = datosVisiblesDeFlow(guardada.flow!, seleccion.datos);
           if (propositoFlow === 'SOLICITUD_CITA') cuerpo = 'Solicitud de cita recibida. Pendiente: no hay ninguna cita reservada.';
+          /* La reserva la hizo NUESTRO endpoint y estos datos los devolvió él al cerrar el
+             Flow (`extension_message_response`): la paciente no los escribe. */
+          if (propositoFlow === 'RESERVA_CITA') {
+            cuerpo = `Reservó por el chat: N.º ${String(seleccion.datos['reserva'])} · ${String(seleccion.datos['resumen'])}. Pendiente de confirmar en FileMaker.`;
+          }
         }
         if (!vigente) estado = 'CADUCADA';
         else if (guardada.origen) estado = 'CORRELACIONADA';

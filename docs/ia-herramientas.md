@@ -34,7 +34,7 @@ catálogo público): una IA que pregunte mucho no tumba la agenda.
 
 | Acción | Service existente | Regla |
 |---|---|---|
-| Reservar una hora | `AgendaReservasService.reservar` | Solo tras mostrar médico, fecha, hora y precio y recibir un «sí» explícito. La hora se vuelve a comprobar dentro de la transacción; si se ocupó, se ofrece otra |
+| Reservar una hora | Abrir el Flow `reserva-cita.v1` (la reserva la hace su endpoint con `AgendaReservasService.reservar`) | Solo tras mostrar médico, fecha, hora y precio y recibir un «sí» explícito. La hora se vuelve a comprobar dentro de la transacción; si se ocupó, se ofrece otra |
 | Ofrecer una promoción | `enviarTarjeta` (ingesta) | La misma tarjeta del menú; nunca un precio redactado por la IA |
 | Pedir una persona | `registrarSolicitudAtencion` | Ante cualquier duda. Es la salida por defecto |
 

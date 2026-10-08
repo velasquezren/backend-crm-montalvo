@@ -2,6 +2,11 @@ import { Global, INestApplication, Module, ValidationPipe } from '@nestjs/common
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import { createConnection, RowDataPacket } from 'mysql2/promise';
+import { constants, createCipheriv, createDecipheriv, createHmac, generateKeyPairSync, publicEncrypt, randomBytes } from 'node:crypto';
+import { writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { sellarTokenFlow } from '../../common/whatsapp/flows/token-flow';
 import { readFileSync } from 'node:fs';
 import { createServer, Server } from 'node:http';
 import { AddressInfo, connect } from 'node:net';
@@ -29,6 +34,16 @@ const VALORES = {
   AGENDA_MYSQL_CA_ARCHIVO: process.env.AGENDA_MYSQL_TEST_CA ?? '',
   AGENDA_MYSQL_TLS_IDENTIDAD: 'MySQL_Server_8.0.44_Auto_Generated_Server_Certificate',
 };
+/* Flow de reserva: llave sintética del endpoint, secreto de la app y clave de interacciones, solo de prueba. */
+const LLAVES_FLOW = generateKeyPairSync('rsa', { modulusLength: 2048 });
+const ARCHIVO_LLAVE_FLOW = join(tmpdir(), `montalvo-flow-${process.pid}.pem`);
+writeFileSync(ARCHIVO_LLAVE_FLOW, LLAVES_FLOW.privateKey.export({ type: 'pkcs8', format: 'pem' }));
+const SECRETO_APP_META = 'secreto-sintetico-de-la-app-de-meta';
+Object.assign(VALORES, {
+  WHATSAPP_FLOWS_LLAVE_ARCHIVO: ARCHIVO_LLAVE_FLOW,
+  META_APP_SECRET: SECRETO_APP_META,
+  WHATSAPP_INTERACCIONES_KEY: randomBytes(32).toString('base64'),
+});
 const config = new ConfigService(VALORES);
 /* La pantalla Reservas también lee Postgres (el chat y la constancia del comprobante): la base descartable. */
 const prisma = new PrismaService('postgresql://crm_app@127.0.0.1:5433/crm_test');
@@ -59,7 +74,7 @@ ejecutar('Agenda HTTP → adaptador TLS → MySQL real descartable', () => {
     });
     await new Promise<void>(listo => qr.listen(0, '127.0.0.1', listo));
     Object.assign(process.env, VALORES, { AGENDA_QR_BASE_URL: `http://127.0.0.1:${(qr.address() as AddressInfo).port}/img/` });
-    app = await NestFactory.create(ModuloPrueba, { logger: false });
+    app = await NestFactory.create(ModuloPrueba, { logger: false, rawBody: true });
     app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
     await app.listen(0, '127.0.0.1');
     base = await app.getUrl();
@@ -277,6 +292,88 @@ ejecutar('Agenda HTTP → adaptador TLS → MySQL real descartable', () => {
     expect((await fetch(`${base}/publico/agenda/qr/8`)).status).toBe(404);
     expect((await fetch(`${base}/publico/agenda/qr/99`)).status).toBe(404);
   });
+  /* ── Flow de WhatsApp «Reservar una cita»: endpoint cifrado ────────── */
+
+  /** Lo que hace WhatsApp: cifra con nuestra llave pública, Meta firma con el App Secret. */
+  async function pantallaDelFlow(peticion: Record<string, unknown>, firma = true) {
+    const clave = randomBytes(16);
+    const vector = randomBytes(16);
+    const c = createCipheriv('aes-128-gcm', clave, vector);
+    const datos = Buffer.concat([c.update(JSON.stringify({ version: '3.0', ...peticion }), 'utf8'), c.final(), c.getAuthTag()]);
+    const cuerpo = JSON.stringify({
+      encrypted_flow_data: datos.toString('base64'),
+      encrypted_aes_key: publicEncrypt({ key: LLAVES_FLOW.publicKey, padding: constants.RSA_PKCS1_OAEP_PADDING, oaepHash: 'sha256' }, clave).toString('base64'),
+      initial_vector: vector.toString('base64'),
+    });
+    const r = await fetch(`${base}/whatsapp/flows/agenda`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-hub-signature-256': `sha256=${createHmac('sha256', firma ? SECRETO_APP_META : 'otro').update(cuerpo).digest('hex')}` },
+      body: cuerpo,
+    });
+    if (r.status !== 200) return { status: r.status, respuesta: null as Record<string, unknown> | null };
+    const cifrada = Buffer.from(await r.text(), 'base64');
+    const d = createDecipheriv('aes-128-gcm', clave, Buffer.from(vector.map(b => b ^ 0xff)));
+    d.setAuthTag(cifrada.subarray(cifrada.length - 16));
+    const claro = Buffer.concat([d.update(cifrada.subarray(0, cifrada.length - 16)), d.final()]).toString('utf8');
+    return { status: 200, respuesta: JSON.parse(claro) as Record<string, unknown> };
+  }
+
+  it('Flow de reserva: de la especialidad a la reserva en para_agendar, cifrado de punta a punta', async () => {
+    expect((await pantallaDelFlow({ action: 'ping' })).respuesta).toEqual({ data: { status: 'active' } });
+    const token = sellarTokenFlow('59170012345');
+    type Opcion = { id: string; title: string; description?: string };
+    const paso = async (data: Record<string, unknown>) => (await pantallaDelFlow({ action: 'data_exchange', flow_token: token, screen: 'X', data })).respuesta as { screen: string; data: Record<string, unknown> };
+
+    const inicio = (await pantallaDelFlow({ action: 'INIT', flow_token: token })).respuesta as { screen: string; data: { especialidades: Opcion[] } };
+    expect(inicio.screen).toBe('ESPECIALIDAD');
+    // Solo especialidades con médicos que se reservan en línea: «Otra especialidad» es a solicitud.
+    expect(inicio.data.especialidades.map(e => e.title)).toEqual(['Especialidad sintética']);
+    const medicosPantalla = await paso({ paso: 'especialidad', especialidad: inicio.data.especialidades[0].id });
+    expect(medicosPantalla.screen).toBe('MEDICO');
+    expect((medicosPantalla.data['medicos'] as Opcion[]).map(m => m.id)).toEqual(['1', '2']);
+    const fechas = await paso({ paso: 'medico', especialidad: inicio.data.especialidades[0].id, medico: '1' });
+    expect(fechas.screen).toBe('FECHA');
+    expect((fechas.data['fechas'] as Opcion[])[0].id).toBe(fecha(1));
+    const datos = await paso({ paso: 'fecha', medico: '1', fecha: fecha(1) });
+    expect(datos.screen).toBe('DATOS');
+    // 09:00 cita vigente, 13:00/14:00 reservas web PENDIENTE, 15:00 la otra: quedan 10:00 (cita anulada) y 11:00.
+    expect((datos.data['horas'] as Opcion[]).map(h => h.id)).toEqual(['10:00', '11:00']);
+    expect(datos.data['precio']).toBe('Consulta: Bs 400,25');
+
+    // Un carnet con símbolos vuelve a la misma pantalla con aviso y lo escrito precargado.
+    const mal = await paso({ paso: 'confirmar', medico: '1', fecha: fecha(1), hora: '10:00', nombre: 'Paciente Flow', ci: '12*34', observaciones: '' });
+    expect(mal).toMatchObject({ screen: 'DATOS', data: { hay_aviso: true, nombre: 'Paciente Flow', ci: '12*34' } });
+
+    const fin = await paso({ paso: 'confirmar', medico: '1', fecha: fecha(1), hora: '10:00', nombre: '  Paciente   Flow ', ci: '7654321', observaciones: 'Control' });
+    expect(fin.screen).toBe('SUCCESS');
+    const params = (fin.data['extension_message_response'] as { params: Record<string, string> }).params;
+    expect(params).toMatchObject({ flow_token: token, flow_version: 'reserva-cita.v1' });
+    expect(params['resumen']).toContain('10:00');
+    const db = await conexionRoot();
+    try {
+      const [[fila]] = await db.query<RowDataPacket[]>('SELECT * FROM para_agendar WHERE para_age = ?', [Number(params['reserva'])]);
+      expect(fila).toMatchObject({ medico_pk: 1, fecha: fecha(1), hora: '10:00:00', nombre_age: 'Paciente Flow', telefono_age: '70012345', ci_age: '7654321', obs: 'Control', estado: 'PENDIENTE', uno: 1 });
+    } finally { await db.end(); }
+
+    // La misma hora otra vez: ya está tomada, vuelve con las horas al día.
+    const tarde = await paso({ paso: 'confirmar', medico: '1', fecha: fecha(1), hora: '10:00', nombre: 'Otra paciente', ci: '1112223', observaciones: '' });
+    expect(tarde).toMatchObject({ screen: 'DATOS', data: { hay_aviso: true, aviso: 'Esa hora acaba de ocuparse. Elige otra.' } });
+    expect((tarde.data['horas'] as Opcion[]).map(h => h.id)).toEqual(['11:00']);
+  });
+
+  it('Flow de reserva: token ajeno 427, cifrado roto 421, firma falsa 403; un celular extranjero no reserva', async () => {
+    expect((await pantallaDelFlow({ action: 'INIT', flow_token: 'token-inventado' })).status).toBe(427);
+    expect((await pantallaDelFlow({ action: 'INIT', flow_token: sellarTokenFlow('59170012345') }, false)).status).toBe(403);
+    const roto = await fetch(`${base}/whatsapp/flows/agenda`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-hub-signature-256': `sha256=${createHmac('sha256', SECRETO_APP_META).update('{"encrypted_flow_data":"AAAAAAAAAAAAAAAAAAAAAAAA","encrypted_aes_key":"AAAAAAAAAAAAAAAAAAAAAAAA","initial_vector":"AAAAAAAAAAAA"}').digest('hex')}` },
+      body: '{"encrypted_flow_data":"AAAAAAAAAAAAAAAAAAAAAAAA","encrypted_aes_key":"AAAAAAAAAAAAAAAAAAAAAAAA","initial_vector":"AAAAAAAAAAAA"}',
+    });
+    expect(roto.status).toBe(421);
+    const extranjero = (await pantallaDelFlow({ action: 'data_exchange', flow_token: sellarTokenFlow('15551948320'), data: { paso: 'confirmar', medico: '1', fecha: fecha(1), hora: '11:00', nombre: 'Prueba', ci: '1234567' } })).respuesta;
+    expect(extranjero).toMatchObject({ screen: 'DATOS', data: { aviso: expect.stringContaining('celulares de Bolivia') } });
+  });
+
   describe('pantalla Reservas del CRM (cuenta de consulta, solo lectura)', () => {
     const TELEFONO = '+59170987654';
     let reservas: AgendaReservasCrmService;

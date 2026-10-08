@@ -5,7 +5,8 @@
   "fechaRevision": "2026-10-05",
   "archivos": [
     "solicitud-cita.v1.json",
-    "interes-promocion.v1.json"
+    "interes-promocion.v1.json",
+    "reserva-cita.v1.json"
   ],
   "flows": {
     "solicitud-cita.v1.json": {
@@ -55,6 +56,32 @@
         "estado": "DRAFT",
         "creado": "2026-10-05"
       }
+    },
+    "reserva-cita.v1.json": {
+      "nombreMeta": "montalvo_reserva_cita_v1",
+      "categorias": [
+        "APPOINTMENT_BOOKING"
+      ],
+      "contrato": {
+        "version": "reserva-cita.v1",
+        "pantalla": "ESPECIALIDAD",
+        "proposito": "RESERVA_CITA",
+        "endpoint": true,
+        "campos": {
+          "reserva": {
+            "tipo": "texto",
+            "max": 12
+          },
+          "resumen": {
+            "tipo": "texto",
+            "max": 200
+          }
+        }
+      },
+      "pendientes": [
+        "Generar la llave del endpoint en el servidor y registrar su parte pública en el número de prueba (scripts/whatsapp/flow-llaves.sh).",
+        "Crear el Flow en la WABA de prueba con endpoint https://crm.107.175.132.15.nip.io/whatsapp/flows/agenda, conectado a la app CRM Montalvo, y publicarlo con OK de René."
+      ]
     }
   },
   "ambientes": {

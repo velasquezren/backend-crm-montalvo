@@ -15,7 +15,7 @@ const falla = (flow, mensaje) => assert.throws(() => validarFlow(flow, NOMBRE), 
 
 test("los dos Flows y el manifest pasan, con su contrato derivado", () => {
   const flows = validarBorradores();
-  assert.deepEqual(flows.map((f) => f.archivo), ["solicitud-cita.v1.json", "interes-promocion.v1.json"]);
+  assert.deepEqual(flows.map((f) => f.archivo), ["solicitud-cita.v1.json", "interes-promocion.v1.json", "reserva-cita.v1.json"]);
   const { contrato } = flows[0];
   assert.equal(contrato.pantalla, "MOTIVO");
   assert.equal(contrato.proposito, "SOLICITUD_CITA");
@@ -106,8 +106,9 @@ test("no promete una cita: ni el texto, ni el botón, ni la falta del aviso", ()
   assert.throws(() => contratoDeFlow(c, NOMBRE, contrato), /no reserva/);
 });
 
-test("sin endpoint: Flow estático en esta fase", () => {
-  falla({ ...cita(), data_api_version: "3.0" }, /Sin endpoint/);
+test("un Flow estático no apunta a un endpoint; uno con data_api_version entra a las reglas de endpoint", () => {
+  falla({ ...cita(), endpoint_uri: "https://ejemplo.invalid/flow" }, /Sin endpoint en un Flow estático/);
+  falla({ ...cita(), data_api_version: "3.0" }, /routing_model/);
   falla({ ...cita(), version: "6.0" }, /7\.3/);
 });
 
@@ -149,4 +150,47 @@ test("un ambiente encendido declara su WABA y Flows publicados; de ahí sale el 
   const apagado = { ...m, ambientes: { ...m.ambientes, prueba: { wabaId: null, flowIds: {}, habilitado: false } } };
   validarManifest(apagado);
   assert.deepEqual(catalogoPublicado(apagado, validarBorradores()), []);
+});
+
+const reserva = () => leer("reserva-cita.v1.json");
+const fallaReserva = (flow, mensaje) => assert.throws(() => validarFlow(flow, "reserva-cita.v1"), mensaje);
+
+test("Flow con endpoint: pasa, y su contrato son los campos que devuelve el CRM", () => {
+  const [, , { contrato }] = validarBorradores();
+  assert.equal(contrato.pantalla, "ESPECIALIDAD");
+  assert.equal(contrato.proposito, "RESERVA_CITA");
+  assert.equal(contrato.endpoint, true);
+  assert.deepEqual(Object.keys(contrato.campos), ["reserva", "resumen"]);
+  assert.deepEqual(contrato.respuestas, {});
+});
+
+test("Flow con endpoint: ciclos, opciones escritas a mano, carnet sin «sensitive» y etiquetas largas no pasan", () => {
+  const ciclo = reserva();
+  ciclo.routing_model.DATOS = ["ESPECIALIDAD"];
+  ciclo.screens.find((s) => s.id === "DATOS").terminal = false;
+  fallaReserva(ciclo, /ciclo|final/);
+  const fijas = reserva();
+  en(fijas, "ESPECIALIDAD", "Dropdown")["data-source"] = [{ id: "A", title: "Ginecología" }];
+  fallaReserva(fijas, /salen de un array de data/);
+  const expuesto = reserva();
+  expuesto.screens.find((s) => s.id === "DATOS").sensitive = ["nombre"];
+  fallaReserva(expuesto, /ci: dato sensible/);
+  const largo = reserva();
+  en(largo, "DATOS", "TextInput").label = "Nombre y apellido de quien viene";
+  fallaReserva(largo, /label supera 20/);
+  const sinPaso = reserva();
+  delete footer(sinPaso, "FECHA").payload.paso;
+  fallaReserva(sinPaso, /paso/);
+  const navega = reserva();
+  footer(navega, "MEDICO").name = "navigate";
+  fallaReserva(navega, /data_exchange/);
+});
+
+test("Flow con endpoint: la pantalla final dice que recepción confirma, y el manifest lo declara como endpoint", () => {
+  const sinAviso = reserva();
+  const datos = sinAviso.screens.find((s) => s.id === "DATOS");
+  datos.layout.children = datos.layout.children.filter((c) => !(c.type === "TextCaption" && /Recepción confirmará/.test(c.text)));
+  fallaReserva(sinAviso, /recepción confirma/);
+  assert.throws(() => contratoDeFlow(reserva(), "reserva-cita.v1", { version: "reserva-cita.v1", pantalla: "ESPECIALIDAD", proposito: "RESERVA_CITA" }), /endpoint: true/);
+  assert.throws(() => contratoDeFlow(cita(), NOMBRE, { version: NOMBRE, pantalla: "MOTIVO", proposito: "RESERVA_CITA", etiquetas: {} }), /endpoint|RESERVA_CITA/);
 });

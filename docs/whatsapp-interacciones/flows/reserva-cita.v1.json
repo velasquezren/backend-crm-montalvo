@@ -1,0 +1,182 @@
+{
+  "version": "7.3",
+  "data_api_version": "3.0",
+  "routing_model": {
+    "ESPECIALIDAD": ["MEDICO"],
+    "MEDICO": ["FECHA"],
+    "FECHA": ["DATOS"],
+    "DATOS": []
+  },
+  "screens": [
+    {
+      "id": "ESPECIALIDAD",
+      "title": "Reservar una cita",
+      "data": {
+        "especialidades": {
+          "type": "array",
+          "items": { "type": "object", "properties": { "id": { "type": "string" }, "title": { "type": "string" } } },
+          "__example__": [{ "id": "esp1", "title": "Ginecología" }]
+        },
+        "aviso": { "type": "string", "__example__": "" },
+        "hay_aviso": { "type": "boolean", "__example__": false }
+      },
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          { "type": "TextBody", "text": "Elige la especialidad. Te mostramos solo médicos con horas libres en la agenda de la clínica." },
+          { "type": "TextBody", "text": "${data.aviso}", "visible": "${data.hay_aviso}" },
+          {
+            "type": "Dropdown",
+            "name": "especialidad",
+            "label": "Especialidad",
+            "required": true,
+            "data-source": "${data.especialidades}"
+          },
+          {
+            "type": "Footer",
+            "label": "Continuar",
+            "on-click-action": {
+              "name": "data_exchange",
+              "payload": { "paso": "especialidad", "especialidad": "${form.especialidad}" }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "MEDICO",
+      "title": "Reservar una cita",
+      "data": {
+        "especialidad": { "type": "string", "__example__": "esp1" },
+        "especialidad_nombre": { "type": "string", "__example__": "Ginecología" },
+        "medicos": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": { "id": { "type": "string" }, "title": { "type": "string" }, "description": { "type": "string" } }
+          },
+          "__example__": [{ "id": "20", "title": "Dra. Ana Pérez", "description": "Lunes: entre 09:30 y 11:00 · Bs 250" }]
+        },
+        "aviso": { "type": "string", "__example__": "" },
+        "hay_aviso": { "type": "boolean", "__example__": false }
+      },
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          { "type": "TextSubheading", "text": "${data.especialidad_nombre}" },
+          { "type": "TextBody", "text": "${data.aviso}", "visible": "${data.hay_aviso}" },
+          {
+            "type": "RadioButtonsGroup",
+            "name": "medico",
+            "label": "¿Con quién quieres atenderte?",
+            "required": true,
+            "data-source": "${data.medicos}"
+          },
+          {
+            "type": "Footer",
+            "label": "Ver días",
+            "on-click-action": {
+              "name": "data_exchange",
+              "payload": { "paso": "medico", "especialidad": "${data.especialidad}", "medico": "${form.medico}" }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "FECHA",
+      "title": "Reservar una cita",
+      "data": {
+        "medico": { "type": "string", "__example__": "20" },
+        "medico_nombre": { "type": "string", "__example__": "Dra. Ana Pérez" },
+        "fechas": {
+          "type": "array",
+          "items": { "type": "object", "properties": { "id": { "type": "string" }, "title": { "type": "string" } } },
+          "__example__": [{ "id": "2026-10-08", "title": "jueves 8 de octubre" }]
+        },
+        "aviso": { "type": "string", "__example__": "" },
+        "hay_aviso": { "type": "boolean", "__example__": false }
+      },
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          { "type": "TextSubheading", "text": "${data.medico_nombre}" },
+          { "type": "TextBody", "text": "${data.aviso}", "visible": "${data.hay_aviso}" },
+          {
+            "type": "Dropdown",
+            "name": "fecha",
+            "label": "Día",
+            "required": true,
+            "data-source": "${data.fechas}"
+          },
+          { "type": "TextCaption", "text": "Solo aparecen los días con horas libres. Hora de Bolivia." },
+          {
+            "type": "Footer",
+            "label": "Ver horas",
+            "on-click-action": {
+              "name": "data_exchange",
+              "payload": { "paso": "fecha", "medico": "${data.medico}", "fecha": "${form.fecha}" }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "DATOS",
+      "title": "Reservar una cita",
+      "terminal": true,
+      "sensitive": ["nombre", "ci", "observaciones"],
+      "data": {
+        "medico": { "type": "string", "__example__": "20" },
+        "fecha": { "type": "string", "__example__": "2026-10-08" },
+        "resumen": { "type": "string", "__example__": "Dra. Ana Pérez · jueves 8 de octubre" },
+        "horas": {
+          "type": "array",
+          "items": { "type": "object", "properties": { "id": { "type": "string" }, "title": { "type": "string" } } },
+          "__example__": [{ "id": "09:30", "title": "09:30" }]
+        },
+        "precio": { "type": "string", "__example__": "Consulta: Bs 250" },
+        "nombre": { "type": "string", "__example__": "" },
+        "ci": { "type": "string", "__example__": "" },
+        "observaciones": { "type": "string", "__example__": "" },
+        "aviso": { "type": "string", "__example__": "" },
+        "hay_aviso": { "type": "boolean", "__example__": false }
+      },
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          { "type": "TextSubheading", "text": "${data.resumen}" },
+          { "type": "TextBody", "text": "${data.aviso}", "visible": "${data.hay_aviso}" },
+          {
+            "type": "Dropdown",
+            "name": "hora",
+            "label": "Hora",
+            "required": true,
+            "data-source": "${data.horas}"
+          },
+          { "type": "TextInput", "name": "nombre", "label": "Nombre y apellido", "helper-text": "De quien viene a la consulta.", "input-type": "text", "required": true, "min-chars": 3, "max-chars": 120, "init-value": "${data.nombre}" },
+          { "type": "TextInput", "name": "ci", "label": "Carnet de identidad", "input-type": "text", "required": true, "min-chars": 4, "max-chars": 20, "init-value": "${data.ci}" },
+          { "type": "TextArea", "name": "observaciones", "label": "Motivo (opcional)", "helper-text": "Para que el médico sepa a qué vienes.", "required": false, "max-length": 300, "init-value": "${data.observaciones}" },
+          { "type": "TextCaption", "text": "${data.precio}" },
+          { "type": "TextCaption", "text": "Recepción confirmará la reserva y te indicará cómo pagar por este chat." },
+          {
+            "type": "Footer",
+            "label": "Reservar",
+            "on-click-action": {
+              "name": "data_exchange",
+              "payload": {
+                "paso": "confirmar",
+                "medico": "${data.medico}",
+                "fecha": "${data.fecha}",
+                "hora": "${form.hora}",
+                "nombre": "${form.nombre}",
+                "ci": "${form.ci}",
+                "observaciones": "${form.observaciones}"
+              }
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

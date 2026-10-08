@@ -20,6 +20,9 @@ const META = {
     Dropdown: { label: 20, min: 1, max: 200 },
   },
   datePickerLabel: 40,
+  /** TextInput y TextArea: label de 20; helper-text de 80. */
+  textoLibreLabel: 20,
+  helperText: 80,
   opcionTitulo: 30,
   opcionDescripcion: 300,
   footerLabel: 35,
@@ -101,7 +104,8 @@ function validarComponente(c, pantalla) {
  */
 export function validarFlow(flow, nombre = "flow") {
   assert.equal(flow.version, "7.3", "Flow JSON 7.3");
-  assert.ok(!flow.data_api_version && !flow.endpoint_uri && !flow.routing_model, "Sin endpoint en esta fase");
+  if (flow.data_api_version !== undefined || flow.routing_model !== undefined) return validarFlowConEndpoint(flow, nombre);
+  assert.ok(!flow.endpoint_uri, "Sin endpoint en un Flow estático");
   assert.ok(Array.isArray(flow.screens) && flow.screens.length > 0, "Sin pantallas");
   assert.ok(JSON.stringify(flow).length < 10 * 1024 * 1024, "Flow JSON supera 10 MB");
   const ids = new Set(flow.screens.map((s) => s.id));
@@ -195,12 +199,115 @@ export function validarFlow(flow, nombre = "flow") {
   return contrato;
 }
 
+/*
+ * Flows CON ENDPOINT (data_api_version 3.0): cada pantalla la arma el CRM
+ * (`agenda-flow.service.ts`) con datos reales, y la respuesta final la devuelve
+ * él mismo (`extension_message_response`). Reglas propias, más allá de Meta:
+ * - Las opciones son siempre dinámicas (`${data.x}`), nunca una lista escrita a mano.
+ * - Texto libre sí, pero solo lo imprescindible, y si es sensible (carnet…) va en
+ *   `sensitive`: WhatsApp no lo repite en el resumen del chat.
+ * - Una sola pantalla final, y debe decir que recepción confirma la reserva.
+ * - Cada Footer manda `paso` fijo: así el endpoint sabe qué contestar.
+ */
+const ENTRADAS_ENDPOINT = [...ELECCIONES, "TextInput", "TextArea"];
+const COMPONENTES_ENDPOINT = [...TEXTOS, ...ENTRADAS_ENDPOINT, "Footer"];
+const DATO = /^\$\{data\.([a-z_]+)\}$/;
+
+export function validarFlowConEndpoint(flow, nombre = "flow") {
+  assert.equal(flow.data_api_version, "3.0", "data_api_version 3.0");
+  assert.ok(!flow.endpoint_uri, "La URL del endpoint se configura en Meta, no en el JSON");
+  assert.ok(Array.isArray(flow.screens) && flow.screens.length > 0, "Sin pantallas");
+  const ids = flow.screens.map((s) => s.id);
+  assert.equal(new Set(ids).size, ids.length, "IDs de pantalla únicos");
+  const rutas = flow.routing_model;
+  assert.ok(rutas && typeof rutas === "object", "Falta routing_model");
+  assert.deepEqual(Object.keys(rutas).sort(), [...ids].sort(), "routing_model: una entrada por pantalla");
+  for (const [desde, hacia] of Object.entries(rutas))
+    assert.ok(Array.isArray(hacia) && hacia.every((h) => ids.includes(h) && h !== desde), `routing_model.${desde}: destinos inválidos`);
+  // Sin ciclos y todo alcanzable desde la primera pantalla.
+  const visitadas = new Set();
+  const recorrer = (id, camino) => {
+    assert.ok(!camino.includes(id), `routing_model: ciclo en ${[...camino, id].join(" → ")}`);
+    visitadas.add(id);
+    for (const h of rutas[id]) recorrer(h, [...camino, id]);
+  };
+  recorrer(ids[0], []);
+  assert.equal(visitadas.size, ids.length, "Pantallas inalcanzables");
+
+  let finales = 0;
+  for (const s of flow.screens) {
+    assert.match(s.id, /^[A-Z][A-Z_]*$/, `ID de pantalla inválido: ${s.id}`);
+    assert.notEqual(s.id, "SUCCESS", "SUCCESS es una palabra reservada de Meta");
+    assert.ok(typeof s.title === "string" && s.title.trim() && s.title.length <= 30, `${s.id}: título vacío o largo`);
+    assert.equal(s.layout?.type, "SingleColumnLayout");
+    const datos = s.data ?? {};
+    for (const [clave, def] of Object.entries(datos))
+      assert.ok(def?.type && Object.hasOwn(def, "__example__"), `${s.id}.data.${clave}: falta type o __example__`);
+    const lista = s.layout.children;
+    for (const c of lista) assert.ok(COMPONENTES_ENDPOINT.includes(c.type), `${s.id}: componente no admitido ${c.type}`);
+    assert.ok(lista.length <= META.componentesPorPantalla, `${s.id}: más de ${META.componentesPorPantalla} componentes`);
+    const propios = new Set();
+    for (const c of lista) {
+      if (TEXTOS.includes(c.type)) {
+        assert.ok(typeof c.text === "string" && c.text.trim() && c.text.length <= META.texto[c.type], `${s.id}: ${c.type} vacío o largo`);
+      }
+      if (ENTRADAS_ENDPOINT.includes(c.type)) {
+        assert.match(c.name ?? "", /^[a-z][a-z_]*$/, `${s.id}: nombre de campo inválido`);
+        assert.ok(!propios.has(c.name), `${s.id}: campo repetido ${c.name}`);
+        propios.add(c.name);
+        if (SENSIBLES.test(c.name)) assert.ok((s.sensitive ?? []).includes(c.name), `${s.id}.${c.name}: dato sensible fuera de «sensitive»`);
+      }
+      if (ELECCIONES.includes(c.type)) {
+        assert.ok(c.label?.trim() && c.label.length <= META.eleccion[c.type].label, `${s.id}.${c.name}: label supera ${META.eleccion[c.type].label} caracteres`);
+        const fuente = DATO.exec(c["data-source"] ?? "");
+        assert.ok(fuente && datos[fuente[1]]?.type === "array", `${s.id}.${c.name}: las opciones salen de un array de data`);
+      }
+      if (c.type === "TextInput" || c.type === "TextArea") {
+        assert.ok(c.label?.trim() && c.label.length <= META.textoLibreLabel, `${s.id}.${c.name}: label supera ${META.textoLibreLabel} caracteres`);
+        assert.ok(!c["helper-text"] || c["helper-text"].length <= META.helperText, `${s.id}.${c.name}: helper-text supera ${META.helperText}`);
+      }
+    }
+    for (const campo of s.sensitive ?? []) assert.ok(propios.has(campo), `${s.id}: sensitive nombra un campo ajeno (${campo})`);
+    const footers = lista.filter((c) => c.type === "Footer");
+    assert.equal(footers.length, 1, `${s.id}: un único Footer por pantalla`);
+    assert.ok(footers[0].label?.trim() && footers[0].label.length <= META.footerLabel, `${s.id}: Footer supera ${META.footerLabel}`);
+    const a = footers[0]["on-click-action"];
+    assert.equal(a?.name, "data_exchange", `${s.id}: con endpoint cada paso lo contesta el CRM (data_exchange)`);
+    assert.match(a.payload?.paso ?? "", /^[a-z_]+$/, `${s.id}: el payload necesita un «paso» fijo`);
+    for (const r of referencias(s.layout)) {
+      if (r.tipo === "data") assert.ok(Object.hasOwn(datos, r.nombre), `Referencia rota ${s.id}.data.${r.nombre}`);
+      else if (r.tipo === "form") assert.ok(propios.has(r.nombre), `Referencia rota ${s.id}.form.${r.nombre}`);
+      else assert.fail(`${s.id}: con endpoint no se lee el formulario de otra pantalla; viaja en data`);
+    }
+    if (s.terminal) {
+      finales++;
+      assert.deepEqual(rutas[s.id], [], `${s.id}: la pantalla final no lleva a otra`);
+      assert.ok(/Recepción confirmará/.test(JSON.stringify(s.layout)), `${s.id}: la pantalla final debe decir que recepción confirma la reserva`);
+    }
+  }
+  assert.equal(finales, 1, "Una sola pantalla final");
+  return { version: nombre, pantalla: ids[0], respuestas: {}, titulos: {} };
+}
+
 /** El contrato completo del catálogo: el que se deriva del JSON más lo que decide Montalvo. */
 export function contratoDeFlow(flow, nombre, declarado) {
   const derivado = validarFlow(flow, nombre);
   assert.equal(declarado.version, derivado.version, `${nombre}: versión del manifest distinta`);
   assert.equal(declarado.pantalla, derivado.pantalla, `${nombre}: pantalla inicial del manifest distinta`);
-  assert.ok(declarado.proposito === undefined || declarado.proposito === "SOLICITUD_CITA", `${nombre}: propósito desconocido`);
+  assert.ok([undefined, "SOLICITUD_CITA", "RESERVA_CITA"].includes(declarado.proposito), `${nombre}: propósito desconocido`);
+  const conEndpoint = flow.data_api_version !== undefined;
+  assert.equal(declarado.endpoint === true, conEndpoint, `${nombre}: el manifest debe declarar endpoint: true si y solo si el Flow tiene endpoint`);
+  assert.equal(declarado.proposito === "RESERVA_CITA", conEndpoint, `${nombre}: RESERVA_CITA es el propósito de un Flow con endpoint, y solo de él`);
+  if (conEndpoint) {
+    /* La respuesta final la arma el CRM: lo que vuelve son los campos que él declara,
+       de texto, con tope. Nunca se le muestran al personal como datos: el CRM arma el
+       resumen del chat con ellos. */
+    const campos = declarado.campos ?? {};
+    assert.ok(Object.keys(campos).length > 0, `${nombre}: declara los campos que devuelve el endpoint`);
+    for (const [clave, c] of Object.entries(campos))
+      assert.ok(/^[a-z_]+$/.test(clave) && c.tipo === "texto" && Number.isInteger(c.max) && c.max > 0 && c.max <= 500, `${nombre}.campos.${clave}: texto con tope`);
+    return { ...derivado, campos, proposito: declarado.proposito, endpoint: true, etiquetas: {} };
+  }
   const claves = [...Object.keys(derivado.respuestas), ...Object.keys(derivado.campos ?? {})].sort();
   // Sin etiqueta el backend no le muestra el dato al personal: todas la llevan.
   assert.deepEqual(Object.keys(declarado.etiquetas ?? {}).sort(), claves, `${nombre}: cada respuesta necesita su etiqueta`);

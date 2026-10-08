@@ -194,6 +194,8 @@ export class IngestaWhatsappService {
     let pagarPromocion = null as string | null;
     /* La imagen o documento que mandó era el comprobante de un pago pendiente. */
     let comprobante = false;
+    /* Completó el Flow de reserva: ya hay una reserva en la agenda para confirmar. */
+    let reservoPorChat = false;
     try {
       mensaje = await this.prisma.$transaction(async tx => {
         const creado = await tx.mensaje.create({
@@ -213,6 +215,7 @@ export class IngestaWhatsappService {
         });
         if (interaccionOriginal !== undefined && interacciones) {
           const resultado = await guardarRespuesta(tx, creado.id, conversacion.id, telefono, interaccionOriginal);
+          reservoPorChat = resultado.propositoFlow === 'RESERVA_CITA' && resultado.estado === 'CORRELACIONADA';
           if (linea.comercial && resultado.promocionId && resultado.seleccionId === PAGAR_PROMOCION && resultado.estado === 'CORRELACIONADA') {
             /* «Pagar ahora» de una tarjeta VIGENTE: se le manda el QR aunque una persona
                ya esté en el chat, porque es lo que ella acaba de pedir. Si hoy no se puede
@@ -297,6 +300,7 @@ export class IngestaWhatsappService {
          pidió a alguien. Es el mismo aviso, a las mismas personas. */
       texto: emergencia ? 'Indicó una EMERGENCIA'
         : solicitud === 'SOLICITUD_EXPLICITA' ? 'Pidió hablar con una persona'
+        : reservoPorChat ? 'Reservó una cita por el chat'
         : solicitud === 'SOLICITUD_CITA' ? 'Envió una solicitud de cita'
         : comprobante ? 'Envió un comprobante de pago' : contenido,
       /* Una emergencia le suena a todos los que ven la línea, también a quien
@@ -695,16 +699,24 @@ export class IngestaWhatsappService {
   }
 
   /**
-   * El Flow de solicitud de cita, como respuesta a «Solicitar una cita»: sale
+   * El Flow de cita (el de reserva si la WABA lo tiene, si no el de solicitud),
+   * como respuesta a «Solicitar una cita»: sale
    * aunque el chat espere a una persona (esa espera la creó este mismo toque) y
    * una sola vez cada 30 min. Es una oferta de UN uso (sin `origen`): completarlo
    * dos veces deja la segunda respuesta como `DUPLICADA`.
    */
   private async enviarFlowDeCita(conversacionId: string, telefono: string, flow: FlowPublicado, confirmacion: string | null): Promise<void> {
     try {
-      const cuerpo = confirmacion ?? 'Cuéntanos para qué es la cita y cuándo te queda mejor. Una persona del equipo te escribirá para confirmarla.';
+      /* El de reserva (con endpoint) agenda de verdad: elige médico, día y hora libres
+         de la agenda. El de solicitud solo pregunta y una persona propone la hora. */
+      const reserva = flow.proposito === 'RESERVA_CITA';
+      const cuerpo = confirmacion ?? (reserva
+        ? 'Elige especialidad, médico, día y hora entre las horas libres de la agenda. Recepción te confirmará la reserva por este chat.'
+        : 'Cuéntanos para qué es la cita y cuándo te queda mejor. Una persona del equipo te escribirá para confirmarla.');
       const oferta = prepararOferta(
-        { tipo: 'flow', cuerpo, cta: 'Solicitar cita', flowId: flow.id, modo: 'published', inicio: { accion: 'navigate', pantalla: flow.pantalla } },
+        reserva
+          ? { tipo: 'flow', cuerpo, cta: 'Reservar cita', flowId: flow.id, modo: 'published', inicio: { accion: 'data_exchange' } }
+          : { tipo: 'flow', cuerpo, cta: 'Solicitar cita', flowId: flow.id, modo: 'published', inicio: { accion: 'navigate', pantalla: flow.pantalla } },
         telefono,
       );
       const desde = new Date(this.ahora().getTime() - RESPUESTA_REPETIDA_MS);

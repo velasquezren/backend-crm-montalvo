@@ -98,7 +98,7 @@ const ESTADOS_DE_OFERTA_NUESTRA = new Set(['CORRELACIONADA', 'CADUCADA']);
  * - «Es una emergencia» de una oferta nuestra → emergencia (aunque haya caducado).
  * - «Hablar con recepción» de una oferta nuestra → la pidió (aunque la oferta
  *   haya caducado: pedir una persona siempre se atiende).
- * - Flow de cita validado, o «Solicitar cita» → solicitud de cita.
+ * - Flow de cita validado (solicitud o reserva), o «Solicitar cita» → solicitud de cita.
  * - Una opción que el menú de atención contesta solo (`resueltaSola`: horarios,
  *   ubicación, la lista de promociones) → nada: ya tiene respuesta.
  * - Cualquier otra respuesta, o una sin correlación → revisión: ninguna queda sin
@@ -115,7 +115,8 @@ export function motivoDeRespuesta(r: ResultadoRespuesta, resueltaSola = false): 
   if (nuestra && r.seleccionId === 'TALK_TO_HUMAN') return 'SOLICITUD_EXPLICITA';
   /* Solo una oferta VIGENTE se contesta sola: un toque tardío lo ve una persona. */
   if (resueltaSola && r.estado === 'CORRELACIONADA') return null;
-  if (nuestra && (r.seleccionId === 'BOOK_APPOINTMENT' || r.propositoFlow === 'SOLICITUD_CITA')) return 'SOLICITUD_CITA';
+  /* Una reserva hecha por el Flow también: recepción la tiene que confirmar en FileMaker. */
+  if (nuestra && (r.seleccionId === 'BOOK_APPOINTMENT' || r.propositoFlow === 'SOLICITUD_CITA' || r.propositoFlow === 'RESERVA_CITA')) return 'SOLICITUD_CITA';
   return 'REVISION';
 }
 
