@@ -1,6 +1,6 @@
 # Estado actual
 
-## Flow de cita desde el menú: identificación de línea — 8 de octubre de 2026
+## Flow de cita desde el menú: identificación de línea — 8 de octubre de 2026 · DESPLEGADO
 
 - Se reprodujo el incidente del número de prueba: el Flow llegaba y figuraba leído,
   pero su token no incluía `lineaId`. El endpoint endurecido lo rechaza con 427
@@ -29,6 +29,19 @@
   Repetir la suite completa sobre la misma base había dejado una vendedora ajena
   al fixture de consistencia de planilla (cuatro fallos); la ejecución limpia
   pasó completa sin cambios en el código financiero.
+- Publicado en el backend `1dba15c` el 8/10 a las 10:34 (La Paz), con GitHub
+  Actions aprobado. Respaldo previo verificado:
+  `/root/backup-crm-flow-20261008-143241.sql.gz` (5.086.251 bytes), más el `dist`
+  anterior en `/root/backup-crm-flow-20261008-143241-dist.tar.gz` (base `944a24f`).
+  Las 69 migraciones estaban al día; no cambió el esquema. Build completado antes
+  del reinicio, health/DB 200, login inválido 400, recurso protegido 401 y cero
+  reinicios inesperados. Resultados conserva sus tres servicios activos.
+- Después del despliegue, la prueba cifrada volvió a cargar nueve especialidades,
+  cuatro médicos de la primera especialidad, 22 días del médico consultado y una
+  hora del día muestreado (disponibilidad variable). No creó citas ni envió mensajes.
+  `.env`, filas de líneas y menús verificados idénticos antes/después; solo sigue
+  habilitada la línea de prueba. Falta la comprobación visual del usuario abriendo
+  un mensaje nuevo en WhatsApp. PostgreSQL temporal local detenido al terminar.
 
 ## Menús de Recepción y Ventas creados — 8 de octubre de 2026 · GUARDADOS, APAGADOS
 
