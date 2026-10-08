@@ -1,8 +1,9 @@
 # Instrucciones para Gemini y otros agentes
 
-Lee primero [docs/ESTADO_ACTUAL.md](docs/ESTADO_ACTUAL.md): es el único handoff.
-Las reglas del backend y su arranque local están en [CLAUDE.md](CLAUDE.md).
-Estas instrucciones son para cualquier agente, independientemente de su nombre.
+Empieza por [AI_GUIDE.md](AI_GUIDE.md) y [AGENTS.md](AGENTS.md). Son el punto de
+entrada común para cualquier asistente. Lee después [CLAUDE.md](CLAUDE.md), que
+contiene las reglas operativas completas del backend, y
+[docs/ESTADO_ACTUAL.md](docs/ESTADO_ACTUAL.md), el único handoff de fases.
 
 Para código consulta los skills locales
 [crm-backend-module](.claude/skills/crm-backend-module/SKILL.md) y
