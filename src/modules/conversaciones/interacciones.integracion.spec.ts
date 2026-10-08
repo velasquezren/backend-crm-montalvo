@@ -117,6 +117,7 @@ async function limpiar() {
 }
 beforeAll(async () => {
   process.env['WHATSAPP_INTERACCIONES'] = 'on';
+  process.env['WHATSAPP_INTERACCIONES_LINEAS'] ??= 'todas';
   process.env['WHATSAPP_INTERACCIONES_KEY'] = claveSintetica;
   app = await NestFactory.create(ModuloInteraccionesTest, { rawBody: true, logger: false, abortOnError: false });
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
@@ -124,6 +125,7 @@ beforeAll(async () => {
 }, 30_000);
 beforeEach(async () => {
   process.env['WHATSAPP_INTERACCIONES'] = 'on';
+  process.env['WHATSAPP_INTERACCIONES_LINEAS'] ??= 'todas';
   process.env['WHATSAPP_INTERACCIONES_KEY'] = claveSintetica;
   await limpiar();
   transporte.enviar.mockReset().mockImplementation(async () => ({ estado: 'ENVIADO', metaMsgId: `wamid.test.${randomUUID()}` }));
@@ -373,6 +375,7 @@ it('ventana cerrada, límites Meta y feature desactivada rechazan antes de guard
   expect((await http(ruta, 'POST', { ...body, interaccion: { ...botones, opciones: [...botones.opciones, ...botones.opciones] } })).status).toBe(400);
   process.env['WHATSAPP_INTERACCIONES'] = 'off'; expect((await http(ruta, 'POST', body)).status).toBe(400);
   process.env['WHATSAPP_INTERACCIONES'] = 'on';
+  process.env['WHATSAPP_INTERACCIONES_LINEAS'] ??= 'todas';
   await prisma.mensaje.updateMany({ where: { conversacionId: chat }, data: { createdAt: new Date(0) } });
   expect((await http(ruta, 'POST', body)).status).toBe(400); expect(transporte.enviar).not.toHaveBeenCalled();
 });

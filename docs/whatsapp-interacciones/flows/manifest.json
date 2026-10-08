@@ -87,26 +87,44 @@
       "flowIds": {}
     },
     "prueba": {
-      "nota": "WABA de prueba de Meta (+1 555-194-8320), línea «PRUEBA · Número de Meta». Publicados con OK de René: solicitud-cita el 2026-10-06; reserva-cita (con endpoint) el 2026-10-07.",
+      "linea": "PRUEBA · Número de Meta",
       "wabaId": "1699047341353103",
       "flowIds": {
         "solicitud-cita.v1.json": "1603800134806928",
         "reserva-cita.v1.json": "983104870865405"
       },
-      "habilitado": true
+      "habilitado": true,
+      "autorizado": {
+        "por": "René",
+        "fecha": "2026-10-06",
+        "nota": "WABA de prueba de Meta (+1 555-194-8320). solicitud-cita el 06/10; reserva-cita (endpoint) el 07/10."
+      }
     },
     "ventas": {
-      "nota": "Línea «Ventas y publicidad Montalvo» (comercial), WABA real. Reserva publicada con OK de René el 2026-10-07; misma llave del servidor que el número de prueba.",
+      "linea": "Ventas y publicidad Montalvo",
       "wabaId": "1011426071679964",
       "flowIds": {
         "reserva-cita.v1.json": "2329810907756138"
       },
-      "habilitado": true
+      "habilitado": true,
+      "autorizado": {
+        "por": "René",
+        "fecha": "2026-10-07",
+        "nota": "WABA real. Lo ven las pacientes solo con la línea en WHATSAPP_INTERACCIONES_LINEAS y su menú encendido."
+      }
     },
-    "produccion": {
-      "wabaId": null,
-      "flowIds": {},
-      "habilitado": false
+    "recepcion": {
+      "linea": "Recepción Clínica Montalvo",
+      "wabaId": "1110803964711622",
+      "flowIds": {
+        "reserva-cita.v1.json": "955537750435902"
+      },
+      "habilitado": true,
+      "autorizado": {
+        "por": "René",
+        "fecha": "2026-10-07",
+        "nota": "WABA real, preparada APAGADA: la línea no está en WHATSAPP_INTERACCIONES_LINEAS y no tiene menú."
+      }
     }
   },
   "validacionMeta": "SIN_ERRORES_2026-10-05",

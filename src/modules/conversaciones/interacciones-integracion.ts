@@ -19,15 +19,21 @@ export function interaccionesHabilitadas(): boolean {
 
 /**
  * ¿Esta línea se comporta con interacciones (menú, tarjetas, botones, «Atención»)?
- * Con `WHATSAPP_INTERACCIONES_LINEAS` (ids de línea separados por coma) es un
- * piloto: solo esas líneas; las demás siguen exactamente como con la bandera
- * apagada. Sin ella, todas. Así se prueba con una línea de prueba en producción
- * sin cambiar nada a las pacientes de Recepción y Ventas.
+ * Solo las de `WHATSAPP_INTERACCIONES_LINEAS` (ids separados por coma); las demás
+ * siguen exactamente como con la bandera apagada. Así se enciende de a una línea
+ * real sin cambiar nada a las pacientes de las otras.
+ *
+ * Falla CERRADO: vacía o ausente no enciende ninguna. Encenderlas todas se escribe
+ * a propósito (`todas`). Antes «vacía = todas»: con Flows ya publicados en las WABAs
+ * reales de Ventas y Recepción, borrar la variable por error habría encendido las
+ * dos para todas sus pacientes.
  */
 export function interaccionesEnLinea(lineaId: string | null | undefined): boolean {
   if (!interaccionesHabilitadas()) return false;
-  const piloto = (process.env['WHATSAPP_INTERACCIONES_LINEAS'] ?? '').split(',').map(s => s.trim()).filter(Boolean);
-  return piloto.length === 0 || (!!lineaId && piloto.includes(lineaId));
+  const valor = (process.env['WHATSAPP_INTERACCIONES_LINEAS'] ?? '').trim();
+  if (valor === 'todas') return true;
+  const piloto = valor.split(',').map(s => s.trim()).filter(Boolean);
+  return !!lineaId && piloto.includes(lineaId);
 }
 const DIA = 86_400_000;
 function clave(): Buffer {
@@ -100,7 +106,8 @@ export interface FlowPublicado extends FlowAutorizado {
 /**
  * Lo que el CRM puede enviar: los Flows publicados de los ambientes encendidos del
  * manifest (docs/whatsapp-interacciones/flows), generados a `flows-publicados.ts`.
- * Producción sigue apagada por regla del validador; hoy solo la WABA de prueba.
+ * Cada ambiente encendido es una WABA con publicación autorizada (prueba, Ventas,
+ * Recepción). Que la paciente lo vea depende además de `interaccionesEnLinea`.
  */
 export function catalogoFlows(): readonly FlowPublicado[] { return FLOWS_PUBLICADOS; }
 

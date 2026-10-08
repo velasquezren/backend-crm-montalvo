@@ -120,10 +120,14 @@ test("el contrato del manifest coincide con el JSON y cada respuesta lleva etiqu
   assert.throws(() => contratoDeFlow(cita(), NOMBRE, { ...contrato, etiquetas: sinHorario }), /etiqueta/);
 });
 
-test("el manifest no apunta a ningún activo remoto ni habilita producción", () => {
+test("un ambiente apagado no apunta a nada; uno encendido dice su línea, quién lo autorizó y no repite WABA", () => {
   const m = leer("manifest.json");
   assert.throws(() => validarManifest({ ...m, ambientes: { ...m.ambientes, desarrollo: { wabaId: "123", flowIds: {} } } }), /WABA/);
-  assert.throws(() => validarManifest({ ...m, ambientes: { ...m.ambientes, produccion: { ...m.ambientes.produccion, habilitado: true } } }), /Producción/);
+  const { autorizado, ...sinAutorizacion } = m.ambientes.ventas;
+  assert.ok(autorizado);
+  assert.throws(() => validarManifest({ ...m, ambientes: { ...m.ambientes, ventas: sinAutorizacion } }), /autorizó/);
+  assert.throws(() => validarManifest({ ...m, ambientes: { ...m.ambientes, ventas: { ...m.ambientes.ventas, linea: "" } } }), /línea/);
+  assert.throws(() => validarManifest({ ...m, ambientes: { ...m.ambientes, ventas: { ...m.ambientes.ventas, wabaId: m.ambientes.prueba.wabaId } } }), /ya es de otro ambiente/);
   const flows = structuredClone(m.flows);
   flows["solicitud-cita.v1.json"].categorias = ["CITAS"];
   assert.throws(() => validarManifest({ ...m, flows }), /categoría/);
@@ -133,17 +137,15 @@ test("el manifest no apunta a ningún activo remoto ni habilita producción", ()
 });
 
 test("un ambiente encendido declara su WABA y Flows publicados; de ahí sale el catálogo que el CRM envía", () => {
-  /* Solo los ambientes base: los reales encendidos (ventas…) no entran en esta prueba. */
+  /* Solo el ambiente de desarrollo, apagado: los reales encendidos no entran en esta prueba. */
   const real = leer("manifest.json");
-  const m = { ...real, ambientes: { desarrollo: real.ambientes.desarrollo, prueba: real.ambientes.prueba, produccion: real.ambientes.produccion } };
-  const prueba = { wabaId: "1699047341353103", flowIds: { "solicitud-cita.v1.json": "777" }, habilitado: true };
+  const m = { ...real, ambientes: { desarrollo: real.ambientes.desarrollo } };
+  const prueba = { linea: "PRUEBA", wabaId: "1699047341353103", flowIds: { "solicitud-cita.v1.json": "777" }, habilitado: true, autorizado: { por: "René", fecha: "2026-10-06" } };
   const conPrueba = { ...m, ambientes: { ...m.ambientes, prueba } };
   validarManifest(conPrueba);
   assert.throws(() => validarManifest({ ...m, ambientes: { ...m.ambientes, prueba: { ...prueba, wabaId: null } } }), /WABA/);
   assert.throws(() => validarManifest({ ...m, ambientes: { ...m.ambientes, prueba: { ...prueba, flowIds: { "otro.json": "1" } } } }), /no está en el manifest/);
   assert.throws(() => validarManifest({ ...m, ambientes: { ...m.ambientes, prueba: { ...prueba, flowIds: { "solicitud-cita.v1.json": "abc" } } } }), /ID publicado/);
-  /* Producción sigue apagada aunque otro ambiente esté encendido. */
-  assert.throws(() => validarManifest({ ...conPrueba, ambientes: { ...conPrueba.ambientes, produccion: { ...m.ambientes.produccion, habilitado: true } } }), /Producción/);
 
   const catalogo = catalogoPublicado(conPrueba, validarBorradores());
   assert.deepEqual(catalogo.map((f) => [f.id, f.wabaId, f.proposito, f.pantalla]), [["777", "1699047341353103", "SOLICITUD_CITA", "MOTIVO"]]);

@@ -118,8 +118,17 @@ ambiente DEV y con autorización:
    - la automatización quedó pausada y no salió ningún mensaje automático;
    - volver a completar el mismo Flow queda como `DUPLICADA`: no crea una segunda solicitud.
 
-## Qué sigue apagado
+## Qué está publicado y qué ve la paciente (7/10/2026)
 
-Producción: ni Flow creado, ni publicado, ni catálogo, ni `WHATSAPP_INTERACCIONES`.
-Pasar a producción es otra autorización: publicar en la WABA real, añadir la entrada
-del catálogo en el código por despliegue revisado y encender la bandera.
+El Flow de reserva (`reserva-cita.v1`, con endpoint) está PUBLICADO en tres WABAs, con
+la misma llave del servidor registrada en cada número (`manifest.json` → `ambientes`):
+
+| Ambiente | WABA | ¿Lo ven las pacientes? |
+|---|---|---|
+| prueba | 1699047341353103 | Sí: línea en `WHATSAPP_INTERACCIONES_LINEAS`, menú encendido |
+| ventas | 1011426071679964 | Cuando la línea entre en `WHATSAPP_INTERACCIONES_LINEAS` y encienda su menú |
+| recepcion | 1110803964711622 | Igual: preparada, apagada |
+
+Publicar en Meta no muestra nada a nadie: el CRM solo envía un Flow desde el menú de una
+línea con interacciones encendidas. Encender o apagar una línea es una variable del
+servidor; el menú, un interruptor en Líneas WhatsApp → Menú.

@@ -94,5 +94,26 @@ export const FLOWS_PUBLICADOS: readonly FlowPublicado[] = [
     "proposito": "RESERVA_CITA",
     "endpoint": true,
     "etiquetas": {}
+  },
+  {
+    "id": "955537750435902",
+    "wabaId": "1110803964711622",
+    "version": "reserva-cita.v1",
+    "pantalla": "ESPECIALIDAD",
+    "respuestas": {},
+    "titulos": {},
+    "campos": {
+      "reserva": {
+        "tipo": "texto",
+        "max": 12
+      },
+      "resumen": {
+        "tipo": "texto",
+        "max": 200
+      }
+    },
+    "proposito": "RESERVA_CITA",
+    "endpoint": true,
+    "etiquetas": {}
   }
 ];

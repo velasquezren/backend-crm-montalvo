@@ -207,6 +207,7 @@ async function limpiar() {
 
 beforeAll(async () => {
   process.env['WHATSAPP_INTERACCIONES'] = 'on';
+  process.env['WHATSAPP_INTERACCIONES_LINEAS'] ??= 'todas';
   process.env['WHATSAPP_INTERACCIONES_KEY'] = claveSintetica;
   process.env['CRM_URL_PUBLICA'] = 'https://crm.sintetico.test';
   const nueva = await NestFactory.create(ModuloPagosTest, { rawBody: true, logger: false, abortOnError: false });
@@ -218,6 +219,7 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   process.env['WHATSAPP_INTERACCIONES'] = 'on';
+  process.env['WHATSAPP_INTERACCIONES_LINEAS'] ??= 'todas';
   await limpiar();
   almacen.clear();
   transporte.enviar.mockReset().mockImplementation(async () => ({ estado: 'ENVIADO', metaMsgId: `wamid.out.${randomUUID()}` }));

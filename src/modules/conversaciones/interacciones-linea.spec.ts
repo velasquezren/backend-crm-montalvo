@@ -14,12 +14,15 @@ describe('interacciones por línea', () => {
     expect(interaccionesEnLinea('linea-prueba')).toBe(false);
   });
 
-  it('encendida y sin piloto, todas las líneas', () => {
+  it('encendida sin lista (o vacía), NINGUNA línea: falla cerrado; todas solo escribiendo «todas»', () => {
     process.env['WHATSAPP_INTERACCIONES'] = 'on';
     delete process.env['WHATSAPP_INTERACCIONES_LINEAS'];
-    expect(interaccionesEnLinea('cualquiera')).toBe(true);
+    expect(interaccionesEnLinea('cualquiera')).toBe(false);
     process.env['WHATSAPP_INTERACCIONES_LINEAS'] = ' , ';
+    expect(interaccionesEnLinea('cualquiera')).toBe(false);
+    process.env['WHATSAPP_INTERACCIONES_LINEAS'] = ' todas ';
     expect(interaccionesEnLinea('cualquiera')).toBe(true);
+    expect(interaccionesEnLinea(null)).toBe(true);
   });
 
   it('encendida con piloto, solo las de la lista (con espacios tolerados); sin línea, ninguna', () => {

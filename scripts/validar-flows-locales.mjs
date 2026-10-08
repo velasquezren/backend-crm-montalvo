@@ -320,17 +320,23 @@ export function contratoDeFlow(flow, nombre, declarado) {
 
 export function validarManifest(manifest) {
   assert.equal(manifest.jsonVersion, "7.3");
-  assert.equal(manifest.ambientes.produccion.habilitado, false, "Producción deshabilitada");
+  const wabas = new Set();
   for (const [nombre, ambiente] of Object.entries(manifest.ambientes)) {
-    /* Un ambiente apagado no apunta a nada remoto. Uno encendido (con autorización
-       de René: hoy solo la WABA de prueba) declara su WABA y los Flows PUBLICADOS
-       en ella; de ahí sale el catálogo que el CRM puede enviar. */
+    /* Un ambiente apagado no apunta a nada remoto. Uno encendido es una WABA en la
+       que René autorizó publicar: declara su línea, la WABA, los Flows PUBLICADOS en
+       ella y quién y cuándo lo autorizó. De ahí sale el catálogo que el CRM PUEDE
+       enviar; que la paciente lo vea depende además de la línea
+       (`WHATSAPP_INTERACCIONES_LINEAS`) y de su menú encendido. */
     if (ambiente.habilitado !== true) {
       assert.equal(ambiente.wabaId, null, `${nombre}: ningún WABA hasta que se autorice`);
       assert.deepEqual(ambiente.flowIds, {}, `${nombre}: ningún Flow remoto hasta que se autorice`);
       continue;
     }
+    assert.ok(typeof ambiente.linea === "string" && ambiente.linea.trim(), `${nombre}: la línea del ambiente`);
     assert.match(ambiente.wabaId ?? "", /^\d+$/, `${nombre}: WABA del ambiente`);
+    assert.ok(!wabas.has(ambiente.wabaId), `${nombre}: la WABA ${ambiente.wabaId} ya es de otro ambiente`);
+    wabas.add(ambiente.wabaId);
+    assert.ok(ambiente.autorizado?.por?.trim() && /^\d{4}-\d{2}-\d{2}$/.test(ambiente.autorizado?.fecha ?? ""), `${nombre}: falta quién y cuándo autorizó publicar`);
     for (const [archivo, id] of Object.entries(ambiente.flowIds)) {
       assert.ok(manifest.archivos.includes(archivo), `${nombre}: ${archivo} no está en el manifest`);
       assert.match(id, /^\d+$/, `${nombre}: ID publicado de ${archivo}`);

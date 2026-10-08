@@ -165,6 +165,7 @@ async function limpiar() {
 
 beforeAll(async () => {
   process.env['WHATSAPP_INTERACCIONES'] = 'on';
+  process.env['WHATSAPP_INTERACCIONES_LINEAS'] ??= 'todas';
   process.env['WHATSAPP_INTERACCIONES_KEY'] = claveSintetica;
   app = await crearApp();
   base = await app.getUrl();
@@ -172,6 +173,7 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   process.env['WHATSAPP_INTERACCIONES'] = 'on';
+  process.env['WHATSAPP_INTERACCIONES_LINEAS'] ??= 'todas';
   process.env['WHATSAPP_INTERACCIONES_KEY'] = claveSintetica;
   await limpiar();
   transporte.enviar.mockReset().mockImplementation(async () => ({ estado: 'ENVIADO', metaMsgId: `wamid.out.${randomUUID()}` }));
