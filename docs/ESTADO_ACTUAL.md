@@ -39,7 +39,7 @@ IA, más adelante, solo tendrá que abrirlo ([herramientas](ia-herramientas.md))
   pacientes falta: el menú de la línea (no tiene) y sumar su id a
   `WHATSAPP_INTERACCIONES_LINEAS`. `flow-llaves.sh` ya NO genera llave si existe:
   reutiliza la del servidor (`--rotar` para cambiarla, y re-registrar en todos).
-- **Recepción (7/10, con OK de René), preparada APAGADA**: llave registrada en
+- **Recepción (7/10, con OK de René, desplegado 20ab3a1), preparada APAGADA**: llave registrada en
   el número 1327334883795338 (`VALID`); Flow `955537750435902` PUBLICADO en la WABA
   1110803964711622 (ambiente `recepcion`). La línea no está en
   `WHATSAPP_INTERACCIONES_LINEAS` ni tiene menú: sus pacientes no ven nada.
