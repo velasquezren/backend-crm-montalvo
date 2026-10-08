@@ -52,5 +52,26 @@ export const FLOWS_PUBLICADOS: readonly FlowPublicado[] = [
       "cuando": "Cuándo",
       "horario": "Horario"
     }
+  },
+  {
+    "id": "983104870865405",
+    "wabaId": "1699047341353103",
+    "version": "reserva-cita.v1",
+    "pantalla": "ESPECIALIDAD",
+    "respuestas": {},
+    "titulos": {},
+    "campos": {
+      "reserva": {
+        "tipo": "texto",
+        "max": 12
+      },
+      "resumen": {
+        "tipo": "texto",
+        "max": 200
+      }
+    },
+    "proposito": "RESERVA_CITA",
+    "endpoint": true,
+    "etiquetas": {}
   }
 ];

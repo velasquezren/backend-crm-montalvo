@@ -1,6 +1,6 @@
 # Estado actual
 
-## Reservar por WhatsApp (Flow con endpoint) — 7 de octubre de 2026 · EN GITHUB, FALTA PUBLICAR EN META
+## Reservar por WhatsApp (Flow con endpoint) — 7 de octubre de 2026 · PUBLICADO EN LA WABA DE PRUEBA
 
 Fase 1 del plan de IA: el formulario de reserva DENTRO de WhatsApp, sin IA. La
 IA, más adelante, solo tendrá que abrirlo ([herramientas](ia-herramientas.md)).
@@ -26,13 +26,15 @@ IA, más adelante, solo tendrá que abrirlo ([herramientas](ia-herramientas.md))
   «Recepción confirmará» en la pantalla final).
 - **Verificación**: reserva completa cifrada contra el MySQL sintético (36), la
   respuesta del Flow en el chat (integración 820), validador 15, unitarias 916.
-- **Para activarlo en el número de prueba** (cada paso remoto, con OK de René):
-  1. Desplegar el backend (el endpoint queda listo; nada se envía todavía).
-  2. `scripts/whatsapp/flow-llaves.sh <phone_number_id>` en el servidor.
-  3. `scripts/whatsapp/flow-publicar.sh 1699047341353103 <json>` → borrador y
-     errores de Meta; con cero errores, `--publicar <id>`.
-  4. Anotar el id en `manifest.json` → `ambientes.prueba.flowIds`,
-     `npm run flows:generar`, desplegar.
+- **Activado en el número de prueba (7/10, con OK de René)**: llave RSA en
+  `/etc/crm-flows/privada.pem` (root:crmapp 640) y su parte pública registrada en
+  el número 1193508003851371 (`VALID`); Flow `983104870865405` creado sin errores
+  de validación y PUBLICADO en la WABA 1699047341353103, conectado a la app
+  CRM Montalvo; Meta hizo su ping al endpoint (200). Menú de la línea de prueba
+  con «CITA»; `WHATSAPP_INTERACCIONES_LINEAS` = solo esa línea. El negocio no
+  tiene verificación empresarial (`141010`, LIMITED): no impidió publicar.
+- **Producción**: no. Para Recepción hace falta su propia WABA, la llave en su
+  número y el mismo procedimiento; antes, probarlo a fondo en el de prueba.
 
 ## Agenda ↔ FileMaker entendida; horas libres corregidas — 7 de octubre de 2026 · DESPLEGADO
 

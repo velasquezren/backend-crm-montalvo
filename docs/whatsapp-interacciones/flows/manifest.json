@@ -78,10 +78,7 @@
           }
         }
       },
-      "pendientes": [
-        "Generar la llave del endpoint en el servidor y registrar su parte pública en el número de prueba (scripts/whatsapp/flow-llaves.sh).",
-        "Crear el Flow en la WABA de prueba con endpoint https://crm.107.175.132.15.nip.io/whatsapp/flows/agenda, conectado a la app CRM Montalvo, y publicarlo con OK de René."
-      ]
+      "pendientes": []
     }
   },
   "ambientes": {
@@ -90,10 +87,11 @@
       "flowIds": {}
     },
     "prueba": {
-      "nota": "WABA de prueba de Meta (+1 555-194-8320), línea «PRUEBA · Número de Meta». Publicado con OK de René el 2026-10-06.",
+      "nota": "WABA de prueba de Meta (+1 555-194-8320), línea «PRUEBA · Número de Meta». Publicados con OK de René: solicitud-cita el 2026-10-06; reserva-cita (con endpoint) el 2026-10-07.",
       "wabaId": "1699047341353103",
       "flowIds": {
-        "solicitud-cita.v1.json": "1603800134806928"
+        "solicitud-cita.v1.json": "1603800134806928",
+        "reserva-cita.v1.json": "983104870865405"
       },
       "habilitado": true
     },
