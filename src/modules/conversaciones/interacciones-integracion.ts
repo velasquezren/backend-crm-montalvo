@@ -180,12 +180,30 @@ export function prepararOferta(entrada: unknown, telefono: string, lineaId?: str
     throw new BadRequestException('Interacción inválida o Flow no autorizado');
   }
 }
-export function datosOferta(oferta: OfertaInteraccion, identidad: string) {
+/**
+ * La oferta tal como la ve la paciente, para pintarla en el chat del CRM: el texto,
+ * las opciones y lo que rodea a los botones (pie, rótulo de la lista o del formulario,
+ * banner). Nada de correlaciones ni del Flow: eso queda en `privado`.
+ */
+function vistaDeOferta(oferta: OfertaInteraccion) {
   const m = oferta.mensaje;
   const opciones = oferta.respuestasPlantilla ?? (m.tipo === 'botones' ? m.opciones : m.tipo === 'lista' ? m.secciones.flatMap(s => s.opciones) : []);
   return {
+    tipo: oferta.respuestasPlantilla ? 'botones' : m.tipo,
+    cuerpo: m.cuerpo,
+    opciones: opciones.map(o => ({ ...o })),
+    ...(m.tipo !== 'texto' && m.cabecera ? { cabecera: m.cabecera } : {}),
+    ...(m.tipo !== 'texto' && m.pie ? { pie: m.pie } : {}),
+    ...(m.tipo === 'botones' && m.imagenCabecera ? { imagen: m.imagenCabecera } : {}),
+    ...(m.tipo === 'lista' && !oferta.respuestasPlantilla ? { boton: m.boton } : {}),
+    ...(m.tipo === 'flow' ? { cta: m.cta } : {}),
+  } satisfies Prisma.InputJsonValue;
+}
+
+export function datosOferta(oferta: OfertaInteraccion, identidad: string) {
+  return {
     privado: cifrarInteraccion(oferta, identidad),
-    vista: { tipo: oferta.respuestasPlantilla ? 'botones' : m.tipo, cuerpo: m.cuerpo, opciones: opciones.map(o => ({ ...o })) } satisfies Prisma.InputJsonValue,
+    vista: vistaDeOferta(oferta),
     estado: 'OFRECIDA', venceEn: new Date(Date.now() + DIA), purgarEn: new Date(Date.now() + 7 * DIA),
   };
 }

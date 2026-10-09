@@ -181,10 +181,13 @@ it('rechaza firma inválida sin persistir', async () => {
   expect(await prisma.mensaje.count({ where: { whatsappMsgId: raw.id } })).toBe(0);
 });
 it('lista: usa ID ofrecido y conserva la estructura', async () => {
-  const m = await enviar({ tipo: 'lista', cuerpo: 'Elige', boton: 'Ver opciones', secciones: [{ titulo: 'Atención', opciones: [{ id: 'VIEW_HOURS', titulo: 'Horarios' }] }] });
+  const m = await enviar({ tipo: 'lista', cuerpo: 'Elige', pie: 'Escribe «menú»', boton: 'Ver opciones', secciones: [{ titulo: 'Atención', opciones: [{ id: 'VIEW_HOURS', titulo: 'Horarios' }] }] });
   const raw = { ...respuesta(m.whatsappMsgId!), interactive: { type: 'list_reply', list_reply: { id: 'VIEW_HOURS', title: 'Otro título' } } };
   expect((await webhook([raw])).status).toBe(200);
   expect((await prisma.mensaje.findUniqueOrThrow({ where: { whatsappMsgId: raw.id }, include: { interaccion: true } })).interaccion?.estado).toBe('CORRELACIONADA');
+  // El chat del CRM la pinta como la ve la paciente: con el rótulo del botón de la lista.
+  const ofrecida = await prisma.interaccionMensaje.findUniqueOrThrow({ where: { mensajeId: m.id } });
+  expect(ofrecida.vista).toEqual({ tipo: 'lista', cuerpo: 'Elige', pie: 'Escribe «menú»', boton: 'Ver opciones', opciones: [{ id: 'VIEW_HOURS', titulo: 'Horarios' }] });
 });
 it('quick reply de plantilla aprobada correlaciona por payload estable', async () => {
   jest.spyOn(app.get(EnvioPlantillasService), 'listarPlantillas').mockResolvedValueOnce([{ nombre: 'atencion_test', idioma: 'es', categoria: 'UTILITY', cuerpo: 'Ayuda', nombresVariables: [], variables: 0, formato: 'POSITIONAL', pie: null, botones: ['Recepción'], respuestasRapidas: [{ indice: 0, titulo: 'Recepción' }], imagenCabecera: null, enviable: true, motivoNoEnviable: null }]);
@@ -226,6 +229,9 @@ it.each(['solicitud-cita.v1.json', 'interes-promocion.v1.json'])('Flow real %s: 
   expect(vista['proposito']).toBe(flow.proposito);
   if (flow.proposito === 'SOLICITUD_CITA') expect(entrada.contenido).toContain('no hay ninguna cita reservada');
   expect(JSON.stringify(vista)).not.toMatch(/token-real|response_json|INDISTINTO/);
+  // La oferta se ve con su botón, nunca con el token ni el Flow.
+  const ofrecida = await prisma.interaccionMensaje.findUniqueOrThrow({ where: { mensajeId: m.id } });
+  expect(ofrecida.vista).toEqual({ tipo: 'flow', cuerpo: 'Abrir formulario', cta: 'Abrir', opciones: [] });
 });
 it('Flow de reserva (con endpoint): token sellado, abre pidiendo su pantalla, y la reserva entra con su resumen y una solicitud de cita', async () => {
   const { stdout } = await promisify(execFile)(process.execPath, ['scripts/validar-flows-locales.mjs', '--contrato'], { timeout: 10_000, env: { PATH: process.env['PATH'] } });
@@ -264,14 +270,17 @@ it.each(['caducada', 'opcion', 'linea', 'paciente', 'contexto'])('no autoriza re
   const fila = await prisma.mensaje.findUniqueOrThrow({ where: { whatsappMsgId: raw.id }, include: { interaccion: true } });
   expect(fila.interaccion?.estado).toBe(variante === 'caducada' ? 'CADUCADA' : 'NO_CORRELACIONADA');
 });
-it('tipo desconocido y Flow inválido conservan todos los campos privados tras whitelist', async () => {
+it('Flow inválido conserva todos los campos privados; un tipo desconocido no entra como interacción', async () => {
+  /* Desde 27734ca solo `interactive` y `button` pueden ser respuesta a una oferta:
+     un tipo que no se reconoce sigue el camino normal (que no lo registra) en vez
+     de abrir una revisión humana que no podía acertar nunca, como con una reacción. */
   const unknown = { id: randomUUID(), from: telefono.slice(1), type: 'nuevo_tipo', nuevo_tipo: { secretoSintetico: 'conservar-cifrado' } };
   const invalido = { ...respuesta('sin-origen'), interactive: { type: 'nfm_reply', nfm_reply: { name: 'flow', response_json: 'no-json' } } };
   expect((await webhook([unknown, invalido])).status).toBe(200);
-  const m = await prisma.mensaje.findUniqueOrThrow({ where: { whatsappMsgId: unknown.id }, include: { interaccion: true } });
-  expect(descifrarInteraccion(m.interaccion!.privado!, m.id)).toEqual(unknown);
-  expect(m.interaccion?.estado).toBe('DESCONOCIDA');
-  expect((await prisma.mensaje.findUniqueOrThrow({ where: { whatsappMsgId: invalido.id }, include: { interaccion: true } })).interaccion?.estado).toBe('INVALIDA');
+  expect(await prisma.mensaje.findUnique({ where: { whatsappMsgId: unknown.id } })).toBeNull();
+  const m = await prisma.mensaje.findUniqueOrThrow({ where: { whatsappMsgId: invalido.id }, include: { interaccion: true } });
+  expect(m.interaccion?.estado).toBe('INVALIDA');
+  expect(descifrarInteraccion(m.interaccion!.privado!, m.id)).toEqual(invalido);
 });
 it('el despachador abre un Flow desde snapshot; HTTP rechaza IDs no autorizados', async () => {
   const key = randomUUID();
