@@ -43,6 +43,11 @@ function montar(opciones: {
           : { createdAt: new Date(AHORA.getTime() - ultimoEntranteHace) },
       ),
     },
+    /* Lo usa `purgarInteracciones`, que el barrido llama antes de reintentar. */
+    interaccionMensaje: {
+      updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+      deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+    },
   };
   const despachador = { texto: jest.fn().mockResolvedValue(undefined) };
   const servicio = new ReintentoSalienteService(prisma as never, despachador as never);
@@ -221,5 +226,59 @@ describe('ReintentoSalienteService', () => {
     servicio.onModuleInit();
 
     expect(servicio['intervalo']).toBeUndefined();
+  });
+});
+
+/**
+ * La purga de retención no es una optimización: es el plazo con el que se
+ * conservan datos de pacientes. `privado` (el payload cifrado de la
+ * interacción) se borra a los 7 días y los metadatos a los 30.
+ *
+ * Corre sola mientras las interacciones están encendidas. El caso delicado es
+ * el otro: al APAGARLAS —pausar el piloto, por ejemplo— la purga se iría con
+ * ellas y lo ya guardado se quedaría pasado su plazo, en silencio.
+ * `WHATSAPP_INTERACCIONES_RETENCION` existe solo para eso, y hasta el
+ * 2026-10-08 ninguna prueba la encendía.
+ */
+describe('purga de retención con las interacciones apagadas', () => {
+  const previo = {
+    on: process.env['WHATSAPP_INTERACCIONES'],
+    retencion: process.env['WHATSAPP_INTERACCIONES_RETENCION'],
+  };
+
+  beforeEach(() => {
+    delete process.env['WHATSAPP_INTERACCIONES'];
+  });
+
+  afterEach(() => {
+    for (const [nombre, valor] of [
+      ['WHATSAPP_INTERACCIONES', previo.on],
+      ['WHATSAPP_INTERACCIONES_RETENCION', previo.retencion],
+    ] as const) {
+      if (valor === undefined) delete process.env[nombre];
+      else process.env[nombre] = valor;
+    }
+  });
+
+  it('sin la bandera de retención, no purga', async () => {
+    delete process.env['WHATSAPP_INTERACCIONES_RETENCION'];
+    const { servicio, prisma } = montar({});
+
+    await servicio.barrerEnviosPendientes();
+
+    expect(prisma.interaccionMensaje.updateMany).not.toHaveBeenCalled();
+    expect(prisma.interaccionMensaje.deleteMany).not.toHaveBeenCalled();
+  });
+
+  it('con `WHATSAPP_INTERACCIONES_RETENCION=on`, sigue purgando', async () => {
+    process.env['WHATSAPP_INTERACCIONES_RETENCION'] = 'on';
+    const { servicio, prisma } = montar({});
+
+    await servicio.barrerEnviosPendientes();
+
+    /* Dos `updateMany` (borrar `privado`, poner la lápida RETENIDA) y un
+       `deleteMany` (los metadatos de las entrantes). */
+    expect(prisma.interaccionMensaje.updateMany).toHaveBeenCalledTimes(2);
+    expect(prisma.interaccionMensaje.deleteMany).toHaveBeenCalledTimes(1);
   });
 });

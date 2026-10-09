@@ -244,6 +244,52 @@ function verificarTrabajoEnSegundoPlano() {
   }
 }
 
+// ── 8. Toda bandera booleana se prueba ENCENDIDA ──────────────────────────────
+// Una bandera parte apagada y se enciende en producción. Si ninguna prueba la
+// pone en `on`, la suite entera certifica el camino que NO está desplegado: sale
+// verde describiendo un software que no es el que usa la clínica.
+//
+// Se reprodujo el 2026-10-08. El webhook de WhatsApp tenía un cajón de sastre
+// que mandaba cualquier tipo no reconocido por el camino de interacciones, de
+// donde solo podía salir `REVISION`: una paciente poniendo 👍 a un mensaje de
+// Ventas abría atención humana y pausaba su automatización. Había una prueba que
+// afirmaba justo lo contrario —«ignora … tipos que el CRM no registra»— y pasaba
+// en verde, porque montaba la línea con `WHATSAPP_INTERACCIONES` apagada. El
+// test no era incorrecto; cubría la única configuración en la que el bug no
+// existe. Nadie se enteró durante el piloto.
+//
+// Vale encenderla por entorno (`process.env['X'] = 'on'`) o por configuración
+// (`new ConfigService({ X: 'on' })`): las dos llegan al código igual.
+function verificarBanderasProbadas() {
+  const fuentes = indexar(resolve(RAIZ, 'src')).filter(r => r.endsWith('.ts'));
+  const produccion = fuentes.filter(r => !r.endsWith('.spec.ts'));
+  const pruebas = fuentes.filter(r => r.endsWith('.spec.ts')).map(r => readFileSync(r, 'utf8'));
+
+  const banderas = new Map();
+  for (const ruta of produccion) {
+    const texto = readFileSync(ruta, 'utf8');
+    const patron = /(?:process\.env\[|config\.get<[^>]*>\()'([A-Z][A-Z0-9_]*)'\]?\)?\s*===\s*'on'/g;
+    for (const m of texto.matchAll(patron)) {
+      if (!banderas.has(m[1])) banderas.set(m[1], relative(RAIZ, ruta));
+    }
+  }
+
+  for (const [bandera, donde] of banderas) {
+    const encendida = pruebas.some(t =>
+      new RegExp(`process\\.env\\['${bandera}'\\]\\s*=\\s*'on'`).test(t) ||
+      new RegExp(`\\b${bandera}\\s*:\\s*'on'`).test(t));
+    if (encendida) continue;
+
+    señala(
+      'crm-backend-module',
+      `la bandera \`${bandera}\` (${donde}) no se enciende en ninguna prueba: ` +
+        'la suite solo cubre el camino apagado, que no es el desplegado. ' +
+        "Enciéndela en un spec con `process.env['" + bandera + "'] = 'on'` o " +
+        `\`new ConfigService({ ${bandera}: 'on' })\`, y restaura el valor en un \`afterEach\`.`,
+    );
+  }
+}
+
 // ── 5. Ningún DTO sin decoradores de validación ───────────────────────────────
 // El `ValidationPipe` global corre con `whitelist: true`, que **descarta toda
 // propiedad sin decorador de class-validator**. Un DTO sin decoradores por tanto
@@ -329,6 +375,8 @@ for (const nombre of readdirSync(SKILLS)) {
   verificarRoles(nombre, texto);
   verificarHelpers(nombre, texto);
 }
+
+verificarBanderasProbadas();
 
 /* ── El mapa del sistema no miente sobre los módulos ─────────────────────────
    `docs/PANORAMA.md` lista los módulos de `src/modules/`. Las listas del
