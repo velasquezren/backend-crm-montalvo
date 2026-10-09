@@ -1,5 +1,21 @@
 # Estado actual
 
+## 9 de octubre de 2026 · mensajes interactivos en el chat, y reenvío de fallidos
+
+- **Desplegado** backend `f7841d7` (respaldo previo verificado, 5,2 MB) y frontend
+  `5b411d6` (Vercel success). Los menús, listas, formularios y respuestas se pintan
+  en el chat como en WhatsApp (pie, botones, banner, datos del formulario, «Ver
+  mensaje» que salta al original). La vista de una oferta guarda ahora `pie`,
+  `cabecera`, `imagen`, `boton` y `cta`; las ofertas anteriores no los tienen y el
+  frontend usa el rótulo por defecto. Sin migración.
+- La prueba de integración «tipo desconocido…» fallaba en `main` desde `27734ca`
+  (solo se corrieron las unitarias): reescrita con la regla nueva. **Correr también
+  `npm run test:integracion` antes de subir un cambio de la ingesta.**
+- Meta rechazó 7 mensajes de Recepción por facturación (131042) la mañana del 9;
+  pagada la cuenta, se reenviaron por el barrido de reintentos y los 7 quedaron
+  ENTREGADOS. Ojo: esos rechazos llegan por `statuses` y la fila SÍ tiene
+  `whatsappMsgId`.
+
 ## Entrega a la otra máquina — 8 de octubre de 2026 · estado final de los menús
 
 Esta entrada prevalece sobre las activaciones históricas descritas abajo.
