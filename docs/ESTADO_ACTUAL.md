@@ -1,5 +1,23 @@
 # Estado actual
 
+## 9 de octubre de 2026 (tarde) · revisión de robustez: reenviar, reloj y pantallas con error
+
+Desplegado backend `dba299d` (respaldo previo 5,2 MB) y frontend `f3d7b90` + `7572a43`.
+**Finanzas y Comisiones quedaron fuera a pedido de René** (cerradas: no tocarlas salvo que lo pida).
+
+- **«Reenviar» en los «No enviado»** (`POST /conversaciones/:id/mensajes/:mensajeId/reenviar`,
+  `reenvio-manual.ts`): misma fila → INCIERTO → tick por socket; solo dentro de 24 h, no
+  plantillas/automáticos/interactivos ni 131050/130497/131026. La reclamación exige el
+  `intentosEnvio` leído (ni doble toque ni barrido duplican; probado en negativo en crm_test).
+- **El reloj**: la ventana de 24 h del chat abierto no se cerraba nunca (`computed` sobre
+  `Date.now()`); ahora `state.ahora` por minuto. Actividades y Reservas seguían en «Hoy» de
+  ayer pasada la medianoche: `diaClinicaVivo()` (frontend `core/fechas`).
+- **Una carga que falla rompía la pantalla** en vez de mostrar «Reintentar» (Angular 21:
+  `value()` en error LANZA) en 9 pantallas. `valorOVacio()` (frontend `core/api`) y dos
+  reglas nuevas en `check:skills`; la deuda de Finanzas/Comisiones está congelada (solo baja).
+- Reservas: una actualización automática fallida ya no cambia la tabla por el error; el PDF
+  del comprobante ya no se pierde si Safari bloquea la pestaña.
+
 ## 9 de octubre de 2026 · mensajes interactivos en el chat, y reenvío de fallidos
 
 - **Desplegado** backend `f7841d7` (respaldo previo verificado, 5,2 MB) y frontend
