@@ -140,6 +140,19 @@ export class ConversacionesController {
     }, dto.clientMessageId, dto.interaccion);
   }
 
+  /**
+   * Reenviar un mensaje que Meta rechazó, una vez resuelta la causa (la cuenta
+   * de Meta, la red). Quien ve el chat; dentro de la ventana de 24 h.
+   */
+  @Post(':id/mensajes/:mensajeId/reenviar')
+  reenviarMensaje(
+    @Param('id') id: string,
+    @Param('mensajeId') mensajeId: string,
+    @CurrentUser() usuario: UsuarioJwt,
+  ) {
+    return this.conversacionesService.reenviarMensaje(id, mensajeId, usuario.sub, alcanceAgente(usuario));
+  }
+
   /** El pin de ubicación de la clínica (Maps/Waze de un toque). Dentro de la ventana de 24 h. */
   @Post(':id/ubicacion')
   enviarUbicacion(

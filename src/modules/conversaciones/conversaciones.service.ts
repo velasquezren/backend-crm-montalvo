@@ -14,7 +14,7 @@ import {
   whereVistaInbox,
 } from './consultas-inbox';
 import { LineasWhatsappService } from '../lineas-whatsapp/lineas-whatsapp.service';
-import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Prisma, Rol, TipoMensaje } from '../../prisma/prisma-client';
 
 import { ROLES_ALCANCE_GLOBAL } from '../../common/auth/roles';
@@ -35,6 +35,7 @@ import { QueryConversacionesDto } from './dto/query-conversaciones.dto';
 import { REABRIR } from './estado-conversacion';
 import { auditarResolucion, bloquearSolicitudViva, contextoDeAtencion, ESPERANDO_HUMANO, ORDEN_ATENCION } from './atencion-humana';
 import { ultimosMensajesDeInbox } from './lectura-mensajes-inbox';
+import { motivoParaNoReenviar, reclamarReenvio } from './reenvio-manual';
 
 /** Mensajes que trae el detalle inicial de una conversación (más recientes primero, luego se reordenan).
  *  Se acota a 50 para máxima velocidad inicial; los anteriores se cargan por cursor al hacer scroll. */
@@ -776,6 +777,47 @@ export class ConversacionesService {
     );
 
     return { ...mensaje, clienteTelefono: conversacion.cliente.telefono };
+  }
+
+  /**
+   * «Reenviar» un mensaje de una persona que Meta rechazó, cuando la causa ya se
+   * resolvió (ver `reenvio-manual.ts`). Mismo contrato que `enviarMensaje`:
+   * visibilidad y ventana de 24 h. Es la MISMA fila: la paciente lo recibe una vez
+   * y el hilo no muestra copias. No toca la conversación —ya contaba como
+   * respondida desde el envío original—.
+   */
+  async reenviarMensaje(conversacionId: string, mensajeId: string, usuarioId: string, soloAgenteId?: string) {
+    const conversacion = await obtenerConversacionPropia(this.prisma, conversacionId, soloAgenteId);
+    const mensaje = await this.prisma.mensaje.findFirst({
+      where: { id: mensajeId, conversacionId, direccion: 'SALIENTE' },
+      select: {
+        id: true, conversacionId: true, contenido: true, estadoEnvio: true, codigoErrorEnvio: true, intentosEnvio: true,
+        automatico: true, plantillaCategoria: true, mediaKey: true, mediaMime: true, mediaNombre: true,
+        interaccion: { select: { mensajeId: true } },
+      },
+    });
+    if (!mensaje) throw new NotFoundException('Mensaje no encontrado en esta conversación');
+    const motivo = motivoParaNoReenviar({ ...mensaje, tieneInteraccion: !!mensaje.interaccion });
+    if (motivo) throw new BadRequestException(motivo);
+    await this.verificarVentana24h(conversacionId);
+
+    if (!(await reclamarReenvio(this.prisma, mensaje, usuarioId))) {
+      throw new ConflictException('Ese mensaje ya se está reenviando.');
+    }
+
+    this.gateway.emitirActividad(conversacionId);
+    const destino = { mensajeId: mensaje.id, conversacionId, telefono: conversacion.cliente.telefono };
+    void enSegundoPlano(`reenvío del mensaje ${mensaje.id} a Meta`, this.logger, () =>
+      mensaje.contenido === CONTENIDO_PIN && !mensaje.mediaKey
+        ? this.despachador.ubicacion(destino, UBICACION_CLINICA, CONTENIDO_PIN)
+        : this.despachador.texto(
+          destino,
+          mensaje.contenido,
+          mensaje.mediaKey ? { key: mensaje.mediaKey, mime: mensaje.mediaMime, nombre: mensaje.mediaNombre } : undefined,
+        ),
+    );
+
+    return { id: mensaje.id, estadoEnvio: 'INCIERTO' as const };
   }
 
   /**

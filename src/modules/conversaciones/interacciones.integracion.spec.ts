@@ -426,3 +426,35 @@ it('Socket.IO real avisa al personal autorizado y permite recargar el historial 
     expect(JSON.stringify((await http(`/conversaciones/${chat}`)).body)).toContain('NO_CORRELACIONADA');
   } finally { ws.close(); }
 });
+it('«Reenviar» un mensaje rechazado: misma fila, un solo envío, solo quien ve el chat y dentro de la ventana', async () => {
+  const rechazado = await prisma.mensaje.create({ data: {
+    conversacionId: chat, direccion: 'SALIENTE', contenido: 'Buenos días, ¿en qué la ayudo?',
+    estadoEnvio: 'FALLIDO', codigoErrorEnvio: 131042, whatsappMsgId: `wamid.viejo.${randomUUID()}`,
+  } });
+  const ruta = `/conversaciones/${chat}/mensajes/${rechazado.id}/reenviar`;
+
+  // Quien no ve el chat no se entera de que existe.
+  expect((await http(ruta, 'POST', undefined, sinAccesoToken)).status).toBe(404);
+
+  const r = await http(ruta, 'POST');
+  expect(r.status).toBe(201);
+  expect(r.body).toEqual({ id: rechazado.id, estadoEnvio: 'INCIERTO' });
+  await esperar(async () => (await prisma.mensaje.findUniqueOrThrow({ where: { id: rechazado.id } })).estadoEnvio === 'ENVIADO');
+  const despues = await prisma.mensaje.findUniqueOrThrow({ where: { id: rechazado.id } });
+  expect(despues.whatsappMsgId).toMatch(/^wamid\.test\./);
+  expect(transporte.enviar).toHaveBeenCalledTimes(1);
+  expect(transporte.enviar.mock.calls[0]?.[0]).toBe(telefono);
+  expect(await prisma.mensaje.count({ where: { conversacionId: chat, direccion: 'SALIENTE' } })).toBe(1);
+
+  // Ya salió: un segundo toque no lo manda otra vez.
+  expect((await http(ruta, 'POST')).status).toBe(400);
+  expect(transporte.enviar).toHaveBeenCalledTimes(1);
+
+  // Fuera de la ventana de 24 h solo sirve una plantilla, igual que al escribir.
+  await prisma.mensaje.update({ where: { id: rechazado.id }, data: { estadoEnvio: 'FALLIDO' } });
+  await prisma.mensaje.updateMany({ where: { conversacionId: chat, direccion: 'ENTRANTE' }, data: { createdAt: new Date(Date.now() - 25 * 3_600_000) } });
+  const fuera = await http(ruta, 'POST');
+  expect(fuera.status).toBe(400);
+  expect(String(fuera.body['message'])).toContain('24h');
+  expect(transporte.enviar).toHaveBeenCalledTimes(1);
+});
