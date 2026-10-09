@@ -521,6 +521,84 @@ describe('WhatsappWebhookController', () => {
       expect(servicio.procesarEntrante).not.toHaveBeenCalled();
     });
 
+    /* La prueba de arriba pasa con las interacciones APAGADAS, que no es como
+       corre producción: Ventas y la línea de prueba están en el piloto. Con el
+       piloto encendido existía un cajón de sastre que mandaba cualquier tipo no
+       reconocido por el camino de interacciones, y de ahí salía siempre
+       `REVISION` — una reacción 👍 abría atención humana. Estas dos pruebas
+       cubren esa configuración; sin ellas el arreglo se puede deshacer sin que
+       nada se queje. */
+    describe('con el piloto de interacciones ENCENDIDO en la línea', () => {
+      const previo = {
+        on: process.env['WHATSAPP_INTERACCIONES'],
+        lineas: process.env['WHATSAPP_INTERACCIONES_LINEAS'],
+      };
+      beforeEach(() => {
+        process.env['WHATSAPP_INTERACCIONES'] = 'on';
+        process.env['WHATSAPP_INTERACCIONES_LINEAS'] = 'linea-1';
+      });
+      afterEach(() => {
+        for (const [nombre, valor] of [
+          ['WHATSAPP_INTERACCIONES', previo.on],
+          ['WHATSAPP_INTERACCIONES_LINEAS', previo.lineas],
+        ] as const) {
+          if (valor === undefined) delete process.env[nombre];
+          else process.env[nombre] = valor;
+        }
+      });
+
+      it('una reacción o una ubicación no llegan a la ingesta', async () => {
+        const { controller, servicio } = montar();
+        await controller.procesarWebhook(
+          payload({
+            messages: [
+              { from: '59170000001', id: 'wamid.reaccion', type: 'reaction', reaction: { message_id: 'wamid.previo', emoji: '👍' } },
+              { from: '59170000001', id: 'wamid.ubicacion', type: 'location', location: { latitude: -16.5, longitude: -68.1 } },
+            ],
+          }),
+        );
+
+        expect(servicio.procesarEntrante).not.toHaveBeenCalled();
+      });
+
+      /* Un sticker SÍ es un mensaje: `extraerMedia` lo reconoce y se guarda para
+         que se vea en el chat. Lo que no debe hacer es entrar por el camino de
+         interacciones —ahí acabaría en `REVISION`—, y eso se comprueba por el
+         noveno argumento: sin `interaccionOriginal`, `guardarRespuesta` ni se
+         llama. */
+      it('un sticker se guarda como media, sin pasar por el camino de interacciones', async () => {
+        const { controller, servicio } = montar();
+        await controller.procesarWebhook(
+          payload({
+            messages: [{ from: '59170000001', id: 'wamid.sticker', type: 'sticker', sticker: { id: 'st-1', mime_type: 'image/webp' } }],
+          }),
+        );
+
+        expect(servicio.procesarEntrante).toHaveBeenCalledTimes(1);
+        const args = (servicio.procesarEntrante as jest.Mock).mock.calls[0];
+        expect(args[4]).toMatchObject({ tipo: 'STICKER', mediaId: 'st-1' });
+        expect(args[8]).toBeUndefined();
+      });
+
+      it('un toque de botón sí entra por el camino de interacciones, con el payload crudo', async () => {
+        const { controller, servicio } = montar();
+        const toque = {
+          from: '59170000001',
+          id: 'wamid.toque',
+          type: 'interactive',
+          interactive: { type: 'button_reply', button_reply: { id: 'TALK_TO_HUMAN', title: 'Hablar con una persona' } },
+        };
+        await controller.procesarWebhook(payload({ messages: [toque] }));
+
+        expect(servicio.procesarEntrante).toHaveBeenCalledTimes(1);
+        const args = (servicio.procesarEntrante as jest.Mock).mock.calls[0];
+        expect(args[1]).toBe('Interacción recibida; pendiente de revisión.');
+        /* El último argumento es `interaccionOriginal`: sin el payload crudo,
+           `guardarRespuesta` no puede correlacionar el toque con la oferta. */
+        expect(args[args.length - 1]).toEqual(toque);
+      });
+    });
+
     it('procesa todos los cambios de todas las entries, no solo el primero', async () => {
       const { controller, servicio } = montar();
       await controller.procesarWebhook({

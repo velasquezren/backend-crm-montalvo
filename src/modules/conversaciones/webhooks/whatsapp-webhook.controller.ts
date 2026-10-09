@@ -322,7 +322,19 @@ export class WhatsappWebhookController {
     const contacto = contactos?.find(c => c.wa_id === mensaje.from);
     const respuestaBoton = extraerRespuestaBoton(mensaje);
     const media = extraerMedia(mensaje);
-    if (interaccionesEnLinea(lineaId) && (mensaje.type === 'interactive' || mensaje.type === 'button' || (mensaje.type !== 'text' && !media))) {
+    /* SOLO los dos tipos que pueden ser una respuesta a una oferta nuestra.
+       Antes había además un cajón de sastre —`type !== 'text' && !media`— que
+       mandaba por aquí cualquier otra cosa «por si acaso la ve una persona».
+       Nunca pudo acertar: `parsearRespuesta` solo sabe leer `button` e
+       `interactive`, así que todo lo demás salía `DESCONOCIDA` y
+       `motivoDeRespuesta` lo convertía en `REVISION`. No era prudencia, era
+       una escalada garantizada: en las líneas del piloto, una paciente
+       poniendo 👍 a un mensaje abría atención humana y pausaba la
+       automatización sin que nadie hubiera pedido una persona. Lo mismo una
+       ubicación, un sticker o un contacto compartido.
+       Fuera de aquí caen al camino normal y se ignoran, igual que en todas las
+       líneas que no están en el piloto. */
+    if (interaccionesEnLinea(lineaId) && (mensaje.type === 'interactive' || mensaje.type === 'button')) {
       await this.ingesta.procesarEntrante(
         `+${mensaje.from}`, 'Interacción recibida; pendiente de revisión.', mensaje.id,
         contacto?.profile?.name?.trim() || undefined, undefined, extraerReferral(mensaje), false, lineaId, original ?? mensaje,
