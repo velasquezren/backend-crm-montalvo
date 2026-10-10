@@ -399,11 +399,67 @@ function verificarPanorama() {
 }
 
 /* Global, no por skill: mira el código, no la documentación. */
+// ── Quién escribe `esperandoRespuesta`: la lista es cerrada ──────────────────
+// Ese campo ES la pestaña «Sin responder», que es el número con el que las
+// agentes deciden a quién le falta contestar. Lo escriben unas pocas
+// transacciones, y `schema.prisma` ya avisa: «si alguna vez agregas un quinto
+// camino que cree un Mensaje, escríbelo también».
+//
+// Un aviso en un comentario no lo sostiene: quien añada el camino nuevo no va a
+// leer ese campo del esquema. Si no lo escribe, la pestaña no da error — da un
+// número equivocado, que es peor, porque se sigue usando.
+//
+// La regla aquí no es «escríbelo», que depende del caso: es que la lista de
+// quién lo toca sea EXPLÍCITA. Añadir un camino obliga a anotarlo, y anotarlo
+// obliga a decidir si va `true` o `false`.
+//
+// El precedente que fija la decisión: `guardarMensajeAutomatico` lo deja en
+// `true` a propósito —un acuse automático NO es una respuesta—, porque ponerlo
+// en `false` sacaba de «Sin responder» todo lo que entra un fin de semana. Un
+// mensaje del asistente de IA entra por ahí y hereda esa regla.
+const ESCRIBEN_ESPERANDO_RESPUESTA = new Set([
+  'src/modules/conversaciones/ingesta-whatsapp.service.ts',   // escribió la paciente → true · automáticos → true
+  'src/modules/conversaciones/conversaciones.service.ts',     // contestó una agente → false
+  'src/modules/conversaciones/envio-plantillas.service.ts',   // salió una plantilla → false
+]);
+
+function verificarCaminosDeEsperandoRespuesta() {
+  const encontrados = new Set();
+  for (const ruta of ARCHIVOS) {
+    if (!ruta.endsWith('.ts') || ruta.endsWith('.spec.ts')) continue;
+    const rel = relative(RAIZ, ruta).split(sep).join('/');
+    if (!rel.startsWith('src/') || rel.startsWith('src/generated/')) continue;
+    const texto = readFileSync(ruta, 'utf8');
+    /* Una ESCRITURA: el campo dentro de un bloque `data:`. El mismo nombre
+       aparece en `where`/`select` de los constructores de consultas
+       (`consultas-inbox.ts`, `estado-conversacion.ts`) y esas son LECTURAS:
+       marcarlas sería pedirle a quien lea el aviso que decida algo que no
+       está decidiendo. `[^{}]*` no cruza una llave, así que no se escapa del
+       objeto de `data`. */
+    if (!/data:\s*\{[^{}]*esperandoRespuesta:\s*(true|false)\b/.test(texto)) continue;
+    encontrados.add(rel);
+    if (ESCRIBEN_ESPERANDO_RESPUESTA.has(rel)) continue;
+    señala(
+      'crm-backend-module',
+      `${rel} escribe \`esperandoRespuesta\` y no está en la lista de caminos conocidos. ` +
+        'Ese campo es la pestaña «Sin responder». Decide si tu camino la deja en `true` ' +
+        '(no es una respuesta, como los automáticos) o en `false` (sí lo es), y anota el ' +
+        'archivo en `ESCRIBEN_ESPERANDO_RESPUESTA` de este script con el motivo.',
+    );
+  }
+  for (const rel of ESCRIBEN_ESPERANDO_RESPUESTA) {
+    if (!encontrados.has(rel)) {
+      señala('crm-backend-module', `\`${rel}\` ya no escribe \`esperandoRespuesta\`: quítalo de \`ESCRIBEN_ESPERANDO_RESPUESTA\`.`);
+    }
+  }
+}
+
 verificarWebhooks();
 verificarDtos();
 verificarImportsDePrisma();
 verificarTrabajoEnSegundoPlano();
 verificarPanorama();
+verificarCaminosDeEsperandoRespuesta();
 
 if (problemas.length === 0) {
   console.log('✓ Los skills coinciden con el código.');

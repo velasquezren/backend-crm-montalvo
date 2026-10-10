@@ -1,5 +1,46 @@
 # Estado actual
 
+## Entrega del 9 de octubre de 2026 (noche) · asistente de IA y agenda
+
+Esta entrada prevalece sobre lo que digan las de abajo sobre estos temas.
+
+**Desplegado** (`10b1da1`, respaldos verificados antes de cada uno):
+
+- **Cupos.** `horasLibres` cruzaba la hora EXACTA de una cita de `agenda_med`.
+  FileMaker agenda a `:15` y `:45` —41 de 308 citas futuras— así que una cita de
+  10:45 no ocupaba la casilla de 10:30 y la web la seguía ofreciendo. Ahora ocupa
+  la casilla que CONTIENE la cita. Medido antes/después contra producción: 3580 →
+  3577 cupos, 0 añadidos, y los tres que caen tienen una cita encima.
+  Verificado por la API pública después de desplegar.
+- **Nombre público de una ficha nueva** sin espacio de sobra (`nombreLimpio()`).
+  De los 90 médicos, 15 traían espacio sobrante; 6 están entre los 23 que faltan
+  enlazar. `agenda.sql.ts` ya estaba bien (trimea por partes): no se tocó.
+- **Horario de Argentina Ruiz Ames** cargado por René desde el CRM (Mar y Jue
+  10:00–12:00, Sáb 08:00–10:00, cinco turnos cada día). El cruce recuadro/casillas
+  ya no tiene descuadres: 24 coherentes, 29 a solicitud.
+
+**En el repo, sin desplegar y sin conectar:**
+
+- `modules/asistente` — el catálogo de herramientas y el bucle, con 23 pruebas
+  que corren **sin credenciales, sin red y sin Vertex**. El modelo NO está
+  conectado. Todo el contexto, el cableado del SDK y el orden de lo que falta
+  está en **[asistente-vertex.md](asistente-vertex.md)**: empezar por ahí.
+- CI levanta ahora su propio MySQL 8.0.44 y corre las 16 pruebas de la agenda,
+  que se saltaban solas desde el 7/10 (`npm run test:agenda-mysql`).
+
+**Pendiente, y es de la clínica, no del código:**
+
+1. Las **descripciones**: qué hace cada especialidad, qué incluye una consulta,
+   cuánto cuesta. No existen en ninguna base y son lo que decide si la IA
+   acierta.
+2. Las **fichas web de los 23 médicos con horario**: Directorio → médico →
+   Presentación web → «Crear ficha web». Nacen ocultas y el horario se copia solo.
+
+**No deshacer:** las tres reglas del asistente (el modelo no decide escrituras,
+`automaticFunctionCalling` apagado, el teléfono sale de la conversación) y que la
+respuesta del asistente deje `esperandoRespuesta` en `true`. Cada una tiene su
+prueba y la del campo la sostiene `check:skills`.
+
 ## 9 de octubre de 2026 (tarde) · revisión de robustez: reenviar, reloj y pantallas con error
 
 Desplegado backend `dba299d` (respaldo previo 5,2 MB) y frontend `f3d7b90` + `7572a43`.
