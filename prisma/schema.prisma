@@ -103,6 +103,8 @@ model Usuario {
   menusAtencion          MenuAtencion[] @relation("MenuAtencionActualizadoPor")
   cobrosLinea            CobroLinea[]   @relation("CobroLineaActualizadoPor")
   pagosCerrados          PagoPromocion[] @relation("PagoPromocionCerradoPor")
+  asistentesLinea        AsistenteLinea[] @relation("AsistenteLineaActualizadoPor")
+  sugerenciasResueltas   SugerenciaAsistente[] @relation("SugerenciaResueltaPor")
   lineasWhatsapp        AccesoLineaWhatsapp[]
   silenciosLinea        SilencioLinea[]
   ventas                Venta[]
@@ -307,6 +309,7 @@ model LineaWhatsapp {
   campanas       Campana[]
   menuAtencion   MenuAtencion?
   cobro          CobroLinea?
+  asistente      AsistenteLinea?
   pagosPromocion PagoPromocion[]
 }
 
@@ -419,6 +422,13 @@ model PagoPromocion {
   cerradoPor           Usuario?            @relation("PagoPromocionCerradoPor", fields: [cerradoPorId], references: [id], onDelete: SetNull)
   cerradoPorId         String?
   cerradoEn            DateTime?
+  /// Lo que el asistente LEYÓ en el comprobante y cómo se compara con lo esperado
+  /// (`LecturaComprobante`, docs/asistente-ia.md). Ayuda a quien verifica; no
+  /// confirma nada. Lleva el id del mensaje leído: si llega otro comprobante, se
+  /// borra y se vuelve a leer.
+  lecturaComprobante   Json?
+  /// Intentos de lectura fallidos del comprobante actual: el barrido se rinde a los 3.
+  lecturaIntentos      Int                 @default(0)
   createdAt            DateTime            @default(now())
   updatedAt            DateTime            @updatedAt
 
@@ -495,6 +505,8 @@ model Conversacion {
   mensajes           Mensaje[]
   reservasChat       ReservaChat[]
   pagosPromocion     PagoPromocion[]
+  sugerenciasAsistente SugerenciaAsistente[]
+  turnosAsistente    TurnoAsistente[]
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
   /// True mientras la paciente espera respuesta de una PERSONA: lo último que
@@ -566,11 +578,17 @@ enum MotivoAtencion {
   /// o escribió, entera, una frase de `esAvisoDeEmergencia`. Lo declara ella; el
   /// CRM no lo deduce. Prioridad CRÍTICA.
   EMERGENCIA
+  /// El asistente de IA leyó una POSIBLE urgencia (docs/asistente-ia.md). No la
+  /// declaró ella: prioridad ALTA, no CRÍTICA. Solo el asistente la crea.
+  POSIBLE_URGENCIA
   /// Tocó «Hablar con recepción» (TALK_TO_HUMAN) en una oferta nuestra.
   SOLICITUD_EXPLICITA
   /// Completó el Flow de cita o tocó «Solicitar cita». Es una SOLICITUD: no
   /// hay ninguna cita reservada.
   SOLICITUD_CITA
+  /// El asistente de IA no debe contestarlo (consulta médica, queja, algo
+  /// dudoso) y lo pasó a una persona.
+  DERIVADA_ASISTENTE
   /// Mandó el comprobante de un pago de promoción: hay que verificarlo. No es
   /// urgente (el dinero ya salió), pero no puede quedar sin que alguien lo mire.
   COMPROBANTE_PAGO
@@ -659,6 +677,10 @@ model Mensaje {
   /// escribió el fin de semana. La automatización habría empeorado, en silencio,
   /// justo el problema que venía a resolver.
   automatico     Boolean          @default(false)
+  /// true = lo escribió el asistente de IA (modo RESPONDER). Siempre con
+  /// `automatico: true`: no es una respuesta de una persona y la conversación
+  /// sigue en «Sin responder». El chat lo rotula para que nadie lo confunda.
+  asistente      Boolean          @default(false)
   /// Si salió como plantilla, su categoría en Meta (`MARKETING`, `UTILITY`…);
   /// null en todo lo demás. Es lo que permite no mandarle otra campaña a quien
   /// acaba de recibir una (Audiencias): Meta limita cuántas plantillas de
@@ -1923,4 +1945,105 @@ model PromocionMedico {
 
   @@id([promocionId, perfilMedicoId])
   @@index([perfilMedicoId])
+}
+
+/// Cómo participa el asistente de IA en una línea (docs/asistente-ia.md).
+enum ModoAsistente {
+  /// No hace nada.
+  APAGADO
+  /// Prepara una respuesta en el chat para que una persona la revise, la edite
+  /// y la mande ella. No le escribe a nadie.
+  SUGERIR
+  /// Contesta solo lo comercial e informativo. Lo médico, las quejas y lo
+  /// dudoso pasan a una persona. Exige `criterioDerivacion`.
+  RESPONDER
+}
+
+enum EstadoSugerencia {
+  PENDIENTE
+  /// La agente la llevó a su caja de texto (y la mandó como suya, o no).
+  USADA
+  DESCARTADA
+  /// Llegó otro mensaje y hay una sugerencia más nueva, o alguien ya contestó.
+  SUPERADA
+}
+
+enum ResultadoTurnoAsistente {
+  SUGIRIO
+  RESPONDIO
+  /// Lo pasó a una persona (consulta médica, queja, duda, o lo pidió el modelo).
+  DERIVO
+  /// No hizo nada a propósito: una persona estaba atendiendo, el chat pausado…
+  OMITIDO
+  /// El modelo o una herramienta fallaron: el chat queda para una persona.
+  FALLO
+}
+
+/// La configuración del asistente en una línea. Dueño: `AsistenteLineasService`.
+model AsistenteLinea {
+  lineaId            String        @id
+  linea              LineaWhatsapp @relation(fields: [lineaId], references: [id], onDelete: Cascade)
+  modo               ModoAsistente @default(APAGADO)
+  /// Lo que la clínica quiere que sepa (qué incluye una consulta, políticas,
+  /// preguntas frecuentes). Va al modelo tal cual: es su base de conocimiento.
+  conocimiento       String        @default("") @db.VarChar(8000)
+  /// El criterio APROBADO por la clínica de qué pasa siempre a una persona. Sin
+  /// él, `RESPONDER` no se puede encender (docs/atencion-humana.md, «Antes de
+  /// activar la IA»).
+  criterioDerivacion String        @default("") @db.VarChar(2000)
+  /// Leer los comprobantes de pago para ayudar a quien los verifica.
+  leerComprobantes   Boolean       @default(false)
+  actualizadoEn      DateTime      @updatedAt
+  actualizadoPor     Usuario?      @relation("AsistenteLineaActualizadoPor", fields: [actualizadoPorId], references: [id], onDelete: SetNull)
+  actualizadoPorId   String?
+}
+
+/// Una respuesta que el asistente PREPARÓ para una persona (modo SUGERIR).
+/// Como mucho una PENDIENTE por conversación. Dueño: `AsistenteChatService`.
+model SugerenciaAsistente {
+  id             String           @id @default(uuid())
+  conversacionId String
+  conversacion   Conversacion     @relation(fields: [conversacionId], references: [id], onDelete: Cascade)
+  /// El mensaje de la paciente al que contesta. Sin FK, como `atencionMensajeId`.
+  mensajeId      String
+  texto          String           @db.VarChar(4096)
+  /// `AccionSugerida[]`: la tarjeta de una promoción, la imagen de un horario.
+  acciones       Json
+  /// Lo que el asistente opina que hay que hacer con el chat, si algo
+  /// (`MEDICO`, `QUEJA`…): se muestra como aviso a la agente.
+  aviso          String?          @db.VarChar(300)
+  estado         EstadoSugerencia @default(PENDIENTE)
+  resueltaEn     DateTime?
+  resueltaPor    Usuario?         @relation("SugerenciaResueltaPor", fields: [resueltaPorId], references: [id], onDelete: SetNull)
+  resueltaPorId  String?
+  createdAt      DateTime         @default(now())
+
+  @@index([conversacionId, estado])
+  @@index([resueltaPorId])
+}
+
+/// Qué hizo el asistente con cada mensaje que miró, para auditarlo y medirlo.
+/// No guarda el texto (ya está en `Mensaje`) ni el prompt. Dueño: `AsistenteChatService`.
+model TurnoAsistente {
+  id             String                  @id @default(uuid())
+  conversacionId String
+  conversacion   Conversacion            @relation(fields: [conversacionId], references: [id], onDelete: Cascade)
+  lineaId        String
+  mensajeId      String
+  modo           ModoAsistente
+  resultado      ResultadoTurnoAsistente
+  /// Por qué, en una frase para quien audita (no para la paciente).
+  motivo         String?                 @db.VarChar(300)
+  /// Lo que dijo el clasificador: `VENTAS`, `MEDICO`, `URGENCIA`…
+  categoria      String?                 @db.VarChar(30)
+  /// `{ nombre, ok }[]`: las herramientas que pidió, sin argumentos.
+  herramientas   Json
+  modelo         String?                 @db.VarChar(60)
+  tokensEntrada  Int                     @default(0)
+  tokensSalida   Int                     @default(0)
+  latenciaMs     Int                     @default(0)
+  createdAt      DateTime                @default(now())
+
+  @@index([conversacionId, createdAt])
+  @@index([lineaId, createdAt])
 }

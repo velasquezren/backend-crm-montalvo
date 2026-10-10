@@ -17,6 +17,7 @@ import { ConversacionesService } from './conversaciones.service';
 import { obtenerConversacionPropia } from './envio-comun';
 import { PAGO_ABIERTO, PAGO_EN_CURSO, PagoDelChat, ResultadoAccionPago, pagoDelChat, uuidEstable } from './pagos-chat';
 import { tarjetaDePromocion, textoOtroComprobante, textoPagoConfirmado } from './promocion-chat';
+import type { LecturaComprobante } from '../asistente/comprobante';
 
 /** Lo que hay que mandarle a la paciente al empezar el pago: el QR y su pie. */
 export interface InicioDePago {
@@ -274,6 +275,29 @@ export class PromocionesChatService {
     });
     this.gateway.emitirActividad(conversacionId);
     return pagoDelChat(this.prisma, conversacionId);
+  }
+
+  /* ── La lectura del comprobante (docs/asistente-ia.md) ────────────────── */
+
+  /**
+   * Toma el comprobante actual para leerlo, gastando un intento. Compare-and-set:
+   * si entretanto llegó otro comprobante o alguien resolvió el pago, no se lee.
+   */
+  async reclamarLectura(pagoId: string, comprobanteMensajeId: string, maximoIntentos: number): Promise<boolean> {
+    const { count } = await this.prisma.pagoPromocion.updateMany({
+      where: { id: pagoId, comprobanteMensajeId, estado: 'COMPROBANTE_ENVIADO', lecturaComprobante: { equals: Prisma.DbNull }, lecturaIntentos: { lt: maximoIntentos } },
+      data: { lecturaIntentos: { increment: 1 } },
+    });
+    return count > 0;
+  }
+
+  /** Guarda lo leído, solo si sigue siendo el mismo comprobante. */
+  async guardarLectura(pagoId: string, comprobanteMensajeId: string, lectura: LecturaComprobante): Promise<boolean> {
+    const { count } = await this.prisma.pagoPromocion.updateMany({
+      where: { id: pagoId, comprobanteMensajeId },
+      data: { lecturaComprobante: lectura as unknown as Prisma.InputJsonValue },
+    });
+    return count > 0;
   }
 
   /**

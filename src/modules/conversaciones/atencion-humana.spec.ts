@@ -1,3 +1,4 @@
+import { MotivoAtencion } from '../../prisma/prisma-client';
 import { esAvisoDeEmergencia, esPedidoDePersona, estadoDeAtencion, motivoDeRespuesta, prioridadDeMotivo, subeMotivo } from './atencion-humana';
 
 describe('reglas de atención humana', () => {
@@ -122,5 +123,24 @@ describe('decir que es una emergencia escribiendo', () => {
     'urgencia?',
   ])('«%s» no lo es: solo cuenta la frase entera, no se clasifica nada', texto => {
     expect(esAvisoDeEmergencia(texto)).toBe(false);
+  });
+});
+
+describe('los motivos del asistente de IA', () => {
+  /* El orden del enum ES la prioridad de la pestaña «Atención» (Postgres ordena
+     por declaración). `subeMotivo` tiene que decir lo mismo que la base. */
+  it('subeMotivo respeta el orden del enum de Prisma, motivo por motivo', () => {
+    const enum_ = Object.values(MotivoAtencion);
+    for (let i = 0; i < enum_.length; i++) {
+      for (let j = 0; j < enum_.length; j++) {
+        expect(subeMotivo(enum_[i], enum_[j])).toBe(j < i);
+      }
+    }
+  });
+
+  it('la posible urgencia que lee el asistente es ALTA, no CRÍTICA: CRÍTICA solo la declara ella', () => {
+    expect(prioridadDeMotivo('POSIBLE_URGENCIA')).toBe('ALTA');
+    expect(prioridadDeMotivo('EMERGENCIA')).toBe('CRITICA');
+    expect(prioridadDeMotivo('DERIVADA_ASISTENTE')).toBe('NORMAL');
   });
 });

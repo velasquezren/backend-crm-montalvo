@@ -58,17 +58,33 @@ export const ORDEN_ATENCION = [
  */
 export const CANDADO_AUTOMATICOS = 70071;
 
-const ORDEN_MOTIVOS: readonly MotivoAtencion[] = ['EMERGENCIA', 'SOLICITUD_EXPLICITA', 'SOLICITUD_CITA', 'COMPROBANTE_PAGO', 'REVISION'];
+/**
+ * El orden de `enum MotivoAtencion`, que es la prioridad. Un `Record` y no una
+ * lista: un motivo nuevo en el esquema no compila hasta tener su lugar aquí
+ * (con la lista, quedaba en `indexOf = -1` y pasaba DELANTE de la emergencia).
+ */
+const ORDEN_MOTIVO: Record<MotivoAtencion, number> = {
+  EMERGENCIA: 0,
+  POSIBLE_URGENCIA: 1,
+  SOLICITUD_EXPLICITA: 2,
+  SOLICITUD_CITA: 3,
+  DERIVADA_ASISTENTE: 4,
+  COMPROBANTE_PAGO: 5,
+  REVISION: 6,
+};
 
-/** La prioridad sale del motivo, en un solo sitio. */
+/**
+ * La prioridad sale del motivo, en un solo sitio. CRÍTICA solo la emergencia
+ * que ELLA declara; la que el asistente cree leer es ALTA (docs/asistente-ia.md).
+ */
 export function prioridadDeMotivo(motivo: MotivoAtencion): PrioridadAtencion {
   if (motivo === 'EMERGENCIA') return 'CRITICA';
-  return motivo === 'SOLICITUD_EXPLICITA' ? 'ALTA' : 'NORMAL';
+  return motivo === 'SOLICITUD_EXPLICITA' || motivo === 'POSIBLE_URGENCIA' ? 'ALTA' : 'NORMAL';
 }
 
 /** ¿`nuevo` es más urgente que `actual`? Una solicitud viva solo puede subir. */
 export function subeMotivo(actual: MotivoAtencion | null, nuevo: MotivoAtencion): boolean {
-  return actual === null || ORDEN_MOTIVOS.indexOf(nuevo) < ORDEN_MOTIVOS.indexOf(actual);
+  return actual === null || ORDEN_MOTIVO[nuevo] < ORDEN_MOTIVO[actual];
 }
 
 export function estadoDeAtencion(c: { atencionSolicitadaEn: Date | null; atencionTomadaEn: Date | null }): EstadoAtencion | null {

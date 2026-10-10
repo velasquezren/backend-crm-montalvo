@@ -34,3 +34,6 @@ dist.bak*/
 *~
 /coverage/
 Thumbs.db
+
+# Llaves del servidor (la del asistente de IA, docs/asistente-ia.md): nunca en git.
+secretos/

@@ -1,5 +1,45 @@
 # Estado actual
 
+## 10 de octubre de 2026 · el asistente de IA, listo para conectar
+
+Esta entrada prevalece sobre lo que digan las de abajo sobre el asistente. Todo
+está en **[asistente-ia.md](asistente-ia.md)**: empezar por ahí.
+
+**Hecho (backend + frontend), apagado hasta conectar Google:**
+
+- **Adaptador de Vertex** (`@google/genai` 2.28.0, `gemini-3.5-flash` por variable)
+  y tres errores de diseño del 9/10 corregidos antes de que costaran: los Gemini 2.5
+  dejan Vertex el 20/10; Gemini 3 exige devolver la firma de su razonamiento
+  (`crudo`); y `allowedFunctionNames` solo vale en modo `ANY`.
+- **Ventas:** herramientas de promociones, tarjeta con «Pagar ahora» (el QR lo sigue
+  mandando el flujo determinista), estado del pago, horario del médico como **imagen**
+  (PNG con resvg en WASM, sin binarios nativos) y pasar a una persona.
+- **Filtro de entrada** (`triaje.ts`): lo médico, las quejas y las posibles urgencias
+  no llegan al modelo que redacta. Motivos nuevos de «Atención»: `POSIBLE_URGENCIA`
+  (ALTA) y `DERIVADA_ASISTENTE`, con la migración que los ordena por prioridad.
+- **Modos por línea** (Líneas WhatsApp → «Asistente», SUPER_ADMIN): Sugerir (borrador
+  sobre la caja del chat) y Responder solo, que exige el criterio de la clínica.
+- **Lectura de comprobantes**: monto, titular, fecha y operación comparados con lo
+  esperado, y aviso de comprobante reutilizado. Nunca confirma.
+- **Si Gemini falla, sale el acuse de siempre.** Registro de cada turno
+  (`TurnoAsistente`) con resultado, herramientas, tokens y latencia.
+- Pruebas: 1032 unitarias y 876 de integración del backend (22 nuevas de punta a punta
+  con Postgres real y un Gemini guionado, verificadas rompiendo las protecciones);
+  735 del frontend.
+
+**Para conectar:** `npm run asistente:probar` en el servidor y el botón «Probar
+conexión» del cajón prueban el adaptador real contra Google con datos sintéticos y
+explican cada fallo. Receta de `gcloud` lista para ejecutar en
+[asistente-ia.md](asistente-ia.md#conexión-receta-para-claude-cuando-haya-acceso-a-google-cloud).
+
+**Al desplegar:** migración `20261010150000_asistente_ia` (aditiva; `ADD VALUE … AFTER`
+en el enum de motivos). Sin `ASISTENTE_IA=on` y credenciales no cambia nada.
+
+**Falta, y es de René / la clínica:** proyecto de Google Cloud con la API de Vertex,
+cuenta de servicio con «Vertex AI User», su llave en el servidor y las cuatro
+variables; después el conocimiento y el criterio de derivación en el CRM, y probar en
+la línea de prueba en modo Sugerir.
+
 ## Entrega del 9 de octubre de 2026 (noche) · asistente de IA y agenda
 
 Esta entrada prevalece sobre lo que digan las de abajo sobre estos temas.
@@ -24,7 +64,7 @@ Esta entrada prevalece sobre lo que digan las de abajo sobre estos temas.
 - `modules/asistente` — el catálogo de herramientas y el bucle, con 23 pruebas
   que corren **sin credenciales, sin red y sin Vertex**. El modelo NO está
   conectado. Todo el contexto, el cableado del SDK y el orden de lo que falta
-  está en **[asistente-vertex.md](asistente-vertex.md)**: empezar por ahí.
+  está en **[asistente-ia.md](asistente-ia.md)** (reemplaza a `asistente-vertex.md`).
 - CI levanta ahora su propio MySQL 8.0.44 y corre las 16 pruebas de la agenda,
   que se saltaban solas desde el 7/10 (`npm run test:agenda-mysql`).
 

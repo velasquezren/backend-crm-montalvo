@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 
 import { EstadoPagoPromocion, Prisma } from '../../prisma/prisma-client';
+import type { LecturaComprobante } from '../asistente/comprobante';
 
 /*
  * Lecturas del pago de una promoción en el chat (docs/pagos-promocion.md) que
@@ -33,6 +34,7 @@ const SELECT_PAGO = {
   ventaId: true,
   cerradoEn: true,
   createdAt: true,
+  lecturaComprobante: true,
   promocion: { select: { id: true, titulo: true, codigo: true } },
   cerradoPor: { select: { id: true, nombre: true } },
 } satisfies Prisma.PagoPromocionSelect;
@@ -49,6 +51,11 @@ export interface PagoDelChat {
   cerradoPor: { id: string; nombre: string } | null;
   cerradoEn: Date | null;
   createdAt: Date;
+  /**
+   * Lo que el asistente leyó en el comprobante ACTUAL (docs/asistente-ia.md).
+   * Ayuda a quien verifica; no confirma nada.
+   */
+  lectura: LecturaComprobante | null;
 }
 
 export type ResultadoAccionPago = (PagoDelChat & { avisoPaciente?: 'ENCOLADO' | 'NO_ENVIADO' }) | null;
@@ -70,7 +77,21 @@ export async function pagoDelChat(db: Prisma.TransactionClient, conversacionId: 
     orderBy: [{ cerradoEn: 'desc' }, { id: 'desc' }],
     select: SELECT_PAGO,
   });
-  return fila ? { ...fila, monto: fila.monto.toNumber(), registroPendiente: fila.estado === 'CONFIRMADO' && !fila.ventaId } : null;
+  if (!fila) return null;
+  const { lecturaComprobante, ...resto } = fila;
+  return {
+    ...resto,
+    monto: fila.monto.toNumber(),
+    registroPendiente: fila.estado === 'CONFIRMADO' && !fila.ventaId,
+    lectura: lecturaVigente(lecturaComprobante, fila.comprobanteMensajeId),
+  };
+}
+
+/** La lectura guardada, solo si es del comprobante que tiene el pago AHORA. */
+export function lecturaVigente(valor: Prisma.JsonValue, comprobanteMensajeId: string | null): LecturaComprobante | null {
+  if (!valor || typeof valor !== 'object' || Array.isArray(valor) || !comprobanteMensajeId) return null;
+  const l = valor as unknown as LecturaComprobante;
+  return l.version === 1 && l.mensajeId === comprobanteMensajeId && Array.isArray(l.verificaciones) ? l : null;
 }
 
 /**
@@ -84,7 +105,8 @@ export async function registrarComprobante(tx: Prisma.TransactionClient, convers
     /* Solo un pago pedido hace poco: una foto semanas después (una ecografía, una
        orden médica) no es el comprobante de un QR que se le mandó entonces. */
     where: { conversacionId, estado: 'PENDIENTE', updatedAt: { gte: new Date(ahora.getTime() - HORAS_ESPERA_COMPROBANTE * 3_600_000) } },
-    data: { estado: 'COMPROBANTE_ENVIADO', comprobanteMensajeId: mensajeId, motivoRechazo: null },
+    /* Un comprobante nuevo se vuelve a leer desde cero. */
+    data: { estado: 'COMPROBANTE_ENVIADO', comprobanteMensajeId: mensajeId, motivoRechazo: null, lecturaComprobante: Prisma.DbNull, lecturaIntentos: 0 },
   });
   return count > 0;
 }

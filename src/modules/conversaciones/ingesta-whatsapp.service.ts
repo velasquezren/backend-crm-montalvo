@@ -34,6 +34,7 @@ import { comprobanteAmbiguo, marcarComprobanteDeReserva, PagoDeReserva, registra
 import { codigoEnTexto, HABLAR_CON_PERSONA, PAGAR_PROMOCION, TEXTO_COMPROBANTE_RECIBIDO, TEXTO_PERSONA_TARJETA } from './promocion-chat';
 import { PromocionesChatService } from './promociones-chat.service';
 import type { PromocionChat } from '../promociones/promociones.service';
+import type { ProgramadorAsistente } from './asistente-chat.service';
 
 /** No repetir el pin en la misma conversación antes de esto. */
 const UBICACION_ESPERA_MS = 12 * 60 * 60 * 1000;
@@ -91,6 +92,13 @@ export interface ReferenciaCampana {
 @Injectable()
 export class IngestaWhatsappService {
   private readonly logger = new Logger(IngestaWhatsappService.name);
+  /**
+   * El asistente de IA, si el módulo lo registró al arrancar (`usarAsistente`).
+   * No se inyecta: el asistente MANDA por aquí (los automáticos son de este
+   * servicio), y una inyección en los dos sentidos sería un ciclo. Sin él, la
+   * ingesta funciona exactamente igual que antes.
+   */
+  private asistente: ProgramadorAsistente | null = null;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -103,6 +111,11 @@ export class IngestaWhatsappService {
     private readonly menus: MenuAtencionService,
     private readonly promocionesChat: PromocionesChatService,
   ) {}
+
+  /** Lo llama `AsistenteChatService` al arrancar. */
+  usarAsistente(asistente: ProgramadorAsistente): void {
+    this.asistente = asistente;
+  }
 
   /**
    * El reloj, como método y no como `new Date()` suelto.
@@ -388,16 +401,31 @@ export class IngestaWhatsappService {
       /* Vino por una promoción: queda atribuida y recibe su tarjeta, que hace de
          menú y de acuse a la vez. */
       const tarjeta = codigo ? await this.atenderCodigo(conversacion.id, cliente.id, cliente.telefono, lineaId, codigo) : false;
+      /* El asistente de IA de la línea, si tiene: solo para lo que ella ESCRIBIÓ.
+         Quien acaba de pedir una persona o una emergencia ya tiene a alguien en camino. */
+      const asistente = this.asistente && !media && !esRespuestaBoton && !tarjeta && !pedido
+        /* Un fallo del asistente no se lleva el menú ni el acuse de este mensaje. */
+        ? await this.asistente.activoEn(lineaId).catch((error: unknown) => {
+          this.logger.warn(`Asistente de la línea ${lineaId} no disponible: ${error instanceof Error ? error.message : 'falló'}`);
+          return null;
+        })
+        : null;
       /* Quien acaba de pedir algo ya tiene una persona en camino. */
       /* Escribió «menú»: se le muestra aunque la conversación esté en curso. */
       const ofrecido = !tarjeta && menu && !pedido && !esRespuestaBoton
         ? await this.ofrecerMenu(conversacion.id, cliente.telefono, menu, { aPedido: !media && pideMenu(contenido) })
         : false;
+      /* Si el asistente va a contestar, el acuse «no hay nadie» sobra: hay alguien. */
+      const contesta = asistente?.modo === 'RESPONDER' && !ofrecido;
       /* Cuando el menú sale, ES el acuse: dos automáticos al mismo mensaje se
          leen como un sistema roto. Cuando no sale (la conversación está en curso),
          el acuse fuera de horario funciona como siempre. */
-      if (linea.comercial && !ofrecido && !tarjeta) await this.responderFueraDeHorario(conversacion.id, cliente.telefono);
-      if (!media) await this.compartirUbicacionSiLaPiden(conversacion.id, cliente.telefono, contenido);
+      if (linea.comercial && !ofrecido && !tarjeta && !contesta) await this.responderFueraDeHorario(conversacion.id, cliente.telefono);
+      const ubicacion = !media && await this.compartirUbicacionSiLaPiden(conversacion.id, cliente.telefono, contenido);
+      /* El menú o el mapa ya contestaron este mensaje: el asistente no repite. */
+      if (asistente && !ofrecido && !ubicacion) {
+        this.asistente?.programar({ conversacionId: conversacion.id, mensajeId: mensaje.id, lineaId, telefono: cliente.telefono, asistente });
+      }
     });
 
     /* El clic en un botón del acuse hoy no disparaba nada más: el título
@@ -523,8 +551,8 @@ export class IngestaWhatsappService {
    * atendiendo y el pin automático interrumpiría— ni si ya se lo mandó hace
    * poco: preguntar dos veces seguidas no merece dos mapas.
    */
-  private async compartirUbicacionSiLaPiden(conversacionId: string, telefono: string, contenido: string): Promise<void> {
-    if (!this.acuse.decidirUbicacion(contenido)) return;
+  private async compartirUbicacionSiLaPiden(conversacionId: string, telefono: string, contenido: string): Promise<boolean> {
+    if (!this.acuse.decidirUbicacion(contenido)) return false;
 
     try {
       const ahora = this.ahora().getTime();
@@ -541,11 +569,13 @@ export class IngestaWhatsappService {
         ]);
         return !!(yaCompartida || atendiendo);
       });
-      if (!filas || !(await this.sigueSinPausa(conversacionId, filas))) return;
+      if (!filas || !(await this.sigueSinPausa(conversacionId, filas))) return false;
       await this.despacharUbicacion(conversacionId, telefono, filas, TEXTO_UBICACION);
+      return true;
     } catch (error) {
       /* Mismo criterio que el acuse: nunca tumba la entrada del mensaje. */
       this.logger.error('No se pudo compartir la ubicación de la clínica', error);
+      return false;
     }
   }
 
@@ -600,14 +630,15 @@ export class IngestaWhatsappService {
   }
 
   /** La tarjeta de una promoción, una vez cada 30 min aunque la pida dos veces. */
-  private async enviarTarjeta(conversacionId: string, telefono: string, lineaId: string, promocion: PromocionChat): Promise<boolean> {
+  private async enviarTarjeta(conversacionId: string, telefono: string, lineaId: string, promocion: PromocionChat, { respetaPausa = false, asistente = false } = {}): Promise<boolean> {
     const tarjeta = await this.promocionesChat.tarjeta(lineaId, promocion);
     if (!tarjeta) return false;
     const desde = new Date(this.ahora().getTime() - RESPUESTA_REPETIDA_MS);
-    /* La pidió ella (escribió el código o la eligió de la lista): sale aunque espere a una persona. */
+    /* La pidió ella (escribió el código o la eligió de la lista): sale aunque espere a una persona.
+       La que ofrece el asistente por su cuenta, no (`respetaPausa`). */
     return this.enviarOfertaAutomatica(conversacionId, telefono, tarjeta, { origen: 'PROMOCION', promocionId: promocion.id }, async tx =>
       !!(await tx.mensaje.findFirst({ where: { conversacionId, automatico: true, contenido: tarjeta.cuerpo, createdAt: { gte: desde } }, select: { id: true } })),
-      { respetaPausa: false },
+      { respetaPausa, asistente },
     );
   }
 
@@ -659,14 +690,14 @@ export class IngestaWhatsappService {
    */
   private async enviarOfertaAutomatica(
     conversacionId: string, telefono: string, mensaje: MensajePreparado, origen: OrigenOferta, yaHecho: (tx: Prisma.TransactionClient) => Promise<boolean>,
-    { respetaPausa = true } = {},
+    { respetaPausa = true, asistente = false } = {},
   ): Promise<boolean> {
     try {
       const { lineaId } = await this.prisma.conversacion.findUniqueOrThrow({
         where: { id: conversacionId }, select: { lineaId: true },
       });
       const oferta = { ...prepararOferta(mensaje, telefono, lineaId ?? undefined), ...origen };
-      const filas = await this.guardarMensajeAutomatico(conversacionId, [{ oferta }], yaHecho, { respetaPausa });
+      const filas = await this.guardarMensajeAutomatico(conversacionId, [{ oferta }], yaHecho, { respetaPausa, asistente });
       if (!filas || (respetaPausa && !(await this.sigueSinPausa(conversacionId, filas)))) return false;
       await this.despachador.interaccion({ mensajeId: filas[0].id, conversacionId, telefono });
       const enviada = await this.prisma.mensaje.findUnique({ where: { id: filas[0].id }, select: { estadoEnvio: true } });
@@ -795,18 +826,79 @@ export class IngestaWhatsappService {
    * segundo «Horarios» sí merece la respuesta).
    */
   private async responderTexto(
-    conversacionId: string, telefono: string, texto: string, { respetaPausa, noRepetir }: { respetaPausa: boolean; noRepetir: boolean },
-  ): Promise<void> {
+    conversacionId: string, telefono: string, texto: string,
+    { respetaPausa, noRepetir, asistente = false }: { respetaPausa: boolean; noRepetir: boolean; asistente?: boolean },
+  ): Promise<boolean> {
     try {
       const desde = new Date(this.ahora().getTime() - RESPUESTA_REPETIDA_MS);
       const [mensaje] = await this.guardarMensajeAutomatico(conversacionId, [texto], async tx =>
         noRepetir && !!(await tx.mensaje.findFirst({ where: { conversacionId, automatico: true, contenido: texto, createdAt: { gte: desde } }, select: { id: true } })),
-        { respetaPausa },
+        { respetaPausa, asistente },
       ) ?? [];
-      if (!mensaje || (respetaPausa && !(await this.sigueSinPausa(conversacionId, [mensaje])))) return;
+      if (!mensaje || (respetaPausa && !(await this.sigueSinPausa(conversacionId, [mensaje])))) return false;
       await this.despachador.texto({ mensajeId: mensaje.id, conversacionId, telefono }, texto);
+      return true;
     } catch (error) {
       this.logger.error('No se pudo enviar la respuesta del menú de atención', error);
+      return false;
+    }
+  }
+
+  /* ── Lo que manda el asistente de IA (asistente-chat.service.ts) ─────── */
+  /* Por aquí y no por su cuenta: así pasa por el candado, la pausa y la
+     marca de automático como todo lo demás que no escribe una persona. */
+
+  /**
+   * El asistente iba a contestar y no pudo (Gemini caído, sin cuota…): sale lo
+   * que habría salido sin él, el acuse fuera de horario si corresponde. Sin
+   * esto, encender el asistente empeoraba el peor caso: nadie contestaba.
+   */
+  async respaldoSinAsistente(conversacionId: string, telefono: string): Promise<void> {
+    const linea = await this.prisma.conversacion.findUnique({ where: { id: conversacionId }, select: { linea: { select: { comercial: true } } } });
+    if (linea?.linea.comercial) await this.responderFueraDeHorario(conversacionId, telefono);
+  }
+
+  /** Su respuesta. Respeta la pausa: si ella pidió una persona mientras pensaba, no sale. */
+  responderComoAsistente(conversacionId: string, telefono: string, texto: string): Promise<boolean> {
+    return this.responderTexto(conversacionId, telefono, texto, { respetaPausa: true, noRepetir: false, asistente: true });
+  }
+
+  /** El aviso al pasarla a una persona: sale aunque esa misma derivación haya pausado el chat. Una vez cada 30 min. */
+  async avisoDelAsistente(conversacionId: string, telefono: string, texto: string): Promise<void> {
+    await this.responderTexto(conversacionId, telefono, texto, { respetaPausa: false, noRepetir: true, asistente: true });
+  }
+
+  /** Pasa la conversación a una persona: la misma solicitud que un botón, con su motivo. */
+  async derivarDesdeAsistente(conversacionId: string, mensajeId: string, motivo: MotivoAtencion): Promise<void> {
+    await this.prisma.$transaction(tx => registrarSolicitudAtencion(tx, conversacionId, motivo, mensajeId, this.ahora()));
+    this.gateway.emitirActividad(conversacionId);
+  }
+
+  /** La tarjeta de una promoción que ofreció el asistente (o que una agente aprobó de una sugerencia). */
+  async tarjetaDesdeAsistente(conversacionId: string, telefono: string, lineaId: string, promocionId: string, { respetaPausa }: { respetaPausa: boolean }): Promise<boolean> {
+    if (!interaccionesEnLinea(lineaId)) return false;
+    const promocion = await this.promocionesChat.porId(promocionId);
+    return promocion ? this.enviarTarjeta(conversacionId, telefono, lineaId, promocion, { respetaPausa, asistente: true }) : false;
+  }
+
+  /** Una imagen con su pie (el horario de un médico); sin imagen, el pie solo. */
+  async imagenDesdeAsistente(
+    conversacionId: string, telefono: string, pie: string, imagen: { key: string; mime: string; nombre: string } | null, { respetaPausa }: { respetaPausa: boolean },
+  ): Promise<boolean> {
+    if (!imagen) return this.responderTexto(conversacionId, telefono, pie, { respetaPausa, noRepetir: true, asistente: true });
+    try {
+      const desde = new Date(this.ahora().getTime() - RESPUESTA_REPETIDA_MS);
+      const media = { key: imagen.key, mime: imagen.mime, nombre: imagen.nombre };
+      const [fila] = await this.guardarMensajeAutomatico(conversacionId, [{ texto: pie, media }], async tx =>
+        !!(await tx.mensaje.findFirst({ where: { conversacionId, automatico: true, mediaKey: imagen.key, createdAt: { gte: desde } }, select: { id: true } })),
+        { respetaPausa, asistente: true },
+      ) ?? [];
+      if (!fila || (respetaPausa && !(await this.sigueSinPausa(conversacionId, [fila])))) return false;
+      await this.despachador.texto({ mensajeId: fila.id, conversacionId, telefono }, pie, media);
+      return true;
+    } catch (error) {
+      this.logger.error('No se pudo enviar la imagen del asistente', error);
+      return false;
     }
   }
 
@@ -847,7 +939,7 @@ export class IngestaWhatsappService {
     conversacionId: string,
     contenidos: readonly Automatico[],
     yaHecho: (tx: Prisma.TransactionClient) => Promise<boolean>,
-    { respetaPausa = true } = {},
+    { respetaPausa = true, asistente = false } = {},
   ): Promise<Mensaje[] | null> {
     const filas = await this.prisma.$transaction(async tx => {
       await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${conversacionId}, ${CANDADO_AUTOMATICOS}))::text`;
@@ -879,6 +971,8 @@ export class IngestaWhatsappService {
             /* La marca que impide que esto tape la conversación en el inbox —
                ver el comentario del campo en schema.prisma. */
             automatico: true,
+            /* Lo escribió (o lo mandó) el asistente de IA: el chat lo rotula. */
+            asistente,
             createdAt: new Date(base + i),
             ...(oferta
               ? { estadoEnvio: 'FALLIDO', proximoIntento: new Date(), clientMessageId, interaccion: { create: datosOferta(oferta, clientMessageId) } }

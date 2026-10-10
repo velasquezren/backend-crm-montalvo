@@ -23,6 +23,6 @@ import { AgendaVpsClient } from './agenda-vps.client';
     AgendaService, AgendaVpsClient, AgendaReservaClient, AgendaReservasService, AgendaTelegramService,
     AgendaConsultaClient, AgendaReservasCrmService, AgendaAdminClient, AgendaMedicosCrmService, AgendaFlowService,
   ],
-  exports: [AgendaService, AgendaReservasService, AgendaConsultaClient],
+  exports: [AgendaService, AgendaReservasService, AgendaConsultaClient, AgendaMedicosCrmService],
 })
 export class AgendaModule {}

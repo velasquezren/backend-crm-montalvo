@@ -1,9 +1,13 @@
 import { AgendaReservasService } from '../agenda/agenda-reservas.service';
 import { AgendaService } from '../agenda/agenda.service';
 import {
-  declaracionesParaElModelo,
+  ContextoAsistente,
+  declaraciones,
   HERRAMIENTAS,
+  herramientasDisponibles,
   HerramientasAsistenteService,
+  PromocionParaAsistente,
+  PuertoVentas,
   validarArgumentos,
 } from './herramientas';
 
@@ -16,7 +20,21 @@ import {
  * romper: pedir algo que no existe, mandar argumentos malos, y pedir una
  * escritura.
  */
-const CONTEXTO = { telefono: '+59170012345' };
+const PROMO: PromocionParaAsistente = {
+  id: 'p1', titulo: 'Botox tercio superior', resumen: 'Frente y entrecejo', condiciones: 'Una zona por persona.',
+  etiquetaOferta: '-20%', precio: 1200, precioRegular: 1500, precioPromocional: 1200, vigenteHasta: '2026-10-31',
+};
+
+function ventas(p: Partial<PuertoVentas> = {}): PuertoVentas {
+  return {
+    promociones: jest.fn().mockResolvedValue([PROMO]),
+    promocion: jest.fn().mockResolvedValue({ ...PROMO, sePuedePagarPorChat: true, sePuedeEnviarTarjeta: true }),
+    estadoDePago: jest.fn().mockResolvedValue({ qrDisponible: true, pago: null }),
+    ...p,
+  };
+}
+
+const CONTEXTO: ContextoAsistente = { telefono: '+59170012345', ventas: null };
 
 function montar(agenda: Partial<AgendaService> = {}, reservas: Partial<AgendaReservasService> = {}) {
   return new HerramientasAsistenteService(
@@ -53,7 +71,7 @@ describe('catálogo de herramientas del asistente', () => {
   });
 
   it('las declaraciones salen con la forma que pide `tools: [{ functionDeclarations }]`', () => {
-    const d = declaracionesParaElModelo();
+    const d = declaraciones();
     expect(d).toHaveLength(HERRAMIENTAS.length);
     expect(d[0]).toEqual({
       name: HERRAMIENTAS[0].nombre,
@@ -148,5 +166,92 @@ describe('el despachador', () => {
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.motivo).not.toContain('Falta');
     expect(reservar).not.toHaveBeenCalled();
+  });
+});
+
+describe('qué herramientas tiene a mano', () => {
+  it('sin permiso de escritura no hay `reservar`; sin línea comercial no hay nada de ventas', () => {
+    const sinVentas = herramientasDisponibles(CONTEXTO, { permitirEscritura: false }).map(h => h.nombre);
+    expect(sinVentas).not.toContain('reservar');
+    expect(sinVentas).not.toContain('enviar_promocion');
+    expect(sinVentas).toContain('pasar_a_persona');
+    const conVentas = herramientasDisponibles({ ...CONTEXTO, ventas: ventas() }, { permitirEscritura: false }).map(h => h.nombre);
+    expect(conVentas).toEqual(expect.arrayContaining(['listar_promociones', 'enviar_promocion', 'estado_de_pago']));
+  });
+
+  it('ninguna herramienta manda el QR ni datos bancarios: cobrar es la tarjeta', () => {
+    for (const h of HERRAMIENTAS) expect(h.nombre).not.toMatch(/qr|banco|cobrar|confirmar/);
+  });
+});
+
+describe('las herramientas de ventas', () => {
+  const conVentas = (p: Partial<PuertoVentas> = {}): ContextoAsistente => ({ ...CONTEXTO, ventas: ventas(p) });
+
+  it('fuera de una línea comercial se rechazan aunque el modelo las pida', async () => {
+    const r = await montar().ejecutar('listar_promociones', {}, CONTEXTO, { permitirEscritura: false });
+    expect(r.ok).toBe(false);
+  });
+
+  it('listar_promociones da lo justo para elegir; sin promociones lo dice', async () => {
+    const r = await montar().ejecutar('listar_promociones', {}, conVentas(), { permitirEscritura: false });
+    expect(r).toEqual({ ok: true, datos: [{ id: 'p1', titulo: PROMO.titulo, resumen: PROMO.resumen, precioBs: 1200, vigenteHasta: '2026-10-31' }] });
+    const vacia = await montar().ejecutar('listar_promociones', {}, conVentas({ promociones: jest.fn().mockResolvedValue([]) }), { permitirEscritura: false });
+    expect(vacia).toEqual({ ok: true, datos: 'Hoy no hay promociones publicadas.' });
+  });
+
+  it('enviar_promocion no envía nada: deja la ACCIÓN para quien llama', async () => {
+    const r = await montar().ejecutar('enviar_promocion', { promocionId: 'p1' }, conVentas(), { permitirEscritura: false });
+    expect(r).toMatchObject({ ok: true, accion: { tipo: 'PROMOCION', promocionId: 'p1', titulo: PROMO.titulo } });
+  });
+
+  it('una promoción que no existe o no está vigente se rechaza diciéndole qué hacer', async () => {
+    const r = await montar().ejecutar('enviar_promocion', { promocionId: 'zz' }, conVentas({ promocion: jest.fn().mockResolvedValue(null) }), { permitirEscritura: false });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.motivo).toContain('no existe');
+  });
+
+  it('si la línea no manda tarjetas, enviar_promocion se rechaza y le dice que pase el pago a una persona', async () => {
+    const promocion = jest.fn().mockResolvedValue({ ...PROMO, sePuedePagarPorChat: false, sePuedeEnviarTarjeta: false });
+    const r = await montar().ejecutar('enviar_promocion', { promocionId: 'p1' }, conVentas({ promocion }), { permitirEscritura: false });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.motivo).toContain('persona');
+  });
+
+  it('estado_de_pago devuelve lo del puerto, que está atado a ESTA conversación', async () => {
+    const estadoDePago = jest.fn().mockResolvedValue({ qrDisponible: true, pago: { estado: 'COMPROBANTE_EN_REVISION', promocion: 'Botox', monto: 1200, motivoRechazo: null } });
+    const r = await montar().ejecutar('estado_de_pago', { conversacionId: 'otra' }, conVentas({ estadoDePago }), { permitirEscritura: false });
+    expect(r).toMatchObject({ ok: true, datos: { pago: { estado: 'COMPROBANTE_EN_REVISION' } } });
+    expect(estadoDePago).toHaveBeenCalledWith();
+  });
+});
+
+describe('agenda y derivación', () => {
+  const medico = {
+    medico: { id: '7', nombre: 'Dra. Ana Rojas', modalidad: 'ONLINE', precio: { importeCentavos: 25000, moneda: 'BOB' }, horarioInformativo: 'Martes: entre 10:00 y 12:00', fotoUrl: 'https://x/foto.jpg', especialidadId: 'e' },
+    especialidad: { id: 'e', nombre: 'Dermatología' },
+  };
+
+  it('ver_medico devuelve lo que sirve para contestar, sin URLs internas', async () => {
+    const r = await montar({ medico: jest.fn().mockResolvedValue(medico) }).ejecutar('ver_medico', { medicoId: '7' }, CONTEXTO, { permitirEscritura: false });
+    expect(r).toEqual({ ok: true, datos: { id: '7', nombre: 'Dra. Ana Rojas', especialidad: 'Dermatología', modalidad: 'ONLINE', precioConsulta: 'Bs 250.00', atiende: 'Martes: entre 10:00 y 12:00' } });
+  });
+
+  it('enviar_horario deja la acción con el horario en texto (el pie de la imagen)', async () => {
+    const r = await montar({ medico: jest.fn().mockResolvedValue(medico) }).ejecutar('enviar_horario', { medicoId: '7' }, CONTEXTO, { permitirEscritura: false });
+    expect(r).toMatchObject({ ok: true, accion: { tipo: 'HORARIO', medicoId: 7, nombre: 'Dra. Ana Rojas', horario: 'Martes: entre 10:00 y 12:00' } });
+  });
+
+  it('un médico sin horario fijo no tiene imagen: atiende a solicitud', async () => {
+    const sinHorario = { ...medico, medico: { ...medico.medico, horarioInformativo: null } };
+    const r = await montar({ medico: jest.fn().mockResolvedValue(sinHorario) }).ejecutar('enviar_horario', { medicoId: '7' }, CONTEXTO, { permitirEscritura: false });
+    expect(r.ok).toBe(false);
+  });
+
+  it('pasar_a_persona exige un motivo de la lista cerrada y deja la acción DERIVAR', async () => {
+    const malo = await montar().ejecutar('pasar_a_persona', { motivo: 'ABURRIDA', resumen: 'x' }, CONTEXTO, { permitirEscritura: false });
+    expect(malo.ok).toBe(false);
+    if (!malo.ok) expect(malo.motivo).toContain('MEDICO');
+    const bueno = await montar().ejecutar('pasar_a_persona', { motivo: 'MEDICO', resumen: 'Pregunta si puede tomar ibuprofeno.' }, CONTEXTO, { permitirEscritura: false });
+    expect(bueno).toMatchObject({ ok: true, accion: { tipo: 'DERIVAR', motivo: 'MEDICO' } });
   });
 });

@@ -200,6 +200,32 @@ Diseño en [pagos-promocion](../../../docs/pagos-promocion.md). Lo que no se pue
 - **Confirmar copia el comprobante a `comprobantes/<agente>/`**: es la única carpeta que
   `VentasService` acepta como respaldo propio. Sin la descarga terminada, 409.
 
+### Asistente de IA en el chat (2026-10-10)
+
+Diseño en [asistente-ia](../../../docs/asistente-ia.md). Lo que no se puede olvidar:
+
+- **El modelo elige herramientas; los datos salen de ellas.** El catálogo
+  (`modules/asistente/herramientas.ts`) es cerrado: una herramienta nueva es una función
+  sobre un service que ya existe, con su prueba sin modelo. `escritura` exige
+  `permitirEscritura` del llamador (hoy nadie lo pasa); `mensaje` no se ejecuta en el
+  bucle: queda como acción y la manda `AsistenteChatService`.
+- **Nunca el QR ni datos bancarios desde el modelo**: cobrar es mandar la tarjeta; el QR
+  sale del toque a «Pagar ahora», como siempre.
+- **Lo médico no llega al modelo que redacta**: lo decide `decidirTriaje` sobre la
+  clasificación, que es código y se prueba en la tabla entera. `POSIBLE_URGENCIA` es
+  ALTA; CRÍTICA sigue siendo solo la que declara ella.
+- **Lo que manda el asistente sale por `IngestaWhatsappService`** (`responderComoAsistente`,
+  `tarjetaDesdeAsistente`, `imagenDesdeAsistente`, `derivarDesdeAsistente`), que pasa por
+  `guardarMensajeAutomatico` con `asistente: true`. La ingesta no inyecta al asistente:
+  él se registra con `usarAsistente` (si no, sería un ciclo de dependencias).
+- **Gemini 3 firma su razonamiento**: lo que pidió el modelo vuelve como su `Content`
+  intacto (`crudo`), o la vuelta siguiente es un 400. Y a Vertex se le declaran SOLO las
+  herramientas permitidas: `allowedFunctionNames` solo vale en modo `ANY`.
+- **Si el modelo falla, `respaldoSinAsistente`**: sale el acuse fuera de horario.
+- **En SQL, `NOT (estadoEnvio = 'FALLIDO')` descarta los NULL**, que son todos los
+  mensajes entrantes. Para excluir los no enviados: `OR: [{ estadoEnvio: null }, { estadoEnvio: { not: 'FALLIDO' } }]`.
+  Lo cazó la prueba de integración del asistente; con `NOT` no contestaba nunca.
+
 ## Promociones y directorio médico (2026-10-05)
 
 Diseño en [promociones y directorio](../../../docs/promociones-y-directorio.md). El CRM es la

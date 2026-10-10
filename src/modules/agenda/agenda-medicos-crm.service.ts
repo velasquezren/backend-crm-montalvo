@@ -262,6 +262,21 @@ export class AgendaMedicosCrmService {
     return ficha;
   }
 
+  /**
+   * El horario semanal de un médico ACTIVO, para mostrarlo a una paciente (la
+   * imagen que manda el asistente). Solo lo público: nombre, especialidad y
+   * bloques; `null` si no existe o no está activo.
+   */
+  async horarioSemanal(id: number): Promise<{ nombre: string; especialidad: string | null; bloques: ReturnType<typeof bloquesDeFicha> } | null> {
+    const f = await this.agenda.consultar(db => fichaMedicoAgenda(db, id));
+    if (!f || f.medico.estado !== 'ACTIVO') return null;
+    return {
+      nombre: nombreLimpio([f.medico.sigla, f.medico.nombre].filter(Boolean).join(' ')).slice(0, 120),
+      especialidad: f.medico.especialidad,
+      bloques: bloquesDeFicha(f),
+    };
+  }
+
   /** Crea la ficha web del médico: oculta, con su nombre, precio y horario de la agenda. */
   async crearPresentacion(id: number, usuario: UsuarioJwt) {
     this.exigirEditar(usuario);

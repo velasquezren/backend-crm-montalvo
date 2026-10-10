@@ -1,4 +1,8 @@
 import { AgendaModule } from '../agenda/agenda.module';
+import { AsistenteModule } from '../asistente/asistente.module';
+import { AsistenteChatController } from './asistente-chat.controller';
+import { AsistenteChatService } from './asistente-chat.service';
+import { LecturaComprobantesService } from './lectura-comprobantes.service';
 import { ComprobantesReservaChatService } from './comprobantes-reserva-chat.service';
 import { CierreInactividadService } from './cierre-inactividad.service';
 import { CabecerasPlantillaController } from './cabeceras-plantilla.controller';
@@ -32,8 +36,8 @@ import { ReintentoSalienteService } from './reintento-saliente.service';
 import { WhatsappWebhookController } from './webhooks/whatsapp-webhook.controller';
 
 @Module({
-  imports: [AgendaModule, LeadsModule, MemoriaAgenteModule, LineasWhatsappModule, MenuAtencionModule, CobrosModule, PromocionesModule, VentasModule, ClientesModule, StorageModule, PushModule, AuthModule],
-  controllers: [ConversacionesController, WhatsappWebhookController, CabecerasPlantillaController],
+  imports: [AgendaModule, AsistenteModule, LeadsModule, MemoriaAgenteModule, LineasWhatsappModule, MenuAtencionModule, CobrosModule, PromocionesModule, VentasModule, ClientesModule, StorageModule, PushModule, AuthModule],
+  controllers: [ConversacionesController, AsistenteChatController, WhatsappWebhookController, CabecerasPlantillaController],
   providers: [
     ConversacionesService,
     EnvioPlantillasService,
@@ -47,6 +51,8 @@ import { WhatsappWebhookController } from './webhooks/whatsapp-webhook.controlle
     ReintentoSalienteService,
     CierreInactividadService,
     ComprobantesReservaChatService,
+    AsistenteChatService,
+    LecturaComprobantesService,
     MetaSignatureGuard,
     WhatsappCloudService,
     AlertasWhatsappService,
