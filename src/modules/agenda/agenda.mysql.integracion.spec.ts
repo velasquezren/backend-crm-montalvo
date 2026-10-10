@@ -15,6 +15,7 @@ import { imagenSintetica } from '../../common/storage/imagen-sintetica';
 import { UsuarioJwt } from '../../common/decorators/current-user.decorator';
 import { PrismaService } from '../../prisma/prisma.service';
 import { DirectorioService } from '../directorio/directorio.service';
+import { AgendaMedicoCitasService } from './agenda-medico-citas.service';
 import { AgendaMedicosCrmService } from './agenda-medicos-crm.service';
 import { AgendaReservasCrmService } from './agenda-reservas-crm.service';
 import { AgendaModule } from './agenda.module';
@@ -507,13 +508,73 @@ ejecutar('Agenda HTTP → adaptador TLS → MySQL real descartable', () => {
       });
       try {
         for (const sql of [
-          'SELECT paciente FROM agenda_med', 'SELECT password FROM medicos', 'SELECT banco FROM para_agendar',
+          /* El nombre de la paciente en agenda_med SÍ se lee (agenda del médico); su PAC y cualquier escritura, no. */
+          'SELECT pac FROM agenda_med', "INSERT INTO agenda_med (cod_med) VALUES ('x')", "UPDATE agenda_med SET estado = 'BORRADO' WHERE 1=0",
+          'DELETE FROM agenda_med WHERE 1=0', 'SELECT password FROM medicos', 'SELECT banco FROM para_agendar',
           "UPDATE para_agendar SET estado = 'ATENDIDO' WHERE 1=0", 'DELETE FROM para_agendar WHERE 1=0',
           "INSERT INTO para_agendar (para_age) VALUES (999)",
         ]) {
           await expect(conn.query(sql)).rejects.toMatchObject({ code: expect.stringMatching(/ACCESS_DENIED/) });
         }
       } finally { await conn.end(); }
+    });
+  });
+
+  describe('agenda de un médico por el asistente (cuenta de consulta)', () => {
+    const DIA = fecha(6);
+    let citas: AgendaMedicoCitasService;
+    const sql = async (instrucciones: string[]) => {
+      const db = await conexionRoot();
+      try { for (const i of instrucciones) await db.query(i); } finally { await db.end(); }
+    };
+    const limpiar = () => sql([`DELETE FROM agenda_med WHERE fecha = '${DIA}'`, 'DELETE FROM para_agendar WHERE para_age BETWEEN 900 AND 909']);
+    beforeAll(async () => {
+      citas = app.get(AgendaMedicoCitasService);
+      await limpiar();
+      await sql([
+        /* Médico A (id 1): dos vigentes, una anulada y una movida (no cuentan). B (id 2): una suya. */
+        `INSERT INTO agenda_med (cod_med,fecha,hora,estado,paciente,pac) VALUES
+          ('A','${DIA}','09:00','CREADO','Ana Pérez','PAC-1'),('A','${DIA}','09:45','CREADO','Luis  Gómez','PAC-2'),
+          ('A','${DIA}','10:00','BORRADO','Anulada Sintética','PAC-3'),('A','${DIA}','11:00','MODIFICADO','Movida Sintética','PAC-4'),
+          ('B','${DIA}','09:00','CREADO','Paciente de otro médico','PAC-5')`,
+        /* Reservas del médico 1: la misma Ana (recepción la cargó y no marcó), una por verificar, una por confirmar,
+           una ya atendida (ya está en agenda_med); y una del médico 2. */
+        `INSERT INTO para_agendar (para_age,medico_pk,fecha,hora,nombre_age,telefono_age,ci_age,estado,uno) VALUES
+          (900,1,'${DIA}','09:00','ana perez','70011111','111','PENDIENTE',1),(901,1,'${DIA}','12:00','Carla Soto','70022222','222','PAGADO',1),
+          (902,1,'${DIA}','15:00','Dina Rojas','70033333','333','PENDIENTE',1),(903,1,'${DIA}','16:00','Ya Cargada','70044444','444','ATENDIDO',1),
+          (904,2,'${DIA}','10:00','Reserva del otro','70055555','555','PENDIENTE',1)`,
+      ]);
+    });
+    afterAll(limpiar);
+
+    it('arma la agenda real del médico: vigentes de agenda_med más reservas sin cargar, sin repetir ni mezclar médicos', async () => {
+      const a = await citas.delDia(1, DIA);
+      expect(a.citas).toEqual([
+        { hora: '09:00', paciente: 'Ana Pérez', estado: 'CONFIRMADA' },
+        { hora: '09:45', paciente: 'Luis Gómez', estado: 'CONFIRMADA' },
+        { hora: '12:00', paciente: 'Carla Soto', estado: 'PAGO_POR_VERIFICAR' },
+        { hora: '15:00', paciente: 'Dina Rojas', estado: 'POR_CONFIRMAR' },
+      ]);
+      expect(a).toMatchObject({ fecha: DIA, confirmadas: 2, pendientes: 2, porConfirmar: 1, pagoPorVerificar: 1, total: 4 });
+      const otro = await citas.delDia(2, DIA);
+      expect(otro.citas.map(c => c.paciente)).toEqual(['Paciente de otro médico', 'Reserva del otro']);
+      /* La sentencia preparada se re-ejecuta en la misma conexión: tiene que dar lo mismo la segunda vez. */
+      expect(await citas.delDia(1, DIA)).toEqual(a);
+    });
+
+    it('un día sin citas es un día sin citas, y un médico que no existe tampoco devuelve las de otro', async () => {
+      expect(await citas.delDia(1, fecha(7))).toMatchObject({ citas: [], total: 0 });
+      expect((await citas.delDia(99999, DIA)).total).toBe(0);
+    });
+
+    it('lee solo nombre y hora: nunca el PAC, el carnet ni el teléfono', async () => {
+      const dump = JSON.stringify(await citas.delDia(1, DIA));
+      expect(dump).not.toMatch(/PAC-|111|70011111|70022222/);
+    });
+
+    it('la fecha se valida antes de consultar', async () => {
+      await expect(citas.delDia(1, '2026-02-31')).rejects.toMatchObject({ status: 400 });
+      await expect(citas.delDia(1, fecha(400))).rejects.toMatchObject({ status: 400 });
     });
   });
 

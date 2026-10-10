@@ -2,14 +2,18 @@ import { BadRequestException, ConflictException, Injectable, Logger, NotFoundExc
 import { ConfigService } from '@nestjs/config';
 
 import { enSegundoPlano } from '../../common/fiabilidad/en-segundo-plano';
+import { AccesoMedicoAgendaService, MedicoAutorizado } from '../agenda/acceso-medico-agenda.service';
+import { AgendaMedicoCitasService } from '../agenda/agenda-medico-citas.service';
 import { Mensaje, MotivoAtencion, Prisma, ResultadoTurnoAsistente } from '../../prisma/prisma-client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { pieDeLaImagen, textoListado, textoResumen } from '../asistente/agenda-medico-imagen';
 import { AsistenteDeLinea, AsistenteLineasService } from '../asistente/asistente-lineas.service';
 import { ConversacionAsistente, TrazaTurno } from '../asistente/conversacion-asistente';
-import { AccionAsistente, EstadoPagoParaAsistente, PuertoVentas } from '../asistente/herramientas';
+import { AccionAsistente, EstadoPagoParaAsistente, PuertoMedico, PuertoVentas } from '../asistente/herramientas';
+import { ImagenAgendaMedicoService } from '../asistente/imagen-agenda-medico.service';
 import { ImagenHorarioService } from '../asistente/imagen-horario.service';
 import { Clasificacion, ClasificadorMensajes, ModeloConversacional, TurnoModelo, UsoModelo } from '../asistente/modelo.port';
-import { ahoraEnLaPaz, promptDelSistema } from '../asistente/prompt-sistema';
+import { ahoraEnLaPaz, promptDelMedico, promptDelSistema } from '../asistente/prompt-sistema';
 import { conPresentacion, paraWhatsapp } from '../asistente/texto-whatsapp';
 import { CLASIFICACION_FALLIDA, decidirTriaje } from '../asistente/triaje';
 import { CobrosService } from '../cobros/cobros.service';
@@ -135,6 +139,9 @@ export class AsistenteChatService implements ProgramadorAsistente, OnModuleInit,
     private readonly modelo: ModeloConversacional,
     private readonly clasificador: ClasificadorMensajes,
     private readonly imagenes: ImagenHorarioService,
+    private readonly accesoMedicos: AccesoMedicoAgendaService,
+    private readonly citasMedico: AgendaMedicoCitasService,
+    private readonly imagenesAgenda: ImagenAgendaMedicoService,
     private readonly promociones: PromocionesChatService,
     private readonly cobros: CobrosService,
     private readonly menus: MenuAtencionService,
@@ -233,6 +240,10 @@ export class AsistenteChatService implements ProgramadorAsistente, OnModuleInit,
 
     const historial = mensajes.map(aTurno).filter((t): t is TurnoModelo => t !== null);
 
+    /* ¿Quien escribe es un médico con el número autorizado? Es otra conversación, con otras reglas. */
+    const medico = await this.accesoMedicos.porTelefono(e.telefono);
+    if (medico) return this.atenderMedico(e, medico, historial, ultimoEntrante, inicio, registrar);
+
     /* 1. El filtro de entrada, antes de que el modelo escriba nada. */
     let clasificacion: Pick<Clasificacion, 'categoria' | 'confianza'>;
     let tokensExtra: UsoModelo = { tokensEntrada: 0, tokensSalida: 0 };
@@ -301,6 +312,97 @@ export class AsistenteChatService implements ProgramadorAsistente, OnModuleInit,
     }
     for (const accion of envios) await this.ejecutar(e.conversacionId, e.telefono, e.lineaId, accion, { respetaPausa: true });
     return registrar({ resultado: 'RESPONDIO', ...base });
+  }
+
+  /* ── Un médico pregunta por su agenda ───────────────────────────────── */
+
+  /** Lo que el modelo no puede decir de una agenda sin haberla consultado: horas, cantidades y estados. */
+  private static readonly AFIRMA_AGENDA = /\b\d{1,2}:\d{2}\b|\b\d+\s+citas?\b|\b(confirmadas?|por confirmar|pendientes?)\b/i;
+
+  /**
+   * El turno de un médico autorizado (docs/asistente-ia.md, «Agenda del médico»).
+   *
+   * - Solo en «Responder solo»: el borrador de «Sugerir» lo ve una agente, y la
+   *   agenda de un médico no es para ella.
+   * - Sin el filtro de entrada ni las herramientas de ventas: solo `mi_agenda`
+   *   y pasar a una persona, atadas al médico que salió del NÚMERO.
+   * - Lo que se le manda lo arma el código con los datos de la agenda; el texto del
+   *   modelo, si lo hay, se descarta cuando ya se le mandó el listado.
+   */
+  private async atenderMedico(
+    e: EntranteParaAsistente, medico: MedicoAutorizado, historial: readonly TurnoModelo[], ultimoEntrante: MensajeDeContexto,
+    inicio: number, registrar: (r: Registro) => Promise<ResultadoTurnoAsistente>,
+  ): Promise<ResultadoTurnoAsistente> {
+    if (e.asistente.modo !== 'RESPONDER') {
+      return registrar({ resultado: 'OMITIDO', motivo: 'Es un médico autorizado: su agenda solo se contesta en «Responder solo».' });
+    }
+    const salida = await this.conversacion.responder({
+      sistema: promptDelMedico({ ahora: ahoraEnLaPaz(new Date(inicio)), medico: medico.nombre }),
+      contexto: { telefono: e.telefono, ventas: null, medico: this.puertoMedico(medico) },
+      historial,
+      permitirEscritura: false,
+    });
+    const base = { categoria: 'MEDICO_AGENDA', traza: salida.traza };
+    if (salida.tipo === 'sin-respuesta') {
+      /* Con un médico no vale el acuse de siempre: una persona lo atiende. */
+      await this.derivar(e, 'DERIVADA_ASISTENTE');
+      return registrar({ resultado: 'FALLO', motivo: salida.motivo, ...base });
+    }
+    if (await this.llegoAlgoDespues(e.conversacionId, ultimoEntrante)) {
+      return registrar({ resultado: 'OMITIDO', motivo: 'Llegó otro mensaje mientras pensaba: lo contesta el turno siguiente.', ...base });
+    }
+    const derivacion = salida.acciones.find(a => a.tipo === 'DERIVAR');
+    if (derivacion?.tipo === 'DERIVAR') {
+      await this.derivar(e, derivacion.motivo === 'URGENCIA' ? 'POSIBLE_URGENCIA' : 'DERIVADA_ASISTENTE');
+      return registrar({ resultado: 'DERIVO', motivo: derivacion.resumen, ...base });
+    }
+    const agendas = salida.acciones.filter((a): a is Extract<AccionAsistente, { tipo: 'AGENDA_MEDICO' }> => a.tipo === 'AGENDA_MEDICO');
+    if (agendas.length > 0) {
+      let primero = true;
+      for (const a of agendas) {
+        if (!(await this.enviarAgendaMedico(e, a, primero))) {
+          return registrar({ resultado: 'OMITIDO', motivo: 'Se pausó la automatización mientras pensaba.', ...base });
+        }
+        primero = false;
+      }
+      return registrar({ resultado: 'RESPONDIO', ...base });
+    }
+    /* Sin consulta no hay dato: un texto que afirme horas o cantidades no sale. */
+    const texto = salida.texto ? paraWhatsapp(salida.texto) : '';
+    if (!texto || AsistenteChatService.AFIRMA_AGENDA.test(texto)) {
+      await this.derivar(e, 'DERIVADA_ASISTENTE');
+      return registrar({ resultado: 'DERIVO', motivo: texto ? 'El modelo habló de la agenda sin consultarla.' : 'Sin respuesta utilizable.', ...base });
+    }
+    const presentado = await this.prisma.mensaje.findFirst({
+      where: { conversacionId: e.conversacionId, asistente: true, createdAt: { gte: new Date(inicio - VENTANA_MS) } }, select: { id: true },
+    });
+    if (!(await this.ingesta.responderComoAsistente(e.conversacionId, e.telefono, conPresentacion(texto, !presentado)))) {
+      return registrar({ resultado: 'OMITIDO', motivo: 'Se pausó la automatización mientras pensaba.', ...base });
+    }
+    return registrar({ resultado: 'RESPONDIO', ...base });
+  }
+
+  /** La agenda de ESTE médico, atada a él: el modelo solo elige el día. */
+  private puertoMedico(medico: MedicoAutorizado): PuertoMedico {
+    return { nombre: medico.nombre, agendaDelDia: fecha => this.citasMedico.delDia(medico.agendaMedicoId, fecha) };
+  }
+
+  /** Imagen con el resumen de pie si es una lista; texto si solo pidió cantidades o si la imagen no se pudo. */
+  private async enviarAgendaMedico(e: EntranteParaAsistente, a: Extract<AccionAsistente, { tipo: 'AGENDA_MEDICO' }>, primero: boolean): Promise<boolean> {
+    const { medico, agenda, detalle } = a;
+    const presentar = async (texto: string) => {
+      if (!primero) return texto;
+      const antes = await this.prisma.mensaje.findFirst({
+        where: { conversacionId: e.conversacionId, asistente: true, createdAt: { gte: new Date(Date.now() - VENTANA_MS) } }, select: { id: true },
+      });
+      return conPresentacion(texto, !antes);
+    };
+    if (detalle === 'LISTA' && agenda.total > 0) {
+      const imagen = await this.imagenesAgenda.de(medico, agenda);
+      if (imagen) return this.ingesta.imagenDesdeAsistente(e.conversacionId, e.telefono, await presentar(pieDeLaImagen(medico, agenda)), imagen, { respetaPausa: true, repetible: true });
+      return this.ingesta.responderComoAsistente(e.conversacionId, e.telefono, await presentar(textoListado(medico, agenda)));
+    }
+    return this.ingesta.responderComoAsistente(e.conversacionId, e.telefono, await presentar(textoResumen(medico, agenda)));
   }
 
   /** ¿Escribió ella o una persona después del mensaje que se está contestando? */

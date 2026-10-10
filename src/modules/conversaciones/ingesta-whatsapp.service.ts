@@ -883,14 +883,16 @@ export class IngestaWhatsappService {
 
   /** Una imagen con su pie (el horario de un médico); sin imagen, el pie solo. */
   async imagenDesdeAsistente(
-    conversacionId: string, telefono: string, pie: string, imagen: { key: string; mime: string; nombre: string } | null, { respetaPausa }: { respetaPausa: boolean },
+    conversacionId: string, telefono: string, pie: string, imagen: { key: string; mime: string; nombre: string } | null,
+    { respetaPausa, repetible = false }: { respetaPausa: boolean; repetible?: boolean },
   ): Promise<boolean> {
-    if (!imagen) return this.responderTexto(conversacionId, telefono, pie, { respetaPausa, noRepetir: true, asistente: true });
+    if (!imagen) return this.responderTexto(conversacionId, telefono, pie, { respetaPausa, noRepetir: !repetible, asistente: true });
     try {
       const desde = new Date(this.ahora().getTime() - RESPUESTA_REPETIDA_MS);
       const media = { key: imagen.key, mime: imagen.mime, nombre: imagen.nombre };
       const [fila] = await this.guardarMensajeAutomatico(conversacionId, [{ texto: pie, media }], async tx =>
-        !!(await tx.mensaje.findFirst({ where: { conversacionId, automatico: true, mediaKey: imagen.key, createdAt: { gte: desde } }, select: { id: true } })),
+        /* `repetible`: lo que ella pide otra vez (la agenda de hoy, a media mañana) se contesta otra vez. */
+        !repetible && !!(await tx.mensaje.findFirst({ where: { conversacionId, automatico: true, mediaKey: imagen.key, createdAt: { gte: desde } }, select: { id: true } })),
         { respetaPausa, asistente: true },
       ) ?? [];
       if (!fila || (respetaPausa && !(await this.sigueSinPausa(conversacionId, [fila])))) return false;

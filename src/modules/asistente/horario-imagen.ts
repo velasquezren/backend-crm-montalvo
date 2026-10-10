@@ -26,7 +26,7 @@ export interface DatosHorario {
 
 const DIAS = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'] as const;
 
-const COLOR = {
+export const COLOR = {
   primario: '#006156',
   secundario: '#39ADA3',
   fondoSuave: '#EAF7F5',
@@ -47,7 +47,7 @@ export function escaparXml(texto: string): string {
 const hora = (minutos: number) => `${String(Math.floor(minutos / 60)).padStart(2, '0')}:${String(minutos % 60).padStart(2, '0')}`;
 
 /** Un nombre largo baja de tamaño en vez de salirse; muy largo, se corta. */
-function ajustar(texto: string, maximo: number, minimo: number, ancho: number): { texto: string; tamano: number } {
+export function ajustar(texto: string, maximo: number, minimo: number, ancho: number): { texto: string; tamano: number } {
   /* Poppins semibold mide ~0,6 em por carácter en promedio. */
   const tamano = Math.max(minimo, Math.min(maximo, Math.floor(ancho / (texto.length * 0.6))));
   const caben = Math.floor(ancho / (tamano * 0.6));

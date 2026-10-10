@@ -37,8 +37,9 @@
  * - Decidir que algo es una emergencia. La declarada la reconoce la ingesta; la
  *   posible la marca el filtro de entrada (`triaje.ts`), no el modelo que habla.
  */
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 
+import type { AgendaDelDia } from '../agenda/agenda-medico-citas';
 import { AgendaReservasService } from '../agenda/agenda-reservas.service';
 import { AgendaService } from '../agenda/agenda.service';
 import type { DeclaracionHerramienta } from './modelo.port';
@@ -67,6 +68,12 @@ export interface Herramienta {
   readonly efecto: EfectoHerramienta;
   /** Solo en una línea comercial (promociones, pagos). */
   readonly soloVentas?: true;
+  /**
+   * Solo con un médico autorizado al otro lado (`ContextoAsistente.medico`), y
+   * entonces es de lo ÚNICO que dispone junto a `derivar`: a un médico no se le
+   * ofrecen las herramientas de ventas, y a una paciente nunca la de agenda.
+   */
+  readonly soloMedico?: true;
 }
 
 /* ── Lo que el CRM le presta al asistente en una conversación ───────── */
@@ -115,6 +122,16 @@ export interface PuertoVentas {
 }
 
 /**
+ * La agenda de UN médico, atada a él por quien llama (`AsistenteChatService`):
+ * el modelo no pasa el id del médico, así que no puede pedir la agenda de otro.
+ */
+export interface PuertoMedico {
+  /** Cómo se le llama al médico («Dra. Claudia Azogue»). */
+  readonly nombre: string;
+  agendaDelDia(fecha: string): Promise<AgendaDelDia>;
+}
+
+/**
  * Lo que sabe el CRM de la conversación, y que el modelo NO rellena.
  *
  * El teléfono es el de la conversación de WhatsApp: autoritativo. Pedírselo al
@@ -124,6 +141,8 @@ export interface ContextoAsistente {
   readonly telefono: string;
   /** `null` en una línea que no es comercial: no hay promociones ni pagos. */
   readonly ventas: PuertoVentas | null;
+  /** El médico autorizado que escribe, o ausente/`null` si es una paciente. */
+  readonly medico?: PuertoMedico | null;
 }
 
 /* ── Lo que el turno deja hecho ─────────────────────────────────────── */
@@ -135,7 +154,16 @@ export type MotivoDerivacion = (typeof MOTIVOS_DERIVACION)[number];
 export type AccionAsistente =
   | { readonly tipo: 'PROMOCION'; readonly promocionId: string; readonly titulo: string }
   | { readonly tipo: 'HORARIO'; readonly medicoId: number; readonly nombre: string; readonly horario: string | null }
-  | { readonly tipo: 'DERIVAR'; readonly motivo: MotivoDerivacion; readonly resumen: string };
+  | { readonly tipo: 'DERIVAR'; readonly motivo: MotivoDerivacion; readonly resumen: string }
+  /**
+   * La agenda de un médico para mandársela a él: la imagen y el texto los arma
+   * el CÓDIGO con estos datos (`agenda-medico-imagen.ts`). El modelo solo
+   * eligió el día y si quería la lista o el resumen.
+   */
+  | { readonly tipo: 'AGENDA_MEDICO'; readonly detalle: DetalleAgendaMedico; readonly medico: string; readonly agenda: AgendaDelDia };
+
+export const DETALLES_AGENDA = ['LISTA', 'RESUMEN'] as const;
+export type DetalleAgendaMedico = (typeof DETALLES_AGENDA)[number];
 
 export type ResultadoHerramienta =
   | { readonly ok: true; readonly datos: unknown; readonly accion?: AccionAsistente }
@@ -276,6 +304,29 @@ export const HERRAMIENTAS: readonly Herramienta[] = [
     },
     efecto: 'escritura',
   },
+  /* ── Del médico que escribe ── */
+  {
+    nombre: 'mi_agenda',
+    descripcion:
+      'La agenda REAL del médico que te escribe, de un día: sus citas con hora, paciente y estado (Confirmada, ' +
+      'Por confirmar, Pago por verificar) y cuántas hay de cada una. Es de este médico y de nadie más: no hay ' +
+      'forma de pedir la agenda de otro. El sistema le manda a él el listado ya armado (imagen o texto): tú NO ' +
+      'escribes nombres, horas ni cantidades; solo eliges el día y el detalle. Con LISTA le llega el listado de ' +
+      'pacientes; con RESUMEN, solo cuántas tiene. Calcula «hoy» y «mañana» con la fecha de hoy que tienes.',
+    parametros: {
+      type: 'object',
+      properties: {
+        fecha: { type: 'string', description: 'AAAA-MM-DD, fecha de Bolivia.', pattern: FECHA },
+        detalle: {
+          type: 'string', enum: DETALLES_AGENDA,
+          description: 'LISTA si pide ver sus pacientes o citas; RESUMEN si solo pregunta cuántas.',
+        },
+      },
+      required: ['fecha', 'detalle'],
+    },
+    efecto: 'lectura',
+    soloMedico: true,
+  },
   /* ── Siempre ── */
   {
     nombre: 'pasar_a_persona',
@@ -298,7 +349,12 @@ export const HERRAMIENTAS: readonly Herramienta[] = [
 
 /** Las herramientas que tiene a mano en esta conversación. */
 export function herramientasDisponibles(contexto: ContextoAsistente, { permitirEscritura }: { permitirEscritura: boolean }): readonly Herramienta[] {
-  return HERRAMIENTAS.filter(h => (h.efecto !== 'escritura' || permitirEscritura) && (!h.soloVentas || contexto.ventas !== null));
+  const medico = !!contexto.medico;
+  return HERRAMIENTAS.filter(h =>
+    (h.efecto !== 'escritura' || permitirEscritura)
+    && (!h.soloVentas || contexto.ventas !== null)
+    /* Con un médico al otro lado, solo lo suyo y la salida a una persona. */
+    && (medico ? h.soloMedico === true || h.efecto === 'derivar' : !h.soloMedico));
 }
 
 /** Las declaraciones tal como las espera `tools: [{ functionDeclarations }]`. */
@@ -362,6 +418,9 @@ export class HerramientasAsistenteService {
     if (h.efecto === 'escritura' && !opciones.permitirEscritura) {
       return { ok: false, motivo: `«${nombre}» cambia datos y está desactivada: pásale la conversación a una persona.` };
     }
+    /* Igual que en `herramientasDisponibles`, pero por si el modelo pide una que no se le declaró. */
+    if (h.soloMedico && !contexto.medico) return { ok: false, motivo: `«${nombre}» no está disponible.` };
+    if (contexto.medico && !h.soloMedico && h.efecto !== 'derivar') return { ok: false, motivo: `«${nombre}» no está disponible: solo puedes consultar su agenda o pasarlo a una persona.` };
     const ventas = contexto.ventas;
     if (h.soloVentas && !ventas) return { ok: false, motivo: `«${nombre}» no está disponible en esta línea.` };
     const v = validarArgumentos(h, args);
@@ -437,6 +496,29 @@ export class HerramientasAsistenteService {
             observaciones: 'Reservada por el asistente desde WhatsApp',
           }),
         };
+      case 'mi_agenda': {
+        const fecha = a.fecha;
+        const detalle = a.detalle as DetalleAgendaMedico;
+        let agenda: AgendaDelDia;
+        try {
+          agenda = await contexto.medico!.agendaDelDia(fecha);
+        } catch (error: unknown) {
+          /* Una fecha fuera de rango se corrige; lo demás (la agenda caída) sube y se le dice que no se pudo. */
+          if (error instanceof BadRequestException) return { ok: false, motivo: error.message };
+          throw error;
+        }
+        /* Al modelo vuelven SOLO las cantidades: los nombres de las pacientes no
+           necesitan pasar por un proveedor externo para llegar a su médico. */
+        return {
+          ok: true,
+          datos: {
+            fecha: agenda.fecha, citas: agenda.total, confirmadas: agenda.confirmadas, pendientes: agenda.pendientes,
+            porConfirmar: agenda.porConfirmar, pagoPorVerificar: agenda.pagoPorVerificar,
+            nota: 'Se le enviará el listado armado por el sistema. No escribas nombres, horas ni cantidades: despídete en una frase.',
+          },
+          accion: { tipo: 'AGENDA_MEDICO', detalle, medico: contexto.medico!.nombre, agenda },
+        };
+      }
       case 'pasar_a_persona':
         return {
           ok: true,

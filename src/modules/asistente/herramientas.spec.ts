@@ -1,3 +1,6 @@
+import { BadRequestException, ServiceUnavailableException } from '@nestjs/common';
+
+import { armarAgendaDelDia } from '../agenda/agenda-medico-citas';
 import { AgendaReservasService } from '../agenda/agenda-reservas.service';
 import { AgendaService } from '../agenda/agenda.service';
 import {
@@ -7,6 +10,7 @@ import {
   herramientasDisponibles,
   HerramientasAsistenteService,
   PromocionParaAsistente,
+  PuertoMedico,
   PuertoVentas,
   validarArgumentos,
 } from './herramientas';
@@ -253,5 +257,79 @@ describe('agenda y derivación', () => {
     if (!malo.ok) expect(malo.motivo).toContain('MEDICO');
     const bueno = await montar().ejecutar('pasar_a_persona', { motivo: 'MEDICO', resumen: 'Pregunta si puede tomar ibuprofeno.' }, CONTEXTO, { permitirEscritura: false });
     expect(bueno).toMatchObject({ ok: true, accion: { tipo: 'DERIVAR', motivo: 'MEDICO' } });
+  });
+});
+
+/* ── La agenda del médico que escribe ──────────────────────────────────── */
+describe('mi_agenda: la agenda del médico que escribe', () => {
+  const AGENDA_DIA = armarAgendaDelDia('2026-10-12', [{ hora: '09:00', paciente: 'Ana Pérez' }], [{ hora: '10:00', paciente: 'Carla Soto', estado: 'PENDIENTE' }]);
+  const conMedico = (p: Partial<PuertoMedico> = {}): { contexto: ContextoAsistente; puerto: PuertoMedico } => {
+    const puerto: PuertoMedico = { nombre: 'Dra. Claudia Azogue', agendaDelDia: jest.fn().mockResolvedValue(AGENDA_DIA), ...p };
+    return { contexto: { telefono: '+59170012345', ventas: null, medico: puerto }, puerto };
+  };
+  const NO = { permitirEscritura: false };
+  const nombresDe = (c: ContextoAsistente) => herramientasDisponibles(c, NO).map(h => h.nombre);
+
+  it('a un médico solo se le ofrecen su agenda y pasar a una persona; a una paciente, nunca la agenda de un médico', () => {
+    expect(nombresDe(conMedico().contexto).sort()).toEqual(['mi_agenda', 'pasar_a_persona']);
+    expect(nombresDe(CONTEXTO)).not.toContain('mi_agenda');
+    expect(nombresDe({ ...CONTEXTO, ventas: ventas() })).not.toContain('mi_agenda');
+    /* Ni con permiso de escritura se le abre `reservar` a un médico. */
+    expect(herramientasDisponibles(conMedico().contexto, { permitirEscritura: true }).map(h => h.nombre)).not.toContain('reservar');
+  });
+
+  it('sin médico en el contexto, mi_agenda no se ejecuta aunque el modelo la pida (ni toca la agenda)', async () => {
+    const citas = jest.fn();
+    const r = await montar().ejecutar('mi_agenda', { fecha: '2026-10-12', detalle: 'LISTA' }, { ...CONTEXTO, medico: null }, NO);
+    expect(r.ok).toBe(false);
+    expect(citas).not.toHaveBeenCalled();
+  });
+
+  it('con un médico, lo de ventas y lo de la agenda pública no se ejecuta aunque el modelo lo pida', async () => {
+    const { contexto } = conMedico();
+    const agenda = { especialidades: jest.fn(), medicos: jest.fn(), disponibilidad: jest.fn() };
+    const servicio = montar(agenda as unknown as Partial<AgendaService>);
+    for (const nombre of ['listar_especialidades', 'listar_medicos', 'horas_libres', 'enviar_horario', 'listar_promociones', 'estado_de_pago', 'reservar']) {
+      const r = await servicio.ejecutar(nombre, { especialidadId: '1', medicoId: '7', fecha: '2026-10-12', hora: '09:00', nombre: 'x', ci: '1', promocionId: 'p1' }, contexto, { permitirEscritura: true });
+      expect(r.ok).toBe(false);
+    }
+    expect(agenda.especialidades).not.toHaveBeenCalled();
+    expect(agenda.disponibilidad).not.toHaveBeenCalled();
+  });
+
+  it('al modelo vuelven SOLO las cantidades; los nombres van en la acción, para el código', async () => {
+    const { contexto, puerto } = conMedico();
+    const r = await montar().ejecutar('mi_agenda', { fecha: '2026-10-12', detalle: 'LISTA' }, contexto, NO);
+    expect(puerto.agendaDelDia).toHaveBeenCalledWith('2026-10-12');
+    expect(r).toMatchObject({
+      ok: true,
+      datos: { fecha: '2026-10-12', citas: 2, confirmadas: 1, pendientes: 1 },
+      accion: { tipo: 'AGENDA_MEDICO', detalle: 'LISTA', medico: 'Dra. Claudia Azogue', agenda: { total: 2 } },
+    });
+    if (r.ok) expect(JSON.stringify(r.datos)).not.toMatch(/Ana|Pérez|Carla|Soto|09:00|10:00/);
+  });
+
+  it('el médico lo fija el contexto: un medicoId que mande el modelo no se usa ni se pasa', async () => {
+    const { contexto, puerto } = conMedico();
+    await montar().ejecutar('mi_agenda', { fecha: '2026-10-12', detalle: 'RESUMEN', medicoId: '99', agendaMedicoId: 99, telefono: '+59100000000' }, contexto, NO);
+    expect((puerto.agendaDelDia as jest.Mock).mock.calls).toEqual([['2026-10-12']]);
+    const h = HERRAMIENTAS.find(x => x.nombre === 'mi_agenda')!;
+    expect(Object.keys(h.parametros.properties).sort()).toEqual(['detalle', 'fecha']);
+  });
+
+  it('valida la fecha y el detalle antes de consultar', async () => {
+    const { contexto, puerto } = conMedico();
+    for (const args of [{}, { fecha: 'mañana', detalle: 'LISTA' }, { fecha: '2026-10-12' }, { fecha: '2026-10-12', detalle: 'TODO' }]) {
+      expect((await montar().ejecutar('mi_agenda', args, contexto, NO)).ok).toBe(false);
+    }
+    expect(puerto.agendaDelDia).not.toHaveBeenCalled();
+  });
+
+  it('una fecha fuera de rango vuelve al modelo como un error que puede corregir; un fallo de la agenda sube', async () => {
+    const fuera = conMedico({ agendaDelDia: jest.fn().mockRejectedValue(new BadRequestException('Solo se consulta de 31 días atrás a 180 adelante.')) });
+    const r = await montar().ejecutar('mi_agenda', { fecha: '2030-01-01', detalle: 'LISTA' }, fuera.contexto, NO);
+    expect(r).toEqual({ ok: false, motivo: 'Solo se consulta de 31 días atrás a 180 adelante.' });
+    const caida = conMedico({ agendaDelDia: jest.fn().mockRejectedValue(new ServiceUnavailableException()) });
+    await expect(montar().ejecutar('mi_agenda', { fecha: '2026-10-12', detalle: 'LISTA' }, caida.contexto, NO)).rejects.toBeInstanceOf(ServiceUnavailableException);
   });
 });

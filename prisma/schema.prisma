@@ -1788,6 +1788,24 @@ model PerfilMedico {
   @@index([publicado, orden])
 }
 
+/// El número de WhatsApp con el que un médico de la AGENDA consulta SU agenda
+/// por el asistente. Lo escribe `AccesoMedicoAgendaService` (módulo agenda) y lo
+/// autoriza un ADMIN: sin una fila aquí, ese número es una paciente más.
+/// Un médico, un número; un número, un médico. Revocar borra la fila (la
+/// constancia queda en `AuditLog`).
+model AccesoMedicoAgenda {
+  id              String   @id @default(uuid())
+  /// `medicos.medico_pk` en la agenda ScriptCase.
+  agendaMedicoId  Int      @unique
+  /// E.164 (`+59170012345`): la forma en que llega del webhook.
+  telefono        String   @unique @db.VarChar(20)
+  /// Cómo se llamaba al autorizar; la agenda sigue siendo la fuente del nombre.
+  nombreMedico    String   @db.VarChar(200)
+  autorizadoPorId String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
 model PerfilMedicoEspecialidad {
   perfilMedicoId String
   perfilMedico   PerfilMedico @relation(fields: [perfilMedicoId], references: [id], onDelete: Cascade)

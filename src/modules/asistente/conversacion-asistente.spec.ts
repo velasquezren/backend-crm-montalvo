@@ -180,3 +180,32 @@ describe('el bucle del asistente', () => {
     expect(resultados).toHaveLength(1);
   });
 });
+
+describe('el bucle con un médico', () => {
+  const AGENDA = { fecha: '2026-10-12', citas: [], confirmadas: 0, pendientes: 0, porConfirmar: 0, pagoPorVerificar: 0, total: 0 };
+  const accion = (fecha: string, detalle: 'LISTA' | 'RESUMEN' = 'LISTA') => ({ ok: true, datos: {}, accion: { tipo: 'AGENDA_MEDICO', detalle, medico: 'Dra. X', agenda: { ...AGENDA, fecha } } });
+  const medico = { nombre: 'Dra. X', agendaDelDia: jest.fn() };
+  const PETICION_MEDICO = { ...PETICION, contexto: { telefono: '+59170012345', ventas: null, medico } };
+  const pideAgenda = (fecha: string, detalle = 'LISTA') => pide({ nombre: 'mi_agenda', argumentos: { fecha, detalle } });
+
+  it('al modelo se le declaran solo mi_agenda y pasar_a_persona', async () => {
+    const { bucle, modelo } = montar([dice('listo')]);
+    await bucle.responder(PETICION_MEDICO);
+    expect(nombres(modelo.entradas[0].herramientas).sort()).toEqual(['mi_agenda', 'pasar_a_persona']);
+  });
+
+  it('el mismo día y detalle pedidos dos veces es una sola acción', async () => {
+    const { bucle } = montar([pideAgenda('2026-10-12'), pideAgenda('2026-10-12'), dice('listo')], jest.fn().mockImplementation(async (_n, a) => accion(String(a['fecha']))));
+    const r = await bucle.responder(PETICION_MEDICO);
+    expect(r.tipo === 'terminado' && r.acciones).toHaveLength(1);
+  });
+
+  it('pedir cuatro días distintos deja tres: el cuarto se rechaza y el modelo lo sabe', async () => {
+    const ejecutar = jest.fn().mockImplementation(async (_n, a) => accion(String(a['fecha'])));
+    const { bucle, modelo } = montar([pideAgenda('2026-10-12'), pideAgenda('2026-10-13'), pideAgenda('2026-10-14'), pideAgenda('2026-10-15'), dice('listo')], ejecutar);
+    const r = await bucle.responder(PETICION_MEDICO);
+    expect(r.tipo === 'terminado' && r.acciones).toHaveLength(TOPE_DE_ACCIONES);
+    expect(ejecutar).toHaveBeenCalledTimes(TOPE_DE_ACCIONES);
+    expect(JSON.stringify(modelo.entradas[4].historial)).toContain('Ya hay suficientes envíos');
+  });
+});

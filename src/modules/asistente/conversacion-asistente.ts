@@ -128,7 +128,7 @@ export class ConversacionAsistente {
   }
 }
 
-const esAccion = (nombre: string) => nombre === 'enviar_promocion' || nombre === 'enviar_horario';
+const esAccion = (nombre: string) => nombre === 'enviar_promocion' || nombre === 'enviar_horario' || nombre === 'mi_agenda';
 
 /** La misma tarjeta o el mismo horario dos veces en una respuesta es uno. Derivar, una vez. */
 function agregarAccion(acciones: AccionAsistente[], nueva: AccionAsistente): void {
@@ -136,7 +136,8 @@ function agregarAccion(acciones: AccionAsistente[], nueva: AccionAsistente): voi
     a.tipo === nueva.tipo &&
     (a.tipo === 'DERIVAR'
       || (a.tipo === 'PROMOCION' && nueva.tipo === 'PROMOCION' && a.promocionId === nueva.promocionId)
-      || (a.tipo === 'HORARIO' && nueva.tipo === 'HORARIO' && a.medicoId === nueva.medicoId)));
+      || (a.tipo === 'HORARIO' && nueva.tipo === 'HORARIO' && a.medicoId === nueva.medicoId)
+      || (a.tipo === 'AGENDA_MEDICO' && nueva.tipo === 'AGENDA_MEDICO' && a.agenda.fecha === nueva.agenda.fecha && a.detalle === nueva.detalle)));
   if (!repetida) acciones.push(nueva);
 }
 

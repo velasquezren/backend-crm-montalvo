@@ -2,6 +2,26 @@
 
 > **Revisión del 10/10/2026, módulo por módulo (sin Comisiones ni Finanzas):** [REVISION_2026-10-10.md](REVISION_2026-10-10.md). La API está sana; la lista de mejoras por impacto está ahí.
 
+## 10 de octubre de 2026 (tarde) · el médico consulta su agenda por WhatsApp · EN EL REPO, SIN DESPLEGAR
+
+Detalle y receta para encenderlo en **[asistente-ia.md](asistente-ia.md#agenda-del-médico-por-whatsapp-10102026)**.
+
+- Un médico con el número autorizado (Directorio → médico → «WhatsApp», solo ADMIN+) escribe a la
+  clínica y el asistente le manda SU agenda del día como imagen (o solo las cantidades). Datos reales:
+  `agenda_med` CREADO + reservas PENDIENTE/PAGADO sin cargar; hora y nombre, nada más. El modelo solo
+  elige día y detalle; imagen y texto los arma el código.
+- Migración **`20261010195626_acceso_medico_agenda`** (aditiva). La generación de Prisma arrastraba un
+  cambio ajeno —la FK `Actividad_agenteId_fkey`: el schema dice `SET NULL` y la migración `RESTRICT`—
+  que se **quitó de esta migración** (deriva anterior, sin resolver: pendiente de su propia migración).
+- **Falta, y es de René:** `scripts/agenda/permisos-agenda-medicos.sh` (GRANT a `crm_agenda_consulta`),
+  desplegar, `ASISTENTE_IA=on` con la línea en «Responder solo», y autorizar un número. Apagado hasta
+  entonces: sin un número autorizado nada cambia.
+- Pruebas: 1087 unitarias y 895 de integración (41 del asistente, 18 nuevas de punta a punta con
+  Postgres real) del backend; 4 nuevas contra MySQL 8.0.44 real (la suite MySQL: 43 de 44; la que falla,
+  «la ficha web nace oculta…», **ya fallaba antes** y depende del día de la semana de la fixture);
+  744 del frontend. Mutaciones comprobadas: sin «Responder solo», sin repetible, sin el guardia del texto
+  y sin el permiso de ADMIN, todas hacen fallar su prueba.
+
 ## 10 de octubre de 2026 · el asistente de IA, listo para conectar
 
 Esta entrada prevalece sobre lo que digan las de abajo sobre el asistente. Todo

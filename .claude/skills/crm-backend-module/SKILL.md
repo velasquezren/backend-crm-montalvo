@@ -222,6 +222,12 @@ Diseño en [asistente-ia](../../../docs/asistente-ia.md). Lo que no se puede olv
   intacto (`crudo`), o la vuelta siguiente es un 400. Y a Vertex se le declaran SOLO las
   herramientas permitidas: `allowedFunctionNames` solo vale en modo `ANY`.
 - **Si el modelo falla, `respaldoSinAsistente`**: sale el acuse fuera de horario.
+- **Un médico autorizado es otra conversación** (`AsistenteChatService.atenderMedico`): su número
+  sale de `AccesoMedicoAgenda` (lo escribe SOLO `AccesoMedicoAgendaService`, ADMIN+, auditado en la
+  misma transacción) y el médico del que se habla sale de ese número, **nunca de un parámetro de la
+  herramienta**. Al modelo vuelven cantidades, no nombres de pacientes; la imagen y el texto los arma el
+  código (`agenda-medico-imagen.ts`) y el texto del modelo se descarta. Solo en «Responder solo». Una
+  herramienta nueva para médicos lleva `soloMedico` y se prueba con la paciente (no debe verla).
 - **En SQL, `NOT (estadoEnvio = 'FALLIDO')` descarta los NULL**, que son todos los
   mensajes entrantes. Para excluir los no enviados: `OR: [{ estadoEnvio: null }, { estadoEnvio: { not: 'FALLIDO' } }]`.
   Lo cazó la prueba de integración del asistente; con `NOT` no contestaba nunca.

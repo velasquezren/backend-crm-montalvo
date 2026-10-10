@@ -5,7 +5,7 @@ SET NAMES utf8mb4;
 CREATE TABLE medicos (medico_pk INT PRIMARY KEY, codigo VARCHAR(50), nombre VARCHAR(200), sigla VARCHAR(5), especialidad VARCHAR(200), estado VARCHAR(10), horario_html TEXT, precio_con DECIMAL(10,2), orden INT, login VARCHAR(50), password VARCHAR(50), telefono VARCHAR(50), banco INT, foto VARCHAR(200));
 -- Como en producción (ibd2sdi, 7/10/2026), incluido el DEFAULT '1' de estado: quien inserta lo escribe siempre.
 CREATE TABLE horarios (id_hora INT AUTO_INCREMENT PRIMARY KEY, hora TIME NOT NULL, estado VARCHAR(10) DEFAULT '1', orden INT, dia VARCHAR(20) NOT NULL, medico_pk INT NOT NULL, cod_med VARCHAR(20), KEY fk_medico_horario (medico_pk));
-CREATE TABLE agenda_med (agendam_pk INT AUTO_INCREMENT PRIMARY KEY, cod_med VARCHAR(20), fecha DATE, hora TIME, estado VARCHAR(10), paciente VARCHAR(200));
+CREATE TABLE agenda_med (agendam_pk INT AUTO_INCREMENT PRIMARY KEY, cod_med VARCHAR(20), fecha DATE, hora TIME, estado VARCHAR(10), paciente VARCHAR(200), pac VARCHAR(20));
 -- Columnas, tipos y nulabilidad de producción (ibd2sdi, 6/10/2026). Sin auto_increment, como allí.
 CREATE TABLE para_agendar (para_age INT NOT NULL PRIMARY KEY, medico_pk INT, fecha DATE, hora TIME, nombre_age VARCHAR(200), telefono_age VARCHAR(100), ci_age VARCHAR(100), obs VARCHAR(500), estado VARCHAR(10), nom_med VARCHAR(200), uno INT, fecha_registro DATE, hora_registro TIME, nit VARCHAR(20), razon_social VARCHAR(100), precio_con DECIMAL(10,2), banco INT, comprobante MEDIUMBLOB, sucursal VARCHAR(50));
 CREATE TABLE pagos_qr (qr_pk INT NOT NULL PRIMARY KEY, banco VARCHAR(150), Qr VARCHAR(200), fecha_vence DATE);
@@ -58,7 +58,11 @@ GRANT UPDATE (comprobante,nit,razon_social,estado) ON clinica.para_agendar TO 'c
 -- scripts/agenda/crear-usuario-consulta.sh, solo SELECT.
 CREATE USER 'crm_agenda_consulta'@'%' IDENTIFIED BY 'solo-pruebas-sinteticas-consulta-no-produccion-2026' REQUIRE SSL WITH MAX_USER_CONNECTIONS 4;
 GRANT SELECT (para_age, medico_pk, fecha, hora, nombre_age, telefono_age, ci_age, obs, estado, nom_med, fecha_registro, hora_registro, nit, razon_social, precio_con, comprobante) ON clinica.para_agendar TO 'crm_agenda_consulta'@'%';
-GRANT SELECT (medico_pk, nombre, especialidad) ON clinica.medicos TO 'crm_agenda_consulta'@'%';
+GRANT SELECT (medico_pk, codigo, nombre, especialidad) ON clinica.medicos TO 'crm_agenda_consulta'@'%';
+-- Agenda de un médico por el asistente (agenda-medico-citas.sql.ts): de agenda_med solo
+-- quién, cuándo, en qué estado y el nombre de la paciente; nunca su PAC. Lo mismo da
+-- scripts/agenda/permisos-agenda-medicos.sh.
+GRANT SELECT (agendam_pk, cod_med, fecha, hora, estado, paciente) ON clinica.agenda_med TO 'crm_agenda_consulta'@'%';
 -- Reservas de pacientes para la pantalla Reservas, en días sin horario (no alteran
 -- los cupos de las otras pruebas) y con ids bajo el 5 (la próxima reserva sigue siendo la 6).
 -- El teléfono, como lo escribe la gente: con 591 y signos, o el local solo.

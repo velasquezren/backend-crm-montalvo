@@ -6,6 +6,7 @@ import { AsistenteLineasService } from './asistente-lineas.service';
 import { AsistenteController } from './asistente.controller';
 import { ConversacionAsistente } from './conversacion-asistente';
 import { HerramientasAsistenteService } from './herramientas';
+import { ImagenAgendaMedicoService } from './imagen-agenda-medico.service';
 import { ImagenHorarioService } from './imagen-horario.service';
 import { ClasificadorMensajes, LectorComprobantes, ModeloConversacional } from './modelo.port';
 import { ClasificadorVertex, ClienteVertex, ConfiguracionIA, LectorVertex, ModeloVertex } from './vertex/proveedor-vertex';
@@ -31,8 +32,9 @@ import { ClasificadorVertex, ClienteVertex, ConfiguracionIA, LectorVertex, Model
     HerramientasAsistenteService,
     ConversacionAsistente,
     ImagenHorarioService,
+    ImagenAgendaMedicoService,
     AsistenteLineasService,
   ],
-  exports: [ConversacionAsistente, ModeloConversacional, ClasificadorMensajes, LectorComprobantes, ImagenHorarioService, AsistenteLineasService],
+  exports: [ConversacionAsistente, ModeloConversacional, ClasificadorMensajes, LectorComprobantes, ImagenHorarioService, ImagenAgendaMedicoService, AsistenteLineasService],
 })
 export class AsistenteModule {}

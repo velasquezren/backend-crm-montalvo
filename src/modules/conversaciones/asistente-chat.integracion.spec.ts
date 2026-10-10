@@ -1,4 +1,4 @@
-import { INestApplication, Module, ValidationPipe } from '@nestjs/common';
+import { INestApplication, Module, NotFoundException, ServiceUnavailableException, ValidationPipe } from '@nestjs/common';
 import { APP_GUARD, NestFactory } from '@nestjs/core';
 import { ConfigService } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
@@ -29,12 +29,18 @@ import { CobrosController } from '../cobros/cobros.controller';
 import { CobrosService } from '../cobros/cobros.service';
 import { PromocionesService } from '../promociones/promociones.service';
 import { VentasService } from '../ventas/ventas.service';
+import { AccesoMedicoAgendaController } from '../agenda/acceso-medico-agenda.controller';
+import { AccesoMedicoAgendaService } from '../agenda/acceso-medico-agenda.service';
+import { armarAgendaDelDia } from '../agenda/agenda-medico-citas';
+import { AgendaMedicoCitasService } from '../agenda/agenda-medico-citas.service';
+import { AgendaMedicosCrmService } from '../agenda/agenda-medicos-crm.service';
 import { AgendaReservasService } from '../agenda/agenda-reservas.service';
 import { AgendaService } from '../agenda/agenda.service';
 import { AsistenteController } from '../asistente/asistente.controller';
 import { AsistenteLineasService } from '../asistente/asistente-lineas.service';
 import { ConversacionAsistente } from '../asistente/conversacion-asistente';
 import { HerramientasAsistenteService } from '../asistente/herramientas';
+import { ImagenAgendaMedicoService } from '../asistente/imagen-agenda-medico.service';
 import { ImagenHorarioService } from '../asistente/imagen-horario.service';
 import {
   Clasificacion, ClasificadorMensajes, DatosComprobante, DeclaracionHerramienta, LectorComprobantes, ModeloConversacional, RespuestaModelo, TurnoModelo,
@@ -110,7 +116,9 @@ class ModeloGuionado extends ModeloConversacional {
 class ClasificadorGuionado extends ClasificadorMensajes {
   readonly nombre = 'clasificador-guionado';
   siguiente: Pick<Clasificacion, 'categoria' | 'confianza'> | Error = { categoria: 'VENTAS', confianza: 'ALTA' };
+  llamadas = 0;
   clasificar(): Promise<Clasificacion> {
+    this.llamadas++;
     const c = this.siguiente;
     return c instanceof Error ? Promise.reject(c) : Promise.resolve({ ...c, uso: { tokensEntrada: 5, tokensSalida: 1 } });
   }
@@ -131,6 +139,14 @@ const agenda = {
     especialidad: { id: 'e1', nombre: 'Ginecología' },
   }),
 };
+/** La agenda de la clínica y quién es cada médico: lo único falso de la parte del médico es MySQL. */
+const citasMedico = { delDia: jest.fn(), disponible: () => true };
+const medicosCrm = {
+  ficha: jest.fn(async (id: number) => {
+    if (id === 999) throw new NotFoundException('No existe');
+    return { medico: { id, nombre: id === 7 ? 'Claudia Azogue' : 'Raúl Peña', sigla: 'Dr.', estado: id === 404 ? 'INACTIVO' : 'ACTIVO' } };
+  }),
+};
 const imagenes = {
   de: jest.fn(async () => ({ key: 'asistente/horarios/7-abc.png', mime: 'image/png' as const, nombre: 'Horario Dra. Sintética.png' })),
   dibujar: jest.fn(async () => new Uint8Array([0x89, 0x50, 0x4e, 0x47])),
@@ -138,7 +154,7 @@ const imagenes = {
 
 @Module({
   imports: [JwtModule.register({ secret: 'jwt-sintetico-asistente', signOptions: { expiresIn: '15m' } })],
-  controllers: [ConversacionesController, AsistenteChatController, WhatsappWebhookController, CobrosController, AsistenteController],
+  controllers: [ConversacionesController, AsistenteChatController, WhatsappWebhookController, CobrosController, AsistenteController, AccesoMedicoAgendaController],
   providers: [
     { provide: PrismaService, useValue: prisma }, { provide: ConfigService, useValue: config },
     AuditService, AuthService, UsuariosService, ClientesService, CategoriaPacienteService, ServiciosService, TipoCambioService,
@@ -151,6 +167,9 @@ const imagenes = {
     { provide: ClasificadorMensajes, useValue: clasificador },
     { provide: LectorComprobantes, useValue: lector },
     { provide: ImagenHorarioService, useValue: imagenes },
+    AccesoMedicoAgendaService, ImagenAgendaMedicoService,
+    { provide: AgendaMedicoCitasService, useValue: citasMedico },
+    { provide: AgendaMedicosCrmService, useValue: medicosCrm },
     { provide: AgendaService, useValue: agenda },
     { provide: AgendaReservasService, useValue: { reservar: jest.fn() } },
     { provide: WhatsappCloudService, useValue: transporte },
@@ -231,7 +250,8 @@ async function limpiar() {
   await prisma.venta.deleteMany({ where: { cliente: { telefono: { startsWith: PREFIJO_TEL } } } });
   await prisma.cliente.deleteMany({ where: { telefono: { startsWith: PREFIJO_TEL } } });
   const ids = (await prisma.usuario.findMany({ where: { email: { endsWith: '@asistente.test' } }, select: { id: true } })).map(u => u.id);
-  await prisma.auditLog.deleteMany({ where: { OR: [{ usuarioId: { in: ids } }, { entidad: { in: ['PagoPromocion', 'Conversacion', 'AsistenteLinea', 'SugerenciaAsistente'] } }] } });
+  await prisma.accesoMedicoAgenda.deleteMany({ where: { agendaMedicoId: { in: [7, 8, 404] } } });
+  await prisma.auditLog.deleteMany({ where: { OR: [{ usuarioId: { in: ids } }, { entidad: { in: ['PagoPromocion', 'Conversacion', 'AsistenteLinea', 'SugerenciaAsistente', 'AccesoMedicoAgenda'] } }] } });
   await prisma.promocion.deleteMany({ where: { codigo: CODIGO } });
   await prisma.lineaWhatsapp.deleteMany({ where: { nombre: { startsWith: 'ASIST-' } } });
   await prisma.usuario.deleteMany({ where: { id: { in: ids } } });
@@ -255,7 +275,10 @@ beforeEach(async () => {
   modelo.guion = [];
   modelo.vistas.length = 0;
   clasificador.siguiente = { categoria: 'VENTAS', confianza: 'ALTA' };
+  clasificador.llamadas = 0;
+  citasMedico.delDia.mockReset();
   imagenes.de.mockClear();
+  imagenes.dibujar.mockClear();
   transporte.enviar.mockReset().mockImplementation(async () => ({ estado: 'ENVIADO', metaMsgId: `wamid.out.${randomUUID()}` }));
   ventas = (await prisma.lineaWhatsapp.create({ data: { nombre: 'ASIST-ventas', telefono: '+59170003191', phoneNumberId: PHONE_VENTAS, tokenEnv: 'TOKEN_INEXISTENTE_ASIST', comercial: true, activa: true } })).id;
   for (const [clave, rol, lineas] of [['admin', 'SUPER_ADMIN', []], ['agente', 'AGENTE', [ventas]]] as const) {
@@ -521,5 +544,238 @@ describe('la lectura del comprobante', () => {
     await configurarAsistente('SUGERIR', false);
     await pagoConComprobante();
     expect(await app.get(LecturaComprobantesService).barrer()).toBe(0);
+  });
+});
+
+/* ── Un médico pregunta por su agenda ──────────────────────────────────── */
+describe('la agenda del médico por WhatsApp', () => {
+  const TEL_MEDICO = `${PREFIJO_TEL}02`;
+  const FECHA = '2026-10-12';
+  const AGENDA = armarAgendaDelDia(FECHA,
+    [{ hora: '09:00', paciente: 'Ana Pérez' }, { hora: '09:45', paciente: 'Luis Gómez' }],
+    [{ hora: '12:00', paciente: 'Carla Soto', estado: 'PAGADO' }, { hora: '15:00', paciente: 'Dina Rojas', estado: 'PENDIENTE' }]);
+  const NOMBRES = /Ana Pérez|Luis Gómez|Carla Soto|Dina Rojas/;
+
+  const textoMedico = (cuerpo: string) => ({ id: `wamid.in.${randomUUID()}`, from: TEL_MEDICO.slice(1), type: 'text', timestamp: ahoraMeta(), text: { body: cuerpo } });
+  const chatMedico = () => prisma.conversacion.findFirstOrThrow({ where: { lineaId: ventas, cliente: { telefono: TEL_MEDICO } } });
+  async function medicoEscribe(cuerpo: string, turnosEsperados = 1) {
+    expect((await webhook([textoMedico(cuerpo)])).status).toBe(200);
+    const c = await chatMedico();
+    await esperar(async () => (await turnos(c.id)).length >= turnosEsperados);
+    await reposo();
+    return c.id;
+  }
+  const autorizar = (id = 7, telefonoEscrito = TEL_MEDICO) => http(`/agenda/medicos/${id}/whatsapp`, 'PUT', usuarios.admin.token, { telefono: telefonoEscrito });
+  const pideAgenda = (fecha = FECHA, detalle: 'LISTA' | 'RESUMEN' = 'LISTA', extra: Record<string, unknown> = {}) => pide('mi_agenda', { fecha, detalle, ...extra });
+
+  beforeEach(async () => {
+    citasMedico.delDia.mockResolvedValue(AGENDA);
+    await configurarAsistente('RESPONDER');
+  });
+
+  describe('quién puede asociar un número, y a quién se le contesta', () => {
+    it('solo administración lo asocia, lo ve y lo quita; una agente recibe 403 y no toca nada', async () => {
+      for (const [metodo, cuerpo] of [['GET', undefined], ['PUT', { telefono: TEL_MEDICO }], ['DELETE', undefined]] as const) {
+        expect((await http('/agenda/medicos/7/whatsapp', metodo, usuarios.agente.token, cuerpo)).status).toBe(403);
+      }
+      expect(await prisma.accesoMedicoAgenda.count()).toBe(0);
+      expect(await prisma.auditLog.count({ where: { entidad: 'AccesoMedicoAgenda' } })).toBe(0);
+    });
+
+    it('lo asocia con el número como lo escribió quien autoriza, se reconoce en cualquier formato y queda auditado sin el número entero', async () => {
+      const r = await autorizar(7, '+591 700 03102');
+      expect(r.status).toBe(200);
+      expect(r.body).toMatchObject({ agendaMedicoId: 7, telefono: TEL_MEDICO, nombreMedico: 'Dr. Claudia Azogue', autorizadoPor: 'Persona admin' });
+      expect((await http('/agenda/medicos/7/whatsapp', 'GET', usuarios.admin.token)).body).toMatchObject({ acceso: { telefono: TEL_MEDICO } });
+      const servicio = app.get(AccesoMedicoAgendaService);
+      expect(await servicio.porTelefono('70003102')).toEqual({ agendaMedicoId: 7, nombre: 'Dr. Claudia Azogue' });
+      expect(await servicio.porTelefono(TEL_MEDICO)).toMatchObject({ agendaMedicoId: 7 });
+      expect(await servicio.porTelefono('+59170009999')).toBeNull();
+      expect(await servicio.porTelefono('no es un teléfono')).toBeNull();
+      const bitacora = await prisma.auditLog.findMany({ where: { entidad: 'AccesoMedicoAgenda' } });
+      expect(bitacora).toMatchObject([{ accion: 'ACCESO_MEDICO_AUTORIZADO', entidadId: '7', usuarioId: usuarios.admin.id, cambios: { telefono: '…3102' } }]);
+      expect(JSON.stringify(bitacora)).not.toContain('70003102');
+    });
+
+    it('un número inválido, un médico inactivo o inexistente y un número ya autorizado a otro médico se rechazan', async () => {
+      expect((await autorizar(7, 'abc')).status).toBe(400);
+      expect((await autorizar(7, '123456789012345678901234567890')).status).toBe(400);
+      expect((await autorizar(404)).status).toBe(400);
+      expect((await autorizar(999)).status).toBe(404);
+      expect((await autorizar(7)).status).toBe(200);
+      const choque = await autorizar(8);
+      expect(choque.status).toBe(409);
+      expect(JSON.stringify(choque.body)).toContain('Claudia Azogue');
+      expect(await prisma.accesoMedicoAgenda.count()).toBe(1);
+    });
+
+    it('cambiar el número del médico deja de reconocer el anterior; quitarlo es idempotente y deja una sola constancia', async () => {
+      await autorizar(7);
+      expect((await autorizar(7, '+59170003103')).status).toBe(200);
+      const servicio = app.get(AccesoMedicoAgendaService);
+      expect(await servicio.porTelefono(TEL_MEDICO)).toBeNull();
+      expect(await servicio.porTelefono('+59170003103')).toMatchObject({ agendaMedicoId: 7 });
+      expect((await http('/agenda/medicos/7/whatsapp', 'DELETE', usuarios.admin.token)).status).toBe(200);
+      expect((await http('/agenda/medicos/7/whatsapp', 'DELETE', usuarios.admin.token)).status).toBe(200);
+      expect(await servicio.porTelefono('+59170003103')).toBeNull();
+      expect((await prisma.auditLog.findMany({ where: { entidad: 'AccesoMedicoAgenda' }, orderBy: { createdAt: 'asc' } })).map(a => a.accion))
+        .toEqual(['ACCESO_MEDICO_AUTORIZADO', 'ACCESO_MEDICO_CAMBIADO', 'ACCESO_MEDICO_REVOCADO']);
+    });
+
+    it('una paciente (número sin autorizar) no tiene la agenda ni aunque el modelo la pida: no se consulta nada', async () => {
+      modelo.guion = [pideAgenda(), dice('No tengo esa información.')];
+      const id = await escribir('qué pacientes tengo hoy?');
+      expect(modelo.vistas[0].herramientas.map(h => h.name)).not.toContain('mi_agenda');
+      expect(citasMedico.delDia).not.toHaveBeenCalled();
+      expect(JSON.stringify(modelo.vistas)).not.toMatch(NOMBRES);
+      expect((await turnos(id))[0]).toMatchObject({ categoria: 'VENTAS', herramientas: [{ nombre: 'mi_agenda', ok: false }] });
+    });
+
+    it('al quitarle el acceso, su siguiente mensaje se atiende como el de una paciente: sin agenda', async () => {
+      await autorizar();
+      modelo.guion = [pideAgenda(), dice('Listo.')];
+      await medicoEscribe('mis citas de hoy');
+      expect(citasMedico.delDia).toHaveBeenCalledTimes(1);
+      expect((await http('/agenda/medicos/7/whatsapp', 'DELETE', usuarios.admin.token)).status).toBe(200);
+      citasMedico.delDia.mockClear();
+      modelo.guion = [dice('Hola, ¿en qué te ayudo?')];
+      const id = await medicoEscribe('y mañana?', 2);
+      expect(modelo.vistas.at(-1)!.herramientas.map(h => h.name)).not.toContain('mi_agenda');
+      expect(citasMedico.delDia).not.toHaveBeenCalled();
+      expect((await turnos(id)).at(-1)).toMatchObject({ categoria: 'VENTAS' });
+    });
+  });
+
+  describe('lo que se le contesta al médico autorizado', () => {
+    beforeEach(async () => { expect((await autorizar()).status).toBe(200); });
+
+    it('«¿Qué pacientes tengo hoy?»: una imagen con SU agenda armada por el código, sin pasar los nombres por el modelo', async () => {
+      modelo.guion = [pideAgenda(), dice('Listo, ya te la envié. Mucha suerte hoy.')];
+      const id = await medicoEscribe('Qué pacientes tengo hoy?');
+      expect(citasMedico.delDia).toHaveBeenCalledWith(7, FECHA);
+      const respuestas = await salientes(id);
+      expect(respuestas).toHaveLength(1);
+      expect(respuestas[0]).toMatchObject({ automatico: true, asistente: true, tipo: 'IMAGEN' });
+      expect(respuestas[0].mediaKey).toMatch(/^asistente\/agenda-medico\/[0-9a-f]{24}\.png$/);
+      expect(almacen.has(respuestas[0].mediaKey!)).toBe(true);
+      /* El pie lo escribe el código con las cantidades; el texto del modelo se descarta. */
+      expect(respuestas[0].contenido).toContain('Agenda de Dr. Claudia Azogue');
+      expect(respuestas[0].contenido).toContain('4 citas: 2 confirmadas y 2 pendientes.');
+      expect(respuestas[0].contenido).not.toMatch(NOMBRES);
+      expect(respuestas[0].contenido).not.toContain('Mucha suerte');
+      expect(JSON.stringify(transporte.enviar.mock.calls)).toContain('r2.invalid/asistente/agenda-medico/');
+      /* El modelo solo vio cantidades; y solo se le declararon sus dos herramientas. */
+      expect(JSON.stringify(modelo.vistas)).not.toMatch(NOMBRES);
+      expect(modelo.vistas[0].herramientas.map(h => h.name).sort()).toEqual(['mi_agenda', 'pasar_a_persona']);
+      /* Sin filtro de entrada, y registrado como lo que es. */
+      expect(clasificador.llamadas).toBe(0);
+      expect(await turnos(id)).toMatchObject([{ resultado: 'RESPONDIO', categoria: 'MEDICO_AGENDA', herramientas: [{ nombre: 'mi_agenda', ok: true }] }]);
+    });
+
+    it('preguntar lo mismo otra vez a los diez minutos se contesta otra vez (la agenda cambia)', async () => {
+      modelo.guion = [pideAgenda(), dice('ok'), pideAgenda(), dice('ok')];
+      const id = await medicoEscribe('mis citas de hoy');
+      await medicoEscribe('mis citas de hoy', 2);
+      const imagenesEnviadas = (await salientes(id)).filter(m => m.tipo === 'IMAGEN');
+      expect(imagenesEnviadas).toHaveLength(2);
+      expect(imagenesEnviadas[0].mediaKey).toBe(imagenesEnviadas[1].mediaKey);
+    });
+
+    it('«¿Cuántas confirmadas y pendientes tengo?»: texto con las cantidades, sin imagen y sin un solo nombre', async () => {
+      modelo.guion = [pideAgenda(FECHA, 'RESUMEN'), dice('Tienes cuatro citas.')];
+      const id = await medicoEscribe('Cuántas citas confirmadas y pendientes tengo?');
+      const [respuesta, ...resto] = await salientes(id);
+      expect(resto).toHaveLength(0);
+      expect(respuesta).toMatchObject({ tipo: 'TEXTO', asistente: true });
+      expect(respuesta.contenido).toContain('• Confirmadas: 2');
+      expect(respuesta.contenido).toContain('• Por confirmar: 1');
+      expect(respuesta.contenido).toContain('• Pago por verificar: 1');
+      expect(respuesta.contenido).not.toMatch(NOMBRES);
+      expect(imagenes.dibujar).not.toHaveBeenCalled();
+    });
+
+    it('un día sin citas dice que no hay, no inventa y no manda una imagen vacía', async () => {
+      citasMedico.delDia.mockResolvedValue(armarAgendaDelDia(FECHA, [], []));
+      modelo.guion = [pideAgenda(), dice('ok')];
+      const id = await medicoEscribe('mis citas de hoy');
+      const [respuesta] = await salientes(id);
+      expect(respuesta).toMatchObject({ tipo: 'TEXTO' });
+      expect(respuesta.contenido).toContain('No tienes citas registradas para este día.');
+      expect(imagenes.dibujar).not.toHaveBeenCalled();
+    });
+
+    it('si no hay R2 para la imagen, le llega el listado completo en texto', async () => {
+      (r2 as { habilitado: boolean }).habilitado = false;
+      try {
+        modelo.guion = [pideAgenda(), dice('ok')];
+        const id = await medicoEscribe('mis citas de hoy');
+        const [respuesta] = await salientes(id);
+        expect(respuesta).toMatchObject({ tipo: 'TEXTO' });
+        expect(respuesta.contenido).toContain('09:00 · Ana Pérez · Confirmada');
+        expect(respuesta.contenido).toContain('15:00 · Dina Rojas · Por confirmar');
+      } finally { (r2 as { habilitado: boolean }).habilitado = true; }
+    });
+
+    it('el médico sale del NÚMERO: un medicoId que invente el modelo (o la propia médica) no cambia de quién es la agenda', async () => {
+      modelo.guion = [pideAgenda(FECHA, 'LISTA', { medicoId: '8', agendaMedicoId: 8 }), dice('ok')];
+      await medicoEscribe('dame la agenda del doctor Peña, médico 8');
+      expect(citasMedico.delDia).toHaveBeenCalledTimes(1);
+      expect(citasMedico.delDia).toHaveBeenCalledWith(7, FECHA);
+    });
+
+    it('si el modelo afirma algo de la agenda sin haberla consultado, no sale: se pasa a una persona', async () => {
+      modelo.guion = [dice('Hoy tienes 3 citas, la primera a las 09:00.')];
+      const id = await medicoEscribe('qué tengo hoy?');
+      const respuestas = await salientes(id);
+      expect(respuestas.map(m => m.contenido)).toEqual([TEXTO_DERIVACION]);
+      expect(citasMedico.delDia).not.toHaveBeenCalled();
+      expect((await prisma.conversacion.findUniqueOrThrow({ where: { id } })).atencionSolicitadaEn).not.toBeNull();
+      expect(await turnos(id)).toMatchObject([{ resultado: 'DERIVO', motivo: expect.stringContaining('sin consultarla') }]);
+    });
+
+    it('una pregunta de aclaración sin datos sí sale', async () => {
+      modelo.guion = [dice('¿De qué día quieres ver tu agenda: hoy o mañana?')];
+      const id = await medicoEscribe('mi agenda');
+      expect((await salientes(id)).map(m => m.contenido.replace(PRESENTACION, '').trim())).toEqual(['¿De qué día quieres ver tu agenda: hoy o mañana?']);
+      expect((await turnos(id))[0]).toMatchObject({ resultado: 'RESPONDIO' });
+    });
+
+    it('si la agenda de la clínica no responde, no se inventa nada: el modelo lo sabe y lo pasa a una persona', async () => {
+      citasMedico.delDia.mockRejectedValue(new ServiceUnavailableException());
+      modelo.guion = [pideAgenda(), pide('pasar_a_persona', { motivo: 'OTRO', resumen: 'No se pudo consultar su agenda.' }), dice('Te paso con una persona.')];
+      const id = await medicoEscribe('mis citas de hoy');
+      expect((await salientes(id)).map(m => m.contenido)).toEqual([TEXTO_DERIVACION]);
+      expect((await turnos(id))[0]).toMatchObject({ resultado: 'DERIVO' });
+      expect((await prisma.conversacion.findUniqueOrThrow({ where: { id } })).atencionSolicitadaEn).not.toBeNull();
+    });
+
+    it('si el modelo falla, el médico no recibe el acuse de las pacientes: una persona lo atiende', async () => {
+      modelo.guion = [new Error('503 de Vertex')];
+      const id = await medicoEscribe('mis citas de hoy');
+      expect((await salientes(id)).map(m => m.contenido)).toEqual([TEXTO_DERIVACION]);
+      expect((await turnos(id))[0]).toMatchObject({ resultado: 'FALLO' });
+    });
+
+    it('en «Sugerir» no se prepara nada: la agenda de un médico no es para una agente', async () => {
+      await configurarAsistente('SUGERIR');
+      modelo.guion = [pideAgenda(), dice('ok')];
+      const id = await medicoEscribe('mis citas de hoy');
+      expect(modelo.vistas).toHaveLength(0);
+      expect(citasMedico.delDia).not.toHaveBeenCalled();
+      expect(await prisma.sugerenciaAsistente.count({ where: { conversacionId: id } })).toBe(0);
+      expect((await salientes(id)).filter(m => m.asistente)).toHaveLength(0);
+      expect(await turnos(id)).toMatchObject([{ resultado: 'OMITIDO', motivo: expect.stringContaining('Responder solo') }]);
+    });
+
+    it('con el chat pausado esperando a una persona, el asistente no contesta aunque sea un médico', async () => {
+      modelo.guion = [pide('pasar_a_persona', { motivo: 'OTRO', resumen: 'Quiere cambiar una cita.' }), dice('ok')];
+      const id = await medicoEscribe('quiero mover una cita');
+      expect((await prisma.conversacion.findUniqueOrThrow({ where: { id } })).automatizacionPausadaEn).not.toBeNull();
+      modelo.vistas.length = 0;
+      modelo.guion = [pideAgenda(), dice('ok')];
+      await medicoEscribe('mis citas de hoy', 2);
+      expect(modelo.vistas).toHaveLength(0);
+      expect(citasMedico.delDia).not.toHaveBeenCalled();
+    });
   });
 });

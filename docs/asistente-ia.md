@@ -39,6 +39,62 @@ de lunes a sábado, turnos en pastillas), dibujado desde las casillas de la agen
 una vez por versión del horario, y guardado en R2. Lleva el horario en texto como pie:
 se copia y lo lee un lector de pantalla. Muestra en `src/modules/asistente/horario-imagen.ts`.
 
+## Agenda del médico por WhatsApp (10/10/2026)
+
+Un médico con su número autorizado escribe a la clínica («¿qué pacientes tengo hoy?», «mis
+citas de mañana», «¿cuántas tengo confirmadas y pendientes?») y el asistente le contesta SU
+agenda real. **Construido y probado; apagado por partida doble** (ver «Para encenderlo»).
+
+**Quién es el médico.** El número que llega del webhook lo pone Meta, no quien escribe. En
+**Directorio → médico → pestaña «WhatsApp»** (solo ADMIN o más) se asocia un número a un médico
+de la agenda: `AccesoMedicoAgenda` (dueño único: `AccesoMedicoAgendaService`, módulo agenda).
+Decisión del propietario: **autoriza un ADMIN, sin código de verificación por WhatsApp**. El
+riesgo que eso deja —una operadora que reasigna el número— se acota así: se revoca al instante,
+el número se lee en cada mensaje (sin caché), y cada alta, cambio y baja queda en `AuditLog` en la
+misma transacción (con el teléfono solo como «…3102»). Un médico, un número; un número, un médico.
+
+**De dónde sale la agenda** (`agenda-medico-citas.ts`, la regla; `agenda-medico-citas.sql.ts`, las
+lecturas): `agenda_med` en estado **CREADO** → «Confirmada» (BORRADO y MODIFICADO no cuentan);
+`para_agendar` **PENDIENTE** → «Por confirmar» y **PAGADO** → «Pago por verificar» (todavía no
+están en `agenda_med`: es la misma regla con la que `horasLibres` decide qué hora ocupa);
+ATENDIDO no se lee (ya está en `agenda_med`). Si recepción ya cargó la reserva en FileMaker y no
+la marcó, se junta con su cita (misma paciente, misma casilla de 30 min). La hora es la de La
+Paz y «hoy» también (`fechaCivilClinica`). De cada fila solo la hora y el nombre: ni carnet, ni
+teléfono, ni pago.
+
+**Qué hace el modelo y qué no.** Elige el día y si quiere la `LISTA` o el `RESUMEN`
+(`mi_agenda`, atada al médico por el contexto: no tiene parámetro de médico). **Al modelo vuelven
+solo cantidades**; los nombres no pasan por el proveedor. La imagen y el texto los arma el
+código (`agenda-medico-imagen.ts`: mismo SVG→PNG con resvg y la Poppins que el horario; clave de
+R2 = huella del dibujo, en `asistente/agenda-medico/`) y **el texto del modelo se descarta** cuando
+ya se mandó el listado. Si el modelo afirma horas o cantidades sin haber consultado, no sale y el
+chat pasa a una persona. Sin R2, el listado sale entero en texto.
+
+**Reglas de este camino** (cada una con su prueba, comprobada rompiéndola):
+
+- Solo en **«Responder solo»**: el borrador de «Sugerir» lo vería una agente de ventas.
+- Sin filtro de entrada ni herramientas de ventas: a un médico solo se le declaran `mi_agenda` y
+  `pasar_a_persona`; a una paciente, nunca `mi_agenda`.
+- Si falla el modelo o la agenda, **no sale el acuse de las pacientes**: pasa a una persona.
+- Sale por `guardarMensajeAutomatico` como todo lo del asistente: respeta la pausa y a la persona
+  que esté atendiendo; la imagen es `repetible` (preguntar lo mismo a los diez minutos se contesta).
+- El médico autorizado sigue siendo una «paciente» más en el CRM: su chat nace como cualquier otro
+  (con su ficha y su lead de primer contacto). No se tocó la ingesta.
+
+**Para encenderlo** (nada de esto se hizo; es de René):
+
+1. Permisos de MySQL, una vez: `scripts/agenda/permisos-agenda-medicos.sh` (da a `crm_agenda_consulta`
+   el nombre de la paciente de `agenda_med` y `medicos.codigo`; nunca el PAC). Sin él, la herramienta
+   dice que no puede consultar y el médico pasa a una persona.
+2. `AGENDA_VPS_CONSULTA=on` (ya está) y `ASISTENTE_IA=on` con la línea en «Responder solo».
+3. Desplegar con la migración `20261010195626_acceso_medico_agenda` (aditiva: una tabla nueva).
+4. Autorizar el número de un médico en su ficha y probar desde su teléfono, en la línea de prueba.
+
+**Límites conocidos:** un médico que se desactiva en la agenda conserva su acceso hasta que alguien lo
+quite; solo se ve un día por consulta (hasta tres días por mensaje); más de 30 citas en un día se
+dibujan 30 y el resto está en el texto; las imágenes llevan nombres de pacientes y quedan en R2 como
+cualquier adjunto del chat.
+
 ## Por qué así: lo que hacen los que lo hacen bien
 
 Revisado en octubre de 2026 (Intercom Fin, Zendesk AI agents, Salesforce Agentforce,
