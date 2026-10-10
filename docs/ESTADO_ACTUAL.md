@@ -1,5 +1,7 @@
 # Estado actual
 
+> **Revisión del 10/10/2026, módulo por módulo (sin Comisiones ni Finanzas):** [REVISION_2026-10-10.md](REVISION_2026-10-10.md). La API está sana; la lista de mejoras por impacto está ahí.
+
 ## 10 de octubre de 2026 · el asistente de IA, listo para conectar
 
 Esta entrada prevalece sobre lo que digan las de abajo sobre el asistente. Todo

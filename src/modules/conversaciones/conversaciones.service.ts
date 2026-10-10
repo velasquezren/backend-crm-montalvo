@@ -967,7 +967,7 @@ export class ConversacionesService {
     await obtenerConversacionPropia(this.prisma, conversacionId, soloAgenteId);
 
     /* Marca todos los mensajes entrantes sin leer como leídos en la BD */
-    await this.prisma.mensaje.updateMany({
+    const { count: recienLeidos } = await this.prisma.mensaje.updateMany({
       where: { conversacionId, direccion: 'ENTRANTE', leidoEn: null },
       data: { leidoEn: new Date() },
     });
@@ -976,10 +976,10 @@ export class ConversacionesService {
     const ultimoEntrante = await this.prisma.mensaje.findFirst({
       where: { conversacionId, direccion: 'ENTRANTE', whatsappMsgId: { not: null } },
       orderBy: { createdAt: 'desc' },
-      select: { whatsappMsgId: true },
+      select: { whatsappMsgId: true, createdAt: true },
     });
     const msgIdEntrante = ultimoEntrante?.whatsappMsgId;
-    if (msgIdEntrante) {
+    if (msgIdEntrante && debeAvisarLecturaAMeta({ recienLeidos, typing, recibidoEn: ultimoEntrante.createdAt })) {
       void enSegundoPlano('acuse de lectura hacia Meta', this.logger, () =>
         this.enviarEstadoLectura(msgIdEntrante, typing, conversacionId),
       );
@@ -1049,4 +1049,23 @@ export class ConversacionesService {
       }),
     );
   }
+}
+
+/** Meta solo acepta el «leído» de un mensaje de los últimos 30 días; el «escribiendo…», dentro de la ventana de 24 h. */
+const LEIDO_ACEPTADO_MS = 30 * 86_400_000;
+const ESCRIBIENDO_ACEPTADO_MS = 24 * 3_600_000;
+
+/**
+ * ¿Hace falta avisarle a Meta? Antes se le avisaba CADA vez que una agente abría
+ * un chat, aunque ya estuviera leído: con un mensaje de hace meses Meta respondía
+ * 400 «message ID does not exist» (diez avisos en el log en una semana) y, con uno
+ * reciente, era una llamada de red que no cambiaba nada en el teléfono de la paciente.
+ */
+export function debeAvisarLecturaAMeta(
+  { recienLeidos, typing, recibidoEn }: { recienLeidos: number; typing: boolean; recibidoEn: Date },
+  ahora = Date.now(),
+): boolean {
+  const antiguedad = ahora - recibidoEn.getTime();
+  if (typing) return antiguedad < ESCRIBIENDO_ACEPTADO_MS;
+  return recienLeidos > 0 && antiguedad < LEIDO_ACEPTADO_MS;
 }
