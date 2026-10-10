@@ -8,6 +8,10 @@
  *   GOOGLE_CLOUD_PROJECT=<proyecto>
  *   GOOGLE_CLOUD_LOCATION=global            los Gemini 3 están en el extremo global
  *   GOOGLE_APPLICATION_CREDENTIALS=<ruta>   la llave JSON de la cuenta de servicio
+ *   GEMINI_API_KEY=<clave>                  ALTERNATIVA para probar: la API de Gemini con clave (Google AI
+ *                                           Studio), sin proyecto ni cuenta de servicio. Si está, manda sobre
+ *                                           Vertex. La capa gratuita puede usar lo que se envía para mejorar
+ *                                           los productos de Google: NO con pacientes reales.
  *   ASISTENTE_MODELO=gemini-3.5-flash       estable, sin retiro antes de mayo de 2027
  *   ASISTENTE_MODELO_CLASIFICADOR=gemini-3.5-flash-lite
  *
@@ -36,6 +40,8 @@ export const CLASIFICADOR_POR_DEFECTO = 'gemini-3.5-flash-lite';
 export interface EstadoProveedorIA {
   readonly encendido: boolean;
   readonly proyecto: boolean;
+  /** Hay `GEMINI_API_KEY`: se llama a la API de Gemini con clave, no a Vertex. */
+  readonly claveApi: boolean;
   readonly credenciales: 'ARCHIVO' | 'ARCHIVO_INEXISTENTE' | 'AMBIENTE';
   readonly ubicacion: string;
   readonly modelo: string;
@@ -54,6 +60,7 @@ export class ConfiguracionIA {
 
   get encendida(): boolean { return this.valor('ASISTENTE_IA') === 'on'; }
   get proyecto(): string { return this.valor('GOOGLE_CLOUD_PROJECT'); }
+  get claveApi(): string { return this.valor('GEMINI_API_KEY'); }
   get ubicacion(): string { return this.valor('GOOGLE_CLOUD_LOCATION') || 'global'; }
   get modelo(): string { return this.valor('ASISTENTE_MODELO') || MODELO_POR_DEFECTO; }
   get modeloClasificador(): string { return this.valor('ASISTENTE_MODELO_CLASIFICADOR') || CLASIFICADOR_POR_DEFECTO; }
@@ -66,11 +73,12 @@ export class ConfiguracionIA {
     return {
       encendido: this.encendida,
       proyecto: !!this.proyecto,
+      claveApi: !!this.claveApi,
       credenciales,
       ubicacion: this.ubicacion,
       modelo: this.modelo,
       modeloClasificador: this.modeloClasificador,
-      listo: this.encendida && !!this.proyecto && credenciales !== 'ARCHIVO_INEXISTENTE',
+      listo: this.encendida && (!!this.claveApi || (!!this.proyecto && credenciales !== 'ARCHIVO_INEXISTENTE')),
     };
   }
 }
@@ -91,16 +99,20 @@ export class ClienteVertex {
   async generar(params: GenerateContentParameters, esperaMs: number): Promise<GenerateContentResponse> {
     if (!this.cfg.estado().listo) throw new ServiceUnavailableException('El asistente de IA no está configurado en el servidor.');
     if (!this.cliente) {
-      this.cliente = new GoogleGenAI({ enterprise: true, project: this.cfg.proyecto, location: this.cfg.ubicacion });
-      this.logger.log(`Vertex listo: ${this.cfg.proyecto} · ${this.cfg.ubicacion} · ${this.cfg.modelo}`);
+      this.cliente = this.cfg.claveApi
+        ? new GoogleGenAI({ apiKey: this.cfg.claveApi })
+        : new GoogleGenAI({ enterprise: true, project: this.cfg.proyecto, location: this.cfg.ubicacion });
+      this.logger.log(this.cfg.claveApi ? `API de Gemini (clave) lista: ${this.cfg.modelo}` : `Vertex listo: ${this.cfg.proyecto} · ${this.cfg.ubicacion} · ${this.cfg.modelo}`);
     }
+    /* Las etiquetas de facturación son de Vertex: la API con clave las rechaza (400), así que ni las de quien llama. */
+    const { labels, ...config } = params.config ?? {};
     return this.cliente.models.generateContent({
       ...params,
       config: {
-        ...params.config,
+        ...config,
         httpOptions: { timeout: esperaMs },
         /* Aparecen en la factura de Google Cloud: cuánto cuesta cada uso. */
-        labels: { aplicacion: 'crm-montalvo', uso: (params.config?.labels?.['uso'] ?? 'asistente') },
+        ...(this.cfg.claveApi ? {} : { labels: { aplicacion: 'crm-montalvo', uso: labels?.['uso'] ?? 'asistente' } }),
       },
     });
   }

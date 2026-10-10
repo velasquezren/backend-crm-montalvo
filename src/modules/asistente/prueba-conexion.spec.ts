@@ -2,7 +2,7 @@ import { ClasificadorMensajes, DatosComprobante, LectorComprobantes, ModeloConve
 import { explicarErrorIA, probarProveedor, ProveedorAProbar } from './prueba-conexion';
 
 const USO = { tokensEntrada: 1, tokensSalida: 1 };
-const LISTO = { encendido: true, proyecto: true, credenciales: 'ARCHIVO' as const, ubicacion: 'global', modelo: 'gemini-3.5-flash', modeloClasificador: 'gemini-3.5-flash-lite', listo: true };
+const LISTO = { encendido: true, proyecto: true, claveApi: false, credenciales: 'ARCHIVO' as const, ubicacion: 'global', modelo: 'gemini-3.5-flash', modeloClasificador: 'gemini-3.5-flash-lite', listo: true };
 const COMPROBANTE: DatosComprobante = { esComprobante: true, monto: 280.5, moneda: 'Bs', fechaHora: '2026-10-10T14:32', referencia: '7788990', banco: 'Banco de Prueba', destinatario: 'CLINICA DE PRUEBA SRL', ordenante: 'ANA PRUEBA' };
 
 function proveedor(guion: (RespuestaModelo | Error)[], p: Partial<ProveedorAProbar> = {}): ProveedorAProbar & { vistas: unknown[] } {

@@ -31,7 +31,7 @@ export interface ResultadoPrueba {
 /** Lo que falta en la configuración del servidor, en una frase; `null` si está completa. */
 export function faltaEnConfiguracion(e: EstadoProveedorIA): string | null {
   if (!e.encendido) return 'Falta ASISTENTE_IA=on en el servidor.';
-  if (!e.proyecto) return 'Falta GOOGLE_CLOUD_PROJECT en el servidor.';
+  if (!e.proyecto && !e.claveApi) return 'Falta GOOGLE_CLOUD_PROJECT en el servidor.';
   if (e.credenciales === 'ARCHIVO_INEXISTENTE') return 'La llave de la cuenta de servicio no está donde dice GOOGLE_APPLICATION_CREDENTIALS.';
   return null;
 }
