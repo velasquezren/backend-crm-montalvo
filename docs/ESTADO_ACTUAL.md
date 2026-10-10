@@ -32,6 +32,28 @@ conexión» del cajón prueban el adaptador real contra Google con datos sintét
 explican cada fallo. Receta de `gcloud` lista para ejecutar en
 [asistente-ia.md](asistente-ia.md#conexión-receta-para-claude-cuando-haya-acceso-a-google-cloud).
 
+**Desplegado el 10/10 a las 11:30 (La Paz):** backend `ff11f61` (respaldo
+`/root/backup-crm-20261010-112810-asistente.sql.gz`, 5,2 MB, y migración aplicada) y
+frontend `4a2565b` (Vercel). `ASISTENTE_IA` sigue apagado en el servidor.
+
+**Línea de prueba ya configurada** (solo ella, por SQL a pedido de René, con su
+`AuditLog`): modo SUGERIR, lectura de comprobantes encendida, y un conocimiento y un
+criterio de derivación marcados «EJEMPLO» —describen solo lo que el sistema hace, sin
+precios ni políticas inventadas—. Ventas y Recepción siguen APAGADO.
+
+**Siguiente paso, para conectar Google** (receta en [asistente-ia.md](asistente-ia.md)):
+1. René vincula una cuenta de facturación al proyecto `montalvo`
+   (`awesome-ripsaw-501618-c9`, organización `httprene2021-org`).
+2. `gcloud` en la máquina de trabajo + `gcloud auth login` de René; Claude ejecuta la
+   receta. Ojo: las organizaciones nuevas bloquean por defecto la creación de llaves
+   (`iam.disableServiceAccountKeyCreation`); habilitarla solo para ese proyecto.
+3. `sudo -u crmapp npm run asistente:probar` → cuatro ✓ → `ASISTENTE_IA=on`, reinicio,
+   y René prueba desde su teléfono en la línea de prueba.
+
+El crédito de 1.000 USD «Trial credit for GenAI App Builder» del proyecto es, según
+soporte de Google, para Vertex AI Search, no para Gemini; confirmarlo en Facturación →
+Créditos («SKU aptos»). Sin él, probar cuesta centavos (~0,02 USD por respuesta).
+
 **Al desplegar:** migración `20261010150000_asistente_ia` (aditiva; `ADD VALUE … AFTER`
 en el enum de motivos). Sin `ASISTENTE_IA=on` y credenciales no cambia nada.
 
