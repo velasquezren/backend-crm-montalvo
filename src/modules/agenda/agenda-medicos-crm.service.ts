@@ -22,6 +22,7 @@ import {
   ResultadoAdminAgenda,
 } from './agenda-admin.sql';
 import { bloquesDeCasillas, DiaAgenda } from './horario-html';
+import { nombreLimpio } from '../../common/texto/espacios';
 import {
   ActualizarMedicoAgendaDto,
   ActualizarPresentacionAgendaDto,
@@ -267,7 +268,7 @@ export class AgendaMedicosCrmService {
     const f = await this.leerFicha(id);
     await this.directorio.crearFichaDeAgenda({
       agendaMedicoId: id,
-      nombrePublico: [f.medico.sigla, f.medico.nombre].filter(Boolean).join(' ').slice(0, 120),
+      nombrePublico: nombreLimpio([f.medico.sigla, f.medico.nombre].filter(Boolean).join(' ')).slice(0, 120),
       codigoFilemaker: f.medico.codigo,
       especialidad: f.medico.especialidad,
       precioConsulta: precioWeb(f.medico.precio),
