@@ -13,8 +13,13 @@ import type { PoolConnection, RowDataPacket } from 'mysql2/promise';
  *
  * Aquí solo ocupa lo vigente, igual que la agenda que el médico ve en
  * ScriptCase (`grid_agenda_med` filtra `estado = 'CREADO'`):
- * - una cita `CREADO` de `agenda_med` en esa hora (por `cod_med`, como la vista), o
+ * - una cita `CREADO` de `agenda_med` **en la casilla que la contiene** (por
+ *   `cod_med`, como la vista), o
  * - una reserva web `PENDIENTE` o `PAGADO` de `para_agendar`, que la vista ni miraba.
+ *
+ * «La casilla que la contiene» y no «esa hora exacta»: FileMaker agenda a `:15`
+ * y `:45`, fuera de la grilla de media hora, y comparando la hora exacta esas
+ * citas no ocupaban nada. Ver `CASILLA_QUE_CONTIENE` para la medición.
  *
  * No se toca la vista: la sigue usando ScriptCase tal cual.
  */
@@ -26,6 +31,31 @@ export const ESTADOS_QUE_OCUPAN = ['PENDIENTE', 'PAGADO'] as const;
 
 /** El único estado de `agenda_med` que ocupa: las citas vigentes. */
 export const ESTADO_CITA_VIGENTE = 'CREADO';
+
+/** Los segundos que dura una casilla de `horarios`: media hora. */
+export const SEGUNDOS_CASILLA = 1800;
+
+/**
+ * La casilla de 30 minutos que CONTIENE esa hora: `11:45` → `11:30`.
+ *
+ * FileMaker no agenda en la grilla. Medido en producción el 2026-10-10, de 308
+ * citas `CREADO` futuras hay **41 fuera de la grilla** —23 a `:15` y 18 a
+ * `:45`, ninguna a otro minuto—, y **24 de ellas caen dentro de una casilla que
+ * la web estaba ofreciendo**, en 9 médicos. Comparando `h.hora = a.hora` esas
+ * citas no ocupaban nada: la paciente reservaba y llegaba a una consulta
+ * tomada.
+ *
+ * Es el 8% de las citas, y por eso nadie lo había notado. Importa más de aquí
+ * en adelante: cualquier cosa que multiplique las reservas multiplica el choque.
+ *
+ * **Ocupa la casilla que contiene el INICIO de la cita, no las siguientes.**
+ * `agenda_med` guarda la hora pero no la duración, así que una cita de 11:45
+ * que durara una hora tocaría también la casilla de 12:00 y eso no se puede
+ * saber desde la tabla. Suponer una duración quitaría cupos sin fundamento;
+ * esto quita exactamente los que constan ocupados.
+ */
+const CASILLA_QUE_CONTIENE = (columna: string) =>
+  `SEC_TO_TIME(FLOOR(TIME_TO_SEC(${columna}) / ${SEGUNDOS_CASILLA}) * ${SEGUNDOS_CASILLA})`;
 
 export interface HoraLibre {
   /** AAAA-MM-DD */
@@ -72,13 +102,13 @@ export async function horasLibres(db: Lector, f: FiltroHorasLibres): Promise<Hor
           AND h.dia = ELT(DAYOFWEEK(f.fecha), 'Domingo', 'Lunes', 'Martes', 'Miercoles', 'Jueves', 'Viernes', 'Sabado')
      ),
      ocupadas AS (
-       SELECT DISTINCT a.cod_med, a.fecha, a.hora
+       SELECT DISTINCT a.cod_med, a.fecha, ${CASILLA_QUE_CONTIENE('a.hora')} AS hora
          FROM agenda_med a
         WHERE a.estado = ? AND a.fecha BETWEEN CAST(? AS DATE) AND CAST(? AS DATE)
           AND a.cod_med IN (SELECT DISTINCT cod_med FROM turnos)
      ),
      reservadas AS (
-       SELECT DISTINCT p.fecha, p.hora
+       SELECT DISTINCT p.fecha, ${CASILLA_QUE_CONTIENE('p.hora')} AS hora
          FROM para_agendar p
         WHERE p.medico_pk = ? AND p.fecha BETWEEN CAST(? AS DATE) AND CAST(? AS DATE)
           AND p.estado IN (${ESTADOS_QUE_OCUPAN.map(() => '?').join(',')})

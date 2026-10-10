@@ -138,6 +138,21 @@ ejecutar('Agenda HTTP → adaptador TLS → MySQL real descartable', () => {
     // 13:00 PENDIENTE en para_agendar ocupa; 11:00 ATENDIDO (ya gestionada) no.
     expect(d.horarios.map(h => h.hora)).toEqual(['10:00', '11:00', '14:00', '15:00']);
   });
+  it('una cita fuera de la grilla ocupa la casilla que la contiene, no solo su hora exacta', async () => {
+    /* El fixture tiene la casilla 16:30 ACTIVO y su único ocupante es una cita
+       `CREADO` a las 16:45. FileMaker agenda a :15 y :45 —41 de 308 citas
+       futuras en producción el 2026-10-10—, así que comparar la hora exacta
+       dejaba 16:30 en oferta y la paciente llegaba a una consulta tomada.
+
+       Las dos pruebas de igualdad exacta de este archivo son el otro guardián:
+       si alguien quita la normalización, `16:30` aparece en sus listas y fallan. */
+    const horas = async () => ((await (await get(`disponibilidad?medicoId=1&fecha=${fecha(1)}`)).json()) as { horarios: { hora: string }[] }).horarios.map(h => h.hora);
+    expect(await horas()).not.toContain('16:30');
+    /* Y no es que 16:30 no exista como casilla: la cita de las 16:45 tampoco
+       asoma como hora ofrecida, porque una casilla ocupada no se ofrece. */
+    expect(await horas()).not.toContain('16:45');
+  });
+
   it('la foto del médico se sirve por el CRM, solo con su versión y solo si está activo', async () => {
     const med = await (await get(`medicos?especialidadId=${(await (await get('especialidades')).json() as { datos: { id: string; nombre: string }[] }).datos.find(e => e.nombre === 'Especialidad sintética')!.id}`)).json() as { datos: { id: string; fotoUrl: string | null }[] };
     const url = med.datos.find(m => m.id === '1')!.fotoUrl!;
