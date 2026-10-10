@@ -34,3 +34,13 @@ export const PRESENTACION = '🤖 _Asistente virtual de la clínica_';
 export function conPresentacion(texto: string, presentarse: boolean): string {
   return presentarse ? `${PRESENTACION}\n\n${texto}` : texto;
 }
+
+/**
+ * ¿Toca presentarse? Una vez al día por chat, salvo que la clínica lo apague con
+ * `ASISTENTE_PRESENTACION=off` (decisión del propietario, 10/10/2026: que no suene
+ * «tan IA»). Apagado, el asistente igual dice que es virtual si se lo preguntan:
+ * eso está en sus instrucciones. Cualquier otro valor lo deja encendido.
+ */
+export function debePresentarse(yaPresentado: boolean, ajuste: string | undefined): boolean {
+  return !yaPresentado && (ajuste ?? '').trim().toLowerCase() !== 'off';
+}

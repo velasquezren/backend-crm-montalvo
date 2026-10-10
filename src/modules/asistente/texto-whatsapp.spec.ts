@@ -1,4 +1,4 @@
-import { conPresentacion, LARGO_MAXIMO, paraWhatsapp, PRESENTACION } from './texto-whatsapp';
+import { debePresentarse, conPresentacion, LARGO_MAXIMO, paraWhatsapp, PRESENTACION } from './texto-whatsapp';
 import { ahoraEnLaPaz, promptDelSistema } from './prompt-sistema';
 
 describe('paraWhatsapp', () => {
@@ -46,5 +46,16 @@ describe('el prompt del sistema', () => {
   it('la fecha es la de La Paz, no la del servidor (que está en EE. UU.)', () => {
     /* 02:30 UTC del 11 es todavía el 10 en Bolivia. */
     expect(ahoraEnLaPaz(new Date('2026-10-11T02:30:00Z'))).toMatch(/10 de octubre de 2026/);
+  });
+});
+
+describe('debePresentarse', () => {
+  it('por defecto se presenta la primera vez y no después', () => {
+    expect(debePresentarse(false, undefined)).toBe(true);
+    expect(debePresentarse(true, undefined)).toBe(false);
+    expect(debePresentarse(false, 'on')).toBe(true);
+  });
+  it('ASISTENTE_PRESENTACION=off lo apaga siempre, con cualquier mayúscula o espacio', () => {
+    for (const v of ['off', ' OFF ', 'Off']) expect(debePresentarse(false, v)).toBe(false);
   });
 });

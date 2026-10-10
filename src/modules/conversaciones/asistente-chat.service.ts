@@ -14,7 +14,7 @@ import { ImagenAgendaMedicoService } from '../asistente/imagen-agenda-medico.ser
 import { ImagenHorarioService } from '../asistente/imagen-horario.service';
 import { Clasificacion, ClasificadorMensajes, ModeloConversacional, TurnoModelo, UsoModelo } from '../asistente/modelo.port';
 import { ahoraEnLaPaz, promptDelMedico, promptDelSistema } from '../asistente/prompt-sistema';
-import { conPresentacion, paraWhatsapp } from '../asistente/texto-whatsapp';
+import { conPresentacion, debePresentarse, paraWhatsapp } from '../asistente/texto-whatsapp';
 import { CLASIFICACION_FALLIDA, decidirTriaje } from '../asistente/triaje';
 import { CobrosService } from '../cobros/cobros.service';
 import { orientacionDeEmergencia } from '../menu-atencion/menu-atencion';
@@ -178,6 +178,11 @@ export class AsistenteChatService implements ProgramadorAsistente, OnModuleInit,
     this.esperas.set(e.conversacionId, { temporizador, desde });
   }
 
+  /** Presentarse como asistente: una vez por día y por chat, salvo `ASISTENTE_PRESENTACION=off`. */
+  private presentarse(yaPresentado: boolean): boolean {
+    return debePresentarse(yaPresentado, this.config.get<string>('ASISTENTE_PRESENTACION'));
+  }
+
   private esperaMs(): number {
     const v = Number(this.config.get<string>('ASISTENTE_ESPERA_MS'));
     return Number.isFinite(v) && v >= 0 ? v : ESPERA_POR_DEFECTO_MS;
@@ -306,7 +311,7 @@ export class AsistenteChatService implements ProgramadorAsistente, OnModuleInit,
         where: { conversacionId: e.conversacionId, asistente: true, createdAt: { gte: new Date(inicio - VENTANA_MS) } },
         select: { id: true },
       });
-      if (!(await this.ingesta.responderComoAsistente(e.conversacionId, e.telefono, conPresentacion(texto, !presentado)))) {
+      if (!(await this.ingesta.responderComoAsistente(e.conversacionId, e.telefono, conPresentacion(texto, this.presentarse(!!presentado))))) {
         return registrar({ resultado: 'OMITIDO', motivo: 'Se pausó la automatización mientras pensaba.', ...base });
       }
     }
@@ -376,7 +381,7 @@ export class AsistenteChatService implements ProgramadorAsistente, OnModuleInit,
     const presentado = await this.prisma.mensaje.findFirst({
       where: { conversacionId: e.conversacionId, asistente: true, createdAt: { gte: new Date(inicio - VENTANA_MS) } }, select: { id: true },
     });
-    if (!(await this.ingesta.responderComoAsistente(e.conversacionId, e.telefono, conPresentacion(texto, !presentado)))) {
+    if (!(await this.ingesta.responderComoAsistente(e.conversacionId, e.telefono, conPresentacion(texto, this.presentarse(!!presentado))))) {
       return registrar({ resultado: 'OMITIDO', motivo: 'Se pausó la automatización mientras pensaba.', ...base });
     }
     return registrar({ resultado: 'RESPONDIO', ...base });
@@ -395,7 +400,7 @@ export class AsistenteChatService implements ProgramadorAsistente, OnModuleInit,
       const antes = await this.prisma.mensaje.findFirst({
         where: { conversacionId: e.conversacionId, asistente: true, createdAt: { gte: new Date(Date.now() - VENTANA_MS) } }, select: { id: true },
       });
-      return conPresentacion(texto, !antes);
+      return conPresentacion(texto, this.presentarse(!!antes));
     };
     if (detalle === 'LISTA' && agenda.total > 0) {
       const imagen = await this.imagenesAgenda.de(medico, agenda);
