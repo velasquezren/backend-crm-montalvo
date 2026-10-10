@@ -545,7 +545,9 @@ ejecutar('Agenda HTTP → adaptador TLS → MySQL real descartable', () => {
       const r = await medicos.listar({}, usuarios.asistente);
       expect(r).toMatchObject({ total: 4, porEstado: { ACTIVO: 3, INACTIVO: 1 } });
       expect(r.datos.map(m => m.id)).toEqual([1, 2, 3, 4]);
-      expect(r.datos[0]).toMatchObject({ codigo: 'A', reservaEnLinea: true, casillasActivas: 6, precio: '400.25', bancoId: 7 });
+      /* 7 casillas: las seis del horario sintético más la de 16:30, que existe
+         para probar que una cita fuera de la grilla (16:45) la ocupa. */
+      expect(r.datos[0]).toMatchObject({ codigo: 'A', reservaEnLinea: true, casillasActivas: 7, precio: '400.25', bancoId: 7 });
       // El teléfono del médico sí lo ve el personal; su login y contraseña, nunca.
       expect(JSON.stringify(r)).not.toMatch(/secreto|"privado"|login|password/);
       expect((await medicos.listar({ estado: 'INACTIVO' }, usuarios.recepcion)).datos.map(m => m.id)).toEqual([4]);
