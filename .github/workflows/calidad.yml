@@ -15,7 +15,10 @@ concurrency:
 jobs:
   verificar:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # 20 y no 15: el paso de MySQL añade la descarga de la imagen 8.0.44 y su
+    # arranque, un par de minutos. Mejor margen que un trabajo cancelado a
+    # mitad, que se lee como fallo y no lo es.
+    timeout-minutes: 20
     env:
       DATABASE_URL: postgresql://crm_app:crm_dev_local@localhost:5433/crm_test?schema=public
       DOTENV_CONFIG_PATH: /dev/null
@@ -48,3 +51,11 @@ jobs:
       - run: npm run test:build
       - run: npm test -- --runInBand
       - run: npm run test:integracion
+      # La suite MySQL de la agenda: 16 pruebas que se saltaban solas porque
+      # `AGENDA_MYSQL_TEST` no estaba puesto en ninguna parte, así que nada las
+      # corría —ni aquí ni en local salvo que alguien se acordara del script—.
+      # Una prueba que nada ejecuta se pudre. El script levanta su propio MySQL
+      # 8.0.44 (misma versión que el VPS, imagen fijada por digest), en el 3307,
+      # lo siembra con `test/agenda/legado-sintetico.sql` y lo borra al salir:
+      # nunca toca la agenda real.
+      - run: npm run test:agenda-mysql
