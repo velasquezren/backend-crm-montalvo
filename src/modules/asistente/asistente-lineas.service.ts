@@ -85,6 +85,17 @@ export class AsistenteLineasService {
     });
   }
 
+  /**
+   * ¿La clínica encendió el asistente en esta línea (sugerir o responder),
+   * aunque Gemini todavía no esté conectado? Lo automático que acompaña al
+   * asistente sin llamar al modelo —la constancia de reserva— sale solo donde
+   * está encendido: hoy, la línea de prueba.
+   */
+  async encendidoEn(lineaId: string): Promise<boolean> {
+    const fila = await this.prisma.asistenteLinea.findUnique({ where: { lineaId }, select: { modo: true, linea: { select: { activa: true } } } });
+    return !!fila && fila.modo !== 'APAGADO' && fila.linea.activa;
+  }
+
   /** ¿Se leen los comprobantes de esta línea? */
   async leeComprobantes(lineaId: string): Promise<boolean> {
     if (!this.ia.estado().listo) return false;

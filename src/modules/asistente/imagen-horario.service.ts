@@ -5,9 +5,11 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import { CacheMemoria } from '../../common/cache/cache-memoria';
+import { validarImagenPublica } from '../../common/storage/imagen-publica';
 import { R2Service } from '../../common/storage/r2.service';
 import { AgendaMedicosCrmService } from '../agenda/agenda-medicos-crm.service';
 import { ANCHO_HORARIO, svgDelHorario, VERSION_DISENO_HORARIO } from './horario-imagen';
+import { FotoEmbebida } from './marca-imagen';
 
 export interface ImagenHorario {
   readonly key: string;
@@ -16,6 +18,17 @@ export interface ImagenHorario {
 }
 
 const DIRECTORIO_FUENTES = join(process.cwd(), 'assets', 'fuentes');
+
+/**
+ * Una foto que el motor puede dibujar, o `null`. El tipo sale de los bytes, no
+ * de lo que diga quien la guardó; WebP queda fuera (resvg no lo lee).
+ */
+export function fotoEmbebible(foto: { bytes: Uint8Array } | null): FotoEmbebida | null {
+  if (!foto) return null;
+  const imagen = validarImagenPublica(foto.bytes);
+  if ('error' in imagen || (imagen.mime !== 'image/jpeg' && imagen.mime !== 'image/png')) return null;
+  return { mime: imagen.mime, base64: Buffer.from(foto.bytes).toString('base64') };
+}
 
 /**
  * El WASM se inicia UNA vez por proceso: `initWasm` es global al módulo y una
@@ -61,7 +74,8 @@ export class ImagenHorarioService {
     if (!this.r2.habilitado) return null;
     const horario = await this.agenda.horarioSemanal(medicoId);
     if (!horario || horario.bloques.length === 0) return null;
-    const svg = svgDelHorario({ medico: horario.nombre, especialidad: horario.especialidad, bloques: horario.bloques });
+    const foto = fotoEmbebible(await this.agenda.fotoParaImagen(medicoId));
+    const svg = svgDelHorario({ medico: horario.nombre, especialidad: horario.especialidad, precioBs: horario.precioBs, bloques: horario.bloques, foto });
     const huella = createHash('sha256').update(`${VERSION_DISENO_HORARIO}:${svg}`).digest('hex').slice(0, 16);
     const key = `asistente/horarios/${medicoId}-${huella}.png`;
     const imagen: ImagenHorario = { key, mime: 'image/png', nombre: `Horario ${horario.nombre}.png` };

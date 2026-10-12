@@ -73,6 +73,20 @@ describe('el SVG de la agenda', () => {
     }
   });
 
+  it('separa la mañana de la tarde, con cuántas hay en cada una, y el total en la cabecera', () => {
+    const svg = svgDeAgendaMedico(MEDICO, AGENDA);
+    expect(svg).toContain('>MAÑANA<');
+    expect(svg).toContain('>3 citas<');
+    expect(svg).toContain('>TARDE<');
+    expect(svg).toContain('>1 cita<');
+    /* Dina (15:00) va después del título de la tarde; Carla (12:00), antes. */
+    expect(svg.indexOf('Carla Soto')).toBeLessThan(svg.indexOf('>TARDE<'));
+    expect(svg.indexOf('Dina Rojas')).toBeGreaterThan(svg.indexOf('>TARDE<'));
+    expect(svg).toMatch(/text-anchor="end">4<\/text>/);
+    /* Un día solo de mañana no dibuja una sección de tarde vacía. */
+    expect(svgDeAgendaMedico(MEDICO, armarAgendaDelDia(DIA, [{ hora: '09:00', paciente: 'Ana Pérez' }], []))).not.toContain('>TARDE<');
+  });
+
   it('es determinista: los mismos datos dan exactamente el mismo dibujo', () => {
     expect(svgDeAgendaMedico(MEDICO, AGENDA)).toBe(svgDeAgendaMedico(MEDICO, structuredClone(AGENDA)));
     expect(svgDeAgendaMedico(MEDICO, AGENDA)).not.toBe(svgDeAgendaMedico(MEDICO, VACIA));

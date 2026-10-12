@@ -15,6 +15,7 @@ import {
   GuardarHorarioAgendaDto,
   PublicarPresentacionAgendaDto,
   QueryMedicosAgendaAdminDto,
+  QueryMedicosPorCodigoDto,
   RenombrarEspecialidadAgendaDto,
 } from './dto/medicos-agenda.dto';
 
@@ -67,6 +68,13 @@ export class AgendaMedicosCrmController {
     return this.medicos.bancos();
   }
 
+  /** Cara y ficha de los médicos que nombra otra pantalla por su código de FileMaker (el historial de servicios). */
+  @Get('por-codigo')
+  @Header('Cache-Control', 'private, no-store')
+  porCodigos(@Query() query: QueryMedicosPorCodigoDto) {
+    return this.medicos.porCodigos(query.codigos);
+  }
+
   @Get(':id')
   @Header('Cache-Control', 'private, no-store')
   ficha(@Param('id', ParseIntPipe) id: number, @CurrentUser() usuario: UsuarioJwt) {
@@ -105,6 +113,12 @@ export class AgendaMedicosCrmController {
   @UseInterceptors(FileInterceptor('archivo', { limits: { fileSize: BYTES_MAXIMOS_IMAGEN, files: 1 } }))
   subirFoto(@Param('id', ParseIntPipe) id: number, @UploadedFile() archivo: ArchivoSubido | undefined, @CurrentUser() usuario: UsuarioJwt) {
     return this.medicos.subirFoto(id, archivo, usuario);
+  }
+
+  /** La foto que ya tiene en la agenda (ScriptCase) pasa a su ficha web. */
+  @Post(':id/presentacion/foto/desde-agenda')
+  usarFotoDeAgenda(@Param('id', ParseIntPipe) id: number, @CurrentUser() usuario: UsuarioJwt) {
+    return this.medicos.usarFotoDeAgenda(id, usuario);
   }
 
   @Delete(':id/presentacion/foto')

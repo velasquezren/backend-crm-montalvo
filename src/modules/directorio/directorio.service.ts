@@ -584,6 +584,23 @@ export class DirectorioService {
     return new Map(fichas.map(f => [f.agendaMedicoId!, urlPublica(`/publico/directorio/fotos/${f.fotoId}`)]));
   }
 
+  /**
+   * Los bytes de la foto PUBLICADA de la ficha de un médico de la agenda, o
+   * `null`: la que se dibuja en la imagen de su horario, la misma que ve la
+   * paciente en la landing.
+   */
+  async bytesDeFotoPublicaDeAgenda(agendaMedicoId: number): Promise<{ bytes: Buffer; tipo: string } | null> {
+    const ficha = await this.prisma.perfilMedico.findFirst({
+      where: { agendaMedicoId, publicado: true, fotoClave: { not: null } },
+      select: { fotoClave: true, fotoMime: true },
+    });
+    if (!ficha?.fotoClave) return null;
+    const objeto = await this.r2.leer(ficha.fotoClave);
+    if (!objeto) return null;
+    const bytes = Buffer.from(await new Response(objeto.cuerpo).arrayBuffer());
+    return { bytes, tipo: ficha.fotoMime ?? objeto.tipo ?? 'application/octet-stream' };
+  }
+
   /* ── Directorio público (landing) ───────────────────────────────────── */
 
   /** Especialidades activas, con cuántos médicos publicados tiene cada una. */

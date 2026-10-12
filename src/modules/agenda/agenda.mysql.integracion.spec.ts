@@ -624,6 +624,15 @@ ejecutar('Agenda HTTP → adaptador TLS → MySQL real descartable', () => {
       ]);
     });
 
+    it('la foto de la agenda llega al Directorio y pone cara a los códigos del historial de servicios', async () => {
+      const lista = await medicos.listar({}, usuarios.asistente);
+      expect(lista.datos[0]).toMatchObject({ id: 1, fotoOrigen: 'AGENDA', fotoUrl: expect.stringMatching(/^\/publico\/agenda\/fotos\/1\/[0-9a-f]{16}$/) });
+      // El inactivo no: su URL pública daría 404.
+      expect(lista.datos.find(m => m.id === 4)).toMatchObject({ fotoUrl: null, fotoOrigen: null });
+      const r = await medicos.porCodigos([' a ', 'NO-EXISTE']);
+      expect(r.datos).toEqual([expect.objectContaining({ codigo: 'A', id: 1, activo: true, fotoOrigen: 'AGENDA', fotoUrl: lista.datos[0].fotoUrl })]);
+    });
+
     it('un pico de pedidos a la vez (abrir el Directorio son tres) espera su turno: ninguno falla', async () => {
       // La cuenta usa 2 conexiones; sin la fila de espera, el tercer pedido salía 503 al azar.
       const pedidos = Array.from({ length: 8 }, (_, i) =>

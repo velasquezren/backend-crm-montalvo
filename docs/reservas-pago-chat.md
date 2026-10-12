@@ -29,8 +29,31 @@ Menú CITA → Flow cifrado → especialidad → médico → fecha → hora y da
   → despachador existente → QR en el chat
   → imagen del paciente → descarga habitual a R2 → cola durable de comprobantes
   → UPDATE condicional para_agendar → PAGADO + aviso Telegram existente
+  → constancia de reserva en imagen a la paciente (una vez)
   → recepción / caja verifican → circuito existente de FileMaker
 ```
+
+### La constancia de reserva (12/10/2026)
+
+Cuando el comprobante queda registrado en la agenda (`PAGO_REGISTRADO`), la paciente
+recibe una **constancia en imagen**: número de reserva, día y hora en grande, médico,
+especialidad, lo que pagó y la dirección de la clínica, con el estado **«Pago recibido:
+en verificación»** —nunca «confirmada»: ver el párrafo siguiente—. Pie con el mismo
+resumen en texto; sin R2, sale el texto solo. [Muestra](imagenes-whatsapp/constancia-reserva.png).
+
+- La manda `ConstanciaReservaService` desde el trabajador de comprobantes, solo en la
+  pasada que registró el pago. **Una por reserva**: `clientMessageId` estable
+  (`reserva-constancia:<n.º>`) con su índice único; un reintento no la repite.
+- Lee la reserva de la agenda con la cuenta de consulta (`reservasPorIds`): lo que dice es
+  lo que hay en `para_agendar`, y si ya no está `PAGADO`/`ATENDIDO`, no sale.
+- No sale fuera de la ventana de 24 h de Meta ni si la agenda no responde; nunca lanza (el
+  pago ya quedó registrado y el acuse ya salió). Sale aunque una persona atienda el chat,
+  como el acuse. No toca `esperandoRespuesta`.
+- Ni carnet ni teléfono: la imagen se guarda y se reenvía. Va a `reservas/constancias/` en R2.
+- **Solo en las líneas con el asistente encendido** (Sugerir o Responder solo, aunque Gemini no
+  esté conectado): se prueba en la línea de prueba antes de llegar a Ventas o Recepción.
+  **`CONSTANCIA_RESERVA=todas`** la manda en todas las líneas; **`CONSTANCIA_RESERVA=off`** la
+  apaga. Las dos, sin desplegar.
 
 `PAGADO` en ScriptCase significa comprobante cargado, **no pago verificado**.
 La reserva todavía necesita la gestión administrativa habitual. Recepción carga

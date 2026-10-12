@@ -44,6 +44,17 @@ export class QueryMedicosAgendaAdminDto extends PaginationDto {
 }
 
 /**
+ * Códigos de FileMaker separados por coma (`?codigos=M01,M07`): los de una
+ * página del historial de servicios. Se dividen aquí para que el resto valide
+ * cada uno.
+ */
+export class QueryMedicosPorCodigoDto {
+  @Transform(({ value }: { value: unknown }) => (typeof value === 'string' ? value.split(',').map(c => c.trim()).filter(Boolean) : value))
+  @IsArray() @ArrayMaxSize(50) @IsString({ each: true }) @MaxLength(40, { each: true })
+  codigos!: string[];
+}
+
+/**
  * Los datos de un médico que se editan desde el CRM. Los largos son los de las
  * columnas de `medicos` en producción (`sigla` VARCHAR(5), `telefono` VARCHAR(50)…).
  */

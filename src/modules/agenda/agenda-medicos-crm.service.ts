@@ -1,5 +1,6 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ArchivoSubido } from '../../common/archivos/archivo-subido';
+import { CacheMemoria } from '../../common/cache/cache-memoria';
 import { puedeEditarAgendaClinica, puedeVerAgendaClinica } from '../../common/auth/roles';
 import { UsuarioJwt } from '../../common/decorators/current-user.decorator';
 import { calcularPaginacion, paginar, PaginationDto } from '../../common/dto/pagination.dto';
@@ -8,6 +9,8 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { ActualizarEspecialidadDto } from '../directorio/dto/especialidad.dto';
 import { claveDeEspecialidad, DirectorioService } from '../directorio/directorio.service';
 import { AgendaAdminClient } from './agenda-admin.client';
+import { urlFotoDeAgenda } from './agenda.contrato';
+import { AgendaReservasService } from './agenda-reservas.service';
 import {
   actualizarMedicoAgenda,
   crearMedicoAgenda,
@@ -18,6 +21,8 @@ import {
   listarBancosAgenda,
   listarEspecialidadesAgenda,
   listarMedicosAgenda,
+  MedicoPorCodigo,
+  medicosConCodigo,
   renombrarEspecialidadAgenda,
   ResultadoAdminAgenda,
 } from './agenda-admin.sql';
@@ -38,6 +43,31 @@ function precioWeb(precio: string | null): number | null {
   const n = precio === null ? NaN : Number(precio);
   return Number.isFinite(n) && n > 0 ? n : null;
 }
+
+/** De dónde sale la foto que el CRM muestra de un médico. */
+export type OrigenFotoMedico = 'WEB' | 'AGENDA';
+
+/**
+ * La foto de un médico como la ve la clínica: la de su ficha web si la tiene
+ * (la que se cuida desde el CRM), y si no la de la agenda, que es la que ya
+ * publica la landing. La de la agenda solo de médicos ACTIVOS: es lo único que
+ * sirve su URL pública. Las dos URLs se guardan en el navegador (la de la
+ * agenda un año, versionada; la de R2 una hora, firmada por ventana).
+ */
+export function fotoDelMedico(
+  m: { id: number; estado: string; fotoVersion: string | null },
+  fotoWeb: string | null | undefined,
+): { fotoUrl: string | null; fotoOrigen: OrigenFotoMedico | null } {
+  if (fotoWeb) return { fotoUrl: fotoWeb, fotoOrigen: 'WEB' };
+  if (m.estado === 'ACTIVO' && m.fotoVersion) return { fotoUrl: urlFotoDeAgenda(m.id, m.fotoVersion), fotoOrigen: 'AGENDA' };
+  return { fotoUrl: null, fotoOrigen: null };
+}
+
+/** Cuántos códigos se resuelven de una vez: una página del historial de servicios. */
+export const MAXIMO_CODIGOS_POR_CONSULTA = 50;
+
+/** `medicoPk` del Excel y `medicos.codigo` de la agenda, comparados sin espacios ni mayúsculas. */
+const claveDeCodigo = (codigo: string) => codigo.trim().toUpperCase();
 
 /** El horario de la web que corresponde a las casillas encendidas de una ficha. */
 function bloquesDeFicha(f: FichaMedicoAgenda) {
@@ -96,11 +126,18 @@ function datos(dto: DatosMedicoAgendaDto): DatosMedicoAgenda {
 @Injectable()
 export class AgendaMedicosCrmService {
   private readonly logger = new Logger(AgendaMedicosCrmService.name);
+  /**
+   * Los médicos con código, para ponerle cara a quien nombra el historial de
+   * servicios. Son ~90 filas: se leen todas de una vez y se cruzan en memoria.
+   * Dos minutos, y se vacía al editar o dar de alta un médico desde aquí.
+   */
+  private readonly conCodigo = new CacheMemoria<MedicoPorCodigo[]>({ ttlMs: 2 * 60_000, maxEntradas: 1 });
 
   constructor(
     private readonly agenda: AgendaAdminClient,
     private readonly prisma: PrismaService,
     private readonly directorio: DirectorioService,
+    private readonly reservas: AgendaReservasService,
   ) {}
 
   /**
@@ -130,7 +167,10 @@ export class AgendaMedicosCrmService {
       listarMedicosAgenda(db, { buscar: query.buscar, especialidad: query.especialidad, estado: query.estado, skip, take }),
     );
     const web = await this.directorio.resumenDeAgenda(r.datos.map(m => m.id));
-    const datos = r.datos.map(m => ({ ...this.paraQuienVe(m, usuario), web: web.get(m.id) ?? null }));
+    const datos = r.datos.map(m => {
+      const ficha = web.get(m.id) ?? null;
+      return { ...this.paraQuienVe(m, usuario), web: ficha, ...fotoDelMedico(m, ficha?.fotoUrl) };
+    });
     return { ...paginar(datos, r.total, query), porEstado: r.porEstado };
   }
 
@@ -168,7 +208,55 @@ export class AgendaMedicosCrmService {
 
   async ficha(id: number, usuario: UsuarioJwt) {
     const ficha = await this.leerFicha(id);
-    return { ...ficha, medico: this.paraQuienVe(ficha.medico, usuario), presentacion: await this.directorio.fichaDeAgenda(id) };
+    const presentacion = await this.directorio.fichaDeAgenda(id);
+    return { ...ficha, medico: this.paraQuienVe(ficha.medico, usuario), presentacion, ...fotoDelMedico(ficha.medico, presentacion?.fotoUrl) };
+  }
+
+  /**
+   * Los médicos de la agenda que corresponden a unos códigos de FileMaker (el
+   * `medicoPk` del historial de servicios), con su foto: lo que permite ponerle
+   * cara a cada fila y abrir su ficha del Directorio. Un código que no está en
+   * la agenda no viene. Si la agenda no responde, la lista llega vacía: quien
+   * la pide sigue mostrando las iniciales.
+   */
+  async porCodigos(codigos: readonly string[]) {
+    const buscados = new Set(codigos.map(claveDeCodigo).filter(Boolean).slice(0, MAXIMO_CODIGOS_POR_CONSULTA));
+    if (buscados.size === 0) return { datos: [] };
+    let todos: MedicoPorCodigo[];
+    try {
+      todos = await this.conCodigo.resolver('todos', () => this.agenda.consultar(db => medicosConCodigo(db)));
+    } catch (error: unknown) {
+      this.logger.warn(`Médicos por código sin leer: ${error instanceof Error ? error.message : 'falló'}`);
+      return { datos: [] };
+    }
+    /* Un código repetido en la agenda: gana el activo (vienen primero). */
+    const porClave = new Map<string, MedicoPorCodigo>();
+    for (const m of todos) {
+      const clave = claveDeCodigo(m.codigo);
+      if (buscados.has(clave) && !porClave.has(clave)) porClave.set(clave, m);
+    }
+    const encontrados = [...porClave.values()];
+    const web = await this.directorio.resumenDeAgenda(encontrados.map(m => m.id));
+    return {
+      datos: encontrados.map(m => ({
+        codigo: m.codigo, id: m.id, nombre: m.nombre, especialidad: m.especialidad, activo: m.estado === 'ACTIVO',
+        ...fotoDelMedico(m, web.get(m.id)?.fotoUrl),
+      })),
+    };
+  }
+
+  /**
+   * La foto que se dibuja en una imagen para la paciente (su horario): la de
+   * la ficha web PUBLICADA, o la de la agenda; la misma que ve en la landing.
+   * `null` si no tiene o no se puede leer: la imagen sale sin foto.
+   */
+  async fotoParaImagen(id: number): Promise<{ bytes: Buffer; tipo: string } | null> {
+    try {
+      return (await this.directorio.bytesDeFotoPublicaDeAgenda(id)) ?? (await this.reservas.fotoVigente(id));
+    } catch (error: unknown) {
+      this.logger.warn(`Foto del médico ${id} para la imagen: ${error instanceof Error ? error.message : 'falló'}`);
+      return null;
+    }
   }
 
   private async leerFicha(id: number): Promise<FichaMedicoAgenda> {
@@ -208,6 +296,7 @@ export class AgendaMedicosCrmService {
       return resultado;
     });
     if (!r.ok) throw errorDe(r.motivo);
+    this.conCodigo.invalidar('todos');
     return this.sincronizarWeb(id, usuario);
   }
 
@@ -234,6 +323,7 @@ export class AgendaMedicosCrmService {
       return resultado;
     });
     if (!r.ok) throw errorDe(r.motivo);
+    this.conCodigo.invalidar('todos');
     return this.ficha(r.valor.id, usuario);
   }
 
@@ -267,12 +357,13 @@ export class AgendaMedicosCrmService {
    * imagen que manda el asistente). Solo lo público: nombre, especialidad y
    * bloques; `null` si no existe o no está activo.
    */
-  async horarioSemanal(id: number): Promise<{ nombre: string; especialidad: string | null; bloques: ReturnType<typeof bloquesDeFicha> } | null> {
+  async horarioSemanal(id: number): Promise<{ nombre: string; especialidad: string | null; precioBs: number | null; bloques: ReturnType<typeof bloquesDeFicha> } | null> {
     const f = await this.agenda.consultar(db => fichaMedicoAgenda(db, id));
     if (!f || f.medico.estado !== 'ACTIVO') return null;
     return {
       nombre: nombreLimpio([f.medico.sigla, f.medico.nombre].filter(Boolean).join(' ')).slice(0, 120),
       especialidad: f.medico.especialidad,
+      precioBs: precioWeb(f.medico.precio),
       bloques: bloquesDeFicha(f),
     };
   }
@@ -311,6 +402,21 @@ export class AgendaMedicosCrmService {
     this.exigirEditar(usuario);
     const ficha = await this.presentacionDe(id);
     await this.directorio.subirFoto(ficha.id, archivo, usuario.sub);
+    return this.ficha(id, usuario);
+  }
+
+  /**
+   * La foto que ya tiene la agenda pasa a la ficha web: la mayoría de los
+   * médicos ya tiene una en ScriptCase, y sin esto había que bajarla y volver
+   * a subirla a mano. Pasa por las mismas validaciones que una subida.
+   */
+  async usarFotoDeAgenda(id: number, usuario: UsuarioJwt) {
+    this.exigirEditar(usuario);
+    const ficha = await this.presentacionDe(id);
+    const foto = await this.reservas.fotoVigente(id);
+    if (!foto) throw new NotFoundException('Este médico no tiene foto en la agenda (o está inactivo).');
+    const extension = foto.tipo === 'image/png' ? 'png' : foto.tipo === 'image/webp' ? 'webp' : 'jpg';
+    await this.directorio.subirFoto(ficha.id, { originalname: `agenda-${id}.${extension}`, mimetype: foto.tipo, size: foto.bytes.byteLength, buffer: foto.bytes }, usuario.sub);
     return this.ficha(id, usuario);
   }
 

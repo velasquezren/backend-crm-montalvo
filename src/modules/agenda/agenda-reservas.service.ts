@@ -44,6 +44,14 @@ export class AgendaReservasService {
   private readonly logger = new Logger(AgendaReservasService.name);
   private readonly secreto: string | null;
   private readonly imagenes = new CacheMemoria<{ bytes: Buffer; tipo: string }>({ ttlMs: 10 * 60_000, maxEntradas: 120 });
+  /**
+   * Las fotos de los médicos, aparte de los QR y por más tiempo: van con su
+   * versión en la clave (un archivo nuevo es otra entrada), y las piden a la
+   * vez la landing, el Directorio y el historial de servicios del CRM. ~90
+   * médicos de ~200 KB caben enteros; sin esto, cada pantalla fría volvía a
+   * pedirle cada foto a ScriptCase.
+   */
+  private readonly fotos = new CacheMemoria<{ bytes: Buffer; tipo: string }>({ ttlMs: 6 * 3_600_000, maxEntradas: 150 });
   /** QR ya copiados a R2, por banco: la clave cambia si cambia la imagen, así que copiarlo de nuevo es solo trabajo de más. */
   private readonly qrEnR2 = new CacheMemoria<string>({ ttlMs: 10 * 60_000, maxEntradas: 60 });
 
@@ -182,13 +190,33 @@ export class AgendaReservasService {
   /** La foto del médico que publica la agenda (`medicos.foto`), solo de médicos activos. */
   async foto(medicoId: number, version: string): Promise<StreamableFile> {
     return this.comoArchivo(await this.imagen(`foto:${medicoId}:${version}`, async conexion => {
-      const [filas] = await conexion.execute<RowDataPacket[]>(
-        `SELECT foto FROM medicos WHERE medico_pk = ? AND estado = 'ACTIVO'`,
-        [medicoId],
-      );
+      const filas = await this.archivoDeFoto(conexion, medicoId);
       // Una versión que ya no coincide es una foto reemplazada: no se sirve la nueva con la URL vieja.
-      return versionDeFoto(filas[0]?.foto) === version ? filas[0]?.foto : null;
-    }));
+      return versionDeFoto(filas) === version ? filas : null;
+    }, this.fotos));
+  }
+
+  /**
+   * Los bytes de la foto ACTUAL de un médico activo, o `null` si no tiene (o
+   * la agenda no responde): para dibujarla en una imagen o copiarla a su
+   * ficha web. Comparte la caché con la URL pública de la misma versión.
+   */
+  async fotoVigente(medicoId: number): Promise<{ bytes: Buffer; tipo: string } | null> {
+    if (!this.lectura.habilitada()) return null;
+    try {
+      const archivo = await this.lectura.ejecutar(conexion => this.archivoDeFoto(conexion, medicoId));
+      const version = versionDeFoto(archivo);
+      if (!version) return null;
+      return await this.imagen(`foto:${medicoId}:${version}`, async () => archivo, this.fotos);
+    } catch (error: unknown) {
+      this.logger.warn(`Foto del médico ${medicoId} sin leer: ${error instanceof Error ? error.message : 'falló'}`);
+      return null;
+    }
+  }
+
+  private async archivoDeFoto(conexion: PoolConnection, medicoId: number): Promise<unknown> {
+    const [filas] = await conexion.execute<RowDataPacket[]>(`SELECT foto FROM medicos WHERE medico_pk = ? AND estado = 'ACTIVO'`, [medicoId]);
+    return filas[0]?.foto;
   }
 
   private comoArchivo(imagen: { bytes: Buffer; tipo: string }): StreamableFile {
@@ -203,8 +231,9 @@ export class AgendaReservasService {
   private imagen(
     clave: string,
     archivoDe: (conexion: PoolConnection) => Promise<unknown>,
+    cache = this.imagenes,
   ): Promise<{ bytes: Buffer; tipo: string }> {
-    return this.imagenes.resolver(clave, async () => {
+    return cache.resolver(clave, async () => {
       const crudo = await this.lectura.ejecutar(archivoDe);
       const archivo = typeof crudo === 'string' ? crudo.trim() : '';
       if (!archivo || !ARCHIVO_IMAGEN_AGENDA.test(archivo)) throw new NotFoundException('Esa imagen no está disponible.');

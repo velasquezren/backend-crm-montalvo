@@ -5,6 +5,7 @@ import { R2Service } from '../../common/storage/r2.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { Prisma } from '../../prisma/prisma-client';
 import { AgendaReservasService } from '../agenda/agenda-reservas.service';
+import { ConstanciaReservaService } from './constancia-reserva.service';
 import { ConversacionesGateway } from './conversaciones.gateway';
 import { interaccionesEnLinea, interaccionesHabilitadas } from './interacciones-integracion';
 
@@ -32,7 +33,8 @@ export class ComprobantesReservaChatService implements OnModuleInit, OnModuleDes
   private intervalo?: NodeJS.Timeout;
   private corriendo = false;
   constructor(private readonly prisma: PrismaService, private readonly r2: R2Service,
-    private readonly agenda: AgendaReservasService, private readonly gateway: ConversacionesGateway) {}
+    private readonly agenda: AgendaReservasService, private readonly gateway: ConversacionesGateway,
+    private readonly constancia: ConstanciaReservaService) {}
 
   onModuleInit(): void {
     if (process.env.NODE_ENV === 'test') return;
@@ -114,7 +116,11 @@ export class ComprobantesReservaChatService implements OnModuleInit, OnModuleDes
       if (!bytes) return this.cerrar(p, lease, 'REVISION', DETALLE.NO_ES_IMAGEN);
       if (!interaccionesEnLinea(p.conversacion.lineaId)) return false;
       const resultado = await this.agenda.registrarPagoDesdeChat(p.reservaAgenda, bytes);
-      return resultado === 'REGISTRADO' ? this.cerrar(p, lease, 'PAGO_REGISTRADO', null) : this.cerrar(p, lease, 'REVISION', DETALLE[resultado]);
+      if (resultado !== 'REGISTRADO') return this.cerrar(p, lease, 'REVISION', DETALLE[resultado]);
+      const registrado = await this.cerrar(p, lease, 'PAGO_REGISTRADO', null);
+      /* La constancia, una vez y solo si ESTA pasada lo registró. No lanza. */
+      if (registrado) await this.constancia.enviar(p.reservaAgenda, ahora);
+      return registrado;
     } catch {
       // No volcar errores externos, URLs firmadas, blobs ni datos personales.
       this.logger.warn('Comprobante de reserva pendiente de conciliación con agenda');

@@ -45,8 +45,13 @@ export class AgendaPublicaController {
   @Header('Cache-Control', 'no-store')
   dias(@Query() query: QueryDiasAgendaDto) { return this.agenda.dias(query); }
 
-  /** La versión va en la ruta y cambia con el archivo: la foto se puede guardar un año. */
+  /**
+   * La versión va en la ruta y cambia con el archivo: la foto se puede guardar
+   * un año. Límite propio y holgado: el Directorio y el historial de servicios
+   * del CRM piden decenas a la vez desde la misma IP de la clínica.
+   */
   @Get('fotos/:medicoId/:version')
+  @Throttle({ general: { limit: 600, ttl: 60_000 } })
   @Header('Cache-Control', 'public, max-age=31536000, immutable')
   @Header('Cross-Origin-Resource-Policy', 'cross-origin')
   foto(@Param('medicoId', ParseIntPipe) medicoId: number, @Param('version') version: string) {

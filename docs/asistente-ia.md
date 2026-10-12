@@ -34,10 +34,21 @@ Montalvo SRL», «Es del 01/10: anterior a cuando se le mandó el QR», «La ope
 778899 ya llegó en otro pago: puede ser un comprobante reutilizado». **Confirmar
 sigue siendo de una persona**: el asistente ahorra leer con lupa, no el criterio.
 
-**La imagen del horario**: un PNG con la marca de la clínica (cabecera verde, días
-de lunes a sábado, turnos en pastillas), dibujado desde las casillas de la agenda,
-una vez por versión del horario, y guardado en R2. Lleva el horario en texto como pie:
-se copia y lo lee un lector de pantalla. Muestra en `src/modules/asistente/horario-imagen.ts`.
+**La imagen del horario**: un PNG con la marca de la clínica (cabecera verde con el
+logo, una fila por día y dos columnas, **mañana y tarde**, con el turno en la de la hora
+en que empieza; los días sin atención, más bajos; la especialidad y el precio de la
+consulta si la agenda lo tiene, y **la foto del médico** en un retrato redondo: la de su
+ficha web publicada o, si no, la de la agenda, la misma que ve en la landing; solo JPEG o
+PNG, con sus iniciales debajo por si no se puede leer), dibujado desde las casillas de la
+agenda, una vez por versión del horario y de la foto, y guardado en R2. Lleva el horario en texto como pie: se copia y lo
+lee un lector de pantalla. Código en `src/modules/asistente/horario-imagen.ts`; muestra
+en [imagenes-whatsapp/horario-medico.png](imagenes-whatsapp/horario-medico.png).
+
+**Una sola mano para todas las imágenes** (`src/modules/asistente/marca-imagen.ts`, 12/10):
+el logo (el de `favicon.svg`), los colores del CRM, la cabecera, el pie y las pastillas.
+El horario, la agenda del médico y la constancia de reserva la comparten, para que la
+paciente reconozca de un vistazo que la imagen es de la clínica. Sin emojis dentro de la
+imagen: la Poppins no los tiene y resvg los dibujaría como cuadros (sí van en el pie).
 
 ## Agenda del médico por WhatsApp (10/10/2026)
 
@@ -65,8 +76,10 @@ teléfono, ni pago.
 **Qué hace el modelo y qué no.** Elige el día y si quiere la `LISTA` o el `RESUMEN`
 (`mi_agenda`, atada al médico por el contexto: no tiene parámetro de médico). **Al modelo vuelven
 solo cantidades**; los nombres no pasan por el proveedor. La imagen y el texto los arma el
-código (`agenda-medico-imagen.ts`: mismo SVG→PNG con resvg y la Poppins que el horario; clave de
-R2 = huella del dibujo, en `asistente/agenda-medico/`) y **el texto del modelo se descarta** cuando
+código (`agenda-medico-imagen.ts`: mismo SVG→PNG con resvg y la Poppins que el horario; el total
+en la cabecera, los tres recuadros por estado, las citas separadas en mañana y tarde con una franja
+de color por estado —[muestra](imagenes-whatsapp/agenda-medico.png)—; clave de R2 = huella del
+dibujo, en `asistente/agenda-medico/`) y **el texto del modelo se descarta** cuando
 ya se mandó el listado. Si el modelo afirma horas o cantidades sin haber consultado, no sale y el
 chat pasa a una persona. Sin R2, el listado sale entero en texto.
 

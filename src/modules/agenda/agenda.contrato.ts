@@ -70,8 +70,17 @@ export function medicoDeAgenda(valor: unknown): MedicoAgenda {
     id: medicoId, especialidadId: id(v.especialidadId), nombre: texto(v.nombre, 210),
     horarioInformativo: v.horarioInformativo === null ? null : texto(v.horarioInformativo, 600),
     modalidad: v.modalidad, precio,
-    fotoUrl: version ? urlPublica(`/publico/agenda/fotos/${medicoId}/${version}`) : null,
+    fotoUrl: version ? urlFotoDeAgenda(medicoId, version) : null,
   };
+}
+
+/**
+ * La URL pública de la foto que la agenda (ScriptCase) tiene de un médico
+ * ACTIVO: la misma que usa la landing. La versión cambia con el archivo, así
+ * que se guarda en caché un año (`GET /publico/agenda/fotos/:id/:version`).
+ */
+export function urlFotoDeAgenda(medicoId: number | string, version: string): string {
+  return urlPublica(`/publico/agenda/fotos/${medicoId}/${version}`);
 }
 
 /** Un médico con su especialidad (`GET /publico/agenda/medicos/:id`); `null` si no está disponible. */

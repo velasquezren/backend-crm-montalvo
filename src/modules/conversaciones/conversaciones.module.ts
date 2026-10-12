@@ -4,6 +4,7 @@ import { AsistenteChatController } from './asistente-chat.controller';
 import { AsistenteChatService } from './asistente-chat.service';
 import { LecturaComprobantesService } from './lectura-comprobantes.service';
 import { ComprobantesReservaChatService } from './comprobantes-reserva-chat.service';
+import { ConstanciaReservaService } from './constancia-reserva.service';
 import { CierreInactividadService } from './cierre-inactividad.service';
 import { CabecerasPlantillaController } from './cabeceras-plantilla.controller';
 import { MemoriaAgenteModule } from '../memoria-agente/memoria-agente.module';
@@ -51,6 +52,7 @@ import { WhatsappWebhookController } from './webhooks/whatsapp-webhook.controlle
     ReintentoSalienteService,
     CierreInactividadService,
     ComprobantesReservaChatService,
+    ConstanciaReservaService,
     AsistenteChatService,
     LecturaComprobantesService,
     MetaSignatureGuard,

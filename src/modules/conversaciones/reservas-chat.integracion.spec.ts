@@ -6,6 +6,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { R2Service } from '../../common/storage/r2.service';
 import { AgendaReservasService } from '../agenda/agenda-reservas.service';
 import { ConversacionesGateway } from './conversaciones.gateway';
+import { ConstanciaReservaService } from './constancia-reserva.service';
 import { ComprobantesReservaChatService, leerImagenAcotada } from './comprobantes-reserva-chat.service';
 import { comprobanteAmbiguo, marcarComprobanteDeReserva, registrarReservaDeChat } from './reservas-chat';
 import { BYTES_MAXIMOS_IMAGEN } from '../../common/storage/imagen-publica';
@@ -17,7 +18,8 @@ let codigo = 1000000;
 const agenda = { registrarPagoDesdeChat: jest.fn<Promise<'REGISTRADO' | 'YA_NO_PENDIENTE'>, [number,Buffer]>() };
 const gateway = { emitirActividad: jest.fn() };
 const r2 = { leer: jest.fn(async () => ({ cuerpo: new Blob([Uint8Array.from([1,2,3])]).stream(), bytes: 3 })) };
-const worker = () => new ComprobantesReservaChatService(db, r2 as unknown as R2Service, agenda as unknown as AgendaReservasService, gateway as unknown as ConversacionesGateway);
+const constancia = { enviar: jest.fn(async () => true) };
+const worker = () => new ComprobantesReservaChatService(db, r2 as unknown as R2Service, agenda as unknown as AgendaReservasService, gateway as unknown as ConversacionesGateway, constancia as unknown as ConstanciaReservaService);
 const cierre = (reserva = ++codigo) => ({ telefono: telefono.slice(1), reserva, montoCentavos:40025, qrClave:'agenda/qr/7-0123456789abcdef.png' });
 
 beforeAll(async () => { await db.$connect(); });
@@ -34,6 +36,7 @@ beforeEach(async () => {
   agenda.registrarPagoDesdeChat.mockReset().mockResolvedValue('REGISTRADO');
   gateway.emitirActividad.mockClear();
   r2.leer.mockClear();
+  constancia.enviar.mockClear();
 });
 afterEach(async () => {
   await db.conversacion.deleteMany({where:{id:{in:[chat,otroChat]}}});
@@ -100,6 +103,20 @@ it('dos procesos reclaman una sola transferencia a MySQL y notifican realtime', 
   expect(agenda.registrarPagoDesdeChat).toHaveBeenCalledTimes(1);
   expect((await db.reservaChat.findUniqueOrThrow({where:{id:fila.id}})).estado).toBe('PAGO_REGISTRADO');
   expect(gateway.emitirActividad).toHaveBeenCalledWith(chat);
+  /* La constancia, una vez: la pide solo la pasada que registró. */
+  expect(constancia.enviar).toHaveBeenCalledTimes(1);
+  expect(constancia.enviar).toHaveBeenCalledWith(fila.reservaAgenda, expect.any(Date));
+});
+it('un comprobante que va a revisión o que la agenda no registró no manda constancia', async () => {
+  const {fila}=await pendiente();
+  agenda.registrarPagoDesdeChat.mockResolvedValueOnce('YA_NO_PENDIENTE');
+  await worker().procesar();
+  expect((await db.reservaChat.findUniqueOrThrow({where:{id:fila.id}})).estado).toBe('REVISION');
+  const otra=await pendiente();
+  agenda.registrarPagoDesdeChat.mockRejectedValueOnce(new Error('fallo externo sintético'));
+  await worker().procesar();
+  expect((await db.reservaChat.findUniqueOrThrow({where:{id:otra.fila.id}})).estado).toBe('COMPROBANTE_RECIBIDO');
+  expect(constancia.enviar).not.toHaveBeenCalled();
 });
 it('apagar una línea frena transferencias pendientes sin perder el comprobante', async () => {
   const {fila}=await pendiente();

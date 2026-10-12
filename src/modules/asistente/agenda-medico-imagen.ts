@@ -1,34 +1,43 @@
 /**
  * La agenda de un médico como imagen y como texto. Puro y probado: lo que se le
  * manda al médico lo escribe ESTE archivo con los datos de la agenda, no el
- * modelo. Misma mano y mismos colores que el horario (`horario-imagen.ts`).
+ * modelo. Misma mano que el horario y la constancia (`marca-imagen.ts`): mañana y
+ * tarde por separado, y el estado de cada cita en color y en palabras.
  *
  * El texto sale siempre —es el pie de la imagen, y es lo que se manda entero si
  * la imagen no se pudo dibujar—: se copia, y lo lee un lector de pantalla.
  */
 import type { AgendaDelDia, CitaMedico, EstadoCitaMedico } from '../agenda/agenda-medico-citas';
-import { ETIQUETA_ESTADO_CITA } from '../agenda/agenda-medico-citas';
-import { ajustar, COLOR, escaparXml } from './horario-imagen';
+import { ETIQUETA_ESTADO_CITA, minutosDeHora } from '../agenda/agenda-medico-citas';
+import {
+  abrirSvg, ajustar, ALTO_MARCA, ANCHO_IMAGEN, antetitulo, cabecera, COLOR, escaparXml, fechaLarga, MARGEN, pastilla, pie, tituloSeccion,
+} from './marca-imagen';
+import { INICIO_TARDE_MINUTO } from './horario-imagen';
 
-export const ANCHO_AGENDA = 1080;
+export { fechaLarga } from './marca-imagen';
+
+export const ANCHO_AGENDA = ANCHO_IMAGEN;
 /** Más filas que esto no caben en una imagen legible en un teléfono: el resto se cuenta. */
 export const FILAS_MAXIMAS = 30;
 /** El tope del texto de WhatsApp es 4096; este deja aire para el encabezado. */
 const LINEAS_MAXIMAS_TEXTO = 45;
 
 /** El diseño de la imagen: sube cuando cambia el dibujo, para no reusar un PNG viejo. */
-export const VERSION_DISENO_AGENDA_MEDICO = 1;
+export const VERSION_DISENO_AGENDA_MEDICO = 2;
 
-const CABECERA = 300;
-const FILA = 92;
-const PIE = 100;
-const RESUMEN_ALTO = 150;
+const CABECERA = 360;
+const RESUMEN_ALTO = 158;
+const SECCION = 70;
+const FILA = 88;
+const PIE = 140;
 
 const COLOR_ESTADO: Readonly<Record<EstadoCitaMedico, { fondo: string; texto: string; borde: string }>> = {
   CONFIRMADA: { fondo: COLOR.fondoSuave, texto: COLOR.primario, borde: COLOR.secundario },
-  POR_CONFIRMAR: { fondo: '#FEF3C7', texto: '#92400E', borde: '#F59E0B' },
-  PAGO_POR_VERIFICAR: { fondo: '#DBEAFE', texto: '#1E40AF', borde: '#60A5FA' },
+  POR_CONFIRMAR: { fondo: COLOR.ambarFondo, texto: COLOR.ambarTexto, borde: COLOR.ambarBorde },
+  PAGO_POR_VERIFICAR: { fondo: COLOR.azulFondo, texto: COLOR.azulTexto, borde: COLOR.azulBorde },
 };
+/** Un recuadro de cantidad en cero no compite con los que sí tienen algo. */
+const SIN_NADA = { fondo: COLOR.fondoGris, texto: COLOR.apagado, borde: COLOR.borde };
 
 /** Lo que dice cada recuadro de cantidad, en dos renglones (en plural: es una cuenta, no un estado). */
 const RESUMEN_LINEAS: Readonly<Record<EstadoCitaMedico, readonly [string, string]>> = {
@@ -36,17 +45,6 @@ const RESUMEN_LINEAS: Readonly<Record<EstadoCitaMedico, readonly [string, string
   POR_CONFIRMAR: ['Por', 'confirmar'],
   PAGO_POR_VERIFICAR: ['Pago por', 'verificar'],
 };
-
-const MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
-const DIAS = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
-
-/** «sábado 11 de octubre de 2026», de un AAAA-MM-DD. Sin zona horaria: es una fecha civil. */
-export function fechaLarga(fecha: string): string {
-  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(fecha);
-  if (!m) return fecha;
-  const d = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
-  return `${DIAS[d.getUTCDay()]} ${d.getUTCDate()} de ${MESES[d.getUTCMonth()]} de ${d.getUTCFullYear()}`;
-}
 
 const plural = (n: number, uno: string, varios: string) => `${n} ${n === 1 ? uno : varios}`;
 
@@ -98,61 +96,76 @@ export function textoListado(medico: string, a: AgendaDelDia): string {
   ].join('\n');
 }
 
-function pastilla(x: number, y: number, ancho: number, estado: EstadoCitaMedico, texto: string, tamano = 24): string {
-  const c = COLOR_ESTADO[estado];
+/** Una hora ilegible cuenta como de la mañana: se ve igual, solo cambia de sección. */
+const minutos = (hora: string) => minutosDeHora(hora) ?? 0;
+
+function filaDeCita(c: CitaMedico, y: number, primera: boolean): string {
+  const estilo = COLOR_ESTADO[c.estado];
+  const paciente = ajustar(c.paciente, 30, 27, 470);
   return [
-    `<rect x="${x}" y="${y}" width="${ancho}" height="48" rx="24" fill="${c.fondo}" stroke="${c.borde}" stroke-width="2"/>`,
-    `<text x="${x + ancho / 2}" y="${y + 32}" font-size="${tamano}" font-weight="600" fill="${c.texto}" text-anchor="middle">${escaparXml(texto)}</text>`,
+    primera ? '' : `<line x1="${MARGEN}" y1="${y}" x2="${ANCHO_AGENDA - MARGEN}" y2="${y}" stroke="${COLOR.borde}" stroke-width="2"/>`,
+    /* La franja de color repite el estado: se distingue de reojo, sin leer la pastilla. */
+    `<rect x="${MARGEN}" y="${y + 18}" width="6" height="${FILA - 36}" rx="3" fill="${estilo.borde}"/>`,
+    `<text x="${MARGEN + 26}" y="${y + 56}" font-size="34" font-weight="600" fill="${COLOR.primario}">${escaparXml(c.hora)}</text>`,
+    `<text x="${MARGEN + 172}" y="${y + 55}" font-size="${paciente.tamano}" fill="${COLOR.texto}">${escaparXml(paciente.texto)}</text>`,
+    pastilla(ANCHO_AGENDA - MARGEN - 270, y + 20, 270, 48, ETIQUETA_ESTADO_CITA[c.estado], estilo, 22),
   ].join('');
 }
 
 export function svgDeAgendaMedico(medico: string, a: AgendaDelDia): string {
   const visibles = a.citas.slice(0, FILAS_MAXIMAS);
   const resto = a.total - visibles.length;
-  const cuerpo = a.total === 0 ? 150 : visibles.length * FILA + (resto > 0 ? 70 : 24);
+  const secciones = [
+    { titulo: 'Mañana', citas: visibles.filter(c => minutos(c.hora) < INICIO_TARDE_MINUTO) },
+    { titulo: 'Tarde', citas: visibles.filter(c => minutos(c.hora) >= INICIO_TARDE_MINUTO) },
+  ].filter(s => s.citas.length > 0);
+  const cuerpo = a.total === 0 ? 170 : secciones.reduce((s, x) => s + SECCION + x.citas.length * FILA, 0) + (resto > 0 ? 70 : 20);
   const alto = CABECERA + RESUMEN_ALTO + cuerpo + PIE;
-  const nombre = ajustar(medico, 56, 34, ANCHO_AGENDA - 120);
+  /* El total va a la derecha de la cabecera: el nombre no puede pisarlo. */
+  const nombre = ajustar(medico, 54, 32, ANCHO_AGENDA - 2 * MARGEN - 190);
 
   const resumen = (['CONFIRMADA', 'POR_CONFIRMAR', 'PAGO_POR_VERIFICAR'] as const).map((estado, i) => {
     const n = estado === 'CONFIRMADA' ? a.confirmadas : estado === 'POR_CONFIRMAR' ? a.porConfirmar : a.pagoPorVerificar;
-    const x = 60 + i * 322;
-    const c = COLOR_ESTADO[estado];
+    const x = MARGEN + i * 327;
+    const c = n > 0 ? COLOR_ESTADO[estado] : SIN_NADA;
+    const y = CABECERA + 28;
     return [
-      `<rect x="${x}" y="${CABECERA + 20}" width="300" height="110" rx="20" fill="${c.fondo}" stroke="${c.borde}" stroke-width="2"/>`,
-      `<text x="${x + 24}" y="${CABECERA + 88}" font-size="60" font-weight="600" fill="${c.texto}">${n}</text>`,
-      `<text x="${x + 96}" y="${CABECERA + 68}" font-size="23" fill="${c.texto}">${escaparXml(RESUMEN_LINEAS[estado][0])}</text>`,
-      `<text x="${x + 96}" y="${CABECERA + 98}" font-size="23" fill="${c.texto}">${escaparXml(RESUMEN_LINEAS[estado][1])}</text>`,
+      `<rect x="${x}" y="${y}" width="306" height="110" rx="20" fill="${c.fondo}" stroke="${c.borde}" stroke-width="2"/>`,
+      `<text x="${x + 28}" y="${y + 76}" font-size="58" font-weight="600" fill="${c.texto}">${n}</text>`,
+      `<text x="${x + (n > 9 ? 116 : 100)}" y="${y + 50}" font-size="23" fill="${c.texto}">${escaparXml(RESUMEN_LINEAS[estado][0])}</text>`,
+      `<text x="${x + (n > 9 ? 116 : 100)}" y="${y + 80}" font-size="23" fill="${c.texto}">${escaparXml(RESUMEN_LINEAS[estado][1])}</text>`,
     ].join('');
   }).join('');
 
-  const y0 = CABECERA + RESUMEN_ALTO;
-  const filas = a.total === 0
-    ? `<text x="${ANCHO_AGENDA / 2}" y="${y0 + 80}" font-size="32" fill="${COLOR.apagado}" text-anchor="middle">No hay citas registradas para este día</text>`
-    : visibles.map((c, i) => {
-        const y = y0 + i * FILA;
-        const paciente = ajustar(c.paciente, 32, 22, 480);
-        return [
-          i > 0 ? `<line x1="60" y1="${y}" x2="${ANCHO_AGENDA - 60}" y2="${y}" stroke="${COLOR.borde}" stroke-width="2"/>` : '',
-          `<text x="60" y="${y + 58}" font-size="36" font-weight="600" fill="${COLOR.primario}">${escaparXml(c.hora)}</text>`,
-          `<text x="220" y="${y + 58}" font-size="${paciente.tamano}" fill="${COLOR.texto}">${escaparXml(paciente.texto)}</text>`,
-          pastilla(730, y + 22, 290, c.estado, ETIQUETA_ESTADO_CITA[c.estado], 23),
-        ].join('');
-      }).join('') + (resto > 0
-        ? `<text x="60" y="${y0 + visibles.length * FILA + 46}" font-size="28" fill="${COLOR.apagado}">… y ${escaparXml(plural(resto, 'cita más', 'citas más'))} (están en el texto)</text>`
-        : '');
+  let y = CABECERA + RESUMEN_ALTO;
+  let filas = '';
+  if (a.total === 0) {
+    filas = `<text x="${ANCHO_AGENDA / 2}" y="${y + 95}" font-size="32" fill="${COLOR.apagado}" text-anchor="middle">No hay citas registradas para este día</text>`;
+  } else {
+    for (const s of secciones) {
+      filas += tituloSeccion(s.titulo, y + 46, plural(s.citas.length, 'cita', 'citas'));
+      y += SECCION;
+      s.citas.forEach((c, i) => {
+        filas += filaDeCita(c, y, i === 0);
+        y += FILA;
+      });
+    }
+    if (resto > 0) {
+      filas += `<text x="${MARGEN}" y="${y + 48}" font-size="26" fill="${COLOR.apagado}">… y ${escaparXml(plural(resto, 'cita más', 'citas más'))} (están en el texto)</text>`;
+    }
+  }
 
   return [
-    `<svg xmlns="http://www.w3.org/2000/svg" width="${ANCHO_AGENDA}" height="${alto}" viewBox="0 0 ${ANCHO_AGENDA} ${alto}" font-family="Poppins">`,
-    `<rect width="100%" height="100%" fill="#FFFFFF"/>`,
-    `<rect width="100%" height="${CABECERA}" fill="${COLOR.primario}"/>`,
-    `<text x="60" y="80" font-size="28" fill="#FFFFFF" fill-opacity="0.85" letter-spacing="3">AGENDA DEL DÍA</text>`,
-    `<text x="60" y="${176 - (56 - nombre.tamano) / 2}" font-size="${nombre.tamano}" font-weight="600" fill="#FFFFFF">${escaparXml(nombre.texto)}</text>`,
-    `<text x="60" y="240" font-size="32" fill="#FFFFFF" fill-opacity="0.9">${escaparXml(fechaLarga(a.fecha))}</text>`,
+    abrirSvg(alto),
+    cabecera(CABECERA),
+    antetitulo('Agenda del día', ALTO_MARCA + 62),
+    `<text x="${MARGEN}" y="${ALTO_MARCA + 128 - (54 - nombre.tamano) / 2}" font-size="${nombre.tamano}" font-weight="600" fill="#FFFFFF">${escaparXml(nombre.texto)}</text>`,
+    `<text x="${MARGEN}" y="${ALTO_MARCA + 180}" font-size="30" fill="#FFFFFF" fill-opacity="0.9">${escaparXml(fechaLarga(a.fecha))}</text>`,
+    `<text x="${ANCHO_AGENDA - MARGEN}" y="${ALTO_MARCA + 128}" font-size="76" font-weight="600" fill="#FFFFFF" text-anchor="end">${a.total}</text>`,
+    `<text x="${ANCHO_AGENDA - MARGEN}" y="${ALTO_MARCA + 170}" font-size="24" fill="#FFFFFF" fill-opacity="0.85" text-anchor="end">${a.total === 1 ? 'cita' : 'citas'}</text>`,
     resumen,
     filas,
-    `<rect y="${alto - PIE}" width="100%" height="${PIE}" fill="${COLOR.fondoSuave}"/>`,
-    `<text x="60" y="${alto - PIE + 44}" font-size="28" font-weight="600" fill="${COLOR.primario}">Clínica Montalvo</text>`,
-    `<text x="60" y="${alto - PIE + 80}" font-size="22" fill="${COLOR.apagado}">Confidencial: datos de pacientes, solo para el médico.</text>`,
+    pie(alto, PIE, 'Confidencial: solo para el médico', 'Por confirmar y Pago por verificar: reservas que recepción aún no cerró.'),
     '</svg>',
   ].join('');
 }

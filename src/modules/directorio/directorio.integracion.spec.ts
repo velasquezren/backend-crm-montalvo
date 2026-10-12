@@ -229,4 +229,24 @@ describe('fichas de médicos', () => {
     expect([...almacen.keys()].filter(k => k.startsWith(`directorio/${ficha['id']}/`))).toHaveLength(1);
     expect((await fetch(`${base}/publico/directorio/fotos/${fotoId}`)).status).toBe(404);
   });
+
+  it('la foto para la imagen del horario: solo la de una ficha PUBLICADA de ese médico de la agenda, con sus bytes', async () => {
+    const esp = await especialidad('Foto del horario');
+    const agendaMedicoId = 900_000 + Math.floor(Math.random() * 90_000);
+    const ficha = (await http('/directorio/medicos', 'POST', usuarios.admin.token, { nombrePublico: `${PREFIJO} Dr. Horario`, especialidadIds: [esp.id] })).body;
+    await prisma.perfilMedico.update({ where: { id: ficha['id'] as string }, data: { agendaMedicoId } });
+    const directorio = app.get(DirectorioService);
+    expect(await directorio.bytesDeFotoPublicaDeAgenda(agendaMedicoId)).toBeNull();
+
+    const jpg = imagenSintetica('jpg', 800, 800);
+    await subirFoto(ficha['id'] as string, jpg);
+    /* Oculta: la paciente no la ve en la landing, así que tampoco en la imagen. */
+    expect(await directorio.bytesDeFotoPublicaDeAgenda(agendaMedicoId)).toBeNull();
+
+    await http(`/directorio/medicos/${ficha['id']}/publicacion`, 'PUT', usuarios.admin.token, { publicado: true });
+    const foto = await directorio.bytesDeFotoPublicaDeAgenda(agendaMedicoId);
+    expect(foto?.tipo).toBe('image/jpeg');
+    expect(Buffer.compare(foto!.bytes, jpg)).toBe(0);
+    expect(await directorio.bytesDeFotoPublicaDeAgenda(agendaMedicoId + 1)).toBeNull();
+  });
 });

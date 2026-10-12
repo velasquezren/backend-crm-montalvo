@@ -2,6 +2,54 @@
 
 > **Revisión del 10/10/2026, módulo por módulo (sin Comisiones ni Finanzas):** [REVISION_2026-10-10.md](REVISION_2026-10-10.md). La API está sana; la lista de mejoras por impacto está ahí.
 
+## 12 de octubre de 2026 (tarde) · fotos de los médicos en todo el CRM e historial de servicios unido al Directorio · EN EL REPO, SIN DESPLEGAR
+
+- **La foto de cada médico** sale de donde ya la tenía la landing: la de su ficha web y, si no
+  tiene, la de la agenda (ScriptCase, `medicos.foto`). `GET /agenda/medicos` y la ficha devuelven
+  `fotoUrl` + `fotoOrigen` (`WEB` | `AGENDA`; `fotoDelMedico` en `agenda-medicos-crm.service.ts`).
+  La de la agenda va por la URL pública versionada (`/publico/agenda/fotos/:id/:version`, caché de
+  un año), solo de médicos activos. Antes el Directorio mostraba iniciales salvo que se hubiera
+  subido una foto a la ficha web.
+- **Rápido:** las fotos de la agenda tienen su propia caché en memoria (6 h, 150), la ruta pública
+  un límite propio (600/min por IP: el Directorio pide decenas a la vez desde la clínica) y el
+  avatar del CRM carga perezoso, con medidas y con las iniciales si la imagen no carga.
+- **«Usar la de la agenda»** en la pestaña Web: pasa la foto de ScriptCase a la ficha web
+  (`POST /agenda/medicos/:id/presentacion/foto/desde-agenda`, mismas validaciones que una subida).
+- **Historial de servicios ↔ Directorio**, por el código de FileMaker (`VentaImportada.medicoPk` =
+  `medicos.codigo`): `GET /agenda/medicos/por-codigo?codigos=…` (hasta 50; lista entera de la
+  agenda en caché 2 min) pone cara al ranking, a la tabla y al cajón del médico, y el cajón enlaza
+  su ficha del Directorio. La ficha tiene una pestaña **«Servicios»** (solo ADMIN+, como el
+  historial) con su resumen, lo que más hace y el enlace a `/servicios?medico=<código>`, que abre
+  su perfil.
+- **La imagen del horario lleva la foto del médico** (retrato redondo con sus iniciales debajo, por
+  si el motor no puede leerla: solo JPEG/PNG). Versión de diseño 3.
+- **La constancia de reserva sale solo en las líneas con el asistente encendido** (sugerir o
+  responder, `AsistenteLineasService.encendidoEn`), aunque Gemini no esté conectado: hoy, la línea
+  de prueba. Ventas y Recepción no la reciben hasta que René encienda el asistente ahí o ponga
+  `CONSTANCIA_RESERVA=todas`. Reemplaza lo de «se enciende sola» de la entrada de abajo.
+- Pruebas: 1115 unitarias, 906 de integración (crm_test) y 749 del frontend; build de los dos en
+  verde; arranque real del artefacto (`/health` 200, login vacío 400, periodos 401, `por-codigo`
+  sin sesión 401). La consulta nueva de MySQL (`medicosConCodigo`) tiene su prueba en la suite de
+  MySQL sintético, que en esta máquina se salta.
+
+## 12 de octubre de 2026 · imágenes de WhatsApp rediseñadas y constancia de reserva · EN EL REPO, SIN DESPLEGAR
+
+- **Una sola mano** para las imágenes que manda la clínica (`asistente/marca-imagen.ts`): logo,
+  colores, cabecera y pie. Muestras en [imagenes-whatsapp/](imagenes-whatsapp/).
+- **Horario** (paciente): columnas mañana/tarde, días sin atención más bajos, precio de la
+  consulta si la agenda lo tiene (`horarioSemanal` ahora devuelve `precioBs`). Versión de diseño 2:
+  los PNG viejos de R2 no se reusan.
+- **Agenda del médico**: total en la cabecera, recuadros en gris si están en cero, citas por
+  mañana y tarde con una franja de color por estado. Versión de diseño 2.
+- **Constancia de reserva** (nueva): al quedar registrado el comprobante de una reserva por
+  WhatsApp, la paciente recibe una imagen con número, día, hora, médico y lo pagado, en estado
+  «Pago recibido: en verificación». ~~Se enciende sola al desplegar en Ventas y Recepción~~:
+  **corregido la misma tarde**, sale solo donde está encendido el asistente (ver arriba).
+  `CONSTANCIA_RESERVA=off` la apaga. Sin migración.
+  Detalle en [reservas-pago-chat.md](reservas-pago-chat.md#la-constancia-de-reserva-12102026).
+- Pruebas: 1103 unitarias y 903 de integración (crm_test), arranque real del artefacto con
+  `/health` 200, login vacío 400 y periodos 401.
+
 ## 10 de octubre de 2026 (tarde) · el médico consulta su agenda por WhatsApp · EN EL REPO, SIN DESPLEGAR
 
 Detalle y receta para encenderlo en **[asistente-ia.md](asistente-ia.md#agenda-del-médico-por-whatsapp-10102026)**.

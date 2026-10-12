@@ -138,6 +138,37 @@ export async function listarMedicosAgenda(db: Conexion, f: FiltroMedicosAgenda) 
   };
 }
 
+/** Un médico de la agenda visto desde otro dato del CRM que lo nombra por su código de FileMaker. */
+export interface MedicoPorCodigo {
+  id: number;
+  codigo: string;
+  nombre: string;
+  especialidad: string | null;
+  estado: string;
+  fotoVersion: string | null;
+}
+
+/**
+ * Los médicos que tienen código de FileMaker (todos los de la agenda; son ~90).
+ * El historial de servicios nombra a cada médico por ese código: con esta
+ * lista se le pone cara y se enlaza su ficha del Directorio.
+ */
+export async function medicosConCodigo(db: Conexion): Promise<MedicoPorCodigo[]> {
+  const datos = await filas(
+    db,
+    `SELECT m.medico_pk, m.codigo, m.nombre, m.sigla, m.especialidad, m.estado, m.foto
+       FROM medicos m WHERE TRIM(COALESCE(m.codigo, '')) <> '' ORDER BY m.estado = 'ACTIVO' DESC, m.medico_pk LIMIT 2000`,
+  );
+  return datos.map(f => ({
+    id: Number(f.medico_pk),
+    codigo: String(f.codigo).trim(),
+    nombre: [textoONulo(f.sigla), textoONulo(f.nombre)].filter(Boolean).join(' '),
+    especialidad: textoONulo(f.especialidad),
+    estado: String(f.estado ?? ''),
+    fotoVersion: versionDeFoto(f.foto),
+  }));
+}
+
 /** Las especialidades como están escritas en la agenda (texto libre), con cuántos médicos tiene cada una. */
 export async function listarEspecialidadesAgenda(db: Conexion, skip: number, take: number) {
   const grupo = `FROM medicos WHERE TRIM(COALESCE(especialidad, '')) <> '' GROUP BY TRIM(especialidad)`;
