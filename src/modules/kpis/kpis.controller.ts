@@ -14,4 +14,10 @@ export class KpisController {
   resumen(@Query() query: QueryKpisDto, @CurrentUser() usuario: UsuarioJwt) {
     return this.kpisService.resumen(query.periodo ?? 'MES', alcanceAgente(usuario));
   }
+
+  /** El análisis de abajo del Dashboard; aparte, para que el resumen no lo espere. */
+  @Get('detalle')
+  detalle(@Query() query: QueryKpisDto, @CurrentUser() usuario: UsuarioJwt) {
+    return this.kpisService.detalle(query.periodo ?? 'MES', alcanceAgente(usuario));
+  }
 }

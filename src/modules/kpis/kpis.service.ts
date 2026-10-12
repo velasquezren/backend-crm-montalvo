@@ -5,6 +5,7 @@ import { inicioDelDiaClinica, inicioDelMesClinica, ZONA_CLINICA } from '../../co
 import { Prisma } from '../../prisma/prisma-client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { whereAccesoConversacion } from '../conversaciones/acceso-conversacion';
+import { ESPERANDO_HUMANO } from '../conversaciones/atencion-humana';
 import { SIN_RESPONDER } from '../conversaciones/estado-conversacion';
 import { PeriodoKpi } from './dto/query-kpis.dto';
 
@@ -22,6 +23,23 @@ interface FilaEmbudo {
   respondidosEnUnaHora: number;
   convertidos: number;
   medianaMinutos: number | null;
+}
+
+/** Cuánto esperaron los leads del periodo su primera respuesta humana. */
+interface FilaEsperas {
+  menos15: number;
+  menosHora: number;
+  menos4Horas: number;
+  menosDia: number;
+  masDia: number;
+  sinRespuesta: number;
+}
+
+/** Leads por día de la semana (0 = lunes) y hora, en La Paz. Solo las celdas con alguno. */
+interface FilaHora {
+  dia: number;
+  hora: number;
+  leads: number;
 }
 
 interface FilaSerie {
@@ -61,7 +79,85 @@ export class KpisService {
     maxEntradas: 50,
   });
 
+  /** El análisis de abajo del Dashboard: más consultas y nadie lo mira al segundo. */
+  private readonly cacheDetalle = new CacheMemoria<Awaited<ReturnType<KpisService['calcularDetalle']>>>({
+    ttlMs: 60_000,
+    maxEntradas: 50,
+  });
+
   constructor(private readonly prisma: PrismaService) {}
+
+  /**
+   * Lo que el Dashboard pinta bajo el pliegue (`GET /kpis/detalle`), aparte
+   * del resumen para que lo de arriba no espere a esto: cuánto esperan los
+   * leads su primera respuesta, a qué hora y qué día escriben, por qué línea
+   * entran los chats, qué pacientes escriben (por categoría) y, para quien ve
+   * todo, qué hizo el asistente. Mismo alcance por rol que el resumen.
+   */
+  async detalle(periodo: PeriodoKpi, soloAgenteId?: string, ahora = new Date()) {
+    const clave = `${periodo}_${soloAgenteId ?? 'ALL'}`;
+    return this.cacheDetalle.resolver(clave, () => this.calcularDetalle(periodo, soloAgenteId, ahora));
+  }
+
+  private async calcularDetalle(periodo: PeriodoKpi, soloAgenteId: string | undefined, ahora: Date) {
+    const { actual } = rangosDe(periodo, ahora);
+    const enActual = { gte: actual.desde, lt: actual.hasta };
+    /* Chats del alcance que tuvieron un mensaje de la paciente en el periodo. */
+    const conActividad: Prisma.ConversacionWhereInput = {
+      AND: [whereAccesoConversacion(soloAgenteId), { mensajes: { some: { direccion: 'ENTRANTE', createdAt: enActual } } }],
+    };
+
+    const [esperas, porHora, porLinea, porCategoria, asistente] = await Promise.all([
+      this.prisma.$queryRaw<FilaEsperas[]>`
+        WITH base AS (${baseLeads(actual, soloAgenteId)})
+        SELECT (count(*) FILTER (WHERE espera < interval '15 minutes'))::int AS "menos15",
+               (count(*) FILTER (WHERE espera >= interval '15 minutes' AND espera < interval '1 hour'))::int AS "menosHora",
+               (count(*) FILTER (WHERE espera >= interval '1 hour' AND espera < interval '4 hours'))::int AS "menos4Horas",
+               (count(*) FILTER (WHERE espera >= interval '4 hours' AND espera < interval '24 hours'))::int AS "menosDia",
+               (count(*) FILTER (WHERE espera >= interval '24 hours'))::int AS "masDia",
+               (count(*) FILTER (WHERE espera IS NULL))::int AS "sinRespuesta"
+          FROM base`,
+      this.prisma.$queryRaw<FilaHora[]>`
+        WITH base AS (${baseLeads(actual, soloAgenteId)})
+        SELECT (extract(isodow FROM local)::int - 1) AS dia, extract(hour FROM local)::int AS hora, count(*)::int AS leads
+          FROM base
+         GROUP BY 1, 2`,
+      this.prisma.conversacion.groupBy({ by: ['lineaId'], where: conActividad, _count: true }),
+      this.prisma.cliente.groupBy({ by: ['categoria'], where: { conversaciones: { some: conActividad } }, _count: true }),
+      /* El asistente no tiene dueño por agente: lo ve solo quien ve todo. */
+      soloAgenteId
+        ? Promise.resolve(null)
+        : this.prisma.turnoAsistente.groupBy({ by: ['resultado'], where: { createdAt: enActual }, _count: true }),
+    ]);
+
+    const lineas = await this.prisma.lineaWhatsapp.findMany({
+      where: { id: { in: porLinea.map(l => l.lineaId) } },
+      select: { id: true, nombre: true },
+    });
+    const nombreDeLinea = new Map(lineas.map(l => [l.id, l.nombre]));
+    const fila = esperas[0];
+
+    return {
+      primeraRespuesta: {
+        menos15: fila?.menos15 ?? 0,
+        menosHora: fila?.menosHora ?? 0,
+        menos4Horas: fila?.menos4Horas ?? 0,
+        menosDia: fila?.menosDia ?? 0,
+        masDia: fila?.masDia ?? 0,
+        sinRespuesta: fila?.sinRespuesta ?? 0,
+      },
+      porHora: porHora.sort((a, b) => a.dia - b.dia || a.hora - b.hora),
+      chatsPorLinea: porLinea
+        .map(l => ({ lineaId: l.lineaId, linea: nombreDeLinea.get(l.lineaId) ?? 'Línea', chats: l._count }))
+        .sort((a, b) => b.chats - a.chats),
+      pacientesPorCategoria: porCategoria
+        .map(c => ({ categoria: c.categoria, pacientes: c._count }))
+        .sort((a, b) => b.pacientes - a.pacientes),
+      asistente: asistente && asistente.length
+        ? Object.fromEntries(asistente.map(a => [a.resultado, a._count])) as Partial<Record<'SUGIRIO' | 'RESPONDIO' | 'DERIVO' | 'OMITIDO' | 'FALLO', number>>
+        : null,
+    };
+  }
 
   /**
    * Alcance por rol: para un AGENTE, ventas se limitan a las suyas y leads y
@@ -100,6 +196,7 @@ export class KpisService {
       leadsHoy,
       ultimasVentas,
       ultimosLeads,
+      esperanPersona,
     ] = await Promise.all([
       this.embudo(actual, soloAgenteId),
       this.embudo(anterior, soloAgenteId),
@@ -157,6 +254,9 @@ export class KpisService {
         orderBy: { createdAt: 'desc' },
         take: 5,
       }),
+      /* Pidieron hablar con una persona y nadie la tomó: el mismo número que
+         «Atención» en el inbox (en espera). */
+      this.prisma.conversacion.count({ where: { AND: [whereAccesoConversacion(soloAgenteId), ESPERANDO_HUMANO] } }),
     ]);
 
     /* Nombre y foto del ranking en una consulta, cruzados por `agenteId` (la
@@ -206,6 +306,7 @@ export class KpisService {
         chatsSinResponder,
         chatsGoldSinResponder,
         leadsHoy,
+        esperanPersona,
       },
       embudo: {
         captados: total.captados,

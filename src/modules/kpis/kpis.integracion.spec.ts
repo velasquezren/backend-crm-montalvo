@@ -150,6 +150,55 @@ describe('KPIs · el embudo se mide sobre los mensajes', () => {
   });
 });
 
+describe('KPIs · el análisis de abajo del Dashboard (detalle)', () => {
+  let conversacionGold: string;
+  beforeAll(async () => {
+    /* Una paciente Gold que ESCRIBIÓ en marzo, por la línea por defecto, y un turno del asistente. */
+    const gold = await prisma.cliente.create({ data: { nombre: 'Paciente KPI Gold', telefono: `${PREFIJO}9001`, categoria: 'GOLD' } });
+    const c = await prisma.conversacion.create({ data: { clienteId: gold.id } });
+    conversacionGold = c.id;
+    const m = await prisma.mensaje.create({ data: { conversacionId: c.id, direccion: 'ENTRANTE', contenido: 'hola', createdAt: en('2030-03-18T15:00:00Z') } });
+    await prisma.turnoAsistente.create({
+      data: { conversacionId: c.id, lineaId: c.lineaId, mensajeId: m.id, modo: 'RESPONDER', resultado: 'RESPONDIO', herramientas: [], createdAt: en('2030-03-18T15:00:10Z') },
+    });
+  });
+
+  it('reparte los leads por cuánto esperaron su primera respuesta humana', async () => {
+    const d = await new KpisService(prisma).detalle('MES', undefined, AHORA);
+    /* 30 min, 3 h y tres sin respuesta (el acuse y el mensaje previo no cuentan). */
+    expect(d.primeraRespuesta).toEqual({ menos15: 0, menosHora: 1, menos4Horas: 1, menosDia: 0, masDia: 0, sinRespuesta: 3 });
+  });
+
+  it('el mapa de cuándo escriben usa el día y la hora de La Paz', async () => {
+    const d = await new KpisService(prisma).detalle('MES', undefined, AHORA);
+    expect(d.porHora.reduce((s, c) => s + c.leads, 0)).toBe(5);
+    /* 2 de marzo 02:00 UTC = viernes 1 de marzo a las 22:00 en La Paz (lunes = 0). */
+    expect(d.porHora).toContainEqual({ dia: 4, hora: 22, leads: 1 });
+  });
+
+  it('chats por línea y pacientes por categoría: solo los que escribieron en el periodo', async () => {
+    const d = await new KpisService(prisma).detalle('MES', undefined, AHORA);
+    const linea = await prisma.conversacion.findUniqueOrThrow({ where: { id: conversacionGold }, select: { lineaId: true } });
+    expect(d.chatsPorLinea).toContainEqual(expect.objectContaining({ lineaId: linea.lineaId, chats: expect.any(Number) }));
+    expect(d.pacientesPorCategoria).toContainEqual({ categoria: 'GOLD', pacientes: expect.any(Number) });
+    /* En febrero esa paciente no escribió. */
+    const febrero = await new KpisService(prisma).detalle('MES_ANTERIOR', undefined, AHORA);
+    expect(febrero.pacientesPorCategoria.find(c => c.categoria === 'GOLD')?.pacientes ?? 0).toBe(
+      (await prisma.cliente.count({ where: { categoria: 'GOLD', conversaciones: { some: { mensajes: { some: { direccion: 'ENTRANTE', createdAt: { gte: en('2030-02-01T04:00:00Z'), lt: en('2030-03-01T04:00:00Z') } } } } } } })),
+    );
+  });
+
+  it('el asistente lo ve quien ve todo; una agente no', async () => {
+    expect((await new KpisService(prisma).detalle('MES', undefined, AHORA)).asistente).toMatchObject({ RESPONDIO: 1 });
+    expect((await new KpisService(prisma).detalle('MES', AGENTE, AHORA)).asistente).toBeNull();
+  });
+
+  it('«esperan a una persona» va en lo de ahora', async () => {
+    const r = await new KpisService(prisma).resumen('MES', undefined, AHORA);
+    expect(r.ahora).toHaveProperty('esperanPersona');
+  });
+});
+
 describe('KPIs · periodos', () => {
   it('«este mes» se compara con el mes anterior hasta el mismo punto, no completo', () => {
     const diez = new Date('2030-03-10T16:00:00.000Z'); // 10 de marzo, 12:00 en La Paz

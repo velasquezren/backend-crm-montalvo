@@ -2,6 +2,22 @@
 
 > **Revisión del 10/10/2026, módulo por módulo (sin Comisiones ni Finanzas):** [REVISION_2026-10-10.md](REVISION_2026-10-10.md). La API está sana; la lista de mejoras por impacto está ahí.
 
+## 12 de octubre de 2026 (noche, 2) · Dashboard nuevo: tortas, mapa de horas y asistente
+
+- **Backend:** `GET /kpis/detalle` (mismo alcance por rol que el resumen; caché 60 s): leads por
+  tramo de primera respuesta (< 15 min, 15–60, 1–4 h, 4–24 h, > 1 día, sin respuesta), leads por día
+  y hora de La Paz, chats por línea y pacientes por categoría (los que escribieron en el periodo), y
+  los turnos del asistente por resultado (solo quien ve todo). El resumen suma `ahora.esperanPersona`
+  (= «Atención» en espera del inbox). 5 pruebas nuevas contra Postgres.
+- **Frontend:** franja «Ahora» con «esperan a una persona»; tortas de leads por canal, primera
+  respuesta, ventas por servicio y quién escribe; mapa de calor (matriz de puntos) con el pico;
+  chats por línea; asistente con «% resuelto solo»; guías en la serie de leads. El análisis va en
+  `@defer (on viewport)` con su propio endpoint: el resumen no lo espera. «Lo más vendido» pasó a
+  ser una torta. Rampa de tonos de la paleta (`rampa-graficos.ts`): las donas de Servicios y Ventas
+  dejan de ser de un solo verde.
+- Skills: `crm-design-system` («Tonos de un gráfico») y `crm-rendimiento` («Un tablero: lo de
+  arriba no espera a lo de abajo»).
+
 ## 12 de octubre de 2026 (noche) · filtros del inbox combinables y fluidos; el médico pregunta por la clínica
 
 - **«Sin responder» es un filtro que se combina** con «Todas», «Sin asignar», «Mis chats»,

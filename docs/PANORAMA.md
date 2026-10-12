@@ -52,7 +52,7 @@ Los dos primeros comparten servidor y Postgres (bases separadas) y se hablan
 | `modules/directorio` | Directorio médico: especialidades, la ficha pública de cada médico (enlazada a su código de FileMaker) y su horario semanal INFORMATIVO, más sus ausencias. Las citas reales siguen en el sistema de agenda de la clínica. API pública para la landing (`/publico/directorio`) ([diseño](promociones-y-directorio.md)) | Ver: todos · editar: ADMIN+ |
 | `modules/leads` | Embudo comercial, Lead Ads de Meta (`/webhooks/meta`) y alta presencial | AGENTE+ |
 | `modules/ventas` | Registro de ventas, catálogo, atribución al lead de origen | AGENTE+ (estado: ADMIN) |
-| `modules/kpis` | Números del dashboard, medidos sobre los mensajes | AGENTE+ |
+| `modules/kpis` | Números del dashboard, medidos sobre los mensajes. `GET /kpis/resumen` (lo que pide acción, tarjetas, embudo, serie, canales, equipo; caché 15 s) y `GET /kpis/detalle` (primera respuesta por tramos, leads por día y hora de La Paz, chats por línea, pacientes por categoría y el asistente —este solo sin alcance de agente—; caché 60 s), que el Dashboard pide al llegar a esa zona | AGENTE+ |
 | `modules/resultados` | Cola de informes del portal y envío del enlace al paciente | ASISTENTE y ADMIN+, con la línea de resultados |
 | `modules/servicios` | Historial clínico importado, médicos y demografía | ADMIN+ |
 | `modules/planilla-comisiones` | Importar el Excel de FileMaker, calcular, revisar, aprobar y exportar comisiones | ADMIN+ (aprobar/pagar: SUPER_ADMIN) |
