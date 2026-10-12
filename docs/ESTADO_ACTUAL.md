@@ -2,7 +2,12 @@
 
 > **Revisión del 10/10/2026, módulo por módulo (sin Comisiones ni Finanzas):** [REVISION_2026-10-10.md](REVISION_2026-10-10.md). La API está sana; la lista de mejoras por impacto está ahí.
 
-## 12 de octubre de 2026 (tarde) · fotos de los médicos en todo el CRM e historial de servicios unido al Directorio · EN EL REPO, SIN DESPLEGAR
+## 12 de octubre de 2026 (tarde) · fotos de los médicos en todo el CRM e historial de servicios unido al Directorio · DESPLEGADO
+
+**Desplegado (12/10, 13:50):** backend `b989429` (sin migraciones; respaldo previo
+`/root/backup-crm-20261012-134846.sql.gz`, 5,3 MB), `/health` ok, login 400, periodos 401, foto
+real de la agenda servida por `/publico/agenda/fotos/…` (200, image/png). Frontend `f5d9c4e` en
+main: Vercel no publicó estado en GitHub; René lo redesplegó a mano.
 
 - **La foto de cada médico** sale de donde ya la tenía la landing: la de su ficha web y, si no
   tiene, la de la agenda (ScriptCase, `medicos.foto`). `GET /agenda/medicos` y la ficha devuelven
@@ -32,7 +37,7 @@
   sin sesión 401). La consulta nueva de MySQL (`medicosConCodigo`) tiene su prueba en la suite de
   MySQL sintético, que en esta máquina se salta.
 
-## 12 de octubre de 2026 · imágenes de WhatsApp rediseñadas y constancia de reserva · EN EL REPO, SIN DESPLEGAR
+## 12 de octubre de 2026 · imágenes de WhatsApp rediseñadas y constancia de reserva · DESPLEGADO (b989429, 12/10)
 
 - **Una sola mano** para las imágenes que manda la clínica (`asistente/marca-imagen.ts`): logo,
   colores, cabecera y pie. Muestras en [imagenes-whatsapp/](imagenes-whatsapp/).
