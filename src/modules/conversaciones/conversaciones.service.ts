@@ -175,24 +175,28 @@ export class ConversacionesService {
     const dto = { pagina: query.pagina, limite: query.limite ?? POR_PAGINA_INBOX };
     const { skip, take } = calcularPaginacion(dto);
 
-    /* Página y total en la misma transacción. */
-    const [conversaciones, total] = await this.prisma.$transaction([
-      this.prisma.conversacion.findMany({
-        where,
-        /* «Atención» es la única vista que no ordena por actividad: ahí manda
-           quién espera, con qué prioridad y desde cuándo (`ORDEN_ATENCION`). */
-        orderBy: query.tab === 'ATENCION' ? ORDEN_ATENCION : [{ updatedAt: 'desc' }, { id: 'desc' }],
-        select: SELECT_INBOX,
-        skip,
-        take,
-      }),
-      this.prisma.conversacion.count({ where }),
+    /* Página y total en la misma transacción; los contadores, A LA VEZ (antes
+       esperaban a la lista y a los últimos mensajes: tres viajes en fila). */
+    const [[conversaciones, total], contadores] = await Promise.all([
+      this.prisma.$transaction([
+        this.prisma.conversacion.findMany({
+          where,
+          /* «Atención» es la única vista que no ordena por actividad: ahí manda
+             quién espera, con qué prioridad y desde cuándo (`ORDEN_ATENCION`). */
+          orderBy: query.tab === 'ATENCION' ? ORDEN_ATENCION : [{ updatedAt: 'desc' }, { id: 'desc' }],
+          select: SELECT_INBOX,
+          skip,
+          take,
+        }),
+        this.prisma.conversacion.count({ where }),
+      ]),
+      this.contadoresInbox(query, soloAgenteId, usuarioId),
     ]);
 
     const ultimos = await ultimosMensajesDeInbox(this.prisma, conversaciones.map(c => c.id));
     return {
       ...paginar(conversaciones.map(c => aFilaDeInbox(c, ultimos.get(c.id))), total, dto),
-      contadores: await this.contadoresInbox(query, soloAgenteId, usuarioId),
+      contadores,
     };
   }
 
@@ -205,8 +209,12 @@ export class ConversacionesService {
    * la pestaña "Sin responder" mostraría "0" mientras estás dentro de ella
    * habiendo escrito algo en el buscador.
    *
-   * Diez `count` en una sola transacción, con el mismo alcance. Sobre ~1.000
- * conversaciones e índices, son milisegundos: lo que cuesta es el viaje.
+   * Diez `count` con el mismo alcance, **en paralelo** por el pool (12/10/2026):
+ * en una transacción iban uno tras otro, y con una agente cada uno repite el
+ * filtro de visibilidad. Medido con 1.500 conversaciones: de 10,0 a 3,1 ms con
+ * una agente y de 2,1 a 0,7 con un admin. Se pierde la foto única de la
+ * transacción: un mensaje que llega entre dos `count` puede desfasar un número
+ * por un instante, y el siguiente refresco (el socket avisa) lo corrige.
    */
   private async contadoresInbox(
     query: QueryConversacionesDto,
@@ -224,7 +232,7 @@ export class ConversacionesService {
     const [
       total, sinAsignar, misChats, sinResponder, cerradas, esperandoHumano, enAtencion,
       sinResponderSinAsignar, sinResponderMisChats, sinResponderAtencion,
-    ] = await this.prisma.$transaction([
+    ] = await Promise.all([
       contar(pestanas.total),
       contar(pestanas.sinAsignar),
       contar(pestanas.misChats),

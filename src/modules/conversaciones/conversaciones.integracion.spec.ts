@@ -836,6 +836,29 @@ describe('Conversaciones contra Postgres real', () => {
         await expect(plantillas.listarPlantillas(true, linea)).rejects.toMatchObject({ status: 503 });
       } finally { consulta.mockRestore(); }
     });
+
+    it('con la caché vencida, la lista conocida sale al instante y se renueva una sola vez en segundo plano', async () => {
+      const consulta = jest.spyOn(service['whatsapp'], 'listarPlantillas');
+      const linea = '00000000-0000-4000-8000-000000000001';
+      const plantilla = (name: string) => ({ name, status: 'APPROVED', category: 'UTILITY', language: 'es', components: [{ type: 'BODY', text: name }] });
+      const reloj = jest.spyOn(Date, 'now');
+      try {
+        consulta.mockResolvedValue([plantilla('vieja')]);
+        await plantillas.listarPlantillas(true, linea);
+        consulta.mockClear();
+        consulta.mockResolvedValue([plantilla('nueva')]);
+        /* Dos horas después: la entrada venció (dura una). */
+        const despues = Date.now() + 2 * 3_600_000;
+        reloj.mockReturnValue(despues);
+        const [a, b] = await Promise.all([plantillas.listarPlantillas(false, linea), plantillas.listarPlantillas(false, linea)]);
+        /* La primera no espera a Meta; la segunda, según el orden, recibe la vieja o la recién renovada. */
+        expect(a.map(p => p.nombre)).toEqual(['vieja']);
+        expect([['vieja'], ['nueva']]).toContainEqual(b.map(p => p.nombre));
+        await new Promise(r => setImmediate(r));
+        expect(consulta).toHaveBeenCalledTimes(1);
+        expect((await plantillas.listarPlantillas(false, linea)).map(p => p.nombre)).toEqual(['nueva']);
+      } finally { consulta.mockRestore(); reloj.mockRestore(); }
+    });
   });
 
   describe('marcar leído', () => {

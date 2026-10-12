@@ -2,6 +2,22 @@
 
 > **Revisión del 10/10/2026, módulo por módulo (sin Comisiones ni Finanzas):** [REVISION_2026-10-10.md](REVISION_2026-10-10.md). La API está sana; la lista de mejoras por impacto está ahí.
 
+## 12 de octubre de 2026 (noche, 3) · revisión de rendimiento con el log de producción
+
+Medido sobre 3 días de log (28.909 peticiones): **cero errores 4xx/5xx registrados** y solo dos
+avisos (la landing, que se renueva sola). Lo que se optimizó, con su medida:
+
+- **`GET /conversaciones`** (p50 106 ms, el más pesado de los frecuentes): los 10 contadores van en
+  paralelo y a la vez que la lista (antes, en una transacción y después de la lista). Medido con
+  1.500 conversaciones: 18,3 → 10,8 ms con una agente, 6,5 → 4,9 ms con un admin.
+- **`GET /actividades/resumen`** era el endpoint más pedido (9.023 en 3 días): la campana preguntaba
+  cada 60 s con el socket sano y recargaba todo lo de actividades. Ahora usa la regla del inbox
+  (`core/realtime/respaldo.ts`): oculta nunca, socket sano cada 5 min, socket caído cada 60 s.
+- **`GET /conversaciones/meta/plantillas`** (p95 895 ms, máx. 1,4 s): con la hora vencida se sirve
+  lo conocido al instante y se renueva en segundo plano (una sola vez por cuenta).
+- **Prueba intermitente arreglada:** `cabeceras-plantilla.spec` no leía el cuerpo de `fetch`, la
+  conexión quedaba ocupada y `app.close()` pasaba los 5 s con la máquina cargada.
+
 ## 12 de octubre de 2026 (noche, 2) · Dashboard nuevo: tortas, mapa de horas y asistente
 
 - **Backend:** `GET /kpis/detalle` (mismo alcance por rol que el resumen; caché 60 s): leads por

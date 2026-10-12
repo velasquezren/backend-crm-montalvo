@@ -90,28 +90,52 @@ export class EnvioPlantillasService {
     if (!forceRefresh) {
       const cacheado = this.cachePlantillas.obtener(clave);
       if (cacheado) return permitidas(cacheado);
+      /* Vencida pero conocida: se sirve YA y se renueva en segundo plano. Medido
+         el 12/10/2026: el p95 de este endpoint era 895 ms (y 1,4 s de máximo)
+         justo por los pedidos que caían con la hora vencida y esperaban a Meta.
+         Una plantilla nueva tarda horas en aprobarse; «Actualizar» (refresh)
+         sigue yendo a Meta al segundo. */
+      const vencida = this.cachePlantillas.obtenerAunqueVencido(clave);
+      if (vencida) {
+        this.renovarEnSegundoPlano(clave, cuenta);
+        return permitidas(vencida);
+      }
     }
 
     try {
-      const crudas = await this.whatsapp.listarPlantillas(cuenta);
-      /* null = no se pudieron pedir. Se devuelve lo último bueno que hubiera en
-         caché antes que una lista vacía: un selector vacío parece "no tienes
-         plantillas", que es otra cosa. Por eso se pide "aunque haya vencido":
-         justo cuando Meta no responde es cuando la entrada suele estar caducada. */
-      if (!crudas) throw new ServiceUnavailableException('No se pudieron consultar las plantillas de WhatsApp.');
-
-      const resultado = (crudas as PlantillaMeta[])
-        .filter(p => p.status === 'APPROVED')
-        .map(p => resumirPlantilla(p, urlDeCabecera(p.name, process.env.CRM_URL_PUBLICA)));
-
-      this.cachePlantillas.guardar(clave, resultado);
-      return permitidas(resultado);
+      return permitidas(await this.consultarPlantillas(clave, cuenta));
     } catch (error) {
       this.logger.error('Excepción al listar plantillas de Meta', error);
       const respaldo = this.cachePlantillas.obtenerAunqueVencido(clave);
       if (respaldo && !forceRefresh) return permitidas(respaldo);
       throw new ServiceUnavailableException('No se pudieron consultar las plantillas de WhatsApp. Vuelve a intentarlo.');
     }
+  }
+
+  /** Pide a Meta las plantillas aprobadas de una cuenta y las deja en caché. */
+  private async consultarPlantillas(clave: string, cuenta: ReturnType<LineasWhatsappService['credenciales']>): Promise<PlantillaResumen[]> {
+    const crudas = await this.whatsapp.listarPlantillas(cuenta);
+    /* null = no se pudieron pedir. Se devuelve lo último bueno que hubiera en
+       caché antes que una lista vacía: un selector vacío parece "no tienes
+       plantillas", que es otra cosa. Por eso se pide "aunque haya vencido":
+       justo cuando Meta no responde es cuando la entrada suele estar caducada. */
+    if (!crudas) throw new ServiceUnavailableException('No se pudieron consultar las plantillas de WhatsApp.');
+    const resultado = (crudas as PlantillaMeta[])
+      .filter(p => p.status === 'APPROVED')
+      .map(p => resumirPlantilla(p, urlDeCabecera(p.name, process.env.CRM_URL_PUBLICA)));
+    this.cachePlantillas.guardar(clave, resultado);
+    return resultado;
+  }
+
+  /** Renovaciones en curso, por cuenta: diez agentes abriendo el inbox piden UNA. */
+  private readonly renovando = new Set<string>();
+
+  private renovarEnSegundoPlano(clave: string, cuenta: ReturnType<LineasWhatsappService['credenciales']>): void {
+    if (this.renovando.has(clave)) return;
+    this.renovando.add(clave);
+    this.consultarPlantillas(clave, cuenta)
+      .catch((error: unknown) => this.logger.warn(`Plantillas de Meta sin renovar: ${error instanceof Error ? error.message : 'falló'}`))
+      .finally(() => this.renovando.delete(clave));
   }
 
   /**

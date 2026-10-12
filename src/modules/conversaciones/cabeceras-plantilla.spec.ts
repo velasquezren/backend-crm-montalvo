@@ -62,19 +62,28 @@ describe('cabeceras de plantilla', () => {
       base = await app.getUrl();
     });
 
-    afterAll(() => app.close());
+    /* Las conexiones que dejó `fetch` (keep-alive) se cortan antes de cerrar:
+       sin esto, `app.close()` esperaba a que vencieran y, con la máquina cargada
+       (la suite completa en paralelo), el hook pasaba los 5 s y la suite caía. */
+    afterAll(async () => {
+      (app.getHttpServer() as { closeAllConnections?: () => void }).closeAllConnections?.();
+      await app.close();
+    });
 
     it('la imagen se puede mostrar fuera del dominio de la API', async () => {
       const respuesta = await fetch(`${base}/publico/cabeceras/reactivacion_con_foto.jpg`);
       expect(respuesta.status).toBe(200);
       expect(respuesta.headers.get('cross-origin-resource-policy')).toBe('cross-origin');
       expect(respuesta.headers.get('content-type')).toBe('image/jpeg');
+      /* Leer el cuerpo libera la conexión: una respuesta sin leer la deja ocupada. */
+      expect((await respuesta.arrayBuffer()).byteLength).toBeGreaterThan(0);
     });
 
     it('el resto de la API conserva same-origin', async () => {
       const respuesta = await fetch(`${base}/clientes`);
       expect(respuesta.status).toBe(404);
       expect(respuesta.headers.get('cross-origin-resource-policy')).toBe('same-origin');
+      await respuesta.arrayBuffer();
     });
   });
 });
