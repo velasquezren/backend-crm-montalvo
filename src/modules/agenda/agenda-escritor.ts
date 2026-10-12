@@ -2,7 +2,7 @@ import { Logger, OnModuleDestroy, ServiceUnavailableException } from '@nestjs/co
 import { ConfigService } from '@nestjs/config';
 import { Pool, PoolConnection, RowDataPacket } from 'mysql2/promise';
 import { CuposAgenda } from './agenda-cupos';
-import { crearPoolAgenda } from './agenda-mysql';
+import { crearPoolAgenda, esConexionCaida } from './agenda-mysql';
 
 /** Una cuenta MySQL que ESCRIBE en la agenda, su interruptor y su candado. */
 export interface CuentaEscritura {
@@ -55,7 +55,8 @@ export abstract class EscritorAgenda implements OnModuleDestroy {
     return this.config.get<string>(this.cuenta.bandera) === 'on';
   }
 
-  private conexion(): Pool {
+  /** Protegido para que las pruebas pongan un pool falso (MySQL es externo). */
+  protected conexion(): Pool {
     this.pool ??= crearPoolAgenda(this.config, this.cuenta);
     return this.pool;
   }
@@ -125,24 +126,41 @@ export abstract class EscritorAgenda implements OnModuleDestroy {
     }
   }
 
-  /** Solo lectura, sin candado: una transacción READ ONLY con tiempo máximo por consulta. */
+  /**
+   * Solo lectura, sin candado: una transacción READ ONLY con tiempo máximo por
+   * consulta. Si la conexión del pool resultó muerta, se reintenta UNA vez (es
+   * una lectura). `enTransaccion` no reintenta nunca: una escritura que falló a
+   * medias no se repite a ciegas.
+   */
   async consultar<T>(trabajo: (conexion: PoolConnection) => Promise<T>): Promise<T> {
     try {
-      return await this.conConexion(TOPE_LECTURA_MS, async conexion => {
-        await conexion.query('SET SESSION MAX_EXECUTION_TIME = 2500');
-        await conexion.query('START TRANSACTION WITH CONSISTENT SNAPSHOT, READ ONLY');
-        try {
-          const resultado = await trabajo(conexion);
-          await conexion.commit();
-          return resultado;
-        } finally {
-          await conexion.query('SET SESSION MAX_EXECUTION_TIME = 0').catch(() => undefined);
-        }
-      });
+      return await this.leer(trabajo);
     } catch (error) {
-      this.logger.warn(`Lectura de la agenda no completada: ${error instanceof Error ? error.message : 'error'}`);
-      throw this.noDisponible();
+      if (!esConexionCaida(error)) {
+        this.logger.warn(`Lectura de la agenda no completada: ${error instanceof Error ? error.message : 'error'}`);
+        throw this.noDisponible();
+      }
+      try {
+        return await this.leer(trabajo);
+      } catch (otra) {
+        this.logger.warn(`Lectura de la agenda no completada: ${otra instanceof Error ? otra.message : 'error'}`);
+        throw this.noDisponible();
+      }
     }
+  }
+
+  private leer<T>(trabajo: (conexion: PoolConnection) => Promise<T>): Promise<T> {
+    return this.conConexion(TOPE_LECTURA_MS, async conexion => {
+      await conexion.query('SET SESSION MAX_EXECUTION_TIME = 2500');
+      await conexion.query('START TRANSACTION WITH CONSISTENT SNAPSHOT, READ ONLY');
+      try {
+        const resultado = await trabajo(conexion);
+        await conexion.commit();
+        return resultado;
+      } finally {
+        await conexion.query('SET SESSION MAX_EXECUTION_TIME = 0').catch(() => undefined);
+      }
+    });
   }
 
   async onModuleDestroy(): Promise<void> {

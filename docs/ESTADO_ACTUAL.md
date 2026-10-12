@@ -2,6 +2,26 @@
 
 > **Revisión del 10/10/2026, módulo por módulo (sin Comisiones ni Finanzas):** [REVISION_2026-10-10.md](REVISION_2026-10-10.md). La API está sana; la lista de mejoras por impacto está ahí.
 
+## 12 de octubre de 2026 (noche, 4) · agenda: conexiones calientes, reintento de lecturas e índice para el VPS
+
+Medido en producción (7 días de log y consultas directas al MySQL de la agenda con las cuentas de
+lectura del CRM):
+
+- **Sin errores desde el 7/10 a las 18:00.** Los 6 «No pudimos guardar en la agenda» y los 503 del
+  Directorio fueron todos el 7/10 entre 17:39 y 18:00 (pool agotado al abrir el Directorio, resuelto
+  ese día con `CuposAgenda`).
+- **El MySQL responde rápido** (mismo datacenter, 0,6 ms de ida y vuelta): consultas de 1–14 ms con
+  la conexión abierta. Lo caro era ABRIRLA (TCP + TLS + autenticación, 17–80 ms), y el pool las
+  cerraba a los 30 s: de ahí el p95 de ~200 ms de `/agenda/medicos*` y `/publico/agenda/*`.
+  - **Ahora viven 10 min** (`IDLE_AGENDA_MS`; MySQL las tolera 8 h, `wait_timeout` 28800).
+  - **Una lectura que encuentra su conexión muerta se reintenta UNA vez** (`esConexionCaida`); una
+    escritura (`enTransaccion`) nunca. 6 pruebas nuevas (`agenda-reintento.spec.ts`).
+- **El VPS de la agenda:** `agenda_med` tiene 14.627 citas (~2.000/mes) y **solo su clave
+  primaria**: disponibilidad, reserva por WhatsApp y agenda del médico la recorren entera
+  (`EXPLAIN`: `type ALL`). `scripts/agenda/indice-agenda-med.sh` crea en línea
+  `idx_agenda_med_fecha_medico (fecha, cod_med, estado)` — no cambia ningún dato ni lo que leen
+  FileMaker y ScriptCase. **Lo corre René** (root de MySQL en montalvo-vps); el CRM no tiene ALTER.
+
 ## 12 de octubre de 2026 (noche, 3) · revisión de rendimiento con el log de producción
 
 Medido sobre 3 días de log (28.909 peticiones): **cero errores 4xx/5xx registrados** y solo dos

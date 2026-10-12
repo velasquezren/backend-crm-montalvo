@@ -2,7 +2,7 @@ import { Logger, OnModuleDestroy, ServiceUnavailableException } from '@nestjs/co
 import { ConfigService } from '@nestjs/config';
 import { Pool, PoolConnection } from 'mysql2/promise';
 import { CuposAgenda } from './agenda-cupos';
-import { crearPoolAgenda } from './agenda-mysql';
+import { crearPoolAgenda, esConexionCaida } from './agenda-mysql';
 
 /** Una cuenta MySQL de solo lectura sobre la agenda y el interruptor que la enciende. */
 export interface CuentaLectura {
@@ -36,19 +36,45 @@ export abstract class LectorAgenda implements OnModuleDestroy {
     return this.config.get<string>(this.cuenta.bandera) === 'on';
   }
 
-  private conexion(): Pool {
+  /** Protegido para que las pruebas pongan un pool falso (MySQL es externo). */
+  protected conexion(): Pool {
     this.pool ??= crearPoolAgenda(this.config, this.cuenta);
     return this.pool;
   }
 
-  /** Una consulta dentro de una transacción de solo lectura, con tiempo máximo. */
+  /**
+   * Una consulta dentro de una transacción de solo lectura, con tiempo máximo.
+   * Si la conexión del pool resultó muerta, se reintenta UNA vez con otra: es
+   * una lectura, repetirla no cambia nada.
+   */
   async ejecutar<T>(trabajo: (conexion: PoolConnection) => Promise<T>): Promise<T> {
     if (!this.habilitada()) throw this.noDisponible();
+    try {
+      return await this.intentar(trabajo);
+    } catch (error: unknown) {
+      if (!esConexionCaida(error)) return this.fallo();
+      try {
+        return await this.intentar(trabajo);
+      } catch {
+        return this.fallo();
+      }
+    }
+  }
+
+  private fallo(): never {
+    if (Date.now() - this.ultimoAviso > 30_000) {
+      this.ultimoAviso = Date.now();
+      this.logger.warn('Lectura de agenda no disponible');
+    }
+    throw this.noDisponible();
+  }
+
+  private async intentar<T>(trabajo: (conexion: PoolConnection) => Promise<T>): Promise<T> {
     /* Fila corta: un pico (la pantalla Reservas y el bloque del chat a la vez)
        espera un instante por una conexión en vez de fallar. Llena o vencida, 503. */
     this.cupos ??= new CuposAgenda(this.cuenta.conexiones, 1_500, this.cuenta.conexiones * 3);
     const devolverCupo = await this.cupos.tomar();
-    if (!devolverCupo) throw this.noDisponible();
+    if (!devolverCupo) throw new Error('Sin cupo');
     let conexion: PoolConnection | undefined;
     let reloj: ReturnType<typeof setTimeout> | undefined;
     let terminada = false;
@@ -63,14 +89,10 @@ export abstract class LectorAgenda implements OnModuleDestroy {
       const resultado = await trabajo(conexion);
       await conexion.commit();
       return resultado;
-    } catch {
+    } catch (error: unknown) {
       if (!terminada) conexion?.destroy();
       terminada = true;
-      if (Date.now() - this.ultimoAviso > 30_000) {
-        this.ultimoAviso = Date.now();
-        this.logger.warn('Lectura de agenda no disponible');
-      }
-      throw this.noDisponible();
+      throw error;
     } finally {
       if (reloj) clearTimeout(reloj);
       if (!terminada) conexion?.release();
