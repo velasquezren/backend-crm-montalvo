@@ -205,7 +205,8 @@ export class ConversacionesService {
    * la pestaña "Sin responder" mostraría "0" mientras estás dentro de ella
    * habiendo escrito algo en el buscador.
    *
-   * Cinco `count` en una sola transacción, con el mismo alcance.
+   * Diez `count` en una sola transacción, con el mismo alcance. Sobre ~1.000
+ * conversaciones e índices, son milisegundos: lo que cuesta es el viaje.
    */
   private async contadoresInbox(
     query: QueryConversacionesDto,
@@ -220,7 +221,10 @@ export class ConversacionesService {
     const contar = (pestana: Prisma.ConversacionWhereInput) =>
       this.prisma.conversacion.count({ where: combinar(alcance, pestana) });
 
-    const [total, sinAsignar, misChats, sinResponder, cerradas, esperandoHumano, enAtencion] = await this.prisma.$transaction([
+    const [
+      total, sinAsignar, misChats, sinResponder, cerradas, esperandoHumano, enAtencion,
+      sinResponderSinAsignar, sinResponderMisChats, sinResponderAtencion,
+    ] = await this.prisma.$transaction([
       contar(pestanas.total),
       contar(pestanas.sinAsignar),
       contar(pestanas.misChats),
@@ -228,9 +232,12 @@ export class ConversacionesService {
       contar(pestanas.cerradas),
       contar(pestanas.esperandoHumano),
       contar(pestanas.enAtencion),
+      contar(pestanas.sinResponderSinAsignar),
+      contar(pestanas.sinResponderMisChats),
+      contar(pestanas.sinResponderAtencion),
     ]);
 
-    return { total, sinAsignar, misChats, sinResponder, cerradas, esperandoHumano, enAtencion };
+    return { total, sinAsignar, misChats, sinResponder, cerradas, esperandoHumano, enAtencion, sinResponderSinAsignar, sinResponderMisChats, sinResponderAtencion };
   }
 
 

@@ -9,7 +9,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { pieDeLaImagen, textoListado, textoResumen } from '../asistente/agenda-medico-imagen';
 import { AsistenteDeLinea, AsistenteLineasService } from '../asistente/asistente-lineas.service';
 import { ConversacionAsistente, TrazaTurno } from '../asistente/conversacion-asistente';
-import { AccionAsistente, EstadoPagoParaAsistente, PuertoMedico, PuertoVentas } from '../asistente/herramientas';
+import { AccionAsistente, EstadoPagoParaAsistente, HERRAMIENTAS, PuertoMedico, PuertoVentas } from '../asistente/herramientas';
 import { ImagenAgendaMedicoService } from '../asistente/imagen-agenda-medico.service';
 import { ImagenHorarioService } from '../asistente/imagen-horario.service';
 import { Clasificacion, ClasificadorMensajes, ModeloConversacional, TurnoModelo, UsoModelo } from '../asistente/modelo.port';
@@ -329,8 +329,9 @@ export class AsistenteChatService implements ProgramadorAsistente, OnModuleInit,
    *
    * - Solo en «Responder solo»: el borrador de «Sugerir» lo ve una agente, y la
    *   agenda de un médico no es para ella.
-   * - Sin el filtro de entrada ni las herramientas de ventas: solo `mi_agenda`
-   *   y pasar a una persona, atadas al médico que salió del NÚMERO.
+   * - Sin el filtro de entrada ni nada que mande, cobre o reserve: `mi_agenda`
+   *   (atada al médico que salió del NÚMERO), lo informativo de la clínica
+   *   (especialidades, médicos, horarios, cupos, promociones) y pasar a una persona.
    * - Lo que se le manda lo arma el código con los datos de la agenda; el texto del
    *   modelo, si lo hay, se descarta cuando ya se le mandó el listado.
    */
@@ -342,8 +343,11 @@ export class AsistenteChatService implements ProgramadorAsistente, OnModuleInit,
       return registrar({ resultado: 'OMITIDO', motivo: 'Es un médico autorizado: su agenda solo se contesta en «Responder solo».' });
     }
     const salida = await this.conversacion.responder({
-      sistema: promptDelMedico({ ahora: ahoraEnLaPaz(new Date(inicio)), medico: medico.nombre }),
-      contexto: { telefono: e.telefono, ventas: null, medico: this.puertoMedico(medico) },
+      sistema: promptDelMedico({
+        ahora: ahoraEnLaPaz(new Date(inicio)), medico: medico.nombre, conocimiento: e.asistente.conocimiento, ventas: e.asistente.comercial,
+      }),
+      /* Las promociones se leen por el puerto de ventas; mandarlas o cobrar no está en sus herramientas. */
+      contexto: { telefono: e.telefono, ventas: e.asistente.comercial ? this.puertoVentas(e) : null, medico: this.puertoMedico(medico) },
       historial,
       permitirEscritura: false,
     });
@@ -372,9 +376,12 @@ export class AsistenteChatService implements ProgramadorAsistente, OnModuleInit,
       }
       return registrar({ resultado: 'RESPONDIO', ...base });
     }
-    /* Sin consulta no hay dato: un texto que afirme horas o cantidades no sale. */
+    /* Sin consulta no hay dato: un texto que afirme horas o cantidades sin haber
+       consultado nada no sale. Con una consulta informativa (el horario de otro
+       médico, cupos) las horas salen de ella. */
     const texto = salida.texto ? paraWhatsapp(salida.texto) : '';
-    if (!texto || AsistenteChatService.AFIRMA_AGENDA.test(texto)) {
+    const consultoLaClinica = salida.traza.herramientas.some(h => h.ok && HERRAMIENTAS.some(x => x.nombre === h.nombre && x.informativa));
+    if (!texto || (!consultoLaClinica && AsistenteChatService.AFIRMA_AGENDA.test(texto))) {
       await this.derivar(e, 'DERIVADA_ASISTENTE');
       return registrar({ resultado: 'DERIVO', motivo: texto ? 'El modelo habló de la agenda sin consultarla.' : 'Sin respuesta utilizable.', ...base });
     }

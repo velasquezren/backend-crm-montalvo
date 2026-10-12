@@ -91,6 +91,10 @@ export function whereAlcanceInbox(
     whereAgente(query.agenteId),
     query.lineaId ? { lineaId: query.lineaId } : undefined,
     query.categoria ? { cliente: { categoria: query.categoria } } : undefined,
+    /* «Sin responder» como filtro que se COMBINA (12/10/2026): con «Mis chats»,
+       «Sin asignar», «Atención», Gold o una agente. Es alcance, como Gold: la
+       lista, la fila del tiempo real y todos los contadores lo aplican a la vez. */
+    query.sinResponder ? SIN_RESPONDER : undefined,
   );
 }
 
@@ -121,6 +125,9 @@ export function wherePestanas(usuarioId: string) {
     cerradas: whereTab('CERRADAS', usuarioId)!,
     esperandoHumano: ESPERANDO_HUMANO,
     enAtencion: EN_ATENCION,
+    sinResponderSinAsignar: combinar(whereTab('SIN_ASIGNAR', usuarioId), SIN_RESPONDER)!,
+    sinResponderMisChats: combinar(whereTab('MIS_CHATS', usuarioId), SIN_RESPONDER)!,
+    sinResponderAtencion: combinar(CON_ATENCION, SIN_RESPONDER)!,
   } satisfies Record<keyof ContadoresInbox, Prisma.ConversacionWhereInput>;
 }
 
@@ -257,6 +264,14 @@ export interface ContadoresInbox {
   esperandoHumano: number;
   /** Solicitudes que alguien está atendiendo. Juntas con la anterior son la pestaña «Atención». */
   enAtencion: number;
+  /**
+   * Cuántas de cada pestaña esperan respuesta: el número del filtro «Sin
+   * responder» según dónde esté la agente («Mis chats» → las suyas sin
+   * contestar). El de «Todas» es `sinResponder`.
+   */
+  sinResponderSinAsignar: number;
+  sinResponderMisChats: number;
+  sinResponderAtencion: number;
 }
 
 /**

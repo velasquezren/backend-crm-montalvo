@@ -270,8 +270,12 @@ describe('mi_agenda: la agenda del médico que escribe', () => {
   const NO = { permitirEscritura: false };
   const nombresDe = (c: ContextoAsistente) => herramientasDisponibles(c, NO).map(h => h.nombre);
 
-  it('a un médico solo se le ofrecen su agenda y pasar a una persona; a una paciente, nunca la agenda de un médico', () => {
-    expect(nombresDe(conMedico().contexto).sort()).toEqual(['mi_agenda', 'pasar_a_persona']);
+  it('a un médico se le ofrecen su agenda, lo informativo de la clínica y pasar a una persona; a una paciente, nunca la agenda de un médico', () => {
+    expect(nombresDe(conMedico().contexto).sort()).toEqual(['dias_con_cupo', 'horas_libres', 'listar_especialidades', 'listar_medicos', 'mi_agenda', 'pasar_a_persona', 'ver_medico']);
+    /* En una línea comercial, también leer promociones; mandarlas, cobrar o ver pagos, no. */
+    const conVentas = nombresDe({ ...conMedico().contexto, ventas: ventas() });
+    expect(conVentas).toEqual(expect.arrayContaining(['listar_promociones', 'ver_promocion']));
+    for (const nunca of ['enviar_promocion', 'estado_de_pago', 'enviar_horario', 'reservar']) expect(conVentas).not.toContain(nunca);
     expect(nombresDe(CONTEXTO)).not.toContain('mi_agenda');
     expect(nombresDe({ ...CONTEXTO, ventas: ventas() })).not.toContain('mi_agenda');
     /* Ni con permiso de escritura se le abre `reservar` a un médico. */
@@ -285,16 +289,27 @@ describe('mi_agenda: la agenda del médico que escribe', () => {
     expect(citas).not.toHaveBeenCalled();
   });
 
-  it('con un médico, lo de ventas y lo de la agenda pública no se ejecuta aunque el modelo lo pida', async () => {
+  it('con un médico, lo que manda, cobra o reserva no se ejecuta aunque el modelo lo pida', async () => {
     const { contexto } = conMedico();
+    const conVentas = { ...contexto, ventas: ventas() };
     const agenda = { especialidades: jest.fn(), medicos: jest.fn(), disponibilidad: jest.fn() };
-    const servicio = montar(agenda as unknown as Partial<AgendaService>);
-    for (const nombre of ['listar_especialidades', 'listar_medicos', 'horas_libres', 'enviar_horario', 'listar_promociones', 'estado_de_pago', 'reservar']) {
-      const r = await servicio.ejecutar(nombre, { especialidadId: '1', medicoId: '7', fecha: '2026-10-12', hora: '09:00', nombre: 'x', ci: '1', promocionId: 'p1' }, contexto, { permitirEscritura: true });
+    const reservas = { reservar: jest.fn() };
+    const servicio = montar(agenda as unknown as Partial<AgendaService>, reservas as unknown as Partial<AgendaReservasService>);
+    for (const nombre of ['enviar_horario', 'enviar_promocion', 'estado_de_pago', 'reservar']) {
+      const r = await servicio.ejecutar(nombre, { especialidadId: '1', medicoId: '7', fecha: '2026-10-12', hora: '09:00', nombre: 'x', ci: '1', promocionId: 'p1' }, conVentas, { permitirEscritura: true });
       expect(r.ok).toBe(false);
     }
-    expect(agenda.especialidades).not.toHaveBeenCalled();
-    expect(agenda.disponibilidad).not.toHaveBeenCalled();
+    expect(reservas.reservar).not.toHaveBeenCalled();
+    /* Sin línea comercial, tampoco lee promociones. */
+    expect((await servicio.ejecutar('listar_promociones', {}, contexto, NO)).ok).toBe(false);
+  });
+
+  it('con un médico, lo informativo de la clínica sí se consulta («¿qué servicios hay?»)', async () => {
+    const { contexto } = conMedico();
+    const agenda = { especialidades: jest.fn().mockResolvedValue({ datos: [{ id: 'e1', nombre: 'Ginecología' }], total: 1, pagina: 1, limite: 100, totalPaginas: 1 }) };
+    const r = await montar(agenda as unknown as Partial<AgendaService>).ejecutar('listar_especialidades', {}, contexto, NO);
+    expect(r.ok).toBe(true);
+    expect(agenda.especialidades).toHaveBeenCalled();
   });
 
   it('al modelo vuelven SOLO las cantidades; los nombres van en la acción, para el código', async () => {

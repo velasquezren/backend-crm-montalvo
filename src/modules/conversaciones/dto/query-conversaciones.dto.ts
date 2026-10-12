@@ -68,4 +68,15 @@ export class QueryConversacionesDto extends PaginationDto {
   @IsOptional()
   @IsEnum(CategoriaCliente)
   categoria?: CategoriaCliente;
+
+  /**
+   * Solo las que esperan respuesta, COMBINADO con la pestaña («Mis chats» sin
+   * responder, «Sin asignar» sin responder…). Es alcance: acota también los
+   * contadores (`whereAlcanceInbox`). La pestaña `SIN_RESPONDER` sigue
+   * aceptándose para los enlaces viejos.
+   */
+  @IsOptional()
+  @Transform(({ value }) => value === 'true' || value === true)
+  @IsBoolean()
+  sinResponder?: boolean;
 }

@@ -69,11 +69,18 @@ export interface Herramienta {
   /** Solo en una línea comercial (promociones, pagos). */
   readonly soloVentas?: true;
   /**
-   * Solo con un médico autorizado al otro lado (`ContextoAsistente.medico`), y
-   * entonces es de lo ÚNICO que dispone junto a `derivar`: a un médico no se le
-   * ofrecen las herramientas de ventas, y a una paciente nunca la de agenda.
+   * Solo con un médico autorizado al otro lado (`ContextoAsistente.medico`). A
+   * una paciente nunca se le ofrece la de agenda; a un médico, además de la
+   * suya, solo las `informativa` y `derivar`: nada que mande, cobre o reserve.
    */
   readonly soloMedico?: true;
+  /**
+   * Información pública de la clínica (especialidades, médicos, horarios, cupos,
+   * promociones): de solo lectura y sin datos de nadie. Es lo que, además de su
+   * agenda, se le presta al asistente cuando escribe un médico (12/10: «¿qué
+   * servicios existen?» se pasaba a una persona).
+   */
+  readonly informativa?: true;
 }
 
 /* ── Lo que el CRM le presta al asistente en una conversación ───────── */
@@ -193,6 +200,7 @@ export const HERRAMIENTAS: readonly Herramienta[] = [
       'no menciones ninguna que no venga aquí, ni inventes descuentos.',
     parametros: SIN_PARAMETROS,
     efecto: 'lectura',
+    informativa: true,
     soloVentas: true,
   },
   {
@@ -202,6 +210,7 @@ export const HERRAMIENTAS: readonly Herramienta[] = [
       'Úsala antes de responder sobre condiciones o letra chica.',
     parametros: PROMOCION,
     efecto: 'lectura',
+    informativa: true,
     soloVentas: true,
   },
   {
@@ -232,6 +241,7 @@ export const HERRAMIENTAS: readonly Herramienta[] = [
       'Devuelve solo las que existen: no nombres otras.',
     parametros: SIN_PARAMETROS,
     efecto: 'lectura',
+    informativa: true,
   },
   {
     nombre: 'listar_medicos',
@@ -244,6 +254,7 @@ export const HERRAMIENTAS: readonly Herramienta[] = [
       required: ['especialidadId'],
     },
     efecto: 'lectura',
+    informativa: true,
   },
   {
     nombre: 'ver_medico',
@@ -252,6 +263,7 @@ export const HERRAMIENTAS: readonly Herramienta[] = [
       'Para mostrarle el horario completo, usa enviar_horario: le llega como imagen.',
     parametros: MEDICO,
     efecto: 'lectura',
+    informativa: true,
   },
   {
     nombre: 'enviar_horario',
@@ -268,6 +280,7 @@ export const HERRAMIENTAS: readonly Herramienta[] = [
       'Vacío significa que no hay cupos o que se atiende a solicitud: dilo, no ofrezcas una fecha.',
     parametros: MEDICO,
     efecto: 'lectura',
+    informativa: true,
   },
   {
     nombre: 'horas_libres',
@@ -283,6 +296,7 @@ export const HERRAMIENTAS: readonly Herramienta[] = [
       required: ['medicoId', 'fecha'],
     },
     efecto: 'lectura',
+    informativa: true,
   },
   {
     nombre: 'reservar',
@@ -353,8 +367,8 @@ export function herramientasDisponibles(contexto: ContextoAsistente, { permitirE
   return HERRAMIENTAS.filter(h =>
     (h.efecto !== 'escritura' || permitirEscritura)
     && (!h.soloVentas || contexto.ventas !== null)
-    /* Con un médico al otro lado, solo lo suyo y la salida a una persona. */
-    && (medico ? h.soloMedico === true || h.efecto === 'derivar' : !h.soloMedico));
+    /* Con un médico al otro lado: su agenda, lo informativo de la clínica y la salida a una persona. */
+    && (medico ? h.soloMedico === true || h.informativa === true || h.efecto === 'derivar' : !h.soloMedico));
 }
 
 /** Las declaraciones tal como las espera `tools: [{ functionDeclarations }]`. */
@@ -420,7 +434,9 @@ export class HerramientasAsistenteService {
     }
     /* Igual que en `herramientasDisponibles`, pero por si el modelo pide una que no se le declaró. */
     if (h.soloMedico && !contexto.medico) return { ok: false, motivo: `«${nombre}» no está disponible.` };
-    if (contexto.medico && !h.soloMedico && h.efecto !== 'derivar') return { ok: false, motivo: `«${nombre}» no está disponible: solo puedes consultar su agenda o pasarlo a una persona.` };
+    if (contexto.medico && !h.soloMedico && !h.informativa && h.efecto !== 'derivar') {
+      return { ok: false, motivo: `«${nombre}» no está disponible: con un médico solo consultas su agenda, informas de la clínica o lo pasas a una persona.` };
+    }
     const ventas = contexto.ventas;
     if (h.soloVentas && !ventas) return { ok: false, motivo: `«${nombre}» no está disponible en esta línea.` };
     const v = validarArgumentos(h, args);

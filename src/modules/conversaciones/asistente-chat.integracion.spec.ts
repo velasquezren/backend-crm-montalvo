@@ -134,6 +134,7 @@ const modelo = new ModeloGuionado();
 const clasificador = new ClasificadorGuionado();
 const lector = new LectorGuionado();
 const agenda = {
+  especialidades: async () => ({ datos: [{ id: 'e1', nombre: 'Ginecología' }, { id: 'e2', nombre: 'Pediatría' }], total: 2, pagina: 1, limite: 50, totalPaginas: 1 }),
   medico: async () => ({
     medico: { id: '7', especialidadId: 'e1', nombre: 'Dra. Sintética', modalidad: 'ONLINE', precio: { importeCentavos: 25000, moneda: 'BOB' }, horarioInformativo: 'Martes: entre 10:00 y 12:00', fotoUrl: null },
     especialidad: { id: 'e1', nombre: 'Ginecología' },
@@ -664,9 +665,11 @@ describe('la agenda del médico por WhatsApp', () => {
       expect(respuestas[0].contenido).not.toMatch(NOMBRES);
       expect(respuestas[0].contenido).not.toContain('Mucha suerte');
       expect(JSON.stringify(transporte.enviar.mock.calls)).toContain('r2.invalid/asistente/agenda-medico/');
-      /* El modelo solo vio cantidades; y solo se le declararon sus dos herramientas. */
+      /* El modelo solo vio cantidades; y se le declararon su agenda, lo informativo y pasar a una persona: nada que mande o cobre. */
       expect(JSON.stringify(modelo.vistas)).not.toMatch(NOMBRES);
-      expect(modelo.vistas[0].herramientas.map(h => h.name).sort()).toEqual(['mi_agenda', 'pasar_a_persona']);
+      const declaradas = modelo.vistas[0].herramientas.map(h => h.name);
+      expect(declaradas).toEqual(expect.arrayContaining(['mi_agenda', 'pasar_a_persona', 'listar_especialidades', 'ver_medico']));
+      for (const nunca of ['enviar_promocion', 'estado_de_pago', 'enviar_horario', 'reservar']) expect(declaradas).not.toContain(nunca);
       /* Sin filtro de entrada, y registrado como lo que es. */
       expect(clasificador.llamadas).toBe(0);
       expect(await turnos(id)).toMatchObject([{ resultado: 'RESPONDIO', categoria: 'MEDICO_AGENDA', herramientas: [{ nombre: 'mi_agenda', ok: true }] }]);
@@ -731,6 +734,24 @@ describe('la agenda del médico por WhatsApp', () => {
       expect(citasMedico.delDia).not.toHaveBeenCalled();
       expect((await prisma.conversacion.findUniqueOrThrow({ where: { id } })).atencionSolicitadaEn).not.toBeNull();
       expect(await turnos(id)).toMatchObject([{ resultado: 'DERIVO', motivo: expect.stringContaining('sin consultarla') }]);
+    });
+
+    it('«¿Qué servicios existen?»: se contesta con las especialidades de la clínica, no se pasa a una persona (12/10)', async () => {
+      const respuesta = 'En la clínica atendemos *Ginecología* y *Pediatría*. ¿Quieres el horario de algún médico?';
+      modelo.guion = [pide('listar_especialidades', {}), dice(respuesta)];
+      const id = await medicoEscribe('qué servicios existen');
+      expect((await salientes(id)).map(m => m.contenido.replace(PRESENTACION, '').trim())).toEqual([respuesta]);
+      expect((await prisma.conversacion.findUniqueOrThrow({ where: { id } })).atencionSolicitadaEn).toBeNull();
+      expect(await turnos(id)).toMatchObject([{ resultado: 'RESPONDIO', categoria: 'MEDICO_AGENDA', herramientas: [{ nombre: 'listar_especialidades', ok: true }] }]);
+      expect(citasMedico.delDia).not.toHaveBeenCalled();
+    });
+
+    it('el horario de otro médico, consultado, sale con sus horas: no es «hablar de la agenda sin consultarla»', async () => {
+      const respuesta = 'La Dra. Sintética atiende los martes de 10:00 a 12:00.';
+      modelo.guion = [pide('ver_medico', { medicoId: '7' }), dice(respuesta)];
+      const id = await medicoEscribe('qué horario tiene la doctora del médico 7?');
+      expect((await salientes(id)).map(m => m.contenido.replace(PRESENTACION, '').trim())).toEqual([respuesta]);
+      expect((await turnos(id))[0]).toMatchObject({ resultado: 'RESPONDIO', herramientas: [{ nombre: 'ver_medico', ok: true }] });
     });
 
     it('una pregunta de aclaración sin datos sí sale', async () => {

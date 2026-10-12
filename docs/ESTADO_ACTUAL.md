@@ -2,6 +2,23 @@
 
 > **Revisión del 10/10/2026, módulo por módulo (sin Comisiones ni Finanzas):** [REVISION_2026-10-10.md](REVISION_2026-10-10.md). La API está sana; la lista de mejoras por impacto está ahí.
 
+## 12 de octubre de 2026 (noche) · filtros del inbox combinables y fluidos; el médico pregunta por la clínica
+
+- **«Sin responder» es un filtro que se combina** con «Todas», «Sin asignar», «Mis chats»,
+  «Atención», Gold y la agente elegida (`?sinResponder=true`, alcance en el backend). Su número
+  es el de la pestaña elegida (contadores nuevos `sinResponderSinAsignar/MisChats/Atencion`;
+  diez `count` en una transacción). La pestaña `SIN_RESPONDER` sigue aceptándose para los enlaces
+  viejos (Dashboard). Prueba contra Postgres: cada número es exactamente lo que lista la combinación.
+- **Cambiar de pestaña ya no vacía la lista ni pone los números en 0**: queda lo anterior
+  atenuado con una barra fina, las vistas ya vistas salen al instante y pasar el mouse o tocar una
+  pestaña la precarga. Flechas ← → entre pestañas. Detalle en el skill `crm-conversaciones`.
+- **El asistente, con un médico autorizado, también informa de la clínica** (especialidades,
+  médicos, horarios, cupos, promociones y el conocimiento de la línea), sin nada que mande, cobre o
+  reserve. Antes «qué servicios existen» lo pasaba a una persona. Ver [asistente-ia](asistente-ia.md).
+- Lo vi en producción: la IA **ya estaba encendida** en la línea de prueba (`ASISTENTE_IA=on`
+  con `GEMINI_API_KEY`, modo «Responder solo») y el número de René es el médico autorizado.
+- Pruebas: 1118 unitarias, 909 de integración, 754 del frontend; builds en verde.
+
 ## 12 de octubre de 2026 (tarde) · fotos de los médicos en todo el CRM e historial de servicios unido al Directorio · DESPLEGADO
 
 **Desplegado (12/10, 13:50):** backend `b989429` (sin migraciones; respaldo previo

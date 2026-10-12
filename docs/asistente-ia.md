@@ -56,6 +56,16 @@ Un médico con su número autorizado escribe a la clínica («¿qué pacientes t
 citas de mañana», «¿cuántas tengo confirmadas y pendientes?») y el asistente le contesta SU
 agenda real. **Construido y probado; apagado por partida doble** (ver «Para encenderlo»).
 
+**Además de su agenda, información de la clínica (12/10/2026).** El médico de prueba preguntó
+«qué servicios existen» y se pasó a una persona: con un médico solo había `mi_agenda`. Ahora
+también tiene las herramientas `informativa` (de solo lectura y sin datos de nadie):
+especialidades, médicos y su horario, cupos y, en una línea comercial, leer promociones; y el
+conocimiento de la línea va en su prompt. Sigue sin nada que mande, cobre o reserve
+(`enviar_promocion`, `estado_de_pago`, `enviar_horario`, `reservar`). Un texto con horas sale si
+consultó algo de la clínica; sin ninguna consulta, sigue pasando a una persona. A una paciente
+que pregunta lo mismo, el prompt le dice que conteste con las especialidades, las promociones y
+el conocimiento, en vez de derivar.
+
 **Quién es el médico.** El número que llega del webhook lo pone Meta, no quien escribe. En
 **Directorio → médico → pestaña «WhatsApp»** (solo ADMIN o más) se asocia un número a un médico
 de la agenda: `AccesoMedicoAgenda` (dueño único: `AccesoMedicoAgendaService`, módulo agenda).

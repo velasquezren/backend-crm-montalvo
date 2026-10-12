@@ -1696,6 +1696,42 @@ describe('conversaciones cerradas y contadores del inbox', () => {
     expect(contadores).toMatchObject({ total: 1, sinResponder: 1, cerradas: 1 });
   });
 
+  it('«Sin responder» se combina con cualquier pestaña, y su número por pestaña es lo que aparece al combinarlo', async () => {
+    const admin = await crearAgente('admin-sr', 'ADMIN');
+    const a = await crearAgente('agente-sr');
+    const chats = [
+      await crearChat({ telefono: '+59177000031', agenteConversacion: admin.id }), // mío, sin responder
+      await crearChat({ telefono: '+59177000032', agenteConversacion: admin.id }), // mío, respondido
+      await crearChat({ telefono: '+59177000033' }), // libre, sin responder
+      await crearChat({ telefono: '+59177000034' }), // libre, respondido
+      await crearChat({ telefono: '+59177000035', agenteConversacion: a.id }), // de otra, sin responder
+      await crearChat({ telefono: '+59177000036', agenteConversacion: admin.id }), // mío, sin responder pero CERRADO
+    ];
+    const sinResponder = [0, 2, 4, 5].map(i => chats[i].conversacion.id);
+    await prisma.conversacion.updateMany({ where: { id: { in: sinResponder } }, data: { esperandoRespuesta: true } });
+    await service.cerrar(chats[5].conversacion.id, admin.id);
+
+    const { contadores } = await service.findAll(undefined, admin.id, {});
+    expect(contadores).toMatchObject({ total: 5, sinResponder: 3, misChats: 2, sinResponderMisChats: 1, sinAsignar: 2, sinResponderSinAsignar: 1, sinResponderAtencion: 0 });
+
+    /* Cada número del filtro es exactamente lo que lista la combinación. */
+    const ids = async (q: Record<string, unknown>) => (await service.findAll(undefined, admin.id, q)).datos.map(c => c.id).sort();
+    expect(await ids({ tab: 'MIS_CHATS', sinResponder: true })).toEqual([chats[0].conversacion.id]);
+    expect(await ids({ tab: 'SIN_ASIGNAR', sinResponder: true })).toEqual([chats[2].conversacion.id]);
+    expect(await ids({ sinResponder: true })).toEqual([0, 2, 4].map(i => chats[i].conversacion.id).sort());
+    expect((await ids({ tab: 'TODAS', sinResponder: true }))).toEqual(await ids({ tab: 'SIN_RESPONDER' }));
+
+    /* Con el filtro puesto, todas las pestañas cuentan solo lo que espera respuesta. */
+    const combinados = (await service.findAll(undefined, admin.id, { sinResponder: true })).contadores;
+    expect(combinados).toMatchObject({ total: 3, misChats: 1, sinAsignar: 1, sinResponder: 3, sinResponderMisChats: 1, sinResponderSinAsignar: 1 });
+    for (const [tab, clave] of PESTANAS.filter(([t]) => t !== 'CERRADAS')) {
+      const { total } = await service.findAll(undefined, admin.id, { tab, sinResponder: true });
+      expect({ tab, n: combinados[clave] }).toEqual({ tab, n: total });
+    }
+    /* Y se combina con el alcance: los de otra agente. */
+    expect((await service.findAll(undefined, admin.id, { agenteId: a.id, sinResponder: true })).datos.map(c => c.id)).toEqual([chats[4].conversacion.id]);
+  });
+
   /* La fila decía «Ana» con el chat en «Sin asignar»: afirmaba un responsable
      que no existía, y el chat no salía al filtrar por Ana. `agente` es quien
      atiende; la dueña de la paciente viaja aparte, en `cliente.agente`. */

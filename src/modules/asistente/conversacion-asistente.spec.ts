@@ -188,10 +188,10 @@ describe('el bucle con un médico', () => {
   const PETICION_MEDICO = { ...PETICION, contexto: { telefono: '+59170012345', ventas: null, medico } };
   const pideAgenda = (fecha: string, detalle = 'LISTA') => pide({ nombre: 'mi_agenda', argumentos: { fecha, detalle } });
 
-  it('al modelo se le declaran solo mi_agenda y pasar_a_persona', async () => {
+  it('al modelo se le declaran mi_agenda, lo informativo de la clínica y pasar_a_persona; nada que mande o reserve', async () => {
     const { bucle, modelo } = montar([dice('listo')]);
     await bucle.responder(PETICION_MEDICO);
-    expect(nombres(modelo.entradas[0].herramientas).sort()).toEqual(['mi_agenda', 'pasar_a_persona']);
+    expect(nombres(modelo.entradas[0].herramientas).sort()).toEqual(['dias_con_cupo', 'horas_libres', 'listar_especialidades', 'listar_medicos', 'mi_agenda', 'pasar_a_persona', 'ver_medico']);
   });
 
   it('el mismo día y detalle pedidos dos veces es una sola acción', async () => {

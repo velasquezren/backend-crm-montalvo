@@ -1,5 +1,5 @@
 import { debePresentarse, conPresentacion, LARGO_MAXIMO, paraWhatsapp, PRESENTACION } from './texto-whatsapp';
-import { ahoraEnLaPaz, promptDelSistema } from './prompt-sistema';
+import { ahoraEnLaPaz, promptDelMedico, promptDelSistema } from './prompt-sistema';
 
 describe('paraWhatsapp', () => {
   it('lleva el Markdown que escriben los modelos al formato de WhatsApp', () => {
@@ -41,6 +41,22 @@ describe('el prompt del sistema', () => {
   it('el conocimiento de la clínica va delimitado, y sin él no aparece la sección', () => {
     expect(promptDelSistema({ ...base, conocimiento: 'La consulta incluye ecografía.' })).toContain('<<<\nLa consulta incluye ecografía.\n>>>');
     expect(promptDelSistema(base)).not.toContain('CONOCIMIENTO DE LA CLÍNICA');
+  });
+
+  it('«¿qué servicios hay?» se contesta con especialidades (y promociones en ventas), no se pasa a una persona', () => {
+    expect(promptDelSistema(base)).toMatch(/QUÉ SERVICIOS HAY[\s\S]*listar_especialidades[\s\S]*listar_promociones[\s\S]*No pasas a una persona por esto/);
+    expect(promptDelSistema({ ...base, ventas: false })).not.toContain('listar_promociones');
+  });
+
+  it('con un médico: su agenda, lo informativo de la clínica y el conocimiento; promociones solo en ventas', () => {
+    const p = promptDelMedico({ ahora: 'lunes', medico: 'Dra. X', conocimiento: 'Atendemos ginecología y ecografías.', ventas: true });
+    expect(p).toContain('mi_agenda');
+    expect(p).toContain('listar_especialidades');
+    expect(p).toContain('listar_promociones');
+    expect(p).toContain('<<<\nAtendemos ginecología y ecografías.\n>>>');
+    const sinVentas = promptDelMedico({ ahora: 'lunes', medico: 'Dra. X' });
+    expect(sinVentas).not.toContain('listar_promociones');
+    expect(sinVentas).not.toContain('CONOCIMIENTO DE LA CLÍNICA');
   });
 
   it('la fecha es la de La Paz, no la del servidor (que está en EE. UU.)', () => {
