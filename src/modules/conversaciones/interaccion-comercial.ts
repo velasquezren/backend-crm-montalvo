@@ -6,7 +6,8 @@ import type { OfertaInteraccion } from './interacciones-integracion';
 export function esInteraccionComercial(mensaje: MensajePreparado): boolean {
   const opciones = mensaje.tipo === 'botones' ? mensaje.opciones
     : mensaje.tipo === 'lista' ? mensaje.secciones.flatMap(s => s.opciones) : [];
-  return opciones.some(o => ['VIEW_PROMOTIONS', 'REGISTER_INTEREST', 'PAGAR_PROMOCION'].includes(o.id) || o.id.startsWith('PROMO_'));
+  return opciones.some(o =>
+    ['VIEW_PROMOTIONS', 'REGISTER_INTEREST', 'PAGAR_PROMOCION', 'ELEGIR_SERVICIO'].includes(o.id) || o.id.startsWith('PROMO_') || o.id.startsWith('PAGAR_SERVICIO:'));
 }
 
 /** También cubre snapshots creados antes de separar las líneas. */

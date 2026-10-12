@@ -2,6 +2,28 @@
 
 > **Revisión del 10/10/2026, módulo por módulo (sin Comisiones ni Finanzas):** [REVISION_2026-10-10.md](REVISION_2026-10-10.md). La API está sana; la lista de mejoras por impacto está ahí.
 
+## 12 de octubre de 2026 (noche, 5) · promociones con varios servicios: la IA las cotiza y se cobra uno por pago
+
+«Octubre Rosa» (la única promoción en producción) estaba cargada casi vacía: resumen «Promo»,
+sin precios, sin condiciones ni fecha de fin. El banner trae cinco servicios con precio de
+siempre y de promoción, y el modelo solo admitía un precio por promoción.
+
+- **Modelo:** `PromocionServicio` (nombre, precio de siempre opcional, precio de promoción,
+  orden; hasta 10) y en `PagoPromocion` el `servicioId` y el `concepto` congelado. Migración
+  `20261012200000_promocion_servicios` (solo añade). Reglas en `problemasDeServicios` (servidor) y
+  `serviciosDeFilas` (editor): promo menor que el de siempre, sin nombres repetidos, y con
+  servicios la promoción no lleva precio propio.
+- **WhatsApp:** la tarjeta lista los servicios; «Pagar ahora» manda la lista para elegir; el QR,
+  la venta y la confirmación dicen el servicio. Detalle en [pagos-promocion](pagos-promocion.md).
+  De paso, un bug: volver a un servicio tras cambiar de idea creaba el pago pero NO reenviaba su QR.
+- **IA:** cotiza cada servicio con su precio y manda la tarjeta de uno (`servicioId`).
+- **CRM:** «Servicios incluidos» en la ficha de la promoción (agregar, ordenar, quitar, −40 %), la
+  lista dice «desde Bs 120 · 5 servicios» y el bloque de pago del chat muestra el servicio.
+- **Landing:** `/publico/promociones` trae `servicios` (nombre y precios); el repo de la landing
+  tiene que mostrarlos (no está en este equipo).
+- Decisiones del propietario: un servicio por pago; Octubre Rosa vale hasta el 31/10/2026; las
+  condiciones son las propuestas.
+
 ## 12 de octubre de 2026 (noche, 4) · agenda: conexiones calientes, reintento de lecturas e índice para el VPS
 
 Medido en producción (7 días de log y consultas directas al MySQL de la agenda con las cuentas de

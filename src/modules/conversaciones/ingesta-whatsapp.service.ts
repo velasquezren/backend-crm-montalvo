@@ -31,7 +31,7 @@ import { MediaEntranteService, MediaEntrante } from './media-entrante.service';
 import { CONTENIDO_PIN, TEXTO_UBICACION, UBICACION_CLINICA } from './ubicacion-clinica';
 import { registrarComprobante } from './pagos-chat';
 import { comprobanteAmbiguo, marcarComprobanteDeReserva, PagoDeReserva, registrarReservaDeChat, TEXTO_COMPROBANTE_RESERVA } from './reservas-chat';
-import { codigoEnTexto, HABLAR_CON_PERSONA, PAGAR_PROMOCION, TEXTO_COMPROBANTE_RECIBIDO, TEXTO_PERSONA_TARJETA } from './promocion-chat';
+import { codigoEnTexto, ELEGIR_SERVICIO, HABLAR_CON_PERSONA, PAGAR_PROMOCION, servicioDeOpcion, TEXTO_COMPROBANTE_RECIBIDO, TEXTO_PERSONA_TARJETA } from './promocion-chat';
 import { PromocionesChatService } from './promociones-chat.service';
 import type { PromocionChat } from '../promociones/promociones.service';
 import type { ProgramadorAsistente } from './asistente-chat.service';
@@ -48,6 +48,8 @@ const PERSONA_ATENDIENDO_MS = 15 * 60 * 1000;
 const MENU_ESPERA_MS = 24 * 60 * 60 * 1000;
 /** Una confirmación u orientación no se repite si ya salió hace menos que esto. */
 const RESPUESTA_REPETIDA_MS = 30 * 60 * 1000;
+/** La lista para elegir qué servicio pagar: solo frena el doble toque. */
+const LISTA_REPETIDA_MS = 3_000;
 
 /**
  * Un automático: texto, una oferta interactiva que se guarda para correlacionar su
@@ -205,8 +207,11 @@ export class IngestaWhatsappService {
     let pedido = null as MotivoAtencion | null;
     /* La opción de nuestro menú que tocó, si la tocó. */
     let accion = null as AccionMenu | null;
-    /* Tocó «Pagar ahora» en la tarjeta de esta promoción. */
+    /* Tocó «Pagar ahora» en la tarjeta de esta promoción (y, con servicios, eligió cuál). */
     let pagarPromocion = null as string | null;
+    let pagarServicio = null as string | null;
+    /* Tocó «Pagar ahora» en una promoción con varios servicios: hay que mandarle la lista. */
+    let elegirServicioDe = null as string | null;
     /* La imagen o documento que mandó era el comprobante de un pago pendiente:
        de una promoción o de una reserva hecha por el chat. */
     let comprobante = null as 'PROMOCION' | 'RESERVA' | null;
@@ -235,12 +240,19 @@ export class IngestaWhatsappService {
           const resultado = await guardarRespuesta(tx, creado.id, conversacion.id, telefono, interaccionOriginal);
           reservoPorChat = resultado.propositoFlow === 'RESERVA_CITA' && resultado.estado === 'CORRELACIONADA';
           if (reservoPorChat && resultado.reservaChat) pagoDeReserva = await registrarReservaDeChat(tx, conversacion.id, resultado.reservaChat);
-          if (linea.comercial && resultado.promocionId && resultado.seleccionId === PAGAR_PROMOCION && resultado.estado === 'CORRELACIONADA') {
-            /* «Pagar ahora» de una tarjeta VIGENTE: se le manda el QR aunque una persona
-               ya esté en el chat, porque es lo que ella acaba de pedir. Si hoy no se puede
-               cobrar, se pide una persona después (`enviarPago`). Un toque a una tarjeta
-               caducada sigue la regla de todos los toques tardíos: lo ve una persona. */
-            pagarPromocion = resultado.promocionId;
+          const servicioElegido = servicioDeOpcion(resultado.seleccionId);
+          const deTarjetaVigente = linea.comercial && resultado.promocionId && resultado.estado === 'CORRELACIONADA';
+          if (deTarjetaVigente && (resultado.seleccionId === PAGAR_PROMOCION || servicioElegido)) {
+            /* «Pagar ahora» de una tarjeta VIGENTE (o el servicio elegido de su lista):
+               se le manda el QR aunque una persona ya esté en el chat, porque es lo que
+               ella acaba de pedir. Si hoy no se puede cobrar, se pide una persona después
+               (`enviarPago`). Un toque a una tarjeta caducada sigue la regla de todos los
+               toques tardíos: lo ve una persona. */
+            pagarPromocion = resultado.promocionId!;
+            pagarServicio = servicioElegido;
+          } else if (deTarjetaVigente && resultado.seleccionId === ELEGIR_SERVICIO) {
+            /* «Pagar ahora» en una promoción con varios servicios: primero elige cuál. */
+            elegirServicioDe = resultado.promocionId!;
           } else {
             /* Qué significa la opción según el menú de HOY; solo si estaba en
                nuestra oferta (`seleccionId` existe únicamente tras correlacionar). */
@@ -371,9 +383,16 @@ export class IngestaWhatsappService {
         );
       }
       const promocionAPagar = pagarPromocion;
+      const servicioAPagar = pagarServicio;
       if (promocionAPagar) {
         void enSegundoPlano('pago de promoción', this.logger, () =>
-          this.enviarPago(conversacion.id, cliente.telefono, lineaId, promocionAPagar, mensaje.id),
+          this.enviarPago(conversacion.id, cliente.telefono, lineaId, promocionAPagar, mensaje.id, servicioAPagar),
+        );
+      }
+      const promocionAElegir = elegirServicioDe;
+      if (promocionAElegir) {
+        void enSegundoPlano('lista de servicios', this.logger, () =>
+          this.enviarListaDeServicios(conversacion.id, cliente.telefono, promocionAElegir, mensaje.id),
         );
       }
       return mensaje;
@@ -630,8 +649,11 @@ export class IngestaWhatsappService {
   }
 
   /** La tarjeta de una promoción, una vez cada 30 min aunque la pida dos veces. */
-  private async enviarTarjeta(conversacionId: string, telefono: string, lineaId: string, promocion: PromocionChat, { respetaPausa = false, asistente = false } = {}): Promise<boolean> {
-    const tarjeta = await this.promocionesChat.tarjeta(lineaId, promocion);
+  private async enviarTarjeta(
+    conversacionId: string, telefono: string, lineaId: string, promocion: PromocionChat,
+    { respetaPausa = false, asistente = false, servicioId }: { respetaPausa?: boolean; asistente?: boolean; servicioId?: string } = {},
+  ): Promise<boolean> {
+    const tarjeta = await this.promocionesChat.tarjeta(lineaId, promocion, servicioId);
     if (!tarjeta) return false;
     const desde = new Date(this.ahora().getTime() - RESPUESTA_REPETIDA_MS);
     /* La pidió ella (escribió el código o la eligió de la lista): sale aunque espere a una persona.
@@ -647,9 +669,9 @@ export class IngestaWhatsappService {
    * se puede cobrar por chat (promoción vencida, sin precio, línea sin QR vigente)
    * no se le manda nada inventado: la conversación pasa a «Atención».
    */
-  private async enviarPago(conversacionId: string, telefono: string, lineaId: string, promocionId: string, mensajeId: string): Promise<void> {
+  private async enviarPago(conversacionId: string, telefono: string, lineaId: string, promocionId: string, mensajeId: string, servicioId: string | null = null): Promise<void> {
     try {
-      const inicio = await this.promocionesChat.iniciar(conversacionId, lineaId, promocionId);
+      const inicio = await this.promocionesChat.iniciar(conversacionId, lineaId, promocionId, servicioId);
       /* Su comprobante de esta promoción ya se está verificando: no se le pide otra vez. */
       if (inicio === 'EN_VERIFICACION') return;
       if (!inicio) {
@@ -660,12 +682,38 @@ export class IngestaWhatsappService {
       const media = { key: inicio.imagen.clave, mime: inicio.imagen.mime, nombre: 'QR de pago' };
       /* Responde a lo que ella pidió: sale aunque el chat espere a una persona. */
       const [fila] = await this.guardarMensajeAutomatico(conversacionId, [{ texto: inicio.texto, media }], async tx =>
-        !!(await tx.mensaje.findFirst({ where: { conversacionId, automatico: true, contenido: inicio.texto, createdAt: { gte: desde } }, select: { id: true } })),
+        /* Retomar el MISMO pago no repite su QR enseguida; un pago nuevo lo recibe siempre. */
+        !inicio.nuevo && !!(await tx.mensaje.findFirst({ where: { conversacionId, automatico: true, contenido: inicio.texto, createdAt: { gte: desde } }, select: { id: true } })),
         { respetaPausa: false },
       ) ?? [];
       if (fila) await this.despachador.texto({ mensajeId: fila.id, conversacionId, telefono }, inicio.texto, media);
     } catch (error) {
       this.logger.error('No se pudo enviar el QR de pago', error);
+    }
+  }
+
+  /**
+   * «Pagar ahora» en una promoción con varios servicios: la lista para elegir
+   * cuál (uno por pago). La pidió ella: sale aunque espere a una persona. Si la
+   * promoción ya no está visible o no tiene servicios, lo ve una persona.
+   */
+  private async enviarListaDeServicios(conversacionId: string, telefono: string, promocionId: string, mensajeId: string): Promise<void> {
+    try {
+      const promocion = await this.promocionesChat.porId(promocionId);
+      const lista = promocion ? this.promocionesChat.listaParaPagar(promocion) : null;
+      if (!promocion || !lista) {
+        await this.pedirRevision(conversacionId, mensajeId);
+        return;
+      }
+      /* Cada «Pagar ahora» que toca la merece (puede querer pagar otro servicio
+         después): solo se frena el doble toque, no la media hora de la tarjeta. */
+      const desde = new Date(this.ahora().getTime() - LISTA_REPETIDA_MS);
+      await this.enviarOfertaAutomatica(conversacionId, telefono, lista, { origen: 'PROMOCION', promocionId }, async tx =>
+        !!(await tx.mensaje.findFirst({ where: { conversacionId, automatico: true, contenido: lista.cuerpo, createdAt: { gte: desde } }, select: { id: true } })),
+        { respetaPausa: false },
+      );
+    } catch (error) {
+      this.logger.error('No se pudo enviar la lista de servicios', error);
     }
   }
 
@@ -875,10 +923,12 @@ export class IngestaWhatsappService {
   }
 
   /** La tarjeta de una promoción que ofreció el asistente (o que una agente aprobó de una sugerencia). */
-  async tarjetaDesdeAsistente(conversacionId: string, telefono: string, lineaId: string, promocionId: string, { respetaPausa }: { respetaPausa: boolean }): Promise<boolean> {
+  async tarjetaDesdeAsistente(
+    conversacionId: string, telefono: string, lineaId: string, promocionId: string, { respetaPausa, servicioId }: { respetaPausa: boolean; servicioId?: string },
+  ): Promise<boolean> {
     if (!interaccionesEnLinea(lineaId)) return false;
     const promocion = await this.promocionesChat.porId(promocionId);
-    return promocion ? this.enviarTarjeta(conversacionId, telefono, lineaId, promocion, { respetaPausa, asistente: true }) : false;
+    return promocion ? this.enviarTarjeta(conversacionId, telefono, lineaId, promocion, { respetaPausa, asistente: true, servicioId }) : false;
   }
 
   /** Una imagen con su pie (el horario de un médico); sin imagen, el pie solo. */

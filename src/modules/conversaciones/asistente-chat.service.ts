@@ -25,6 +25,7 @@ import { IngestaWhatsappService } from './ingesta-whatsapp.service';
 import { interaccionesEnLinea } from './interacciones-integracion';
 import { pagoDelChat } from './pagos-chat';
 import { PromocionesChatService } from './promociones-chat.service';
+import type { PromocionChat } from '../promociones/promociones.service';
 import { AccionSugerida, accionesDe, accionesSugeridas } from './sugerencias-chat';
 
 /*
@@ -440,7 +441,7 @@ export class AsistenteChatService implements ProgramadorAsistente, OnModuleInit,
   private async ejecutar(conversacionId: string, telefono: string, lineaId: string, accion: AccionAsistente | AccionSugerida, { respetaPausa }: { respetaPausa: boolean }): Promise<boolean> {
     try {
       if (accion.tipo === 'PROMOCION' && accion.promocionId) {
-        return await this.ingesta.tarjetaDesdeAsistente(conversacionId, telefono, lineaId, accion.promocionId, { respetaPausa });
+        return await this.ingesta.tarjetaDesdeAsistente(conversacionId, telefono, lineaId, accion.promocionId, { respetaPausa, servicioId: accion.servicioId });
       }
       if (accion.tipo === 'HORARIO' && accion.medicoId !== undefined) {
         const nombre = 'nombre' in accion ? accion.nombre : accion.titulo;
@@ -459,8 +460,8 @@ export class AsistenteChatService implements ProgramadorAsistente, OnModuleInit,
 
   /** Lo comercial de ESTA conversación, atado a ella: el modelo no pasa ids. */
   private puertoVentas(e: EntranteParaAsistente): PuertoVentas {
-    const precio = (p: { precio: number | null; precioRegular: number | null; precioPromocional: number | null }) => ({
-      precio: p.precio, precioRegular: p.precioRegular, precioPromocional: p.precioPromocional,
+    const precio = (p: Pick<PromocionChat, 'precio' | 'precioRegular' | 'precioPromocional' | 'servicios'>) => ({
+      precio: p.precio, precioRegular: p.precioRegular, precioPromocional: p.precioPromocional, servicios: p.servicios,
     });
     return {
       promociones: async () => (await this.promociones.paraMenu()).map(p => ({
@@ -472,7 +473,7 @@ export class AsistenteChatService implements ProgramadorAsistente, OnModuleInit,
         const cobro = await this.cobros.listoPara(e.lineaId);
         return {
           id: p.id, titulo: p.titulo, resumen: p.resumen, condiciones: p.condiciones, etiquetaOferta: p.etiquetaOferta, vigenteHasta: p.vigenteHasta, ...precio(p),
-          sePuedePagarPorChat: !!cobro && p.precio !== null,
+          sePuedePagarPorChat: !!cobro && (p.precio !== null || p.servicios.length > 0),
           sePuedeEnviarTarjeta: interaccionesEnLinea(e.lineaId),
         };
       },

@@ -249,6 +249,88 @@ afterAll(async () => {
   }
 });
 
+describe('una promoción con varios servicios (uno por pago)', () => {
+  /** Como «Octubre Rosa»: sin precio propio, cada servicio con el suyo. */
+  async function conServicios() {
+    await prisma.promocion.update({ where: { id: promocionId }, data: { precioRegular: null, precioPromocional: null } });
+    const eco = await prisma.promocionServicio.create({ data: { promocionId, nombre: 'Ecografía Mamaria', precioRegular: 446, precioPromocional: 268, orden: 0 } });
+    const consulta = await prisma.promocionServicio.create({ data: { promocionId, nombre: 'Consulta Ginecológica', precioRegular: 250, precioPromocional: 175, orden: 1 } });
+    return { eco, consulta };
+  }
+  /** Toca «Pagar ahora» en la tarjeta, espera la lista y elige un servicio; espera el QR. */
+  async function pagarServicio(chatId: string, tarjeta: string, servicioId: string, { conLaListaAnterior = false } = {}) {
+    if (!conLaListaAnterior) {
+      const antes = (await ofertas(chatId)).length;
+      expect((await webhook([toque(tarjeta, 'ELEGIR_SERVICIO')])).status).toBe(200);
+      await esperar(async () => (await ofertas(chatId)).length === antes + 1);
+    }
+    const lista = (await ofertas(chatId)).at(-1)!;
+    const qrsAntes = await prisma.mensaje.count({ where: { conversacionId: chatId, automatico: true, tipo: 'IMAGEN', whatsappMsgId: { not: null } } });
+    expect((await webhook([toque(lista.whatsappMsgId!, `PAGAR_SERVICIO:${servicioId}`, 'list_reply')])).status).toBe(200);
+    await esperar(async () => (await prisma.mensaje.count({ where: { conversacionId: chatId, automatico: true, tipo: 'IMAGEN', whatsappMsgId: { not: null } } })) > qrsAntes);
+  }
+
+  it('la tarjeta lista los servicios; «Pagar ahora» manda la lista; el elegido recibe SU QR, y la venta lleva su nombre', async () => {
+    await configurarCobro();
+    const { eco } = await conServicios();
+    const { chat: id, tarjeta } = await llegarPorLaLanding();
+    const card = envios().find(e => e.includes('ELEGIR_SERVICIO'))!;
+    expect(card).toContain('Ecografía Mamaria: *Bs 268* ~Bs 446~');
+    expect(card).not.toContain('PAGAR_PROMOCION');
+
+    await pagarServicio(id, tarjeta, eco.id);
+    expect(envios().some(e => e.includes('"type":"list"') && e.includes('Consulta Ginecológica'))).toBe(true);
+    const qr = envios().find(e => e.startsWith('{"type":"image"'))!;
+    expect(qr).toContain('Bs 268');
+    expect(qr).toContain('Control prenatal · Ecografía Mamaria');
+    const pago = await pagoAbierto(id);
+    expect(pago).toMatchObject({ estado: 'PENDIENTE', servicioId: eco.id, concepto: 'Control prenatal · Ecografía Mamaria' });
+    expect(pago.monto.toNumber()).toBe(268);
+
+    await mandarComprobante(id);
+    const confirmado = await http(`/conversaciones/${id}/pagos/${pago.id}/confirmar`, 'POST');
+    expect(confirmado.status).toBe(201);
+    expect(confirmado.body).toMatchObject({ estado: 'CONFIRMADO', monto: 268, concepto: 'Control prenatal · Ecografía Mamaria' });
+    const venta = await prisma.venta.findFirstOrThrow({ where: { pagoPromocion: { id: pago.id } } });
+    expect(venta.producto).toBe('Promoción: Control prenatal · Ecografía Mamaria');
+    expect(venta.monto.toNumber()).toBe(268);
+    expect(await prisma.mensaje.findFirst({ where: { conversacionId: id, contenido: { startsWith: '✅ Confirmamos tu pago de Bs 268 por «Control prenatal · Ecografía Mamaria»' } } })).not.toBeNull();
+  });
+
+  it('pagado uno, el siguiente servicio es OTRO pago con su monto; elegir otro antes de pagar anula el pendiente', async () => {
+    await configurarCobro();
+    const { eco, consulta } = await conServicios();
+    const { chat: id, tarjeta } = await llegarPorLaLanding();
+    await pagarServicio(id, tarjeta, eco.id);
+    const primero = await pagoAbierto(id);
+    /* Cambia de idea antes de pagar y elige otra fila de la misma lista: el
+       pendiente se anula y nace el de la consulta. */
+    await pagarServicio(id, tarjeta, consulta.id, { conLaListaAnterior: true });
+    expect((await prisma.pagoPromocion.findUniqueOrThrow({ where: { id: primero.id } })).estado).toBe('ANULADO');
+    const segundo = await pagoAbierto(id);
+    expect(segundo).toMatchObject({ estado: 'PENDIENTE', servicioId: consulta.id });
+    expect(segundo.monto.toNumber()).toBe(175);
+    await mandarComprobante(id);
+    expect((await http(`/conversaciones/${id}/pagos/${segundo.id}/confirmar`, 'POST')).status).toBe(201);
+    /* Confirmado ese, puede pagar la ecografía: es otro pago, otra venta. La lista
+       que ya tenía en el chat sigue valiendo. */
+    await pagarServicio(id, tarjeta, eco.id, { conLaListaAnterior: true });
+    const tercero = await pagoAbierto(id);
+    expect(tercero.id).not.toBe(segundo.id);
+    expect(tercero).toMatchObject({ estado: 'PENDIENTE', servicioId: eco.id });
+  });
+
+  it('un servicio que no se le ofreció en ESE mensaje no cobra nada', async () => {
+    await configurarCobro();
+    const { eco } = await conServicios();
+    const { chat: id, tarjeta } = await llegarPorLaLanding();
+    /* La tarjeta ofreció «Elegir servicio», no «pagar la ecografía»: la opción no es nuestra. */
+    expect((await webhook([toque(tarjeta, `PAGAR_SERVICIO:${eco.id}`)])).status).toBe(200);
+    await reposo();
+    expect(await prisma.pagoPromocion.count({ where: { conversacionId: id } })).toBe(0);
+  });
+});
+
 describe('el QR de la línea', () => {
   it('solo SUPER_ADMIN lo configura; no se activa sin imagen y no expone la clave de R2', async () => {
     expect((await http(`/cobros/${ventas}`, 'GET', usuarios.agente.token)).status).toBe(403);

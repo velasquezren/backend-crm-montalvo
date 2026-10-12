@@ -39,6 +39,10 @@ export function promptDelSistema(d: DatosPrompt): string {
       ? [
           '- Nunca das datos bancarios ni mandas un QR. Para cobrar, usas enviar_promocion: la paciente toca «Pagar ahora»',
           '  y el sistema le manda el QR. Cuando dice que ya pagó, miras estado_de_pago y le dices lo que dice.',
+          '- Una promoción puede traer VARIOS servicios, cada uno con su precio (p. ej. ecografía mamaria, consulta). Si pregunta',
+          '  por uno, le das SU precio de promoción y, si lo hay, el de siempre. Para cobrarlo, enviar_promocion con su servicioId',
+          '  (de ver_promocion): se paga UN servicio por pago; si quiere dos, son dos pagos. Si no sabe cuál, le mandas la tarjeta',
+          '  sin servicioId: ahí ve todos y elige.',
         ]
       : []),
     '- Nunca prometes plazos («en 5 minutos») ni descuentos que no estén en una promoción.',

@@ -244,6 +244,72 @@ describe('revisión y publicación', () => {
   });
 });
 
+describe('promociones con varios servicios (como «Octubre Rosa»)', () => {
+  const ROSA = [
+    { nombre: 'Ecografía Mamaria', precioRegular: 446, precioPromocional: 268 },
+    { nombre: 'Consulta Ginecológica', precioRegular: 250, precioPromocional: 175 },
+    { nombre: 'Cultivo Vaginal', precioRegular: 170, precioPromocional: 120 },
+  ];
+  const sinPrecioPropio = { precioRegular: null, precioPromocional: null, etiquetaOferta: null };
+
+  it('se crea con sus servicios en orden; la lista dice cuántos y desde cuánto', async () => {
+    const creada = await http('/promociones', 'POST', usuarios.agente.token, borrador({ ...sinPrecioPropio, titulo: `${TITULO} rosa`, servicios: ROSA }));
+    expect(creada.status).toBe(201);
+    expect((creada.body['servicios'] as { nombre: string }[]).map(s => s.nombre)).toEqual(ROSA.map(s => s.nombre));
+    expect(creada.body['servicios']).toEqual(ROSA.map(s => expect.objectContaining(s)));
+    const lista = await http(`/promociones?buscar=${encodeURIComponent(`${TITULO} rosa`)}`, 'GET', usuarios.agente.token);
+    expect((lista.body['datos'] as Record<string, unknown>[])[0]).toMatchObject({ servicios: 3, desde: 120 });
+  });
+
+  it('editar conserva el id del servicio que sigue (sus pagos lo siguen nombrando), crea los nuevos y quita los que no vienen', async () => {
+    const creada = await http('/promociones', 'POST', usuarios.agente.token, borrador({ ...sinPrecioPropio, titulo: `${TITULO} rosa 2`, servicios: ROSA }));
+    const id = creada.body['id'] as string;
+    const [eco, , cultivo] = creada.body['servicios'] as { id: string; nombre: string }[];
+    const editada = await http(`/promociones/${id}`, 'PATCH', usuarios.agente.token, {
+      version: creada.body['version'],
+      servicios: [
+        { id: cultivo.id, nombre: 'Cultivo Vaginal', precioRegular: 170, precioPromocional: 110 },
+        { id: eco.id, nombre: 'Ecografía Mamaria', precioRegular: 446, precioPromocional: 268 },
+        { nombre: 'Papanicolaou + Colposcopia', precioRegular: 213, precioPromocional: 150 },
+      ],
+    });
+    expect(editada.status).toBe(200);
+    const servicios = editada.body['servicios'] as { id: string; nombre: string; precioPromocional: number }[];
+    expect(servicios.map(s => s.nombre)).toEqual(['Cultivo Vaginal', 'Ecografía Mamaria', 'Papanicolaou + Colposcopia']);
+    expect(servicios[0]).toMatchObject({ id: cultivo.id, precioPromocional: 110 });
+    expect(servicios[1].id).toBe(eco.id);
+    expect(await prisma.promocionServicio.count({ where: { promocionId: id } })).toBe(3);
+  });
+
+  it('se rechazan: promo no menor que el de siempre, nombres repetidos, más de 10 y precio propio junto a servicios', async () => {
+    const intentar = (cambios: Record<string, unknown>) => http('/promociones', 'POST', usuarios.agente.token, borrador({ ...sinPrecioPropio, titulo: `${TITULO} mala`, ...cambios }));
+    const caro = await intentar({ servicios: [{ nombre: 'Eco', precioRegular: 100, precioPromocional: 100 }] });
+    expect(caro.status).toBe(400);
+    expect(JSON.stringify(caro.body['message'])).toContain('menor que el de siempre');
+    expect((await intentar({ servicios: [{ nombre: 'Eco', precioPromocional: 90 }, { nombre: 'eco', precioPromocional: 80 }] })).status).toBe(400);
+    expect((await intentar({ servicios: Array.from({ length: 11 }, (_, i) => ({ nombre: `S${i}`, precioPromocional: 10 })) })).status).toBe(400);
+    const mezcla = await intentar({ precioRegular: 600, precioPromocional: 480, servicios: ROSA });
+    expect(mezcla.status).toBe(400);
+    expect(JSON.stringify(mezcla.body['message'])).toContain('el precio va en cada servicio');
+    /* Sin condiciones, con servicios no se puede mandar a revisión: hay precio. */
+    const sinCondiciones = await crearLista({ ...sinPrecioPropio, titulo: `${TITULO} sin cond`, condiciones: '', servicios: ROSA });
+    const envio = await http(`/promociones/${sinCondiciones}/enviar`, 'POST', usuarios.agente.token);
+    expect(envio.status).toBe(400);
+    expect(JSON.stringify(envio.body['message'])).toContain('hacen falta las condiciones');
+  });
+
+  it('publicada, la landing recibe cada servicio con su precio y nada interno', async () => {
+    const id = await crearLista({ ...sinPrecioPropio, titulo: `${TITULO} rosa pública`, servicios: ROSA });
+    expect((await http(`/promociones/${id}/enviar`, 'POST', usuarios.agente.token)).status).toBe(201);
+    expect((await http(`/promociones/${id}/publicar`, 'POST', usuarios.admin.token)).status).toBe(201);
+    const slug = (await prisma.promocion.findUniqueOrThrow({ where: { id } })).slug;
+    const publica = await http(`/publico/promociones/${slug}`);
+    expect(publica.status).toBe(200);
+    expect(publica.body['servicios']).toEqual(ROSA);
+    expect(JSON.stringify(publica.body)).not.toMatch(/"id":|promocionId|orden/);
+  });
+});
+
 describe('API pública (la landing)', () => {
   it('muestra solo lo publicado y vigente, sin datos internos, y sirve su banner', async () => {
     const visible = await crearLista({ titulo: `${TITULO} visible`, destacada: true });

@@ -77,49 +77,49 @@ enum DireccionMensaje {
 }
 
 model Usuario {
-  id                    String                 @id @default(uuid())
-  nombre                String
-  email                 String                 @unique
-  passwordHash          String
-  rol                   Rol                    @default(AGENTE)
-  activo                Boolean                @default(true)
+  id                     String                 @id @default(uuid())
+  nombre                 String
+  email                  String                 @unique
+  passwordHash           String
+  rol                    Rol                    @default(AGENTE)
+  activo                 Boolean                @default(true)
   /// Invalida credenciales anteriores al cambiar contraseña, rol o activo.
-  versionSesion         Int                    @default(0)
-  sesiones              SesionUsuario[]
-  foto                  String?
+  versionSesion          Int                    @default(0)
+  sesiones               SesionUsuario[]
+  foto                   String?
   /// Identificador que usa la empresa para esta persona (el `vendedora_pk` de
   /// FileMaker, ej. Pe2455). Es la ÚNICA vía por la que la planilla de comisiones
   /// reconoce a qué agente pertenece cada venta: al ser único y venir en el propio
   /// Excel, no hace falta vincular nada a mano ni adivinar por el nombre.
   /// Solo un SUPER_ADMIN puede asignarlo.
-  codigo                String?                @unique @db.VarChar(40)
-  clientes              Cliente[]              @relation("AgenteAsignado")
-  categoriasFijadas     Cliente[]              @relation("CategoriaFijadaPor")
-  intereses             Interes[]
-  leads                 Lead[]
-  conversaciones        Conversacion[]  @relation("ConversacionAgente")
-  conversacionesCerradas Conversacion[] @relation("ConversacionCerradaPor")
-  atencionesTomadas      Conversacion[] @relation("ConversacionAtencionTomadaPor")
-  menusAtencion          MenuAtencion[] @relation("MenuAtencionActualizadoPor")
-  cobrosLinea            CobroLinea[]   @relation("CobroLineaActualizadoPor")
-  pagosCerrados          PagoPromocion[] @relation("PagoPromocionCerradoPor")
-  asistentesLinea        AsistenteLinea[] @relation("AsistenteLineaActualizadoPor")
-  sugerenciasResueltas   SugerenciaAsistente[] @relation("SugerenciaResueltaPor")
-  lineasWhatsapp        AccesoLineaWhatsapp[]
-  silenciosLinea        SilencioLinea[]
-  ventas                Venta[]
-  plantillas            PlantillaAgente[]
-  recursosMemoria       RecursoMemoriaAgente[]
-  pushSubscriptions     PushSubscription[]
-  tiposCambioCorregidos TipoCambioDiario[]
-  aprobacionesPeriodo   AprobacionPeriodo[]
-  actividades           Actividad[]
-  createdAt             DateTime               @default(now())
-  updatedAt             DateTime               @updatedAt
-  avisosResultado       AvisoResultado[]
-  campanas              Campana[]
-  promocionesCreadas    Promocion[]            @relation("PromocionCreadaPor")
-  promocionesRevisadas  Promocion[]            @relation("PromocionRevisadaPor")
+  codigo                 String?                @unique @db.VarChar(40)
+  clientes               Cliente[]              @relation("AgenteAsignado")
+  categoriasFijadas      Cliente[]              @relation("CategoriaFijadaPor")
+  intereses              Interes[]
+  leads                  Lead[]
+  conversaciones         Conversacion[]         @relation("ConversacionAgente")
+  conversacionesCerradas Conversacion[]         @relation("ConversacionCerradaPor")
+  atencionesTomadas      Conversacion[]         @relation("ConversacionAtencionTomadaPor")
+  menusAtencion          MenuAtencion[]         @relation("MenuAtencionActualizadoPor")
+  cobrosLinea            CobroLinea[]           @relation("CobroLineaActualizadoPor")
+  pagosCerrados          PagoPromocion[]        @relation("PagoPromocionCerradoPor")
+  asistentesLinea        AsistenteLinea[]       @relation("AsistenteLineaActualizadoPor")
+  sugerenciasResueltas   SugerenciaAsistente[]  @relation("SugerenciaResueltaPor")
+  lineasWhatsapp         AccesoLineaWhatsapp[]
+  silenciosLinea         SilencioLinea[]
+  ventas                 Venta[]
+  plantillas             PlantillaAgente[]
+  recursosMemoria        RecursoMemoriaAgente[]
+  pushSubscriptions      PushSubscription[]
+  tiposCambioCorregidos  TipoCambioDiario[]
+  aprobacionesPeriodo    AprobacionPeriodo[]
+  actividades            Actividad[]
+  createdAt              DateTime               @default(now())
+  updatedAt              DateTime               @updatedAt
+  avisosResultado        AvisoResultado[]
+  campanas               Campana[]
+  promocionesCreadas     Promocion[]            @relation("PromocionCreadaPor")
+  promocionesRevisadas   Promocion[]            @relation("PromocionRevisadaPor")
 }
 
 model SesionUsuario {
@@ -133,21 +133,21 @@ model SesionUsuario {
 }
 
 model Cliente {
-  id        String           @id @default(uuid())
-  nombre    String
-  telefono  String           @unique
-  email     String?
+  id                   String           @id @default(uuid())
+  nombre               String
+  telefono             String           @unique
+  email                String?
   /// La categoría que ve todo el CRM (inbox, fichas, filtros). Es la calculada
   /// por valor —ver `clientes/categoria-paciente.ts`— salvo que esté fijada a
   /// mano: entonces manda la fijada y el cálculo no la toca.
-  categoria CategoriaCliente @default(PROSPECTO)
+  categoria            CategoriaCliente @default(PROSPECTO)
   /// Cuándo la fijó a mano un SUPER_ADMIN, o null si es automática. Volver a
   /// null la devuelve al cálculo, que la recalcula en el acto.
   categoriaFijadaEn    DateTime?
-  categoriaFijadaPor   Usuario?  @relation("CategoriaFijadaPor", fields: [categoriaFijadaPorId], references: [id])
+  categoriaFijadaPor   Usuario?         @relation("CategoriaFijadaPor", fields: [categoriaFijadaPorId], references: [id])
   categoriaFijadaPorId String?
-  agente    Usuario?         @relation("AgenteAsignado", fields: [agenteId], references: [id])
-  agenteId  String?
+  agente               Usuario?         @relation("AgenteAsignado", fields: [agenteId], references: [id])
+  agenteId             String?
   /// Cuándo pidió no recibir más promociones (tocó «No me interesa» o «Baja» en
   /// una plantilla de Marketing). Mientras tenga fecha, el CRM no le manda
   /// plantillas de Marketing; las de Utilidad —citas, resultados— siguen.
@@ -155,13 +155,13 @@ model Cliente {
   /// No es cortesía: a quien no quiere promociones y no tiene cómo decirlo le
   /// queda bloquear o reportar el número, y eso baja su calidad en Meta y puede
   /// pausar las plantillas de todos.
-  bajaPromocionesEn DateTime?
+  bajaPromocionesEn    DateTime?
   /// Identificador del paciente en FileMaker (columna `pk`: Pac1897). Es la MISMA
   /// clave que `VentaImportada.pac`, así que el historial de servicios de un
   /// paciente es un join indexado y no un escaneo sobre JSON.
   /// Se guarda siempre en MAYÚSCULAS: FileMaker exporta `Pac1897` en el maestro
   /// de pacientes y `PAC50660` en el de ventas, y sin normalizar no cruzarían.
-  pac       String?          @unique @db.VarChar(20)
+  pac                  String?          @unique @db.VarChar(20)
   // ── Ficha del paciente (origen: FileMaker) ──────────────────────────
   // Columnas propias y no un JSON: el listado las trae sin coste extra, la
   // ficha abre sin pedir nada más, y se pueden filtrar y agregar en SQL para
@@ -196,18 +196,19 @@ model Cliente {
   /// Residuo del volcado original (contadores internos de FileMaker). Se
   /// conserva por trazabilidad pero NO se envía en los listados: son 19 claves
   /// que encarecían cada página sin que nadie las leyera.
-  datosExtra     Json?
-  intereses      Interes[]
-  leads          Lead[]
-  conversaciones Conversacion[]
-  ventas         Venta[]
-  actividades    Actividad[]
-  campanas       CampanaDestinatario[]
-  createdAt      DateTime       @default(now())
-  updatedAt      DateTime       @updatedAt
+  datosExtra      Json?
+  intereses       Interes[]
+  leads           Lead[]
+  conversaciones  Conversacion[]
+  ventas          Venta[]
+  actividades     Actividad[]
+  campanas        CampanaDestinatario[]
+  createdAt       DateTime              @default(now())
+  updatedAt       DateTime              @updatedAt
   // `Cliente_saldoTotal_idx` es parcial (`WHERE "saldoTotal" > 0`) y el lenguaje de
   // Prisma no puede expresar un WHERE: vive solo en el SQL de la migración. Prisma
   // no lo ve y por eso tampoco intenta borrarlo.
+  avisosResultado AvisoResultado[]
 
   @@index([categoria])
   @@index([nombre])
@@ -229,7 +230,6 @@ model Cliente {
   @@index([nombre(ops: raw("gin_trgm_ops"))], type: Gin, map: "Cliente_nombre_trgm_idx")
   @@index([email(ops: raw("gin_trgm_ops"))], type: Gin, map: "Cliente_email_trgm_idx")
   @@index([telefono(ops: raw("gin_trgm_ops"))], type: Gin, map: "Cliente_telefono_trgm_idx")
-  avisosResultado AvisoResultado[]
 }
 
 model Interes {
@@ -248,15 +248,15 @@ model Interes {
 
 model Lead {
   primerContacto PrimerContactoWhatsapp?
-  id            String     @id @default(uuid())
-  cliente       Cliente    @relation(fields: [clienteId], references: [id], onDelete: Cascade)
-  clienteId     String
-  origen        OrigenLead
-  estado        EstadoLead @default(NUEVO)
+  id             String                  @id @default(uuid())
+  cliente        Cliente                 @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  clienteId      String
+  origen         OrigenLead
+  estado         EstadoLead              @default(NUEVO)
   /// `leadgen_id` de Meta Lead Ads: **uno por persona que rellena el formulario**.
   /// Es único porque es la clave de idempotencia con la que `procesarLeadMeta`
   /// deduplica los reintentos del webhook. NO metas aquí el id de un anuncio.
-  metaLeadId    String?    @unique
+  metaLeadId     String?                 @unique
   /// Anuncio por el que entró: `referral.source_id` en Click-to-WhatsApp, o
   /// `ad_id` de Graph API en un Lead Ad de formulario instantáneo — mismo
   /// significado en los dos casos ("qué anuncio trajo a esta persona"), así que
@@ -264,24 +264,24 @@ model Lead {
   /// **No es único a propósito**: un mismo anuncio trae a muchas pacientes, que
   /// es justo para lo que se paga una campaña. Indexado para poder contar
   /// cuántos leads trajo cada anuncio.
-  anuncioId     String?    @db.VarChar(64)
+  anuncioId      String?                 @db.VarChar(64)
   /// La promoción por la que llegó, si se supo SIN anuncio: escribió con su código
   /// `PRM-…` (la landing lo pone en el enlace). Con anuncio manda `PromocionAnuncio`.
-  promocion     Promocion? @relation(fields: [promocionId], references: [id], onDelete: SetNull)
-  promocionId   String?
+  promocion      Promocion?              @relation(fields: [promocionId], references: [id], onDelete: SetNull)
+  promocionId    String?
   /// Por qué se perdió. Solo tiene sentido con `estado = PERDIDO`; se limpia si
   /// el lead vuelve a moverse a otro estado — mismo criterio que
   /// `VentaImportada.motivoExclusion`: mover (o dejar de mover) una oportunidad
   /// sin dejar dicho el motivo es irrecuperable a los tres meses.
-  motivoPerdida String?    @db.VarChar(200)
-  agente        Usuario?   @relation(fields: [agenteId], references: [id])
-  agenteId      String?
+  motivoPerdida  String?                 @db.VarChar(200)
+  agente         Usuario?                @relation(fields: [agenteId], references: [id])
+  agenteId       String?
   /// Ventas que citan a este lead como su origen (`Venta.leadId`). No toda
   /// venta nace de un lead trabajado en el pipeline, así que la relación es
   /// opcional del lado de `Venta`.
-  ventas        Venta[]
-  actividades   Actividad[]
-  createdAt     DateTime   @default(now())
+  ventas         Venta[]
+  actividades    Actividad[]
+  createdAt      DateTime                @default(now())
 
   @@index([anuncioId])
   @@index([promocionId])
@@ -294,15 +294,15 @@ model Lead {
 }
 
 model LineaWhatsapp {
-  id             String @id @default(uuid())
-  nombre         String @db.VarChar(120)
-  telefono       String? @unique @db.VarChar(20)
-  phoneNumberId  String? @unique @db.VarChar(80)
-  wabaId         String? @db.VarChar(80)
+  id             String                @id @default(uuid())
+  nombre         String                @db.VarChar(120)
+  telefono       String?               @unique @db.VarChar(20)
+  phoneNumberId  String?               @unique @db.VarChar(80)
+  wabaId         String?               @db.VarChar(80)
   /// Nombre de variable del servidor; nunca se almacena ni devuelve el token.
-  tokenEnv       String @db.VarChar(100)
-  activa         Boolean @default(false)
-  comercial      Boolean @default(false)
+  tokenEnv       String                @db.VarChar(100)
+  activa         Boolean               @default(false)
+  comercial      Boolean               @default(false)
   usuarios       AccesoLineaWhatsapp[]
   silencios      SilencioLinea[]
   conversaciones Conversacion[]
@@ -356,29 +356,29 @@ enum EstadoPagoPromocion {
 /// (`conversaciones/reservas-chat.ts`); la ingesta llama a sus funciones dentro de su
 /// transacción, igual que con los pagos de promociones.
 model ReservaChat {
-  id                   String            @id @default(uuid())
-  conversacionId       String
-  conversacion         Conversacion      @relation(fields: [conversacionId], references: [id], onDelete: Cascade)
+  id                    String            @id @default(uuid())
+  conversacionId        String
+  conversacion          Conversacion      @relation(fields: [conversacionId], references: [id], onDelete: Cascade)
   /// `para_agendar.para_age`: el número de la reserva en la agenda.
-  reservaAgenda        Int               @unique
+  reservaAgenda         Int               @unique
   /// Lo que se le pidió pagar, congelado al reservar. Null: sin pago por chat.
-  monto                Decimal?          @db.Decimal(10, 2)
+  monto                 Decimal?          @db.Decimal(10, 2)
   /// La imagen del QR del médico en R2, la que se le mandó.
-  qrClave              String?           @db.VarChar(120)
-  estado               EstadoReservaChat
+  qrClave               String?           @db.VarChar(120)
+  estado                EstadoReservaChat
   /// La imagen que ella mandó como comprobante.
-  comprobanteMensajeId String?           @unique
-  comprobanteMensaje   Mensaje?          @relation("ComprobanteReservaChat", fields: [comprobanteMensajeId], references: [id], onDelete: SetNull)
-  qrMensajeId          String?           @unique
-  qrMensaje            Mensaje?          @relation("QrReservaChat", fields: [qrMensajeId], references: [id], onDelete: SetNull)
+  comprobanteMensajeId  String?           @unique
+  comprobanteMensaje    Mensaje?          @relation("ComprobanteReservaChat", fields: [comprobanteMensajeId], references: [id], onDelete: SetNull)
+  qrMensajeId           String?           @unique
+  qrMensaje             Mensaje?          @relation("QrReservaChat", fields: [qrMensajeId], references: [id], onDelete: SetNull)
   comprobanteRecibidoEn DateTime?
-  proximoIntento       DateTime?
+  proximoIntento        DateTime?
   /// Intentos de llevar el comprobante a la agenda.
-  intentos             Int               @default(0)
+  intentos              Int               @default(0)
   /// Por qué quedó en revisión (para quien lo atiende).
-  detalle              String?           @db.VarChar(300)
-  createdAt            DateTime          @default(now())
-  updatedAt            DateTime          @updatedAt
+  detalle               String?           @db.VarChar(300)
+  createdAt             DateTime          @default(now())
+  updatedAt             DateTime          @updatedAt
 
   @@index([conversacionId, estado])
   @@index([estado, updatedAt])
@@ -408,6 +408,12 @@ model PagoPromocion {
   linea                LineaWhatsapp       @relation(fields: [lineaId], references: [id])
   promocionId          String
   promocion            Promocion           @relation(fields: [promocionId], references: [id])
+  /// El servicio de la promoción que eligió pagar (null en una promoción de un solo precio).
+  servicioId           String?
+  servicio             PromocionServicio?  @relation(fields: [servicioId], references: [id], onDelete: SetNull)
+  /// Qué se cobra, congelado al pedir el QR («Octubre Rosa · Ecografía Mamaria»):
+  /// es el producto de la venta, aunque después se renombre o se quite el servicio.
+  concepto             String?             @db.VarChar(170)
   /// El precio vigente al pedir el QR, congelado: un cambio de precio después no
   /// cambia lo que ella ya pagó.
   monto                Decimal             @db.Decimal(10, 2)
@@ -436,6 +442,7 @@ model PagoPromocion {
   @@index([promocionId, estado])
   @@index([lineaId])
   @@index([cerradoPorId])
+  @@index([servicioId])
 }
 
 /// El menú con el que la línea recibe a la paciente (docs/menu-atencion.md).
@@ -459,7 +466,7 @@ model MenuAtencion {
 model AccesoLineaWhatsapp {
   usuarioId String
   lineaId   String
-  usuario   Usuario @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  usuario   Usuario       @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
   linea     LineaWhatsapp @relation(fields: [lineaId], references: [id], onDelete: Cascade)
 
   @@id([usuarioId, lineaId])
@@ -491,24 +498,24 @@ model SilencioLinea {
 }
 
 model Conversacion {
-  actividadesReserva Actividad[]
-  primerContacto PrimerContactoWhatsapp?
-  id                 String    @id @default(uuid())
-  cliente            Cliente   @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  actividadesReserva      Actividad[]
+  primerContacto          PrimerContactoWhatsapp?
+  id                      String                  @id @default(uuid())
+  cliente                 Cliente                 @relation(fields: [clienteId], references: [id], onDelete: Cascade)
   /// Un hilo por contacto y línea; la restricción compuesta evita duplicados
   /// cuando llegan webhooks simultáneos del mismo paciente al mismo número.
-  clienteId          String
-  lineaId            String @default("00000000-0000-4000-8000-000000000001")
-  linea              LineaWhatsapp @relation(fields: [lineaId], references: [id])
-  agente             Usuario?  @relation("ConversacionAgente", fields: [agenteId], references: [id])
-  agenteId           String?
-  mensajes           Mensaje[]
-  reservasChat       ReservaChat[]
-  pagosPromocion     PagoPromocion[]
-  sugerenciasAsistente SugerenciaAsistente[]
-  turnosAsistente    TurnoAsistente[]
-  createdAt          DateTime  @default(now())
-  updatedAt          DateTime  @updatedAt
+  clienteId               String
+  lineaId                 String                  @default("00000000-0000-4000-8000-000000000001")
+  linea                   LineaWhatsapp           @relation(fields: [lineaId], references: [id])
+  agente                  Usuario?                @relation("ConversacionAgente", fields: [agenteId], references: [id])
+  agenteId                String?
+  mensajes                Mensaje[]
+  reservasChat            ReservaChat[]
+  pagosPromocion          PagoPromocion[]
+  sugerenciasAsistente    SugerenciaAsistente[]
+  turnosAsistente         TurnoAsistente[]
+  createdAt               DateTime                @default(now())
+  updatedAt               DateTime                @updatedAt
   /// True mientras la paciente espera respuesta de una PERSONA: lo último que
   /// pasó fue un mensaje suyo, o el acuse automático fuera de horario (que no
   /// cuenta como respuesta). Es la pestaña "Sin responder" del inbox.
@@ -526,7 +533,7 @@ model Conversacion {
   /// silencio. Los cuatro casos están fijados en
   /// `conversaciones.integracion.spec.ts`, bloque "la pestaña Sin responder se
   /// mantiene al crear cada mensaje".
-  esperandoRespuesta Boolean   @default(false)
+  esperandoRespuesta      Boolean                 @default(false)
   /// Cuándo se cerró —resuelta—, o null si está abierta. Es lo que hacen los
   /// inbox serios (Intercom, Front): una conversación resuelta sale de las
   /// pestañas de trabajo y se REABRE sola en cuanto la paciente escribe o la
@@ -535,35 +542,35 @@ model Conversacion {
   /// Existe porque sin él «Sin responder» acumulaba para siempre todo lo que
   /// alguna vez quedó sin contestar: 427 el 2026-09-30, de los que 201 llevaban
   /// más de una semana sin movimiento y nadie iba a atender.
-  cerradaEn          DateTime?
+  cerradaEn               DateTime?
   /// Quién la cerró. null con `cerradaEn` = cerrada por inactividad (barrido).
-  cerradaPor         Usuario?  @relation("ConversacionCerradaPor", fields: [cerradaPorId], references: [id], onDelete: SetNull)
-  cerradaPorId       String?
+  cerradaPor              Usuario?                @relation("ConversacionCerradaPor", fields: [cerradaPorId], references: [id], onDelete: SetNull)
+  cerradaPorId            String?
   /// Atención humana (docs/atencion-humana.md). Cuándo empezó la espera de una
   /// PERSONA; null = no hay solicitud viva. No se reinicia mientras siga viva:
   /// es el reloj que ve recepción, y recargar o reiniciar no lo mueve.
-  atencionSolicitadaEn DateTime?
+  atencionSolicitadaEn    DateTime?
   /// Por qué. El orden del enum es la prioridad: la pestaña «Atención» ordena
   /// por esta columna.
-  atencionMotivo       MotivoAtencion?
+  atencionMotivo          MotivoAtencion?
   /// El mensaje de la paciente que la originó, para el contexto. Sin FK a
   /// propósito (sería una segunda relación con Mensaje); se lee siempre
   /// acotado a esta conversación.
-  atencionMensajeId    String?
+  atencionMensajeId       String?
   /// Quién la tomó y cuándo. NO es `agenteId`: en recepción la atención es
   /// compartida y tomar una solicitud no asigna el chat.
-  atencionTomadaEn     DateTime?
-  atencionTomadaPor    Usuario?  @relation("ConversacionAtencionTomadaPor", fields: [atencionTomadaPorId], references: [id], onDelete: SetNull)
-  atencionTomadaPorId  String?
+  atencionTomadaEn        DateTime?
+  atencionTomadaPor       Usuario?                @relation("ConversacionAtencionTomadaPor", fields: [atencionTomadaPorId], references: [id], onDelete: SetNull)
+  atencionTomadaPorId     String?
   /// La automatización no vuelve a escribir en este chat. Lo pone una solicitud
   /// de atención humana y solo lo levanta una reanudación explícita: resolver
   /// la solicitud no lo hace.
   automatizacionPausadaEn DateTime?
 
+  @@unique([clienteId, lineaId])
   @@index([agenteId])
   @@index([updatedAt])
   @@index([agenteId, updatedAt])
-  @@unique([clienteId, lineaId])
   @@index([lineaId, updatedAt])
   /// Sirve al filtro y al contador de la pestaña "Sin responder" a la vez.
   @@index([esperandoRespuesta, updatedAt])
@@ -601,8 +608,8 @@ enum MotivoAtencion {
 model InteraccionMensaje {
   mensajeId    String   @id
   mensaje      Mensaje  @relation(fields: [mensajeId], references: [id], onDelete: Cascade)
-  privado      String?  // AES-256-GCM, retención 7 días; no logs ni API
-  vista        Json     // Proyección construida por servidor, no response_json
+  privado      String? // AES-256-GCM, retención 7 días; no logs ni API
+  vista        Json // Proyección construida por servidor, no response_json
   estado       String   @db.VarChar(32)
   consumidaPor String?
   venceEn      DateTime
@@ -612,15 +619,15 @@ model InteraccionMensaje {
 }
 
 model Mensaje {
-  reservaQr          ReservaChat? @relation("QrReservaChat")
-  reservaComprobante ReservaChat? @relation("ComprobanteReservaChat")
-  primerContacto PrimerContactoWhatsapp?
-  id             String           @id @default(uuid())
-  conversacion   Conversacion     @relation(fields: [conversacionId], references: [id], onDelete: Cascade)
-  conversacionId String
-  direccion      DireccionMensaje
+  reservaQr           ReservaChat?            @relation("QrReservaChat")
+  reservaComprobante  ReservaChat?            @relation("ComprobanteReservaChat")
+  primerContacto      PrimerContactoWhatsapp?
+  id                  String                  @id @default(uuid())
+  conversacion        Conversacion            @relation(fields: [conversacionId], references: [id], onDelete: Cascade)
+  conversacionId      String
+  direccion           DireccionMensaje
   /// Para media, `contenido` guarda el pie de foto (caption) o el nombre del archivo; puede ir vacío.
-  contenido      String
+  contenido           String
   /// Identidad de la INTENCIÓN de envío, generada por el navegador (UUID) y
   /// estable entre reintentos. Es lo que hace idempotente el POST: el backend
   /// persiste el mensaje y dispara el envío a Meta ANTES de responder, así que
@@ -634,40 +641,40 @@ model Mensaje {
   /// No confundir con `whatsappMsgId`, que lo asigna Meta DESPUÉS del
   /// despacho, ni con `intentosEnvio`/`proximoIntento`, que son los reintentos
   /// TÉCNICOS del worker sobre esta misma fila.
-  clientMessageId String?         @unique @db.VarChar(64)
-  whatsappMsgId  String?          @unique
+  clientMessageId     String?                 @unique @db.VarChar(64)
+  whatsappMsgId       String?                 @unique
   /// Tipo de contenido. TEXTO por defecto; el resto llega por el webhook de media.
-  tipo           TipoMensaje      @default(TEXTO)
+  tipo                TipoMensaje             @default(TEXTO)
   /// Clave del objeto en R2 (Cloudflare). Null mientras se descarga/sube en segundo plano.
-  mediaKey       String?
+  mediaKey            String?
   /// MIME real del archivo (image/jpeg, application/pdf, audio/ogg…).
-  mediaMime      String?
+  mediaMime           String?
   /// Nombre original del archivo (documentos). Null para imágenes/audio.
-  mediaNombre    String?
+  mediaNombre         String?
   /// Ancho y alto con que se VE la imagen (ya girada por EXIF). El chat reserva
   /// esa caja antes de que llegue la foto, y el hilo no salta al cargar.
   /// Null en lo anterior a 2026-09-23 y en lo que no es imagen.
-  mediaAncho     Int?
-  mediaAlto      Int?
+  mediaAncho          Int?
+  mediaAlto           Int?
   /// Trabajo interno; no se incluye en lecturas REST.
-  trabajoMedia   TrabajoMediaEntrante?
-  interaccion    InteraccionMensaje?
+  trabajoMedia        TrabajoMediaEntrante?
+  interaccion         InteraccionMensaje?
   /// Solo aplica a SALIENTE — el paciente no tiene "estado de entrega" hacia nosotros.
   /// Ticks estilo WhatsApp: ENVIADO al crear, luego lo actualiza la respuesta de Meta
   /// (FALLIDO) o el webhook de `statuses` (ENTREGADO/LEIDO).
-  estadoEnvio    EstadoMensaje?
+  estadoEnvio         EstadoMensaje?
   /// Código seguro de Meta para explicar el fallo sin exponer su respuesta cruda.
-  codigoErrorEnvio Int?
+  codigoErrorEnvio    Int?
   /// Las plantillas no se reconstruyen como texto libre en los reintentos.
-  permiteReintento Boolean @default(true)
-  entregadoEn    DateTime?
-  leidoEn        DateTime?
+  permiteReintento    Boolean                 @default(true)
+  entregadoEn         DateTime?
+  leidoEn             DateTime?
   /// Cuántas veces se intentó despachar. Solo crece cuando CONSTA que no salió;
   /// un INCIERTO no cuenta, porque no se reintenta.
-  intentosEnvio  Int              @default(0)
+  intentosEnvio       Int                     @default(0)
   /// Cuándo toca reintentar. `null` = nada agendado, que es el caso de casi
   /// todas las filas: solo un FALLIDO con intentos por delante lleva fecha.
-  proximoIntento DateTime?
+  proximoIntento      DateTime?
   /// true = lo mandó el sistema (acuse fuera de horario), no una persona.
   ///
   /// Existe por el inbox, no por trazabilidad: la pestaña "Sin responder" detecta
@@ -676,26 +683,26 @@ model Mensaje {
   /// conversación DESAPARECERÍA de esa pestaña — el lunes nadie sabría quién
   /// escribió el fin de semana. La automatización habría empeorado, en silencio,
   /// justo el problema que venía a resolver.
-  automatico     Boolean          @default(false)
+  automatico          Boolean                 @default(false)
   /// true = lo escribió el asistente de IA (modo RESPONDER). Siempre con
   /// `automatico: true`: no es una respuesta de una persona y la conversación
   /// sigue en «Sin responder». El chat lo rotula para que nadie lo confunda.
-  asistente      Boolean          @default(false)
+  asistente           Boolean                 @default(false)
   /// Si salió como plantilla, su categoría en Meta (`MARKETING`, `UTILITY`…);
   /// null en todo lo demás. Es lo que permite no mandarle otra campaña a quien
   /// acaba de recibir una (Audiencias): Meta limita cuántas plantillas de
   /// marketing recibe cada persona, y a quien no las lee le llegan menos.
   /// Desde el 2026-09-30: lo anterior quedó sin marcar.
-  plantillaCategoria String?    @db.VarChar(20)
-  createdAt      DateTime         @default(now())
+  plantillaCategoria  String?                 @db.VarChar(20)
+  createdAt           DateTime                @default(now())
+  avisoResultado      AvisoResultado?
+  destinatarioCampana CampanaDestinatario?
 
   @@index([conversacionId, createdAt])
   /// Solo lo usa el barrido de reintentos, que pregunta por `proximoIntento`
   /// vencido. Es un índice sobre una columna casi siempre nula, así que apenas
   /// pesa y evita recorrer la tabla de mensajes entera cada minuto.
   @@index([proximoIntento])
-  avisoResultado AvisoResultado?
-  destinatarioCampana CampanaDestinatario?
 }
 
 /// Una recuperación por mensaje. CHECK en SQL: estados internos, fuera de la API.
@@ -737,43 +744,43 @@ enum EstadoMensaje {
 }
 
 model Venta {
-  id                String      @id @default(uuid())
-  cliente           Cliente     @relation(fields: [clienteId], references: [id])
+  id                String         @id @default(uuid())
+  cliente           Cliente        @relation(fields: [clienteId], references: [id])
   clienteId         String
-  agente            Usuario     @relation(fields: [agenteId], references: [id])
+  agente            Usuario        @relation(fields: [agenteId], references: [id])
   agenteId          String
   producto          String
   /// Montos en bolivianos (Bs) — moneda única del sistema, ver shared/pipes/moneda.pipe.ts en el frontend.
-  monto             Decimal     @db.Decimal(12, 2)
-  estado            EstadoVenta @default(GANADA)
-  metodoPago        String?     @db.VarChar(50)
-  comprobante       String?     @db.VarChar(100)
-  comprobanteKey    String?     @db.VarChar(255)
-  comprobanteMime   String?     @db.VarChar(100)
-  comprobanteNombre String?     @db.VarChar(255)
-  medico            String?     @db.VarChar(120)
-  modulo            String?     @db.VarChar(60)
-  notas             String?     @db.Text
+  monto             Decimal        @db.Decimal(12, 2)
+  estado            EstadoVenta    @default(GANADA)
+  metodoPago        String?        @db.VarChar(50)
+  comprobante       String?        @db.VarChar(100)
+  comprobanteKey    String?        @db.VarChar(255)
+  comprobanteMime   String?        @db.VarChar(100)
+  comprobanteNombre String?        @db.VarChar(255)
+  medico            String?        @db.VarChar(120)
+  modulo            String?        @db.VarChar(60)
+  notas             String?        @db.Text
   /// Lead que originó esta venta, si el agente lo indicó al registrarla.
   /// Opcional a propósito: hay ventas presenciales o históricas sin un lead
   /// trabajado antes en el pipeline. Sirve para saber de qué campaña/anuncio
   /// vino una venta real (vía `Lead.anuncioId`/`origen`) en vez de asumir que
   /// TODOS los leads abiertos del cliente se cerraron por esta venta —
   /// ver `LeadsService.marcarConvertidos`.
-  lead              Lead?       @relation(fields: [leadId], references: [id])
+  lead              Lead?          @relation(fields: [leadId], references: [id])
   leadId            String?
   /// Por qué se perdió. Solo tiene sentido con `estado = PERDIDA`; se limpia si
   /// la venta vuelve a moverse a otro estado — mismo criterio que
   /// `Lead.motivoPerdida` y `VentaImportada.motivoExclusion`.
-  motivoPerdida     String?     @db.VarChar(200)
+  motivoPerdida     String?        @db.VarChar(200)
   /// Clave de la INTENCIÓN de registrar, generada por el navegador. Un doble
   /// envío o el reintento de una respuesta perdida devuelven la venta que ya
   /// existe en vez de contar el dinero dos veces. Mismo patrón que
   /// `Mensaje.clientMessageId`: la garantía es el índice único.
-  clientRequestId   String?     @unique @db.VarChar(64)
+  clientRequestId   String?        @unique @db.VarChar(64)
   /// Si nació de confirmar un pago de promoción por WhatsApp.
   pagoPromocion     PagoPromocion?
-  createdAt         DateTime    @default(now())
+  createdAt         DateTime       @default(now())
 
   @@index([clienteId])
   @@index([agenteId])
@@ -1514,11 +1521,11 @@ enum FrecuenciaRepeticion {
 /// reserva ningún recurso físico, así que dos actividades del mismo agente
 /// pueden caer a la misma hora sin que sea un conflicto real.
 model Actividad {
-  id              String          @id @default(uuid())
-  tipo            TipoActividad   @default(TAREA)
-  titulo          String          @db.VarChar(200)
-  notas           String?         @db.VarChar(1000)
-  fechaProgramada DateTime
+  id                  String                @id @default(uuid())
+  tipo                TipoActividad         @default(TAREA)
+  titulo              String                @db.VarChar(200)
+  notas               String?               @db.VarChar(1000)
+  fechaProgramada     DateTime
   /// Cuánto dura de verdad — una llamada no es una reunión. El frontend
   /// sugiere un valor por tipo al crear (LLAMADA 15, REUNION 60, TAREA 30,
   /// RECORDATORIO 5) pero la persona puede cambiarlo; el `@default(30)` es
@@ -1526,35 +1533,35 @@ model Actividad {
   /// del bloque en las vistas de semana/día del calendario — antes todas las
   /// actividades se pintaban del mismo tamaño sin importar el tipo, lo cual
   /// no reflejaba la realidad.
-  duracionMinutos Int             @default(30)
-  estado          EstadoActividad @default(PENDIENTE)
-  cliente         Cliente?        @relation(fields: [clienteId], references: [id], onDelete: Cascade)
-  clienteId       String?
+  duracionMinutos     Int                   @default(30)
+  estado              EstadoActividad       @default(PENDIENTE)
+  cliente             Cliente?              @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  clienteId           String?
   /// Lead puntual del pipeline al que se ata esta actividad, si aplica —
   /// opcional porque también se agenda seguimiento sobre un cliente ya
   /// convertido, fuera del pipeline. `SetNull` (no Cascade): perder el lead no
   /// debe borrar el recordatorio, solo desvincularlo.
-  lead            Lead?           @relation(fields: [leadId], references: [id], onDelete: SetNull)
-  leadId          String?
-  agente          Usuario?        @relation(fields: [agenteId], references: [id])
-  agenteId        String?
+  lead                Lead?                 @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  leadId              String?
+  agente              Usuario?              @relation(fields: [agenteId], references: [id])
+  agenteId            String?
   /// Tarea compartida, única por reserva externa. La agenda conserva la autoridad.
-  reservaAgenda   Int?            @unique
-  reservaEstado   String?         @db.VarChar(32)
-  reservaFecha    DateTime?
-  reservaMedico   String?         @db.VarChar(160)
-  reservaPaciente String?         @db.VarChar(120)
-  reservaRevisadaEn DateTime?
-  conversacionId  String?
-  conversacion    Conversacion?   @relation(fields: [conversacionId], references: [id], onDelete: SetNull)
+  reservaAgenda       Int?                  @unique
+  reservaEstado       String?               @db.VarChar(32)
+  reservaFecha        DateTime?
+  reservaMedico       String?               @db.VarChar(160)
+  reservaPaciente     String?               @db.VarChar(120)
+  reservaRevisadaEn   DateTime?
+  conversacionId      String?
+  conversacion        Conversacion?         @relation(fields: [conversacionId], references: [id], onDelete: SetNull)
   /// La relación puede borrarse; no convertir entonces una reserva de chat en una pública.
-  reservaDeChat   Boolean         @default(false)
+  reservaDeChat       Boolean               @default(false)
   avisoEnProcesoHasta DateTime?
-  completadaEn    DateTime?
+  completadaEn        DateTime?
   /// Cuándo se mandó el push de recordatorio (barrido periódico en
   /// `ActividadesService`, cada 5 min). Evita notificar dos veces la misma
   /// actividad si el barrido la vuelve a ver antes de que pase a COMPLETADA.
-  notificadaEn    DateTime?
+  notificadaEn        DateTime?
   /// Une las ocurrencias creadas juntas por «repetir». `null` = actividad suelta.
   ///
   /// Sin FK y sin entidad Serie a propósito: lo único que hace falta es saber
@@ -1565,11 +1572,11 @@ model Actividad {
   /// Las actividades anteriores a esta columna quedan en `null`: no hay forma
   /// fiable de reconstruir qué se creó junto, y adivinarlo por fecha y paciente
   /// uniría cosas que nadie agrupó.
-  serieId         String?
+  serieId             String?
   /// Con qué cadencia nació la serie. Solo para poder decirlo en pantalla.
-  frecuenciaSerie FrecuenciaRepeticion?
-  createdAt       DateTime        @default(now())
-  updatedAt       DateTime        @updatedAt
+  frecuenciaSerie     FrecuenciaRepeticion?
+  createdAt           DateTime              @default(now())
+  updatedAt           DateTime              @updatedAt
 
   @@index([agenteId, fechaProgramada])
   @@index([reservaRevisadaEn, id])
@@ -1589,19 +1596,19 @@ model Actividad {
 
 /// Reserva durable del alta inicial. Estados y coherencia definidos por CHECK SQL.
 model PrimerContactoWhatsapp {
-  conversacionId String @id
-  conversacion Conversacion @relation(fields: [conversacionId], references: [id], onDelete: Cascade)
-  mensajeId String? @unique
-  mensaje Mensaje? @relation(fields: [mensajeId], references: [id], onDelete: Cascade)
-  origen OrigenLead?
-  anuncioId String? @db.VarChar(64)
-  leadId String? @unique
-  lead Lead? @relation(fields: [leadId], references: [id], onDelete: Cascade)
-  intentos Int @default(0)
+  conversacionId String       @id
+  conversacion   Conversacion @relation(fields: [conversacionId], references: [id], onDelete: Cascade)
+  mensajeId      String?      @unique
+  mensaje        Mensaje?     @relation(fields: [mensajeId], references: [id], onDelete: Cascade)
+  origen         OrigenLead?
+  anuncioId      String?      @db.VarChar(64)
+  leadId         String?      @unique
+  lead           Lead?        @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  intentos       Int          @default(0)
   proximoIntento DateTime?
-  ultimoError String? @db.VarChar(80)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  ultimoError    String?      @db.VarChar(80)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
 
   @@index([proximoIntento, conversacionId])
 }
@@ -1616,12 +1623,12 @@ model PrimerContactoWhatsapp {
 /// contra el doble envío bajo doble clic o reintento, no una comprobación
 /// previa que una carrera se salta.
 model AvisoResultado {
-  id String @id @default(uuid())
+  id           String   @id @default(uuid())
   /// Id del informe en el portal de resultados. Opaco para el CRM: no se
   /// resuelve contra ninguna tabla local.
-  informeId String @unique @db.VarChar(64)
-  cliente   Cliente @relation(fields: [clienteId], references: [id], onDelete: Cascade)
-  clienteId String
+  informeId    String   @unique @db.VarChar(64)
+  cliente      Cliente  @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  clienteId    String
   /// El mensaje del CRM que lo transporta. Por ahí se ve el estado de entrega
   /// real (enviado/entregado/leído): no se duplica ese estado aquí.
   ///
@@ -1631,10 +1638,10 @@ model AvisoResultado {
   /// mensaje cuando el envío se persiste. Si el envío falla, la reserva se
   /// borra y el informe vuelve a la cola. En Postgres los NULL no chocan entre
   /// sí, así que varias reservas en vuelo conviven sin problema.
-  mensaje   Mensaje? @relation(fields: [mensajeId], references: [id], onDelete: Cascade)
-  mensajeId String?  @unique
+  mensaje      Mensaje? @relation(fields: [mensajeId], references: [id], onDelete: Cascade)
+  mensajeId    String?  @unique
   /// Quién lo mandó. La razón de que ASISTENTE sea una cuenta propia.
-  enviadoPor   Usuario @relation(fields: [enviadoPorId], references: [id])
+  enviadoPor   Usuario  @relation(fields: [enviadoPorId], references: [id])
   enviadoPorId String
   enviadoEn    DateTime @default(now())
 
@@ -1673,49 +1680,49 @@ enum EstadoDestinatario {
 /// (`modules/campanas`). La audiencia se congela al crearla: es exactamente
 /// la que se vio, contó y aprobó, aunque después cambien las categorías.
 model Campana {
-  id          String        @id @default(uuid())
-  nombre      String        @db.VarChar(120)
-  linea       LineaWhatsapp @relation(fields: [lineaId], references: [id])
-  lineaId     String
-  plantilla   String        @db.VarChar(512)
-  idioma      String        @db.VarChar(20)
+  id             String                @id @default(uuid())
+  nombre         String                @db.VarChar(120)
+  linea          LineaWhatsapp         @relation(fields: [lineaId], references: [id])
+  lineaId        String
+  plantilla      String                @db.VarChar(512)
+  idioma         String                @db.VarChar(20)
   /// De dónde sale cada variable de la plantilla, en el orden de Meta
   /// (`VariableCampana[]`: el nombre de la paciente o un texto fijo).
-  variables   Json
+  variables      Json
   /// El filtro de Audiencias con que se armó, para saber después a quién fue.
-  filtro      Json
+  filtro         Json
   /// Dólares por plantilla entregada con que se estimó el costo.
-  tarifaUsd   Decimal       @db.Decimal(8, 4)
-  estado      EstadoCampana
+  tarifaUsd      Decimal               @db.Decimal(8, 4)
+  estado         EstadoCampana
   /// Por qué la pausó el sistema (plantilla retirada, línea desconectada).
-  motivoPausa String?       @db.VarChar(300)
+  motivoPausa    String?               @db.VarChar(300)
   programadaPara DateTime
-  creadaPor   Usuario       @relation(fields: [creadaPorId], references: [id])
-  creadaPorId String
-  createdAt   DateTime      @default(now())
-  terminadaEn DateTime?
-  destinatarios CampanaDestinatario[]
+  creadaPor      Usuario               @relation(fields: [creadaPorId], references: [id])
+  creadaPorId    String
+  createdAt      DateTime              @default(now())
+  terminadaEn    DateTime?
+  destinatarios  CampanaDestinatario[]
 
   @@index([estado, programadaPara])
   @@index([createdAt])
 }
 
 model CampanaDestinatario {
-  id         String             @id @default(uuid())
-  campana    Campana            @relation(fields: [campanaId], references: [id], onDelete: Cascade)
-  campanaId  String
-  cliente    Cliente            @relation(fields: [clienteId], references: [id], onDelete: Cascade)
-  clienteId  String
+  id        String             @id @default(uuid())
+  campana   Campana            @relation(fields: [campanaId], references: [id], onDelete: Cascade)
+  campanaId String
+  cliente   Cliente            @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  clienteId String
   /// Su puesto en la audiencia, de más a menos gasto: las que más valen
   /// reciben primero, y si la campaña se pausa a medias ya les llegó.
-  orden      Int
-  estado     EstadoDestinatario @default(PENDIENTE)
+  orden     Int
+  estado    EstadoDestinatario @default(PENDIENTE)
   /// El mensaje del CRM que la llevó: de ahí salen entrega, lectura y respuesta.
-  mensaje    Mensaje?           @relation(fields: [mensajeId], references: [id], onDelete: SetNull)
-  mensajeId  String?            @unique
+  mensaje   Mensaje?           @relation(fields: [mensajeId], references: [id], onDelete: SetNull)
+  mensajeId String?            @unique
   /// Por qué no salió (OMITIDO o FALLIDO).
-  motivo     String?            @db.VarChar(300)
-  enviadoEn  DateTime?
+  motivo    String?            @db.VarChar(300)
+  enviadoEn DateTime?
 
   /// Una paciente, una vez por campaña: es lo que impide mandarle dos.
   @@unique([campanaId, clienteId])
@@ -1913,16 +1920,39 @@ model Promocion {
   createdAt         DateTime        @default(now())
   updatedAt         DateTime        @updatedAt
 
-  imagenes PromocionImagen[]
-  leads    Lead[]
-  pagos    PagoPromocion[]
-  anuncios PromocionAnuncio[]
-  medicos  PromocionMedico[]
+  imagenes  PromocionImagen[]
+  leads     Lead[]
+  pagos     PagoPromocion[]
+  anuncios  PromocionAnuncio[]
+  medicos   PromocionMedico[]
+  /// Los servicios que trae la promoción, cada uno con su precio («Octubre
+  /// Rosa»: ecografía mamaria, consulta ginecológica…). Con servicios, el precio
+  /// va en cada uno y no en la promoción. Hasta 10: lo que cabe en una lista de
+  /// WhatsApp para elegir cuál pagar.
+  servicios PromocionServicio[]
 
   @@index([estado, vigenteHasta])
   @@index([especialidadId])
   @@index([creadaPorId])
   @@index([revisadaPorId])
+}
+
+/// Un servicio de una promoción con su precio. Se paga UNO por pago (decisión
+/// del propietario, 12/10/2026): cada pago es una venta con el nombre del servicio.
+/// Dueño: `PromocionesService`.
+model PromocionServicio {
+  id                String          @id @default(uuid())
+  promocionId       String
+  promocion         Promocion       @relation(fields: [promocionId], references: [id], onDelete: Cascade)
+  nombre            String          @db.VarChar(80)
+  /// En Bs. El de siempre, tachado en la tarjeta; null = no se muestra.
+  precioRegular     Decimal?        @db.Decimal(10, 2)
+  /// En Bs: lo que se cobra.
+  precioPromocional Decimal         @db.Decimal(10, 2)
+  orden             Int             @default(0)
+  pagos             PagoPromocion[]
+
+  @@index([promocionId, orden])
 }
 
 /// Un banner por formato. Reemplazarlo crea otra fila (otro id, otra URL pública inmutable).

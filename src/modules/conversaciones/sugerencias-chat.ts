@@ -14,6 +14,8 @@ export interface AccionSugerida {
   readonly tipo: 'PROMOCION' | 'HORARIO';
   readonly titulo: string;
   readonly promocionId?: string;
+  /** El servicio de la promoción, si la tarjeta es de uno solo. */
+  readonly servicioId?: string;
   readonly medicoId?: number;
   readonly horario?: string | null;
 }
@@ -28,7 +30,7 @@ export interface SugerenciaDelChat {
 
 export function accionesSugeridas(acciones: readonly AccionAsistente[]): AccionSugerida[] {
   return acciones.flatMap((a): AccionSugerida[] =>
-    a.tipo === 'PROMOCION' ? [{ tipo: 'PROMOCION', titulo: a.titulo, promocionId: a.promocionId }]
+    a.tipo === 'PROMOCION' ? [{ tipo: 'PROMOCION', titulo: a.titulo, promocionId: a.promocionId, ...(a.servicioId ? { servicioId: a.servicioId } : {}) }]
       : a.tipo === 'HORARIO' ? [{ tipo: 'HORARIO', titulo: a.nombre, medicoId: a.medicoId, horario: a.horario }]
       : []);
 }
@@ -39,7 +41,10 @@ export function accionesDe(valor: Prisma.JsonValue): AccionSugerida[] {
     if (!v || typeof v !== 'object' || Array.isArray(v)) return [];
     const o = v as Record<string, unknown>;
     if (o['tipo'] === 'PROMOCION' && typeof o['promocionId'] === 'string' && typeof o['titulo'] === 'string') {
-      return [{ tipo: 'PROMOCION', titulo: o['titulo'], promocionId: o['promocionId'] }];
+      return [{
+        tipo: 'PROMOCION', titulo: o['titulo'], promocionId: o['promocionId'],
+        ...(typeof o['servicioId'] === 'string' ? { servicioId: o['servicioId'] } : {}),
+      }];
     }
     if (o['tipo'] === 'HORARIO' && typeof o['medicoId'] === 'number' && typeof o['titulo'] === 'string') {
       return [{ tipo: 'HORARIO', titulo: o['titulo'], medicoId: o['medicoId'], horario: typeof o['horario'] === 'string' ? o['horario'] : null }];

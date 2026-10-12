@@ -78,6 +78,39 @@ export function vigenciaDe(desde: Date, hasta: Date | null, hoy: Date): Vigencia
   return 'VIGENTE';
 }
 
+/* ── Servicios de una promoción ────────────────────────────────────────── */
+
+/** Lo que cabe en la lista de WhatsApp con la que la paciente elige cuál pagar. */
+export const SERVICIOS_POR_PROMOCION = 10;
+
+export interface ServicioDePromocion {
+  readonly nombre: string;
+  readonly precioRegular: number | null;
+  readonly precioPromocional: number;
+}
+
+/**
+ * Lo que está mal en los servicios de una promoción, o lista vacía. Lo mismo
+ * al guardar que al publicar: un precio que llega a una paciente tiene que
+ * cuadrar.
+ */
+export function problemasDeServicios(servicios: readonly ServicioDePromocion[]): string[] {
+  const problemas: string[] = [];
+  if (servicios.length > SERVICIOS_POR_PROMOCION) problemas.push(`Una promoción lleva como mucho ${SERVICIOS_POR_PROMOCION} servicios.`);
+  const vistos = new Set<string>();
+  for (const s of servicios) {
+    const clave = s.nombre.trim().toLocaleLowerCase('es');
+    if (!clave) problemas.push('Un servicio no tiene nombre.');
+    else if (vistos.has(clave)) problemas.push(`«${s.nombre.trim()}» está dos veces.`);
+    vistos.add(clave);
+    if (!(s.precioPromocional > 0)) problemas.push(`«${s.nombre.trim()}» necesita su precio de promoción.`);
+    if (s.precioRegular !== null && s.precioPromocional >= s.precioRegular) {
+      problemas.push(`En «${s.nombre.trim()}», el precio de promoción tiene que ser menor que el de siempre.`);
+    }
+  }
+  return problemas;
+}
+
 /* ── Publicar ──────────────────────────────────────────────────────────── */
 
 export interface PromocionParaPublicar {
@@ -92,6 +125,7 @@ export interface PromocionParaPublicar {
   enLanding: boolean;
   enWhatsapp: boolean;
   formatos: readonly FormatoBanner[];
+  servicios?: readonly ServicioDePromocion[];
 }
 
 /**
@@ -104,7 +138,12 @@ export function faltantesParaPublicar(p: PromocionParaPublicar, hoy: Date): stri
   if (!p.titulo.trim()) faltan.push('Falta el título.');
   if (!p.resumen.trim()) faltan.push('Falta el resumen.');
   if (!p.formatos.includes(FORMATO_OBLIGATORIO)) faltan.push(`Falta el banner ${FORMATOS_BANNER[FORMATO_OBLIGATORIO].nombre}.`);
-  const tieneOferta = p.precioRegular !== null || p.precioPromocional !== null || !!p.etiquetaOferta;
+  const servicios = p.servicios ?? [];
+  const tieneOferta = p.precioRegular !== null || p.precioPromocional !== null || !!p.etiquetaOferta || servicios.length > 0;
+  faltan.push(...problemasDeServicios(servicios));
+  if (servicios.length && (p.precioRegular !== null || p.precioPromocional !== null)) {
+    faltan.push('Con servicios, el precio va en cada servicio: deja vacío el precio de la promoción.');
+  }
   if (tieneOferta && !p.condiciones.trim()) faltan.push('Con precio u oferta hacen falta las condiciones (qué incluye, hasta cuándo).');
   if (p.precioRegular !== null && p.precioPromocional !== null && p.precioPromocional >= p.precioRegular) {
     faltan.push('El precio promocional tiene que ser menor que el regular.');

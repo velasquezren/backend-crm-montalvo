@@ -1,5 +1,6 @@
 import { Transform, Type } from 'class-transformer';
 import {
+  ValidateNested,
   ArrayMaxSize,
   ArrayUnique,
   IsArray,
@@ -31,6 +32,33 @@ export const FECHA = /^\d{4}-\d{2}-\d{2}$/;
 const PRECIO_MAXIMO = 9_999_999;
 
 export const VIGENCIAS = ['PROXIMA', 'VIGENTE', 'VENCIDA'] as const;
+
+/**
+ * Un servicio de la promoción. Con `id` se edita el que ya existe (los pagos que
+ * lo nombran lo siguen nombrando); sin él, se crea.
+ */
+export class ServicioPromocionDto {
+  @IsOptional()
+  @IsUUID()
+  id?: string;
+
+  @Transform(recortar)
+  @IsString()
+  @MinLength(2)
+  @MaxLength(80)
+  nombre!: string;
+
+  @IsOptional()
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  @Max(PRECIO_MAXIMO)
+  precioRegular?: number | null;
+
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0.01)
+  @Max(PRECIO_MAXIMO)
+  precioPromocional!: number;
+}
 
 export class CrearPromocionDto {
   @Transform(recortar)
@@ -106,6 +134,14 @@ export class CrearPromocionDto {
   @ArrayUnique()
   @IsUUID('all', { each: true })
   medicoIds?: string[];
+
+  /** Los servicios con su precio, en el orden en que se muestran. Reemplaza la lista entera. */
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(10)
+  @ValidateNested({ each: true })
+  @Type(() => ServicioPromocionDto)
+  servicios?: ServicioPromocionDto[];
 }
 
 /**
@@ -191,6 +227,14 @@ export class ActualizarPromocionDto {
   @ArrayUnique()
   @IsUUID('all', { each: true })
   medicoIds?: string[];
+
+  /** Los servicios con su precio, en el orden en que se muestran. Reemplaza la lista entera. */
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(10)
+  @ValidateNested({ each: true })
+  @Type(() => ServicioPromocionDto)
+  servicios?: ServicioPromocionDto[];
 }
 
 export class DevolverPromocionDto {

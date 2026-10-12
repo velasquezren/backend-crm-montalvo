@@ -28,6 +28,7 @@ import { EstadoPromocion, FormatoBanner, Prisma, Promocion } from '../../prisma/
 import { PrismaService } from '../../prisma/prisma.service';
 import {
   ActualizarPromocionDto,
+  ServicioPromocionDto,
   CrearPromocionDto,
   QueryAnunciosSinPromocionDto,
   QueryPromocionesDto,
@@ -38,6 +39,7 @@ import {
   ACCIONES_PROMOCION,
   FORMATO_OBLIGATORIO,
   faltantesParaPublicar,
+  problemasDeServicios,
   generarCodigo,
   mensajeDeWhatsapp,
   problemaDeBanner,
@@ -56,6 +58,7 @@ const INCLUIR_DETALLE = {
   medicos: { select: { perfilMedico: { select: { id: true, nombrePublico: true, slug: true, publicado: true } } } },
   creadaPor: { select: { id: true, nombre: true } },
   revisadaPor: { select: { id: true, nombre: true } },
+  servicios: { orderBy: [{ orden: 'asc' }, { id: 'asc' }] },
 } satisfies Prisma.PromocionInclude;
 
 type PromocionDetalle = Prisma.PromocionGetPayload<{ include: typeof INCLUIR_DETALLE }>;
@@ -64,6 +67,7 @@ const INCLUIR_PUBLICA = {
   especialidad: { select: { nombre: true, slug: true, activa: true } },
   imagenes: true,
   medicos: { select: { perfilMedico: { select: { nombrePublico: true, slug: true, publicado: true } } } },
+  servicios: { orderBy: [{ orden: 'asc' }, { id: 'asc' }] },
 } satisfies Prisma.PromocionInclude;
 
 type PromocionPublicaFila = Prisma.PromocionGetPayload<{ include: typeof INCLUIR_PUBLICA }>;
@@ -78,6 +82,25 @@ interface AnuncioSinPromocion {
 
 const aNumero = (d: Prisma.Decimal | null) => (d === null ? null : d.toNumber());
 
+/** Lo que el chat, la landing y el CRM necesitan de un servicio de la promoción. */
+export interface ServicioPromocion {
+  id: string;
+  nombre: string;
+  precioRegular: number | null;
+  precioPromocional: number;
+}
+
+type FilaServicio = { id: string; nombre: string; precioRegular: Prisma.Decimal | null; precioPromocional: Prisma.Decimal };
+const servicioDe = (s: FilaServicio): ServicioPromocion => ({
+  id: s.id, nombre: s.nombre, precioRegular: aNumero(s.precioRegular), precioPromocional: s.precioPromocional.toNumber(),
+});
+
+/** Para el chat: siempre con sus servicios en orden. */
+const INCLUIR_CHAT = {
+  imagenes: { where: { formato: FORMATO_OBLIGATORIO } },
+  servicios: { orderBy: [{ orden: 'asc' }, { id: 'asc' }] },
+} satisfies Prisma.PromocionInclude;
+
 /**
  * Una promoción tal como la necesita el chat de WhatsApp: la tarjeta, el precio a
  * cobrar y su banner cuadrado. Solo de promociones visibles hoy.
@@ -91,8 +114,14 @@ export interface PromocionChat {
   etiquetaOferta: string | null;
   precioRegular: number | null;
   precioPromocional: number | null;
-  /** Lo que se cobra: el promocional si hay, si no el regular. `null` = sin precio publicado: no se cobra por chat. */
+  /**
+   * Lo que se cobra en una promoción de UN precio: el promocional si hay, si no
+   * el regular. `null` = sin precio propio (no se cobra así): o no tiene precio,
+   * o lleva `servicios` y se cobra el que elija.
+   */
   precio: number | null;
+  /** Sus servicios con su precio, en orden. Vacío en una promoción de un solo precio. */
+  servicios: ServicioPromocion[];
   vigenteHasta: string | null;
   /** URL pública del banner cuadrado (la que descarga Meta), o `null`. */
   bannerUrl: string | null;
@@ -154,6 +183,7 @@ export class PromocionesService {
           imagenes: { where: { formato: FORMATO_OBLIGATORIO }, select: { clave: true } },
           creadaPor: { select: { nombre: true } },
           _count: { select: { anuncios: true } },
+          servicios: { select: { precioPromocional: true } },
         },
       }),
       this.prisma.promocion.count({ where }),
@@ -171,6 +201,9 @@ export class PromocionesService {
         etiquetaOferta: p.etiquetaOferta,
         precioRegular: aNumero(p.precioRegular),
         precioPromocional: aNumero(p.precioPromocional),
+        /* Con servicios: cuántos y desde cuánto, para la lista. */
+        servicios: p.servicios.length,
+        desde: p.servicios.length ? Math.min(...p.servicios.map(x => x.precioPromocional.toNumber())) : null,
         destacada: p.destacada,
         enLanding: p.enLanding,
         enWhatsapp: p.enWhatsapp,
@@ -234,6 +267,7 @@ export class PromocionesService {
       etiquetaOferta: p.etiquetaOferta,
       precioRegular: aNumero(p.precioRegular),
       precioPromocional: aNumero(p.precioPromocional),
+      servicios: p.servicios.map(servicioDe),
       vigenteDesde: textoDeFechaCivil(p.vigenteDesde),
       vigenteHasta: p.vigenteHasta ? textoDeFechaCivil(p.vigenteHasta) : null,
       vigencia: vigenciaDe(p.vigenteDesde, p.vigenteHasta, hoy),
@@ -253,7 +287,7 @@ export class PromocionesService {
       createdAt: p.createdAt,
       updatedAt: p.updatedAt,
       mensajeWhatsapp: mensajeDeWhatsapp(p.titulo, p.codigo),
-      faltantes: faltantesParaPublicar(this.paraPublicar(p, p.imagenes.map(i => i.formato)), hoy),
+      faltantes: faltantesParaPublicar(this.paraPublicar(p, p.imagenes.map(i => i.formato), p.servicios), hoy),
       puedeEditar: puedeEditar(p.estado, esAdmin),
       acciones: ACCIONES_PROMOCION.filter(a => {
         const t = TRANSICIONES[a];
@@ -276,6 +310,7 @@ export class PromocionesService {
     const desde = fechaOFallar(dto.vigenteDesde, 'inicio');
     const hasta = dto.vigenteHasta ? fechaOFallar(dto.vigenteHasta, 'fin') : null;
     this.validarCoherencia(dto.precioRegular ?? null, dto.precioPromocional ?? null, desde, hasta);
+    this.validarServicios(dto.servicios ?? [], dto.precioRegular ?? null, dto.precioPromocional ?? null);
     await this.validarReferencias(dto.especialidadId ?? null, dto.medicoIds ?? []);
 
     const creada = await this.conCodigoLibre(codigo =>
@@ -298,6 +333,11 @@ export class PromocionesService {
           especialidadId: dto.especialidadId ?? null,
           creadaPorId: usuario.sub,
           medicos: { create: (dto.medicoIds ?? []).map(perfilMedicoId => ({ perfilMedicoId })) },
+          servicios: {
+            create: (dto.servicios ?? []).map((sv, orden) => ({
+              nombre: sv.nombre, precioRegular: sv.precioRegular ?? null, precioPromocional: sv.precioPromocional, orden,
+            })),
+          },
         },
         select: { id: true, codigo: true },
       }),
@@ -313,7 +353,7 @@ export class PromocionesService {
    * publicable: no se deja una promoción a la vista con datos incompletos.
    */
   async actualizar(id: string, dto: ActualizarPromocionDto, usuario: UsuarioJwt) {
-    const { version, medicoIds, vigenteDesde, vigenteHasta, ...campos } = dto;
+    const { version, medicoIds, vigenteDesde, vigenteHasta, servicios, ...campos } = dto;
     const esAdmin = cubreRol(usuario.rol, 'ADMIN');
     await this.validarReferencias(campos.especialidadId ?? null, medicoIds ?? []);
 
@@ -330,6 +370,8 @@ export class PromocionesService {
       const precioRegular = campos.precioRegular === undefined ? aNumero(actual.precioRegular) : campos.precioRegular;
       const precioPromocional = campos.precioPromocional === undefined ? aNumero(actual.precioPromocional) : campos.precioPromocional;
       this.validarCoherencia(precioRegular, precioPromocional, desde, hasta);
+      const serviciosFinales = servicios ?? (await tx.promocionServicio.findMany({ where: { promocionId: id }, orderBy: { orden: 'asc' } })).map(servicioDe);
+      this.validarServicios(serviciosFinales, precioRegular, precioPromocional);
 
       /* El slug sigue al título solo mientras nunca se publicó: después, la landing ya lo enlaza. */
       const slug = campos.titulo && !actual.publicadaEn ? this.slugDe(campos.titulo, actual.codigo) : undefined;
@@ -342,8 +384,10 @@ export class PromocionesService {
         await tx.promocionMedico.deleteMany({ where: { promocionId: id } });
         await tx.promocionMedico.createMany({ data: medicoIds.map(perfilMedicoId => ({ promocionId: id, perfilMedicoId })) });
       }
+      if (servicios) await this.sincronizarServicios(tx, id, servicios);
       if (nueva.estado === 'PUBLICADA') {
-        const faltan = faltantesParaPublicar(this.paraPublicar(nueva, nueva.imagenes.map(i => i.formato)), fechaCivilClinica(new Date()));
+        const filasServicios = await tx.promocionServicio.findMany({ where: { promocionId: id } });
+        const faltan = faltantesParaPublicar(this.paraPublicar(nueva, nueva.imagenes.map(i => i.formato), filasServicios), fechaCivilClinica(new Date()));
         if (faltan.length) throw new BadRequestException(faltan);
       }
       return nueva.estado;
@@ -373,7 +417,8 @@ export class PromocionesService {
       }
       if (accion === 'enviar' || accion === 'publicar') {
         const formatos = (await tx.promocionImagen.findMany({ where: { promocionId: id }, select: { formato: true } })).map(i => i.formato);
-        const faltan = faltantesParaPublicar(this.paraPublicar(actual, formatos), fechaCivilClinica(new Date()));
+        const filasServicios = await tx.promocionServicio.findMany({ where: { promocionId: id } });
+        const faltan = faltantesParaPublicar(this.paraPublicar(actual, formatos, filasServicios), fechaCivilClinica(new Date()));
         if (faltan.length) throw new BadRequestException(faltan);
       }
       const ahora = new Date();
@@ -575,13 +620,13 @@ export class PromocionesService {
    * código llega desde la landing, así que basta con que esté publicada y vigente.
    */
   async paraChatPorCodigo(codigo: string): Promise<PromocionChat | null> {
-    const p = await this.prisma.promocion.findFirst({ where: { codigo, ...this.whereVisible() }, include: { imagenes: { where: { formato: FORMATO_OBLIGATORIO } } } });
+    const p = await this.prisma.promocion.findFirst({ where: { codigo, ...this.whereVisible() }, include: INCLUIR_CHAT });
     return p ? this.paraChat(p) : null;
   }
 
   /** Por id, con la misma condición: lo que se le cobra tiene que seguir visible al pedir el QR. */
   async paraChatPorId(id: string): Promise<PromocionChat | null> {
-    const p = await this.prisma.promocion.findFirst({ where: { id, ...this.whereVisible() }, include: { imagenes: { where: { formato: FORMATO_OBLIGATORIO } } } });
+    const p = await this.prisma.promocion.findFirst({ where: { id, ...this.whereVisible() }, include: INCLUIR_CHAT });
     return p ? this.paraChat(p) : null;
   }
 
@@ -595,15 +640,16 @@ export class PromocionesService {
       where: this.wherePublica('whatsapp'),
       orderBy: [{ destacada: 'desc' }, { vigenteHasta: { sort: 'asc', nulls: 'last' } }, { publicadaEn: 'desc' }, { id: 'asc' }],
       take: PROMOCIONES_EN_MENU,
-      include: { imagenes: { where: { formato: FORMATO_OBLIGATORIO } } },
+      include: INCLUIR_CHAT,
     });
     return filas.map(f => this.paraChat(f));
   }
 
-  private paraChat(p: Promocion & { imagenes: { id: string }[] }): PromocionChat {
+  private paraChat(p: Promocion & { imagenes: { id: string }[]; servicios: FilaServicio[] }): PromocionChat {
     const precioRegular = aNumero(p.precioRegular);
     const precioPromocional = aNumero(p.precioPromocional);
     const banner = p.imagenes[0];
+    const servicios = p.servicios.map(servicioDe);
     return {
       id: p.id,
       codigo: p.codigo,
@@ -613,7 +659,8 @@ export class PromocionesService {
       etiquetaOferta: p.etiquetaOferta,
       precioRegular,
       precioPromocional,
-      precio: precioPromocional ?? precioRegular,
+      precio: servicios.length ? null : precioPromocional ?? precioRegular,
+      servicios,
       vigenteHasta: p.vigenteHasta ? textoDeFechaCivil(p.vigenteHasta) : null,
       bannerUrl: banner ? urlPublica(`/publico/promociones/imagenes/${banner.id}`) : null,
     };
@@ -689,6 +736,8 @@ export class PromocionesService {
       etiquetaOferta: p.etiquetaOferta,
       precioRegular: aNumero(p.precioRegular),
       precioPromocional: aNumero(p.precioPromocional),
+      /* Cada servicio con su precio («Ecografía Mamaria: Bs 268, antes Bs 446»). */
+      servicios: p.servicios.map(servicioDe).map(({ nombre, precioRegular, precioPromocional }) => ({ nombre, precioRegular, precioPromocional })),
       moneda: 'BOB' as const,
       vigenteDesde: textoDeFechaCivil(p.vigenteDesde),
       vigenteHasta: p.vigenteHasta ? textoDeFechaCivil(p.vigenteHasta) : null,
@@ -728,8 +777,10 @@ export class PromocionesService {
   private paraPublicar(
     p: Pick<Promocion, 'titulo' | 'resumen' | 'condiciones' | 'etiquetaOferta' | 'precioRegular' | 'precioPromocional' | 'vigenteDesde' | 'vigenteHasta' | 'enLanding' | 'enWhatsapp'>,
     formatos: readonly FormatoBanner[],
+    servicios: readonly FilaServicio[] = [],
   ) {
     return {
+      servicios: servicios.map(servicioDe),
       titulo: p.titulo,
       resumen: p.resumen,
       condiciones: p.condiciones,
@@ -742,6 +793,36 @@ export class PromocionesService {
       enWhatsapp: p.enWhatsapp,
       formatos,
     };
+  }
+
+  /** Los servicios, coherentes entre sí y con el precio de la promoción. */
+  private validarServicios(
+    servicios: readonly { nombre: string; precioRegular?: number | null; precioPromocional: number }[],
+    precioRegular: number | null,
+    precioPromocional: number | null,
+  ) {
+    const problemas = problemasDeServicios(servicios.map(sv => ({ nombre: sv.nombre, precioRegular: sv.precioRegular ?? null, precioPromocional: sv.precioPromocional })));
+    if (servicios.length && (precioRegular !== null || precioPromocional !== null)) {
+      problemas.push('Con servicios, el precio va en cada servicio: deja vacío el precio de la promoción.');
+    }
+    if (problemas.length) throw new BadRequestException(problemas);
+  }
+
+  /**
+   * Deja los servicios de la promoción exactamente como la lista, en su orden.
+   * Uno con `id` se edita en su lugar (los pagos que lo nombran lo siguen
+   * nombrando; además guardan su `concepto` congelado); uno sin `id` se crea; los
+   * que ya no vienen se borran. Un `id` de OTRA promoción no se toca: se crea uno nuevo.
+   */
+  private async sincronizarServicios(tx: Prisma.TransactionClient, promocionId: string, servicios: readonly ServicioPromocionDto[]) {
+    const actuales = new Set((await tx.promocionServicio.findMany({ where: { promocionId }, select: { id: true } })).map(x => x.id));
+    const conservados = servicios.filter(sv => sv.id && actuales.has(sv.id)).map(sv => sv.id!);
+    await tx.promocionServicio.deleteMany({ where: { promocionId, id: { notIn: conservados } } });
+    for (const [orden, sv] of servicios.entries()) {
+      const datos = { nombre: sv.nombre, precioRegular: sv.precioRegular ?? null, precioPromocional: sv.precioPromocional, orden };
+      if (sv.id && actuales.has(sv.id)) await tx.promocionServicio.update({ where: { id: sv.id }, data: datos });
+      else await tx.promocionServicio.create({ data: { ...datos, promocionId } });
+    }
   }
 
   /** Lo que la base también rechazaría (CHECK), dicho antes y en castellano. */

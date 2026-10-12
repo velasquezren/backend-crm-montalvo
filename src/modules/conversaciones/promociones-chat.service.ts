@@ -16,7 +16,7 @@ import { ConversacionesGateway } from './conversaciones.gateway';
 import { ConversacionesService } from './conversaciones.service';
 import { obtenerConversacionPropia } from './envio-comun';
 import { PAGO_ABIERTO, PAGO_EN_CURSO, PagoDelChat, ResultadoAccionPago, pagoDelChat, uuidEstable } from './pagos-chat';
-import { tarjetaDePromocion, textoOtroComprobante, textoPagoConfirmado } from './promocion-chat';
+import { conceptoDeServicio, listaDeServicios, tarjetaDePromocion, tarjetaDeServicio, textoOtroComprobante, textoPagoConfirmado } from './promocion-chat';
 import type { LecturaComprobante } from '../asistente/comprobante';
 
 /** Lo que hay que mandarle a la paciente al empezar el pago: el QR y su pie. */
@@ -24,6 +24,12 @@ export interface InicioDePago {
   pagoId: string;
   texto: string;
   imagen: { clave: string; mime: string };
+  /**
+   * Es un pago que nace ahora (y no uno que se retoma): su QR sale siempre. El
+   * «no repetir el mismo QR» es para retomar; un pago nuevo con el mismo texto
+   * (volvió al mismo servicio tras cambiar de idea) también necesita el suyo.
+   */
+  nuevo: boolean;
 }
 
 /**
@@ -83,11 +89,25 @@ export class PromocionesChatService {
     return this.promociones.paraMenuWhatsapp();
   }
 
-  /** La tarjeta para esta línea: con «Pagar ahora» solo si la línea tiene un QR vigente. */
-  async tarjeta(lineaId: string, promocion: PromocionChat): Promise<MensajePreparado | null> {
+  /**
+   * La tarjeta para esta línea: con «Pagar ahora» solo si la línea tiene un QR
+   * vigente. Con `servicioId`, la de ese servicio (la que manda el asistente);
+   * un servicio que no es de la promoción no da tarjeta.
+   */
+  async tarjeta(lineaId: string, promocion: PromocionChat, servicioId?: string): Promise<MensajePreparado | null> {
     const linea = await this.prisma.lineaWhatsapp.findUnique({ where: { id: lineaId }, select: { comercial: true } });
     if (!linea?.comercial) return null;
-    return tarjetaDePromocion(promocion, { puedePagar: Boolean(await this.cobros.listoPara(lineaId)) });
+    const puedePagar = Boolean(await this.cobros.listoPara(lineaId));
+    if (servicioId) {
+      const servicio = promocion.servicios.find(s => s.id === servicioId);
+      return servicio ? tarjetaDeServicio(promocion, servicio, { puedePagar }) : null;
+    }
+    return tarjetaDePromocion(promocion, { puedePagar });
+  }
+
+  /** La lista para elegir qué servicio pagar, o `null` si la promoción no tiene servicios. */
+  listaParaPagar(promocion: PromocionChat): MensajePreparado | null {
+    return promocion.servicios.length ? listaDeServicios(promocion) : null;
   }
 
   /** Escribió con el código: la promoción queda en su lead (si no vino ya por un anuncio). */
@@ -103,10 +123,16 @@ export class PromocionesChatService {
    * chat: la promoción dejó de estar visible, no tiene precio o la línea no tiene
    * un QR vigente. Elegir otra promoción anula el pago anterior sin comprobante.
    */
-  async iniciar(conversacionId: string, lineaId: string, promocionId: string): Promise<ResultadoDePagar> {
+  async iniciar(conversacionId: string, lineaId: string, promocionId: string, servicioId?: string | null): Promise<ResultadoDePagar> {
     const [promocion, cobro] = await Promise.all([this.promociones.paraChatPorId(promocionId), this.cobros.listoPara(lineaId)]);
-    if (!promocion || promocion.precio === null || !cobro) return null;
-    const monto = promocion.precio;
+    if (!promocion || !cobro) return null;
+    /* Con servicios se cobra el que eligió (uno por pago); sin servicios, el precio de la promoción. */
+    const servicio = servicioId ? promocion.servicios.find(s => s.id === servicioId) ?? null : null;
+    if (servicioId && !servicio) return null;
+    if (!servicio && (promocion.servicios.length || promocion.precio === null)) return null;
+    const monto = servicio ? servicio.precioPromocional : promocion.precio!;
+    const concepto = servicio ? conceptoDeServicio(promocion.titulo, servicio.nombre) : promocion.titulo;
+    let nuevo = false;
     const pago = await this.prisma.$transaction(async tx => {
       /* El mismo candado que los automáticos y la atención humana: dos toques
          simultáneos a «Pagar ahora» no abren dos pagos. */
@@ -116,12 +142,13 @@ export class PromocionesChatService {
       const abierto = await tx.pagoPromocion.findFirst({
         where: { conversacionId, ...PAGO_EN_CURSO },
         orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-        select: { id: true, promocionId: true, estado: true, monto: true },
+        select: { id: true, promocionId: true, servicioId: true, concepto: true, estado: true, monto: true },
       });
       /* Retoma el suyo con SU monto congelado: si el precio cambió entretanto, lo
-         que se le dice es lo que se registrará al confirmar. */
+         que se le dice es lo que se registrará al confirmar. Otro servicio de la
+         misma promoción es otro pago (uno por pago). */
       if (abierto?.estado === 'CONFIRMADO') return abierto;
-      if (abierto?.promocionId === promocionId) {
+      if (abierto?.promocionId === promocionId && (abierto.servicioId ?? null) === (servicio?.id ?? null)) {
         if (abierto.estado === 'PENDIENTE') {
           // Retomar el QR abre otra ventana para recibir su comprobante.
           await tx.pagoPromocion.updateMany({ where: { id: abierto.id, estado: 'PENDIENTE' }, data: { updatedAt: new Date() } });
@@ -130,17 +157,25 @@ export class PromocionesChatService {
       }
       if (abierto?.estado === 'COMPROBANTE_ENVIADO') return null; // ya pagó otra: lo resuelve una persona
       if (abierto) {
-        await tx.pagoPromocion.update({ where: { id: abierto.id }, data: { estado: 'ANULADO', motivoRechazo: 'Eligió otra promoción.', cerradoEn: new Date() } });
+        await tx.pagoPromocion.update({
+          where: { id: abierto.id },
+          data: { estado: 'ANULADO', motivoRechazo: abierto.promocionId === promocionId ? 'Eligió otro servicio.' : 'Eligió otra promoción.', cerradoEn: new Date() },
+        });
       }
-      return tx.pagoPromocion.create({ data: { conversacionId, lineaId, promocionId, monto }, select: { id: true, promocionId: true, estado: true, monto: true } });
+      nuevo = true;
+      return tx.pagoPromocion.create({
+        data: { conversacionId, lineaId, promocionId, servicioId: servicio?.id ?? null, concepto, monto },
+        select: { id: true, promocionId: true, servicioId: true, concepto: true, estado: true, monto: true },
+      });
     });
     if (!pago) return null;
     if (pago.estado === 'COMPROBANTE_ENVIADO' || pago.estado === 'CONFIRMADO') return 'EN_VERIFICACION';
     this.gateway.emitirActividad(conversacionId);
     return {
       pagoId: pago.id,
-      texto: textoDelQr({ titulo: promocion.titulo, monto: pago.monto.toNumber(), banco: cobro.banco, titular: cobro.titular, instrucciones: cobro.instrucciones }),
+      texto: textoDelQr({ titulo: pago.concepto ?? promocion.titulo, monto: pago.monto.toNumber(), banco: cobro.banco, titular: cobro.titular, instrucciones: cobro.instrucciones }),
       imagen: cobro.imagen,
+      nuevo,
     };
   }
 
@@ -197,7 +232,8 @@ export class PromocionesChatService {
       const venta = await this.ventas.create(
         {
           clienteId: conversacion.clienteId,
-          producto: `Promoción: ${pago.promocion.titulo}`.slice(0, 160),
+          /* Con servicio, la venta dice cuál («Promoción: Octubre Rosa · Ecografía Mamaria»). */
+          producto: `Promoción: ${pago.concepto ?? pago.promocion.titulo}`.slice(0, 160),
           monto,
           estado: 'GANADA',
           metodoPago: 'QR',
@@ -230,7 +266,7 @@ export class PromocionesChatService {
         data: { entidad: 'PagoPromocion', entidadId: pago.id, accion: 'PAGO_CONFIRMADO', usuarioId: usuario.sub, cambios: { ventaId, monto, promocionId: pago.promocionId } },
       });
     });
-    const avisoPaciente = await this.avisarPaciente(conversacionId, textoPagoConfirmado(pago.promocion.titulo, monto), usuario.sub, soloAgenteId, `pago-confirmado:${pago.id}`);
+    const avisoPaciente = await this.avisarPaciente(conversacionId, textoPagoConfirmado(pago.concepto ?? pago.promocion.titulo, monto), usuario.sub, soloAgenteId, `pago-confirmado:${pago.id}`);
     this.gateway.emitirActividad(conversacionId);
     const actual = await pagoDelChat(this.prisma, conversacionId);
     return actual ? { ...actual, avisoPaciente } : null;

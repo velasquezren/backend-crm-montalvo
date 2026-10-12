@@ -95,6 +95,8 @@ export interface PromocionParaAsistente {
   readonly precio: number | null;
   readonly precioRegular: number | null;
   readonly precioPromocional: number | null;
+  /** Los servicios de la promoción con su precio (Bs). Con servicios, se cobra UNO por pago. */
+  readonly servicios: readonly { readonly id: string; readonly nombre: string; readonly precioRegular: number | null; readonly precioPromocional: number }[];
   /** AAAA-MM-DD, último día. */
   readonly vigenteHasta: string | null;
 }
@@ -159,7 +161,7 @@ export type MotivoDerivacion = (typeof MOTIVOS_DERIVACION)[number];
 
 /** Una acción que el turno propone (SUGERIR) o hace al terminar (RESPONDER). */
 export type AccionAsistente =
-  | { readonly tipo: 'PROMOCION'; readonly promocionId: string; readonly titulo: string }
+  | { readonly tipo: 'PROMOCION'; readonly promocionId: string; readonly titulo: string; readonly servicioId?: string }
   | { readonly tipo: 'HORARIO'; readonly medicoId: number; readonly nombre: string; readonly horario: string | null }
   | { readonly tipo: 'DERIVAR'; readonly motivo: MotivoDerivacion; readonly resumen: string }
   /**
@@ -190,14 +192,25 @@ const PROMOCION: EsquemaHerramienta = {
   properties: { promocionId: { type: 'string', description: 'El id que devolvió listar_promociones.' } },
   required: ['promocionId'],
 };
+const ENVIO_PROMOCION: EsquemaHerramienta = {
+  type: 'object',
+  properties: {
+    promocionId: { type: 'string', description: 'El id que devolvió listar_promociones.' },
+    servicioId: {
+      type: 'string',
+      description: 'Opcional: el id de UN servicio de la promoción (de ver_promocion) cuando la paciente quiere ese servicio. Sin él, va la tarjeta con todos.',
+    },
+  },
+  required: ['promocionId'],
+};
 
 export const HERRAMIENTAS: readonly Herramienta[] = [
   /* ── Ventas ── */
   {
     nombre: 'listar_promociones',
     descripcion:
-      'Las promociones vigentes hoy, con su precio. Es la ÚNICA fuente de promociones y precios de promoción: ' +
-      'no menciones ninguna que no venga aquí, ni inventes descuentos.',
+      'Las promociones vigentes hoy con sus servicios y precios (precio de promoción y, si lo hay, el de siempre). ' +
+      'Es la ÚNICA fuente de promociones y precios de promoción: no menciones ninguna que no venga aquí, ni inventes descuentos.',
     parametros: SIN_PARAMETROS,
     efecto: 'lectura',
     informativa: true,
@@ -206,8 +219,8 @@ export const HERRAMIENTAS: readonly Herramienta[] = [
   {
     nombre: 'ver_promocion',
     descripcion:
-      'Una promoción con sus condiciones completas, su vigencia y si hoy se puede pagar por este chat. ' +
-      'Úsala antes de responder sobre condiciones o letra chica.',
+      'Una promoción con sus condiciones completas, su vigencia, sus servicios (con el id de cada uno) y si hoy se puede ' +
+      'pagar por este chat. Úsala antes de responder sobre condiciones o letra chica, o antes de enviar un servicio.',
     parametros: PROMOCION,
     efecto: 'lectura',
     informativa: true,
@@ -216,10 +229,12 @@ export const HERRAMIENTAS: readonly Herramienta[] = [
   {
     nombre: 'enviar_promocion',
     descripcion:
-      'Le envía a la paciente la tarjeta de la promoción: imagen, precio, vigencia y los botones «Pagar ahora» y ' +
+      'Le envía a la paciente la tarjeta de la promoción: imagen, precio(s), vigencia y los botones «Pagar ahora» y ' +
       '«Hablar con alguien». Es la forma de cobrar: al tocar «Pagar ahora» recibe el QR y el CRM registra el pago. ' +
+      'Si la promoción tiene servicios y ella quiere UNO, pasa su servicioId: la tarjeta es de ese servicio y cobra ese. ' +
+      'Sin servicioId, la tarjeta lista todos y ella elige cuál pagar (uno por pago). ' +
       'Úsala cuando quiera la promoción o pregunte cómo pagarla. Tú nunca das datos bancarios ni mandas el QR.',
-    parametros: PROMOCION,
+    parametros: ENVIO_PROMOCION,
     efecto: 'mensaje',
     soloVentas: true,
   },
@@ -387,7 +402,10 @@ const texto = (v: unknown): string | null => (typeof v === 'string' && v.trim() 
  */
 export function validarArgumentos(h: Herramienta, args: Record<string, unknown>): { ok: true; valores: Record<string, string> } | { ok: false; motivo: string } {
   const valores: Record<string, string> = {};
-  for (const clave of h.parametros.required) {
+  /* Los obligatorios tienen que venir; un opcional DECLARADO se valida igual si
+     viene (el `servicioId` de enviar_promocion). Lo no declarado no pasa nunca. */
+  const opcionales = Object.keys(h.parametros.properties).filter(c => !h.parametros.required.includes(c) && texto(args[c]) !== null);
+  for (const clave of [...h.parametros.required, ...opcionales]) {
     const v = texto(args[clave]);
     if (v === null) return { ok: false, motivo: `Falta «${clave}».` };
     const propiedad = h.parametros.properties[clave];
@@ -446,7 +464,17 @@ export class HerramientasAsistenteService {
     switch (h.nombre) {
       case 'listar_promociones': {
         const lista = await ventas!.promociones();
-        return { ok: true, datos: lista.length ? lista.map(p => ({ id: p.id, titulo: p.titulo, resumen: p.resumen, precioBs: p.precio, vigenteHasta: p.vigenteHasta })) : 'Hoy no hay promociones publicadas.' };
+        return {
+          ok: true,
+          datos: lista.length
+            ? lista.map(p => ({
+                id: p.id, titulo: p.titulo, resumen: p.resumen, precioBs: p.precio, vigenteHasta: p.vigenteHasta,
+                ...(p.servicios.length
+                  ? { servicios: p.servicios.map(s => ({ nombre: s.nombre, precioBs: s.precioPromocional, antesBs: s.precioRegular })) }
+                  : {}),
+              }))
+            : 'Hoy no hay promociones publicadas.',
+        };
       }
       case 'ver_promocion': {
         const p = await ventas!.promocion(a.promocionId);
@@ -456,10 +484,16 @@ export class HerramientasAsistenteService {
         const p = await ventas!.promocion(a.promocionId);
         if (!p) return { ok: false, motivo: 'Esa promoción no existe o ya no está vigente: no se puede enviar.' };
         if (!p.sePuedeEnviarTarjeta) return { ok: false, motivo: 'En esta línea no se pueden enviar tarjetas. Cuéntale la promoción con sus datos y, para pagarla, pásala a una persona.' };
+        const servicioId = a.servicioId ?? null;
+        const servicio = servicioId ? p.servicios.find(s => s.id === servicioId) : undefined;
+        if (servicioId && !servicio) {
+          return { ok: false, motivo: 'Ese servicio no es de esta promoción. Mira los servicios con su id en ver_promocion.' };
+        }
+        const que = servicio ? `«${servicio.nombre}» de «${p.titulo}»` : `«${p.titulo}»`;
         return {
           ok: true,
-          datos: `Se le enviará la tarjeta de «${p.titulo}»${p.sePuedePagarPorChat ? ' con el botón «Pagar ahora»' : '. Hoy no se puede pagar por el chat: una persona le indicará cómo'}.`,
-          accion: { tipo: 'PROMOCION', promocionId: p.id, titulo: p.titulo },
+          datos: `Se le enviará la tarjeta de ${que}${p.sePuedePagarPorChat ? ' con el botón «Pagar ahora»' : '. Hoy no se puede pagar por el chat: una persona le indicará cómo'}.`,
+          accion: { tipo: 'PROMOCION', promocionId: p.id, titulo: p.titulo, ...(servicio ? { servicioId: servicio.id } : {}) },
         };
       }
       case 'estado_de_pago':

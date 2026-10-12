@@ -35,6 +35,7 @@ const SELECT_PAGO = {
   cerradoEn: true,
   createdAt: true,
   lecturaComprobante: true,
+  concepto: true,
   promocion: { select: { id: true, titulo: true, codigo: true } },
   cerradoPor: { select: { id: true, nombre: true } },
 } satisfies Prisma.PagoPromocionSelect;
@@ -44,6 +45,8 @@ export interface PagoDelChat {
   estado: EstadoPagoPromocion;
   monto: number;
   promocion: { id: string; titulo: string; codigo: string };
+  /** Qué se cobra («Octubre Rosa · Ecografía Mamaria»); null en los pagos anteriores al 12/10/2026 (= el título). */
+  concepto: string | null;
   comprobanteMensajeId: string | null;
   motivoRechazo: string | null;
   ventaId: string | null;

@@ -34,6 +34,13 @@ Montalvo SRL», «Es del 01/10: anterior a cuando se le mandó el QR», «La ope
 778899 ya llegó en otro pago: puede ser un comprobante reutilizado». **Confirmar
 sigue siendo de una persona**: el asistente ahorra leer con lupa, no el criterio.
 
+**Promociones con servicios (12/10/2026)**: `listar_promociones` trae cada servicio con
+su precio de promoción y el de siempre; `ver_promocion` los trae con su id; y
+`enviar_promocion` acepta un `servicioId` opcional (los parámetros opcionales declarados
+ahora se validan y pasan; los no declarados siguen sin pasar) para mandar la tarjeta de ese
+servicio, que cobra ese. El prompt de ventas le dice que cotice cada uno con su precio y que
+se paga uno por pago.
+
 **La imagen del horario**: un PNG con la marca de la clínica (cabecera verde con el
 logo, una fila por día y dos columnas, **mañana y tarde**, con el turno en la de la hora
 en que empieza; los días sin atención, más bajos; la especialidad y el precio de la

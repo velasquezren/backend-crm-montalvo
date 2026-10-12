@@ -44,6 +44,34 @@ La misma tarjeta sale cuando la paciente elige una promoción en la opción
 WhatsApp en el CRM** (una sola fuente con la landing; antes era una lista escrita a mano
 dentro del menú, que nunca llegó a producción).
 
+### Una promoción con varios servicios (12/10/2026)
+
+Como «Octubre Rosa»: cinco servicios, cada uno con su precio de siempre y el de
+promoción. `PromocionServicio` (hasta 10, lo que cabe en una lista de WhatsApp); la
+promoción no lleva precio propio. **Un servicio por pago** (decisión del propietario):
+
+```
+Tarjeta: banner · título · • Ecografía Mamaria: *Bs 268* ~Bs 446~ · • Consulta… · vigencia · condiciones
+         [Pagar ahora]  [Hablar con alguien]
+   │  Pagar ahora (ELEGIR_SERVICIO)
+   ▼
+Lista «Elegir servicio»: una fila por servicio (título ≤ 24, nombre completo y precio en la descripción)
+   │  elige uno (PAGAR_SERVICIO:<id>, solo vale si ESE mensaje lo ofreció)
+   ▼
+QR por el monto de ESE servicio · PagoPromocion { servicioId, concepto «Octubre Rosa · Ecografía Mamaria» }
+   … comprobante → confirmar → Venta «Promoción: Octubre Rosa · Ecografía Mamaria»
+```
+
+- El asistente manda la tarjeta de UN servicio (`enviar_promocion` con `servicioId`):
+  su «Pagar ahora» cobra ese, sin pasar por la lista.
+- Elegir otro servicio con el QR pendiente anula el anterior («Eligió otro servicio»);
+  con un comprobante en verificación no se manda otro QR (lo ve una persona); pagado
+  uno, el siguiente es otro pago y otra venta.
+- Un pago NUEVO siempre recibe su QR (`InicioDePago.nuevo`); el «no repetir el mismo QR
+  en 30 min» es solo para retomar el mismo pago. La lista frena solo el doble toque (3 s).
+- `concepto` se congela al pedir el QR: renombrar o quitar el servicio después no
+  cambia lo que dice la venta.
+
 ## Por qué así
 
 | Decisión | Motivo |

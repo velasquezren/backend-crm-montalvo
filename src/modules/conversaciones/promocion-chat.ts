@@ -1,7 +1,7 @@
 import { acortar } from '../../common/texto/acortar';
 import type { MensajePreparado } from '../../common/whatsapp/interacciones/mensaje-interactivo';
 import { bolivianos } from '../cobros/cobro-reglas';
-import type { PromocionChat } from '../promociones/promociones.service';
+import type { PromocionChat, ServicioPromocion } from '../promociones/promociones.service';
 
 /*
  * Una promoción dentro del chat (docs/pagos-promocion.md): reconocer su código,
@@ -20,6 +20,27 @@ export function codigoEnTexto(texto: string): string | null {
 /** Los ids de los botones de la tarjeta. Solo cuentan si vienen de NUESTRA tarjeta (correlación). */
 export const PAGAR_PROMOCION = 'PAGAR_PROMOCION';
 export const HABLAR_CON_PERSONA = 'TALK_TO_HUMAN';
+/** «Pagar ahora» en una promoción con varios servicios: primero elige cuál. */
+export const ELEGIR_SERVICIO = 'ELEGIR_SERVICIO';
+/** Paga ESTE servicio. El id viaja en la opción, y la opción solo cuenta si la ofrecimos nosotros. */
+const PREFIJO_PAGAR_SERVICIO = 'PAGAR_SERVICIO:';
+
+export const opcionPagarServicio = (servicioId: string) => `${PREFIJO_PAGAR_SERVICIO}${servicioId}`;
+
+/** El servicio que eligió pagar, si la opción es «pagar este servicio». */
+export function servicioDeOpcion(seleccionId: string | undefined): string | null {
+  return seleccionId?.startsWith(PREFIJO_PAGAR_SERVICIO) ? seleccionId.slice(PREFIJO_PAGAR_SERVICIO.length) || null : null;
+}
+
+/** «Octubre Rosa · Ecografía Mamaria»: lo que se cobra, en el QR, en la venta y en la confirmación. */
+export function conceptoDeServicio(promocion: string, servicio: string): string {
+  return `${promocion} · ${servicio}`.slice(0, 170);
+}
+
+/** «*Bs 268* ~Bs 446~»: el precio de promoción y, tachado, el de siempre. */
+function precioConAnterior(promocional: number, regular: number | null): string {
+  return regular !== null ? `*${bolivianos(promocional)}* ~${bolivianos(regular)}~` : `*${bolivianos(promocional)}*`;
+}
 
 /** «2026-10-31» → «31/10/2026». */
 function fechaCorta(iso: string): string {
@@ -47,6 +68,8 @@ export function tarjetaDePromocion(p: PromocionChat, { puedePagar }: { puedePaga
       : `*${bolivianos(p.precio)}*`;
   const detalles = [
     ...(precio ? [`💰 ${precio}`] : []),
+    /* Con servicios, cada uno con su precio: es lo que trae el banner. */
+    ...p.servicios.map(s => `• ${s.nombre}: ${precioConAnterior(s.precioPromocional, s.precioRegular)}`),
     ...(p.vigenteHasta ? [`📅 Válida hasta el ${fechaCorta(p.vigenteHasta)}`] : []),
   ];
   const cabecera = [
@@ -69,8 +92,60 @@ export function tarjetaDePromocion(p: PromocionChat, { puedePagar }: { puedePaga
     ...(imagen ? { imagenCabecera: imagen } : {}),
     opciones: [
       ...(puedePagar && p.precio !== null ? [{ id: PAGAR_PROMOCION, titulo: 'Pagar ahora' }] : []),
+      ...(puedePagar && p.servicios.length ? [{ id: ELEGIR_SERVICIO, titulo: 'Pagar ahora' }] : []),
       { id: HABLAR_CON_PERSONA, titulo: 'Hablar con alguien' },
     ],
+  };
+}
+
+/**
+ * La tarjeta de UN servicio de la promoción: la que manda el asistente cuando la
+ * paciente pregunta por ese servicio. «Pagar ahora» cobra ese, sin pasar por la lista.
+ */
+export function tarjetaDeServicio(p: PromocionChat, s: ServicioPromocion, { puedePagar }: { puedePagar: boolean }): MensajePreparado {
+  const cabecera = [
+    `*${s.nombre}*`,
+    `${p.titulo}${p.etiquetaOferta ? ` · ${p.etiquetaOferta}` : ''}`,
+    '',
+    `💰 ${precioConAnterior(s.precioPromocional, s.precioRegular)}`,
+    ...(p.vigenteHasta ? [`📅 Válida hasta el ${fechaCorta(p.vigenteHasta)}`] : []),
+  ].join('\n');
+  const resto = CUERPO_MAXIMO - cabecera.length - PREFIJO_CONDICIONES.length;
+  const conCondiciones = p.condiciones && resto > 40 ? `${cabecera}${PREFIJO_CONDICIONES}${acortar(p.condiciones, resto)}` : cabecera;
+  const imagen = p.bannerUrl && /^https:\/\//.test(p.bannerUrl) ? p.bannerUrl : null;
+  return {
+    tipo: 'botones',
+    cuerpo: conCondiciones.length <= CUERPO_MAXIMO ? conCondiciones : cabecera,
+    pie: `Código ${p.codigo}`,
+    ...(imagen ? { imagenCabecera: imagen } : {}),
+    opciones: [
+      ...(puedePagar ? [{ id: opcionPagarServicio(s.id), titulo: 'Pagar ahora' }] : []),
+      { id: HABLAR_CON_PERSONA, titulo: 'Hablar con alguien' },
+    ],
+  };
+}
+
+/** Título de una fila de lista de WhatsApp: 24 caracteres como mucho. */
+const TITULO_FILA = 24;
+
+/**
+ * «Pagar ahora» en una promoción con varios servicios: la lista para elegir cuál.
+ * El nombre completo y el precio van en la descripción (el título se corta a 24).
+ */
+export function listaDeServicios(p: PromocionChat): MensajePreparado {
+  return {
+    tipo: 'lista',
+    cuerpo: `¿Qué servicio de *${p.titulo}* quieres pagar? Te mandamos el QR con ese monto.`,
+    boton: 'Elegir servicio',
+    pie: `Código ${p.codigo}`,
+    secciones: [{
+      titulo: acortar(p.titulo, TITULO_FILA),
+      opciones: p.servicios.slice(0, 10).map(s => ({
+        id: opcionPagarServicio(s.id),
+        titulo: acortar(s.nombre, TITULO_FILA),
+        descripcion: acortar(`${bolivianos(s.precioPromocional)}${s.precioRegular !== null ? ` (antes ${bolivianos(s.precioRegular)})` : ''} · ${s.nombre}`, 72),
+      })),
+    }],
   };
 }
 

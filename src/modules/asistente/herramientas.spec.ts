@@ -26,7 +26,17 @@ import {
  */
 const PROMO: PromocionParaAsistente = {
   id: 'p1', titulo: 'Botox tercio superior', resumen: 'Frente y entrecejo', condiciones: 'Una zona por persona.',
-  etiquetaOferta: '-20%', precio: 1200, precioRegular: 1500, precioPromocional: 1200, vigenteHasta: '2026-10-31',
+  etiquetaOferta: '-20%', precio: 1200, precioRegular: 1500, precioPromocional: 1200, vigenteHasta: '2026-10-31', servicios: [],
+};
+
+/** «Octubre Rosa»: varios servicios, cada uno con su precio; la promoción sin precio propio. */
+const ROSA: PromocionParaAsistente = {
+  id: 'p2', titulo: 'Octubre Rosa', resumen: 'Cinco servicios de ginecología con precio especial.', condiciones: 'Hasta el 31/10.',
+  etiquetaOferta: null, precio: null, precioRegular: null, precioPromocional: null, vigenteHasta: '2026-10-31',
+  servicios: [
+    { id: 's1', nombre: 'Ecografía Mamaria', precioRegular: 446, precioPromocional: 268 },
+    { id: 's2', nombre: 'Consulta Ginecológica', precioRegular: 250, precioPromocional: 175 },
+  ],
 };
 
 function ventas(p: Partial<PuertoVentas> = {}): PuertoVentas {
@@ -201,6 +211,25 @@ describe('las herramientas de ventas', () => {
     expect(r).toEqual({ ok: true, datos: [{ id: 'p1', titulo: PROMO.titulo, resumen: PROMO.resumen, precioBs: 1200, vigenteHasta: '2026-10-31' }] });
     const vacia = await montar().ejecutar('listar_promociones', {}, conVentas({ promociones: jest.fn().mockResolvedValue([]) }), { permitirEscritura: false });
     expect(vacia).toEqual({ ok: true, datos: 'Hoy no hay promociones publicadas.' });
+  });
+
+  it('una promoción con servicios: la lista trae cada uno con su precio y el de siempre', async () => {
+    const r = await montar().ejecutar('listar_promociones', {}, conVentas({ promociones: jest.fn().mockResolvedValue([ROSA]) }), { permitirEscritura: false });
+    expect(r).toEqual({ ok: true, datos: [{
+      id: 'p2', titulo: 'Octubre Rosa', resumen: ROSA.resumen, precioBs: null, vigenteHasta: '2026-10-31',
+      servicios: [{ nombre: 'Ecografía Mamaria', precioBs: 268, antesBs: 446 }, { nombre: 'Consulta Ginecológica', precioBs: 175, antesBs: 250 }],
+    }] });
+  });
+
+  it('enviar_promocion con un servicio: la acción lleva ese servicio; uno ajeno se rechaza diciéndole dónde mirar', async () => {
+    const puerto = conVentas({ promocion: jest.fn().mockResolvedValue({ ...ROSA, sePuedePagarPorChat: true, sePuedeEnviarTarjeta: true }) });
+    const r = await montar().ejecutar('enviar_promocion', { promocionId: 'p2', servicioId: 's1' }, puerto, { permitirEscritura: false });
+    expect(r).toMatchObject({ ok: true, accion: { tipo: 'PROMOCION', promocionId: 'p2', servicioId: 's1' } });
+    expect(JSON.stringify(r)).toContain('Ecografía Mamaria');
+    const ajeno = await montar().ejecutar('enviar_promocion', { promocionId: 'p2', servicioId: 'otro' }, puerto, { permitirEscritura: false });
+    expect(ajeno).toMatchObject({ ok: false, motivo: expect.stringContaining('ver_promocion') });
+    const todos = await montar().ejecutar('enviar_promocion', { promocionId: 'p2' }, puerto, { permitirEscritura: false });
+    expect(todos.ok && todos.accion).toEqual({ tipo: 'PROMOCION', promocionId: 'p2', titulo: 'Octubre Rosa' });
   });
 
   it('enviar_promocion no envía nada: deja la ACCIÓN para quien llama', async () => {
