@@ -9,6 +9,7 @@ import {
   HERRAMIENTAS,
   herramientasDisponibles,
   HerramientasAsistenteService,
+  palabrasDeNombre,
   PromocionParaAsistente,
   PuertoMedico,
   PuertoVentas,
@@ -289,6 +290,60 @@ describe('agenda y derivación', () => {
   });
 });
 
+/* ── Buscar un médico por su nombre (13/10) ─────────────────────────────── */
+describe('buscar_medico: un médico por su nombre, en una sola vuelta', () => {
+  const pagina = <T>(datos: T[]) => ({ datos, total: datos.length, pagina: 1, limite: 50, totalPaginas: 1 });
+  const med = (id: string, nombre: string, especialidadId: string) =>
+    ({ id, nombre, especialidadId, modalidad: 'ONLINE', precio: { importeCentavos: 30000, moneda: 'BOB' }, horarioInformativo: 'Lunes 9:00', fotoUrl: null });
+  function agendaDeLaClinica() {
+    const porEspecialidad: Record<string, ReturnType<typeof med>[]> = {
+      g: [med('1', 'Dr. Juan Carlos Montalvo Doria Medina', 'g'), med('2', 'Dra. Claudia Azogue', 'g')],
+      d: [med('3', 'Dr. Luis Montaño', 'd')],
+    };
+    return {
+      especialidades: jest.fn().mockResolvedValue(pagina([{ id: 'g', nombre: 'Ginecología' }, { id: 'd', nombre: 'Dermatología' }])),
+      medicos: jest.fn(async ({ especialidadId }: { especialidadId: string }) => pagina(porEspecialidad[especialidadId] ?? [])),
+    };
+  }
+  const buscar = (agenda: ReturnType<typeof agendaDeLaClinica>, nombre: string) =>
+    montar(agenda as unknown as Partial<AgendaService>).ejecutar('buscar_medico', { nombre }, CONTEXTO, { permitirEscritura: false });
+
+  it('«dr montalvo» lo encuentra en todas las especialidades a la vez, con su especialidad y su precio', async () => {
+    const agenda = agendaDeLaClinica();
+    const r = await buscar(agenda, 'dr montalvo');
+    expect(r).toEqual({
+      ok: true,
+      datos: [{ id: '1', nombre: 'Dr. Juan Carlos Montalvo Doria Medina', especialidad: 'Ginecología', modalidad: 'ONLINE', precioConsulta: 'Bs 300.00', atiende: 'Lunes 9:00' }],
+    });
+    expect(agenda.medicos).toHaveBeenCalledTimes(2);
+  });
+
+  it('sin tildes ni mayúsculas, y por el principio de cada palabra («azog», «MONTAÑO»)', async () => {
+    const agenda = agendaDeLaClinica();
+    expect(await buscar(agenda, 'Dra. Azóg')).toMatchObject({ ok: true, datos: [{ id: '2' }] });
+    expect(await buscar(agenda, 'MONTAÑO')).toMatchObject({ ok: true, datos: [{ id: '3' }] });
+    /* «mont» es el principio de dos apellidos: vienen los dos y el modelo pregunta cuál. */
+    expect(await buscar(agenda, 'mont')).toMatchObject({ ok: true, datos: [{ id: '1' }, { id: '3' }] });
+  });
+
+  it('si nadie se llama así, lo dice para que no lo invente', async () => {
+    const r = await buscar(agendaDeLaClinica(), 'doctor Pérez');
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.datos).toEqual(expect.stringContaining('No lo inventes'));
+  });
+
+  it('solo un título («doctor») no es un nombre: no recorre la agenda', async () => {
+    const agenda = agendaDeLaClinica();
+    expect((await buscar(agenda, 'Dr.')).ok).toBe(false);
+    expect(agenda.especialidades).not.toHaveBeenCalled();
+  });
+
+  it('las palabras de un nombre: sin tildes, sin títulos, sin signos', () => {
+    expect(palabrasDeNombre('Dra. María José Ñúñez-Azogue')).toEqual(['maria', 'jose', 'nunez', 'azogue']);
+    expect(palabrasDeNombre('doctor Montalvo')).toEqual(['montalvo']);
+  });
+});
+
 /* ── La agenda del médico que escribe ──────────────────────────────────── */
 describe('mi_agenda: la agenda del médico que escribe', () => {
   const AGENDA_DIA = armarAgendaDelDia('2026-10-12', [{ hora: '09:00', paciente: 'Ana Pérez' }], [{ hora: '10:00', paciente: 'Carla Soto', estado: 'PENDIENTE' }]);
@@ -300,7 +355,7 @@ describe('mi_agenda: la agenda del médico que escribe', () => {
   const nombresDe = (c: ContextoAsistente) => herramientasDisponibles(c, NO).map(h => h.nombre);
 
   it('a un médico se le ofrecen su agenda, lo informativo de la clínica y pasar a una persona; a una paciente, nunca la agenda de un médico', () => {
-    expect(nombresDe(conMedico().contexto).sort()).toEqual(['dias_con_cupo', 'horas_libres', 'listar_especialidades', 'listar_medicos', 'mi_agenda', 'pasar_a_persona', 'ver_medico']);
+    expect(nombresDe(conMedico().contexto).sort()).toEqual(['buscar_medico', 'dias_con_cupo', 'horas_libres', 'listar_especialidades', 'listar_medicos', 'mi_agenda', 'pasar_a_persona', 'ver_medico']);
     /* En una línea comercial, también leer promociones; mandarlas, cobrar o ver pagos, no. */
     const conVentas = nombresDe({ ...conMedico().contexto, ventas: ventas() });
     expect(conVentas).toEqual(expect.arrayContaining(['listar_promociones', 'ver_promocion']));

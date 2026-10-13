@@ -280,6 +280,20 @@ export const HERRAMIENTAS: readonly Herramienta[] = [
     informativa: true,
   },
   {
+    nombre: 'buscar_medico',
+    descripcion:
+      'Busca a un médico por su nombre o apellido en TODAS las especialidades a la vez («el doctor Montalvo», «la Dra. Azogue»). ' +
+      'Úsala en vez de recorrer listar_medicos especialidad por especialidad. Devuelve los que coinciden, con su especialidad, ' +
+      'precio de consulta y modalidad; si no hay ninguno, no lo inventes.',
+    parametros: {
+      type: 'object',
+      properties: { nombre: { type: 'string', description: 'El nombre o apellido como lo escribió la paciente, sin «Dr.».' } },
+      required: ['nombre'],
+    },
+    efecto: 'lectura',
+    informativa: true,
+  },
+  {
     nombre: 'ver_medico',
     descripcion:
       'Un médico por su número, con su especialidad, su precio de consulta y los días en que atiende. ' +
@@ -429,6 +443,16 @@ export function validarArgumentos(h: Herramienta, args: Record<string, unknown>)
   return { ok: true, valores };
 }
 
+const TITULOS = new Set(['dr', 'dra', 'doctor', 'doctora', 'lic', 'licenciada', 'licenciado']);
+
+/** Las palabras de un nombre, sin tildes, mayúsculas ni títulos: «Dra. Azógue» → ['azogue']. */
+export function palabrasDeNombre(nombre: string): string[] {
+  return nombre
+    .normalize('NFD').replace(/\p{M}/gu, '').toLowerCase()
+    .split(/[^a-zñ]+/u)
+    .filter(p => p.length >= 2 && !TITULOS.has(p));
+}
+
 /** Bs con dos decimales, como lo lee una paciente. */
 function bolivianos(centavos: number): string {
   return `Bs ${(centavos / 100).toFixed(2)}`;
@@ -521,6 +545,31 @@ export class HerramientasAsistenteService {
             id: m.id, nombre: m.nombre, modalidad: m.modalidad,
             precioConsulta: m.precio ? bolivianos(m.precio.importeCentavos) : null, atiende: m.horarioInformativo,
           })),
+        };
+      }
+      case 'buscar_medico': {
+        const buscadas = palabrasDeNombre(a.nombre);
+        if (!buscadas.length) return { ok: false, motivo: 'Pásame el nombre o el apellido del médico, sin «Dr.».' };
+        /* Una vuelta en vez de una por especialidad: con cinco vueltas de tope, recorrerlas
+           una a una dejaba a la paciente sin respuesta (13/10). Las lecturas van en paralelo
+           y por la caché de la agenda. */
+        const especialidades = (await this.agenda.especialidades({ pagina: 1, limite: 50 })).datos;
+        const porEspecialidad = await Promise.all(especialidades.map(async e => {
+          const r = await this.agenda.medicos({ especialidadId: e.id, pagina: 1, limite: 50 });
+          return r.datos.map(m => ({ m, especialidad: e.nombre }));
+        }));
+        const encontrados = porEspecialidad.flat().filter(({ m }) => {
+          const delMedico = palabrasDeNombre(m.nombre);
+          return buscadas.every(b => delMedico.some(p => p.startsWith(b)));
+        });
+        return {
+          ok: true,
+          datos: encontrados.length
+            ? encontrados.slice(0, 10).map(({ m, especialidad }) => ({
+                id: m.id, nombre: m.nombre, especialidad, modalidad: m.modalidad,
+                precioConsulta: m.precio ? bolivianos(m.precio.importeCentavos) : null, atiende: m.horarioInformativo,
+              }))
+            : `Ningún médico que atienda en línea se llama «${a.nombre}». No lo inventes: ofrécele las especialidades o pásala a una persona.`,
         };
       }
       case 'ver_medico': {

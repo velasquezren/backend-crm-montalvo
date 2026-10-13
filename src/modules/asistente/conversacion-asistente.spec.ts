@@ -191,7 +191,7 @@ describe('el bucle con un médico', () => {
   it('al modelo se le declaran mi_agenda, lo informativo de la clínica y pasar_a_persona; nada que mande o reserve', async () => {
     const { bucle, modelo } = montar([dice('listo')]);
     await bucle.responder(PETICION_MEDICO);
-    expect(nombres(modelo.entradas[0].herramientas).sort()).toEqual(['dias_con_cupo', 'horas_libres', 'listar_especialidades', 'listar_medicos', 'mi_agenda', 'pasar_a_persona', 'ver_medico']);
+    expect(nombres(modelo.entradas[0].herramientas).sort()).toEqual(['buscar_medico', 'dias_con_cupo', 'horas_libres', 'listar_especialidades', 'listar_medicos', 'mi_agenda', 'pasar_a_persona', 'ver_medico']);
   });
 
   it('el mismo día y detalle pedidos dos veces es una sola acción', async () => {

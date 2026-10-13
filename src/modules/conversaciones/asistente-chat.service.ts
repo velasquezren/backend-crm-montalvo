@@ -315,7 +315,12 @@ export class AsistenteChatService implements ProgramadorAsistente, OnModuleInit,
     });
     const base = { categoria: clasificacion.categoria, traza: salida.traza, tokensExtra };
     if (salida.tipo === 'sin-respuesta') {
-      if (responde) await this.ingesta.respaldoSinAsistente(e.conversacionId, e.telefono);
+      /* El acuse de siempre (fuera de horario, con lo que escribió la clínica) y, además,
+         una persona: en horario el acuse no sale y la dejaba sin nada (13/10). */
+      if (responde) {
+        await this.ingesta.respaldoSinAsistente(e.conversacionId, e.telefono);
+        await this.derivar(e, 'DERIVADA_ASISTENTE');
+      }
       return registrar({ resultado: 'FALLO', motivo: salida.motivo, ...base });
     }
 

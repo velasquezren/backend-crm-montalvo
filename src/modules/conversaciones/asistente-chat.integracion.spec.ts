@@ -462,11 +462,22 @@ describe('RESPONDER: lo que no le toca, pasa a una persona', () => {
     expect((await prisma.conversacion.findUniqueOrThrow({ where: { id } })).atencionMotivo).toBe('DERIVADA_ASISTENTE');
   });
 
-  it('si Gemini no responde, sale el acuse de siempre: encenderlo no empeora el peor caso', async () => {
+  it('si Gemini no responde, sale el acuse de siempre Y la atiende una persona: nunca queda en silencio', async () => {
     modelo.guion = [new Error('503 UNAVAILABLE')];
     const id = await escribir('hola, precios?');
-    expect((await salientes(id)).map(m => m.contenido)).toEqual([ACUSE]);
+    /* El acuse depende del horario (en esta suite, siempre fuera); la derivación, no:
+       en horario el acuse no sale y antes no le llegaba nada (13/10). */
+    expect((await salientes(id)).map(m => m.contenido)).toEqual([ACUSE, TEXTO_DERIVACION]);
+    expect((await prisma.conversacion.findUniqueOrThrow({ where: { id } })).atencionMotivo).toBe('DERIVADA_ASISTENTE');
     expect(await turnos(id)).toMatchObject([{ resultado: 'FALLO' }]);
+  });
+
+  it('si no cierra en el tope de vueltas, tampoco queda en silencio: pasa a una persona', async () => {
+    modelo.guion = Array.from({ length: 5 }, () => pide('listar_especialidades', {}));
+    const id = await escribir('quiero agendar con el doctor Montalvo');
+    expect((await salientes(id)).map(m => m.contenido)).toContain(TEXTO_DERIVACION);
+    expect((await prisma.conversacion.findUniqueOrThrow({ where: { id } })).atencionMotivo).toBe('DERIVADA_ASISTENTE');
+    expect(await turnos(id)).toMatchObject([{ resultado: 'FALLO', motivo: 'No cerró en 5 vueltas.' }]);
   });
 
   it('con la automatización pausada (pidió una persona) no escribe nada', async () => {

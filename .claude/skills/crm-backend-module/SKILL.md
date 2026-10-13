@@ -221,7 +221,8 @@ Diseño en [asistente-ia](../../../docs/asistente-ia.md). Lo que no se puede olv
 - **Gemini 3 firma su razonamiento**: lo que pidió el modelo vuelve como su `Content`
   intacto (`crudo`), o la vuelta siguiente es un 400. Y a Vertex se le declaran SOLO las
   herramientas permitidas: `allowedFunctionNames` solo vale en modo `ANY`.
-- **Si el modelo falla, `respaldoSinAsistente`**: sale el acuse fuera de horario.
+- **Si el modelo falla con una paciente: `respaldoSinAsistente` y además se deriva** (`DERIVADA_ASISTENTE`).
+  El acuse solo sale fuera de horario; en horario no salía nada y la paciente quedaba en silencio (13/10).
 - **Un médico autorizado es otra conversación** (`AsistenteChatService.atenderMedico`): su número
   sale de `AccesoMedicoAgenda` (lo escribe SOLO `AccesoMedicoAgendaService`, ADMIN+, auditado en la
   misma transacción) y el médico del que se habla sale de ese número, **nunca de un parámetro de la
