@@ -43,8 +43,8 @@ describe('el prompt del sistema', () => {
     expect(promptDelSistema(base)).not.toContain('CONOCIMIENTO DE LA CLÍNICA');
   });
 
-  it('«¿qué servicios hay?» se contesta con especialidades (y promociones en ventas), no se pasa a una persona', () => {
-    expect(promptDelSistema(base)).toMatch(/QUÉ SERVICIOS HAY[\s\S]*listar_especialidades[\s\S]*listar_promociones[\s\S]*No pasas a una persona por esto/);
+  it('«¿qué servicios hay?» usa datos de la clínica sin invitar a reservar por defecto', () => {
+    expect(promptDelSistema(base)).toMatch(/QUÉ SERVICIOS HAY[\s\S]*listar_especialidades[\s\S]*listar_promociones[\s\S]*sin añadir una invitación a reservar por defecto/);
     expect(promptDelSistema({ ...base, ventas: false })).not.toContain('listar_promociones');
   });
 

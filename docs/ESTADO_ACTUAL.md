@@ -2,7 +2,7 @@
 
 > **Revisión del 10/10/2026, módulo por módulo (sin Comisiones ni Finanzas):** [REVISION_2026-10-10.md](REVISION_2026-10-10.md). La API está sana; la lista de mejoras por impacto está ahí.
 
-## 13 de octubre de 2026 · IA contextual y motivos de atención · VALIDADO, PENDIENTE DE PUBLICAR
+## 13 de octubre de 2026 · IA contextual y motivos de atención · DESPLEGADO
 
 - El clasificador separa el tema de la petición actual (`solicitud`). Preguntar
   un precio permite consultar datos, pero no mandar tarjetas de cobro. Pedir
@@ -24,9 +24,18 @@
   No afirma que una solicitud carezca de reserva sin comprobarlo; dirige a
   «Próximas reservas». La pausa ya no afirma que el paciente pidió una persona
   cuando pudo deberse a una derivación técnica.
+- Backend `2c21b6d` desplegado el 13/10 a las 15:45 (La Paz). Respaldo validado:
+  `/root/backup-ia-contexto-20261013-194446.sql.gz` y `-dist.tar.gz`.
+  Health 200 con base OK, login inválido 400, conversaciones y resultados
+  sin sesión 401, cero reinicios inesperados. Portal/worker conservados activos.
+  Frontend `fbf3c77` publicado en Vercel a las 15:46 (La Paz); SHA y nuevo
+  texto de atención verificados en los 107 archivos JavaScript del manifiesto público.
 - Sin migraciones, dependencias nuevas ni cambios de configuración o menús.
-  Builds y tipos de ambos repos aprobados; 168 unitarias backend, 90 integraciones
+  Builds y tipos de ambos repos aprobados; 168 unitarias enfocadas, 90 integraciones
   distintas de asistente/atención (incluidos dos escenarios nuevos) y 15 pruebas UI.
+  La suite completa detectó una aserción de prompt antigua: se actualizó para exigir
+  información sin invitación automática a reservar. Las otras 1.176 unitarias pasaron.
+  La corrección de esa aserción no cambia los binarios publicados.
 - Evaluación en copia temporal aislada del VPS con Vertex, modelo configurado
   `gemini-3.8-flash`: seis escenarios ficticios verificados. Cinco pasaron de
   inicio; «dime en qué te puedo ayudar» fue un falso negativo del evaluador por
