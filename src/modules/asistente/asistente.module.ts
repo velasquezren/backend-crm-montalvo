@@ -8,8 +8,8 @@ import { ConversacionAsistente } from './conversacion-asistente';
 import { HerramientasAsistenteService } from './herramientas';
 import { ImagenAgendaMedicoService } from './imagen-agenda-medico.service';
 import { ImagenHorarioService } from './imagen-horario.service';
-import { ClasificadorMensajes, LectorComprobantes, ModeloConversacional } from './modelo.port';
-import { ClasificadorVertex, ClienteVertex, ConfiguracionIA, LectorVertex, ModeloVertex } from './vertex/proveedor-vertex';
+import { ClasificadorMensajes, LectorComprobantes, ModeloConversacional, TranscriptorAudio } from './modelo.port';
+import { ClasificadorVertex, ClienteVertex, ConfiguracionIA, LectorVertex, ModeloVertex, TranscriptorVertex } from './vertex/proveedor-vertex';
 
 /**
  * El asistente de IA (docs/asistente-ia.md): el proveedor, el catálogo, el
@@ -29,12 +29,13 @@ import { ClasificadorVertex, ClienteVertex, ConfiguracionIA, LectorVertex, Model
     { provide: ModeloConversacional, useClass: ModeloVertex },
     { provide: ClasificadorMensajes, useClass: ClasificadorVertex },
     { provide: LectorComprobantes, useClass: LectorVertex },
+    { provide: TranscriptorAudio, useClass: TranscriptorVertex },
     HerramientasAsistenteService,
     ConversacionAsistente,
     ImagenHorarioService,
     ImagenAgendaMedicoService,
     AsistenteLineasService,
   ],
-  exports: [ConversacionAsistente, ModeloConversacional, ClasificadorMensajes, LectorComprobantes, ImagenHorarioService, ImagenAgendaMedicoService, AsistenteLineasService],
+  exports: [ConversacionAsistente, ModeloConversacional, ClasificadorMensajes, LectorComprobantes, TranscriptorAudio, ImagenHorarioService, ImagenAgendaMedicoService, AsistenteLineasService],
 })
 export class AsistenteModule {}

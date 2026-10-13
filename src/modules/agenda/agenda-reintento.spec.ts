@@ -39,8 +39,8 @@ class LectorDePrueba extends LectorAgenda {
   protected readonly cuenta: CuentaLectura = {
     usuarioEsperado: 'x', variableUsuario: 'X', variablePassword: 'Y', bandera: 'B', conexiones: 2, mensajeNoDisponible: 'no',
   };
-  constructor(private readonly pool: ReturnType<typeof poolFalso>) { super(config); }
-  protected override conexion(): Pool { return this.pool as unknown as Pool; }
+  constructor(private readonly doble: ReturnType<typeof poolFalso>) { super(config); }
+  protected override conexion(): Pool { return this.doble as unknown as Pool; }
 }
 
 class EscritorDePrueba extends EscritorAgenda {
@@ -48,8 +48,8 @@ class EscritorDePrueba extends EscritorAgenda {
     usuarioEsperado: 'x', variableUsuario: 'X', variablePassword: 'Y', bandera: 'B', conexiones: 2,
     candado: 'c', codigoNoDisponible: 'NO', mensajeNoDisponible: 'no',
   };
-  constructor(private readonly pool: ReturnType<typeof poolFalso>) { super(config); }
-  protected override conexion(): Pool { return this.pool as unknown as Pool; }
+  constructor(private readonly doble: ReturnType<typeof poolFalso>) { super(config); }
+  protected override conexion(): Pool { return this.doble as unknown as Pool; }
 }
 
 describe('conexiones de la agenda que murieron en el pool', () => {

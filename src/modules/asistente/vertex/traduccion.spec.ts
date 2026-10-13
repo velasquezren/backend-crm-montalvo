@@ -1,6 +1,6 @@
 import { FinishReason, GenerateContentResponse } from '@google/genai';
 
-import { aContenidos, deRespuesta, jsonDe } from './traduccion';
+import { aContenidos, deRespuesta, jsonDe, textoDe } from './traduccion';
 import { clasificacionDe } from './proveedor-vertex';
 
 /* Respuestas fabricadas con la forma real del SDK: sin red, sin credenciales. */
@@ -66,5 +66,17 @@ describe('de la respuesta de Gemini', () => {
     expect(clasificacionDe({ categoria: 'VENTAS', confianza: 'ALTA' })).toEqual({ categoria: 'VENTAS', confianza: 'ALTA' });
     expect(() => clasificacionDe({ categoria: 'COMPRAS', confianza: 'ALTA' })).toThrow();
     expect(() => clasificacionDe(null)).toThrow();
+  });
+});
+
+describe('textoDe: una transcripción', () => {
+  const r = (x: Partial<GenerateContentResponse>) => x as GenerateContentResponse;
+  it('junta el texto y deja fuera el razonamiento', () => {
+    expect(textoDe(r({ candidates: [{ content: { parts: [{ text: 'pienso…', thought: true }, { text: 'Hola, ' }, { text: 'una cita' }] } }] }))).toBe('Hola, una cita');
+  });
+  it('un bloqueo o un corte de Google lanza: no es lo mismo que «no se entendió»', () => {
+    expect(() => textoDe(r({ promptFeedback: { blockReason: 'SAFETY' } } as Partial<GenerateContentResponse>))).toThrow('SAFETY');
+    expect(() => textoDe(r({ candidates: [] }))).toThrow();
+    expect(() => textoDe(r({ candidates: [{ finishReason: FinishReason.SAFETY, content: { parts: [] } }] }))).toThrow('SAFETY');
   });
 });

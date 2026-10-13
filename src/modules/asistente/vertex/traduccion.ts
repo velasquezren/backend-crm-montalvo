@@ -89,3 +89,15 @@ export function jsonDe(r: GenerateContentResponse): unknown {
   if (!texto) throw new Error(`Respuesta vacía (${r.candidates?.[0]?.finishReason ?? r.promptFeedback?.blockReason ?? 'sin motivo'}).`);
   return JSON.parse(texto);
 }
+
+/**
+ * El texto plano de una respuesta (una transcripción). Un bloqueo o un corte de
+ * Google lanza: «no hay transcripción» no es lo mismo que «no se entendió».
+ */
+export function textoDe(r: GenerateContentResponse): string {
+  if (r.promptFeedback?.blockReason) throw new Error(`Bloqueada por el proveedor: ${r.promptFeedback.blockReason}`);
+  const candidato = r.candidates?.[0];
+  if (!candidato) throw new Error('Sin candidatos');
+  if (candidato.finishReason && CORTES.has(candidato.finishReason)) throw new Error(`Cortada por el proveedor: ${candidato.finishReason}`);
+  return (candidato.content?.parts ?? []).filter(p => !p.thought && typeof p.text === 'string').map(p => p.text).join('');
+}

@@ -115,3 +115,12 @@ export abstract class LectorComprobantes {
   abstract readonly nombre: string;
   abstract leer(archivo: { readonly bytes: Uint8Array; readonly mime: string }): Promise<{ datos: DatosComprobante; uso: UsoModelo }>;
 }
+
+/**
+ * Pasa una nota de voz a texto. `texto: null` = no se entendió (silencio, ruido):
+ * quien llama le pide a la persona que lo escriba, no adivina.
+ */
+export abstract class TranscriptorAudio {
+  abstract readonly nombre: string;
+  abstract transcribir(audio: { readonly bytes: Uint8Array; readonly mime: string }): Promise<{ texto: string | null; uso: UsoModelo }>;
+}

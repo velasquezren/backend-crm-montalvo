@@ -43,8 +43,10 @@ import { HerramientasAsistenteService } from '../asistente/herramientas';
 import { ImagenAgendaMedicoService } from '../asistente/imagen-agenda-medico.service';
 import { ImagenHorarioService } from '../asistente/imagen-horario.service';
 import {
-  Clasificacion, ClasificadorMensajes, DatosComprobante, DeclaracionHerramienta, LectorComprobantes, ModeloConversacional, RespuestaModelo, TurnoModelo,
+  Clasificacion, ClasificadorMensajes, DatosComprobante, DeclaracionHerramienta, LectorComprobantes, ModeloConversacional, RespuestaModelo, TranscriptorAudio, TurnoModelo,
 } from '../asistente/modelo.port';
+import { TEXTO_AUDIO_NO_ENTENDIDO } from '../asistente/transcripcion';
+import { EscuchaAudiosService } from './escucha-audios.service';
 import { PRESENTACION } from '../asistente/texto-whatsapp';
 import { ConfiguracionIA } from '../asistente/vertex/proveedor-vertex';
 import { ConversacionesService } from './conversaciones.service';
@@ -87,6 +89,8 @@ const config = new ConfigService({
   ASISTENTE_IA: 'on',
   GOOGLE_CLOUD_PROJECT: 'proyecto-sintetico',
   ASISTENTE_ESPERA_MS: '0',
+  /* Una nota de voz que «no baja» se da por perdida rápido: la prueba no espera 20 s. */
+  ASISTENTE_ESPERA_AUDIO_MS: '1500',
 });
 
 const almacen = new Map<string, { bytes: Uint8Array; mime: string }>();
@@ -117,10 +121,24 @@ class ClasificadorGuionado extends ClasificadorMensajes {
   readonly nombre = 'clasificador-guionado';
   siguiente: Pick<Clasificacion, 'categoria' | 'confianza'> | Error = { categoria: 'VENTAS', confianza: 'ALTA' };
   llamadas = 0;
-  clasificar(): Promise<Clasificacion> {
+  /** Lo que le llegó a filtrar: con un audio, tiene que ser lo que ella DIJO. */
+  readonly vistos: string[] = [];
+  clasificar(e: { mensaje: string }): Promise<Clasificacion> {
     this.llamadas++;
+    this.vistos.push(e.mensaje);
     const c = this.siguiente;
     return c instanceof Error ? Promise.reject(c) : Promise.resolve({ ...c, uso: { tokensEntrada: 5, tokensSalida: 1 } });
+  }
+}
+/** Google escuchando una nota de voz, guionado: lo que «dijo» cada prueba. */
+class TranscriptorGuionado extends TranscriptorAudio {
+  readonly nombre = 'transcriptor-guionado';
+  siguiente: string | null | Error = 'Hola';
+  readonly llamadas: { bytes: number; mime: string }[] = [];
+  transcribir(audio: { bytes: Uint8Array; mime: string }) {
+    this.llamadas.push({ bytes: audio.bytes.byteLength, mime: audio.mime });
+    const s = this.siguiente;
+    return s instanceof Error ? Promise.reject(s) : Promise.resolve({ texto: s, uso: { tokensEntrada: 30, tokensSalida: 8 } });
   }
 }
 class LectorGuionado extends LectorComprobantes {
@@ -133,6 +151,7 @@ class LectorGuionado extends LectorComprobantes {
 const modelo = new ModeloGuionado();
 const clasificador = new ClasificadorGuionado();
 const lector = new LectorGuionado();
+const transcriptor = new TranscriptorGuionado();
 const agenda = {
   especialidades: async () => ({ datos: [{ id: 'e1', nombre: 'Ginecología' }, { id: 'e2', nombre: 'Pediatría' }], total: 2, pagina: 1, limite: 50, totalPaginas: 1 }),
   medico: async () => ({
@@ -167,6 +186,7 @@ const imagenes = {
     { provide: ModeloConversacional, useValue: modelo },
     { provide: ClasificadorMensajes, useValue: clasificador },
     { provide: LectorComprobantes, useValue: lector },
+    { provide: TranscriptorAudio, useValue: transcriptor }, EscuchaAudiosService,
     { provide: ImagenHorarioService, useValue: imagenes },
     AccesoMedicoAgendaService, ImagenAgendaMedicoService,
     { provide: AgendaMedicoCitasService, useValue: citasMedico },
@@ -210,6 +230,21 @@ async function webhook(mensajes: unknown[]) {
 }
 const ahoraMeta = () => String(Math.floor(Date.now() / 1000));
 const texto = (cuerpo: string) => ({ id: `wamid.in.${randomUUID()}`, from: telefono.slice(1), type: 'text', timestamp: ahoraMeta(), text: { body: cuerpo } });
+/** Cabecera de un OGG: lo que importa es que viajen los bytes de verdad, no que suene. */
+const OGG = Uint8Array.from([0x4f, 0x67, 0x67, 0x53, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 1, 2, 3, 4]);
+/**
+ * Una nota de voz por el webhook. `bajar` hace lo que haría `MediaEntranteService`
+ * (en esta suite está apagado): deja los bytes en R2 y la clave en el mensaje.
+ */
+async function notaDeVoz(desde: string, { bajar = true } = {}): Promise<void> {
+  const id = `wamid.in.${randomUUID()}`;
+  expect((await webhook([{ id, from: desde.slice(1), type: 'audio', timestamp: ahoraMeta(), audio: { id: `media-${randomUUID()}`, mime_type: 'audio/ogg; codecs=opus', voice: true } }])).status).toBe(200);
+  if (!bajar) return;
+  const m = await prisma.mensaje.findUniqueOrThrow({ where: { whatsappMsgId: id } });
+  const clave = `wa/${m.conversacionId}/${m.id}`;
+  almacen.set(clave, { bytes: OGG, mime: 'audio/ogg' });
+  await prisma.mensaje.update({ where: { id: m.id }, data: { mediaKey: clave } });
+}
 const foto = () => ({ id: `wamid.in.${randomUUID()}`, from: telefono.slice(1), type: 'image', timestamp: ahoraMeta(), image: { id: `media-${randomUUID()}`, mime_type: 'image/jpeg' } });
 const toque = (contexto: string, opcion: string) =>
   ({ id: `wamid.in.${randomUUID()}`, from: telefono.slice(1), type: 'interactive', timestamp: ahoraMeta(), context: { id: contexto }, interactive: { type: 'button_reply', button_reply: { id: opcion, title: 'x' } } });
@@ -277,6 +312,9 @@ beforeEach(async () => {
   modelo.vistas.length = 0;
   clasificador.siguiente = { categoria: 'VENTAS', confianza: 'ALTA' };
   clasificador.llamadas = 0;
+  clasificador.vistos.length = 0;
+  transcriptor.siguiente = 'Hola';
+  transcriptor.llamadas.length = 0;
   citasMedico.delDia.mockReset();
   imagenes.de.mockClear();
   imagenes.dibujar.mockClear();
@@ -443,6 +481,92 @@ describe('RESPONDER: lo que no le toca, pasa a una persona', () => {
     expect((await webhook([foto()])).status).toBe(200);
     await reposo();
     expect(await turnos((await chat()).id)).toHaveLength(0);
+  });
+});
+
+describe('notas de voz', () => {
+  async function hablar(turnosEsperados = 1, opciones?: { bajar?: boolean }) {
+    await notaDeVoz(telefono, opciones);
+    const c = await chat();
+    await esperar(async () => (await turnos(c.id)).length >= turnosEsperados);
+    await reposo();
+    return c.id;
+  }
+
+  describe('en «Responder solo»', () => {
+    beforeEach(() => configurarAsistente('RESPONDER'));
+
+    it('escucha la nota de voz y la contesta como si la hubiera escrito: el filtro y el modelo leen lo que DIJO', async () => {
+      transcriptor.siguiente = 'Hola, cuánto cuesta el control prenatal?';
+      modelo.guion = [pide('listar_promociones'), dice('El Control prenatal está a Bs 280.')];
+      const id = await hablar();
+      expect(transcriptor.llamadas).toEqual([{ bytes: OGG.byteLength, mime: 'audio/ogg; codecs=opus' }]);
+      expect(clasificador.vistos).toEqual(['[Nota de voz, transcrita] Hola, cuánto cuesta el control prenatal?']);
+      expect(JSON.stringify(modelo.vistas[0].historial)).toContain('[Nota de voz, transcrita] Hola, cuánto cuesta el control prenatal?');
+      const [respuesta, ...resto] = await salientes(id);
+      expect(resto).toHaveLength(0);
+      expect(respuesta).toMatchObject({ asistente: true, contenido: expect.stringContaining('Bs 280') });
+      /* El consumo de escucharla queda en el turno (30 + 5 del filtro + 200 de dos vueltas). */
+      expect(await turnos(id)).toMatchObject([{ resultado: 'RESPONDIO', categoria: 'VENTAS', tokensEntrada: 235 }]);
+    });
+
+    it('una nota de voz médica pasa por el MISMO filtro: no llega al modelo, va a una persona', async () => {
+      transcriptor.siguiente = 'me duele mucho la panza desde ayer, qué tomo';
+      clasificador.siguiente = { categoria: 'MEDICO', confianza: 'ALTA' };
+      const id = await hablar();
+      expect(clasificador.vistos[0]).toContain('me duele mucho la panza');
+      expect(modelo.vistas).toHaveLength(0);
+      expect((await salientes(id)).map(m => m.contenido)).toEqual([TEXTO_DERIVACION]);
+      expect(await turnos(id)).toMatchObject([{ resultado: 'DERIVO', categoria: 'MEDICO' }]);
+    });
+
+    it('si no se entiende, se le pide con un texto fijo que lo escriba; el modelo no adivina', async () => {
+      transcriptor.siguiente = null;
+      const id = await hablar();
+      expect((await salientes(id)).map(m => m.contenido)).toEqual([TEXTO_AUDIO_NO_ENTENDIDO]);
+      expect(modelo.vistas).toHaveLength(0);
+      expect(clasificador.llamadas).toBe(0);
+      expect(await turnos(id)).toMatchObject([{ resultado: 'RESPONDIO', motivo: expect.stringContaining('No se pudo escuchar') }]);
+    });
+
+    it('si Google falla al escuchar, lo mismo: texto fijo, nada inventado', async () => {
+      transcriptor.siguiente = new Error('503 de Google');
+      const id = await hablar();
+      expect((await salientes(id)).map(m => m.contenido)).toEqual([TEXTO_AUDIO_NO_ENTENDIDO]);
+      expect(modelo.vistas).toHaveLength(0);
+    });
+
+    it('si el audio no termina de bajar a tiempo, no se manda a nadie y se le pide que lo escriba', async () => {
+      const id = await hablar(1, { bajar: false });
+      expect(transcriptor.llamadas).toHaveLength(0);
+      expect((await salientes(id)).map(m => m.contenido)).toEqual([TEXTO_AUDIO_NO_ENTENDIDO]);
+    });
+
+    it('lo que dijo en un audio sigue en la conversación: se guarda una vez y el turno siguiente lo ve sin volver a Google', async () => {
+      transcriptor.siguiente = 'quería saber de la promo del control prenatal';
+      modelo.guion = [dice('¡Claro! ¿Para cuándo la necesitas?'), dice('Perfecto, te espero.')];
+      const id = await hablar();
+      expect(await prisma.mensaje.findFirst({ where: { conversacionId: id, tipo: 'AUDIO' }, select: { transcripcion: true } }))
+        .toEqual({ transcripcion: 'quería saber de la promo del control prenatal' });
+      await escribir('para el lunes', 2);
+      expect(transcriptor.llamadas).toHaveLength(1);
+      expect(JSON.stringify(modelo.vistas[1].historial)).toContain('[Nota de voz, transcrita] quería saber de la promo del control prenatal');
+    });
+  });
+
+  it('APAGADO, una nota de voz no sale del CRM: ni turno ni transcripción', async () => {
+    await notaDeVoz(telefono);
+    await reposo();
+    expect(await turnos((await chat()).id)).toHaveLength(0);
+    expect(transcriptor.llamadas).toHaveLength(0);
+  });
+
+  it('en «Sugerir», si no se entiende, la agente ve el aviso y no se le escribe a nadie', async () => {
+    await configurarAsistente('SUGERIR');
+    transcriptor.siguiente = null;
+    const id = await hablar();
+    expect((await salientes(id)).filter(m => m.asistente)).toHaveLength(0);
+    expect(await prisma.sugerenciaAsistente.findFirst({ where: { conversacionId: id } })).toMatchObject({ aviso: expect.stringContaining('no pudo escuchar') });
   });
 });
 
@@ -754,6 +878,14 @@ describe('la agenda del médico por WhatsApp', () => {
       expect((await turnos(id))[0]).toMatchObject({ resultado: 'RESPONDIO', herramientas: [{ nombre: 'ver_medico', ok: true }] });
     });
 
+    it('mirar las especialidades no le da permiso para hablar de SUS citas: «tienes 3 citas, 2 confirmadas» no sale', async () => {
+      modelo.guion = [pide('listar_especialidades'), dice('Tienes 3 citas mañana, 2 confirmadas y 1 pendiente.')];
+      const id = await medicoEscribe('qué especialidades hay y cuántas citas tengo mañana?');
+      expect((await salientes(id)).map(m => m.contenido)).toEqual([TEXTO_DERIVACION]);
+      expect(citasMedico.delDia).not.toHaveBeenCalled();
+      expect(await turnos(id)).toMatchObject([{ resultado: 'DERIVO', motivo: expect.stringContaining('sin consultarla') }]);
+    });
+
     it('una pregunta de aclaración sin datos sí sale', async () => {
       modelo.guion = [dice('¿De qué día quieres ver tu agenda: hoy o mañana?')];
       const id = await medicoEscribe('mi agenda');
@@ -775,6 +907,28 @@ describe('la agenda del médico por WhatsApp', () => {
       const id = await medicoEscribe('mis citas de hoy');
       expect((await salientes(id)).map(m => m.contenido)).toEqual([TEXTO_DERIVACION]);
       expect((await turnos(id))[0]).toMatchObject({ resultado: 'FALLO' });
+    });
+
+    it('«dime qué pacientes tengo mañana» en una nota de voz: la escucha y consulta SU agenda', async () => {
+      transcriptor.siguiente = 'Hola, dime qué pacientes tengo mañana por favor';
+      modelo.guion = [pideAgenda(), dice('ok')];
+      expect((await webhook([])).status).toBe(200);
+      await notaDeVoz(TEL_MEDICO);
+      const c = await chatMedico();
+      await esperar(async () => (await turnos(c.id)).length >= 1);
+      await reposo();
+      expect(JSON.stringify(modelo.vistas[0].historial)).toContain('dime qué pacientes tengo mañana');
+      expect(citasMedico.delDia).toHaveBeenCalledWith(7, FECHA);
+      expect((await salientes(c.id)).filter(m => m.tipo === 'IMAGEN')).toHaveLength(1);
+    });
+
+    it('un médico en «Sugerir»: ni su nota de voz se manda a transcribir', async () => {
+      await configurarAsistente('SUGERIR');
+      await notaDeVoz(TEL_MEDICO);
+      const c = await chatMedico();
+      await esperar(async () => (await turnos(c.id)).length >= 1);
+      expect(transcriptor.llamadas).toHaveLength(0);
+      expect(await turnos(c.id)).toMatchObject([{ resultado: 'OMITIDO' }]);
     });
 
     it('en «Sugerir» no se prepara nada: la agenda de un médico no es para una agente', async () => {

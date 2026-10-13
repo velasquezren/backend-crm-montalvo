@@ -228,6 +228,10 @@ Diseño en [asistente-ia](../../../docs/asistente-ia.md). Lo que no se puede olv
   herramienta**. Al modelo vuelven cantidades, no nombres de pacientes; la imagen y el texto los arma el
   código (`agenda-medico-imagen.ts`) y el texto del modelo se descarta. Solo en «Responder solo». Una
   herramienta nueva para médicos lleva `soloMedico` y se prueba con la paciente (no debe verla).
+- **Una nota de voz es un texto más** (`EscuchaAudiosService`, 12/10): se transcribe una vez,
+  se guarda en `Mensaje.transcripcion` y entra por el MISMO filtro y las mismas herramientas.
+  Si no se entiende, texto fijo; nunca se adivina. Todo lo que decida NO contestar (un médico en
+  «Sugerir») se decide ANTES de escuchar: lo que no se contesta no se manda a Google.
 - **En SQL, `NOT (estadoEnvio = 'FALLIDO')` descarta los NULL**, que son todos los
   mensajes entrantes. Para excluir los no enviados: `OR: [{ estadoEnvio: null }, { estadoEnvio: { not: 'FALLIDO' } }]`.
   Lo cazó la prueba de integración del asistente; con `NOT` no contestaba nunca.

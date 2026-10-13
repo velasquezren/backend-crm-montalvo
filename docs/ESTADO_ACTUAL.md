@@ -2,6 +2,22 @@
 
 > **Revisión del 10/10/2026, módulo por módulo (sin Comisiones ni Finanzas):** [REVISION_2026-10-10.md](REVISION_2026-10-10.md). La API está sana; la lista de mejoras por impacto está ahí.
 
+## 12 de octubre de 2026 (noche, 6) · notas de voz, y la integración con lo de la otra máquina · EN EL REPO, SIN DESPLEGAR
+
+- **Notas de voz** ([asistente-ia](asistente-ia.md#notas-de-voz-12102026)): en una línea con asistente,
+  un audio se transcribe (Gemini), se guarda en `Mensaje.transcripcion` y se contesta como un texto,
+  con el mismo filtro de entrada. Si no se entiende, texto fijo. La agente ve la transcripción bajo el
+  reproductor. Migración **`20261012235036_transcripcion_nota_de_voz`** (aditiva: una columna).
+- **Deriva de `Actividad_agenteId_fkey` resuelta sin tocar la base:** el schema decía «opcional» sin
+  `onDelete` (Prisma lo lee `SetNull`) y la base tiene `RESTRICT` desde `modulo_actividades`. Ahora el
+  schema dice `onDelete: Restrict` explícito: cada migración nueva dejó de arrastrar ese cambio.
+- **Médico:** tras una consulta informativa, el modelo podía escribir «tienes 3 citas, 2 confirmadas» y
+  salía. Cantidades y estados de citas ya solo salen de `mi_agenda` (prueba comprobada rompiéndola).
+- `npm run check:tests` volvía a fallar en `main` (`agenda-reintento.spec.ts`: el doble se llamaba
+  `pool`, como el campo privado de la clase base). Renombrado.
+- **Pendiente:** la clave de Gemini que se pegó el 10/10 ya no es válida (rotada). Con una válida: generar
+  la nota de prueba para «Probar conexión» y correr un barrido de caminos contra Gemini real.
+
 ## 12 de octubre de 2026 (noche, 5) · promociones con varios servicios: la IA las cotiza y se cobra uno por pago
 
 «Octubre Rosa» (la única promoción en producción) estaba cargada casi vacía: resumen «Promo»,

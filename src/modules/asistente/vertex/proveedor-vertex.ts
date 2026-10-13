@@ -27,12 +27,13 @@ import {
 import { existsSync } from 'node:fs';
 
 import { datosComprobanteDe, ESQUEMA_COMPROBANTE, INSTRUCCION_COMPROBANTE } from '../comprobante';
+import { INSTRUCCION_TRANSCRIPCION, limpiarTranscripcion, mimeDeAudio } from '../transcripcion';
 import {
   CATEGORIAS, Clasificacion, ClasificadorMensajes, CONFIANZAS, DatosComprobante, DeclaracionHerramienta, LectorComprobantes,
-  ModeloConversacional, RespuestaModelo, TurnoModelo, UsoModelo,
+  ModeloConversacional, RespuestaModelo, TranscriptorAudio, TurnoModelo, UsoModelo,
 } from '../modelo.port';
 import { contextoParaClasificar, instruccionClasificador } from '../triaje';
-import { aContenidos, deRespuesta, jsonDe, usoDe } from './traduccion';
+import { aContenidos, deRespuesta, jsonDe, textoDe, usoDe } from './traduccion';
 
 export const MODELO_POR_DEFECTO = 'gemini-3.5-flash';
 export const CLASIFICADOR_POR_DEFECTO = 'gemini-3.5-flash-lite';
@@ -211,5 +212,32 @@ export class LectorVertex extends LectorComprobantes {
       },
     }, ESPERA_LEER_MS);
     return { datos: datosComprobanteDe(jsonDe(r)), uso: usoDe(r) };
+  }
+}
+
+/** Las notas de voz a texto. Mismo modelo que conversa: oír mal a la paciente cuesta más que medio segundo. */
+@Injectable()
+export class TranscriptorVertex extends TranscriptorAudio {
+  constructor(private readonly cliente: ClienteVertex, private readonly cfg: ConfiguracionIA) { super(); }
+
+  get nombre(): string { return this.cfg.modelo; }
+
+  async transcribir(audio: { bytes: Uint8Array; mime: string }): Promise<{ texto: string | null; uso: UsoModelo }> {
+    const r = await this.cliente.generar({
+      model: this.cfg.modelo,
+      contents: [{
+        role: 'user',
+        parts: [
+          { text: INSTRUCCION_TRANSCRIPCION },
+          { inlineData: { mimeType: mimeDeAudio(audio.mime), data: Buffer.from(audio.bytes).toString('base64') } },
+        ],
+      }],
+      config: {
+        thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+        maxOutputTokens: 1024,
+        labels: { uso: 'transcribir-audio' },
+      },
+    }, ESPERA_LEER_MS);
+    return { texto: limpiarTranscripcion(textoDe(r)), uso: usoDe(r) };
   }
 }

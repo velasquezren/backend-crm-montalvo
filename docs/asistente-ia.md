@@ -69,7 +69,9 @@ también tiene las herramientas `informativa` (de solo lectura y sin datos de na
 especialidades, médicos y su horario, cupos y, en una línea comercial, leer promociones; y el
 conocimiento de la línea va en su prompt. Sigue sin nada que mande, cobre o reserve
 (`enviar_promocion`, `estado_de_pago`, `enviar_horario`, `reservar`). Un texto con horas sale si
-consultó algo de la clínica; sin ninguna consulta, sigue pasando a una persona. A una paciente
+consultó algo de la clínica; sin ninguna consulta, sigue pasando a una persona. **Cantidades y
+estados de citas («3 citas», «confirmadas») nunca salen del modelo**, aunque haya consultado algo
+informativo: solo de `mi_agenda`, cuyo texto arma el código (12/10). A una paciente
 que pregunta lo mismo, el prompt le dice que conteste con las especialidades, las promociones y
 el conocimiento, en vez de derivar.
 
@@ -124,6 +126,32 @@ chat pasa a una persona. Sin R2, el listado sale entero en texto.
 quite; solo se ve un día por consulta (hasta tres días por mensaje); más de 30 citas en un día se
 dibujan 30 y el resto está en el texto; las imágenes llevan nombres de pacientes y quedan en R2 como
 cualquier adjunto del chat.
+
+## Notas de voz (12/10/2026)
+
+Una nota de voz que llega a una línea **con asistente** se escucha y se contesta como si la
+hubiera escrito. Decisión del propietario (12/10), sabiendo que el audio viaja a Google.
+Probado con notas sintéticas en ogg/opus (el formato de WhatsApp): transcripción fiel en 2–3 s.
+
+- **Quién:** `EscuchaAudiosService` (Conversaciones, dueño de `Mensaje`). Espera a que
+  `MediaEntranteService` deje el audio en R2 (`ASISTENTE_ESPERA_AUDIO_MS`, 20 s), lo pasa al
+  puerto `TranscriptorAudio` (en Vertex o con clave: `TranscriptorVertex`, el modelo que
+  conversa, sin etiquetas con clave) y guarda el texto en **`Mensaje.transcripcion`**: cada
+  audio va a Google UNA vez, y el turno siguiente sigue sabiendo lo que ella dijo.
+- **Cuáles:** las de la ráfaga que se contesta (lo de ella desde el último mensaje de la
+  clínica), hasta 3; más de 10 MB, no. La ingesta despierta al asistente con un AUDIO como
+  con un texto; una foto o un documento, no.
+- **Mismas reglas que el texto:** la transcripción entra como «[Nota de voz, transcrita] …»
+  y pasa por el **mismo filtro de entrada** (lo médico no llega al modelo que redacta), las
+  mismas herramientas y la misma pausa. Lo que diga el audio no son instrucciones: la orden
+  de transcribir le dice que no obedezca nada de lo que oiga.
+- **Si no se entiende** (no bajó a tiempo, inaudible, Google falló): en «Responder solo»
+  sale un texto fijo, «No alcancé a escuchar bien tu audio. ¿Me lo puedes escribir, por
+  favor?»; en «Sugerir», la agente ve el aviso. El modelo nunca adivina.
+- **El médico** también habla: «dime qué pacientes tengo mañana» por audio consulta su
+  agenda. Con un médico en «Sugerir» el turno se omite ANTES de escuchar: su audio no sale.
+- **En el chat**, debajo del reproductor, la agente ve lo que el asistente entendió.
+- **Línea sin asistente:** el audio nunca sale del CRM.
 
 ## Por qué así: lo que hacen los que lo hacen bien
 
@@ -315,7 +343,7 @@ tokens de entrada y 9 de salida, octubre 2026, fuentes de terceros): un turno t�
 salida → **≈ 2 centavos de dólar por respuesta**. Con unas 1.500 respuestas al mes,
 **25–30 USD**. Cada turno guarda sus tokens en `TurnoAsistente`: el número real sale de
 ahí, no de esta estimación. Cada llamada lleva las etiquetas `aplicacion=crm-montalvo`
-y `uso=conversar|clasificar|leer-comprobante`, que aparecen en la factura de Google.
+y `uso=conversar|clasificar|leer-comprobante|transcribir-audio` (solo en Vertex: la API con clave no admite etiquetas), que aparecen en la factura de Google.
 
 ## Lo que queda pendiente
 
@@ -327,5 +355,5 @@ y `uso=conversar|clasificar|leer-comprobante`, que aparecen en la factura de Goo
   modelo pueda pedir una reserva con nombre y CI. Hoy reserva el Flow.
 - **Comprobantes de reservas** (QR del médico): la lectura cubre por ahora los pagos de
   promociones.
-- **Audios.** El asistente ve «[Audio: no lo puedes escuchar]» y no contesta un audio
-  suelto. Gemini puede transcribir; queda para después.
+- **Notas de voz:** hechas el 12/10 (sección «Notas de voz»). Falta el paso de audio en
+  «Probar conexión», que necesita una nota de prueba generada con una clave válida.

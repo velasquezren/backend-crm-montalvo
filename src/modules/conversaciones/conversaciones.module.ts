@@ -1,6 +1,7 @@
 import { AgendaModule } from '../agenda/agenda.module';
 import { AsistenteModule } from '../asistente/asistente.module';
 import { AsistenteChatController } from './asistente-chat.controller';
+import { EscuchaAudiosService } from './escucha-audios.service';
 import { AsistenteChatService } from './asistente-chat.service';
 import { LecturaComprobantesService } from './lectura-comprobantes.service';
 import { ComprobantesReservaChatService } from './comprobantes-reserva-chat.service';
@@ -54,6 +55,7 @@ import { WhatsappWebhookController } from './webhooks/whatsapp-webhook.controlle
     ComprobantesReservaChatService,
     ConstanciaReservaService,
     AsistenteChatService,
+    EscuchaAudiosService,
     LecturaComprobantesService,
     MetaSignatureGuard,
     WhatsappCloudService,

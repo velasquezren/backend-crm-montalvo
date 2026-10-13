@@ -420,9 +420,10 @@ export class IngestaWhatsappService {
       /* Vino por una promoción: queda atribuida y recibe su tarjeta, que hace de
          menú y de acuse a la vez. */
       const tarjeta = codigo ? await this.atenderCodigo(conversacion.id, cliente.id, cliente.telefono, lineaId, codigo) : false;
-      /* El asistente de IA de la línea, si tiene: solo para lo que ella ESCRIBIÓ.
+      /* El asistente de IA de la línea, si tiene: para lo que ella ESCRIBIÓ o DIJO en una
+         nota de voz (la escucha él). Una foto o un documento, no.
          Quien acaba de pedir una persona o una emergencia ya tiene a alguien en camino. */
-      const asistente = this.asistente && !media && !esRespuestaBoton && !tarjeta && !pedido
+      const asistente = this.asistente && (!media || media.tipo === 'AUDIO') && !esRespuestaBoton && !tarjeta && !pedido
         /* Un fallo del asistente no se lleva el menú ni el acuse de este mensaje. */
         ? await this.asistente.activoEn(lineaId).catch((error: unknown) => {
           this.logger.warn(`Asistente de la línea ${lineaId} no disponible: ${error instanceof Error ? error.message : 'falló'}`);

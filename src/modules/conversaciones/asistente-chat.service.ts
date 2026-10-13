@@ -15,12 +15,14 @@ import { ImagenHorarioService } from '../asistente/imagen-horario.service';
 import { Clasificacion, ClasificadorMensajes, ModeloConversacional, TurnoModelo, UsoModelo } from '../asistente/modelo.port';
 import { ahoraEnLaPaz, promptDelMedico, promptDelSistema } from '../asistente/prompt-sistema';
 import { conPresentacion, debePresentarse, paraWhatsapp } from '../asistente/texto-whatsapp';
+import { TEXTO_AUDIO_NO_ENTENDIDO } from '../asistente/transcripcion';
 import { CLASIFICACION_FALLIDA, decidirTriaje } from '../asistente/triaje';
 import { CobrosService } from '../cobros/cobros.service';
 import { orientacionDeEmergencia } from '../menu-atencion/menu-atencion';
 import { MenuAtencionService } from '../menu-atencion/menu-atencion.service';
 import { ConversacionesGateway } from './conversaciones.gateway';
 import { obtenerConversacionPropia } from './envio-comun';
+import { EscuchaAudiosService } from './escucha-audios.service';
 import { IngestaWhatsappService } from './ingesta-whatsapp.service';
 import { interaccionesEnLinea } from './interacciones-integracion';
 import { pagoDelChat } from './pagos-chat';
@@ -32,7 +34,7 @@ import { AccionSugerida, accionesDe, accionesSugeridas } from './sugerencias-cha
  * El asistente de IA dentro de un chat (docs/asistente-ia.md). Dueño de
  * `SugerenciaAsistente` y `TurnoAsistente`.
  *
- * La ingesta le avisa de cada texto que llega a una línea con asistente; aquí
+ * La ingesta le avisa de cada texto o nota de voz que llega a una línea con asistente; aquí
  * se espera unos segundos (las pacientes escriben en ráfagas: «hola» · «una
  * consulta» · «cuánto sale el botox»), se filtra, se piensa, y:
  *
@@ -81,17 +83,21 @@ const MENSAJES_DE_CONTEXTO = 30;
 const VENTANA_MS = 24 * 3_600_000;
 
 const SELECT_MENSAJE = {
-  id: true, direccion: true, tipo: true, contenido: true, mediaNombre: true, automatico: true, createdAt: true,
+  id: true, direccion: true, tipo: true, contenido: true, mediaNombre: true, transcripcion: true, automatico: true, createdAt: true,
 } satisfies Prisma.MensajeSelect;
 type MensajeDeContexto = Pick<Mensaje, keyof typeof SELECT_MENSAJE>;
 
-/** Un mensaje como lo ve el modelo. Lo que no puede ver, lo dice. */
-export function aTurno(m: MensajeDeContexto): TurnoModelo | null {
+/**
+ * Un mensaje como lo ve el modelo. Lo que no puede ver, lo dice. Una nota de voz
+ * de la ráfaga que se contesta llega transcrita (`escuchados`); las anteriores, no.
+ */
+export function aTurno(m: MensajeDeContexto, escuchados?: ReadonlyMap<string, string | null>): TurnoModelo | null {
   const pie = m.contenido.trim().slice(0, 1000);
+  const oido = m.tipo === 'AUDIO' ? escuchados?.get(m.id) : undefined;
   const texto = m.tipo === 'TEXTO' ? pie
     : m.tipo === 'IMAGEN' ? `[Imagen${pie ? `: ${pie}` : ''}]`
     : m.tipo === 'DOCUMENTO' ? `[Documento${m.mediaNombre ? ` «${m.mediaNombre}»` : ''}]`
-    : m.tipo === 'AUDIO' ? '[Audio: no lo puedes escuchar]'
+    : m.tipo === 'AUDIO' ? (oido ? `[Nota de voz, transcrita] ${oido}` : oido === null ? '[Nota de voz: no se pudo escuchar]' : '[Audio: no lo puedes escuchar]')
     : m.tipo === 'VIDEO' ? '[Video]'
     : '[Sticker]';
   if (!texto) return null;
@@ -115,6 +121,8 @@ const ESTADO_PAGO: Record<string, EstadoPagoParaAsistente> = {
   CONFIRMADO: 'CONFIRMADO',
   ANULADO: 'ANULADO',
 };
+
+const sumarUso = (a: UsoModelo, b: UsoModelo): UsoModelo => ({ tokensEntrada: a.tokensEntrada + b.tokensEntrada, tokensSalida: a.tokensSalida + b.tokensSalida });
 
 interface Registro {
   readonly resultado: ResultadoTurnoAsistente;
@@ -143,6 +151,7 @@ export class AsistenteChatService implements ProgramadorAsistente, OnModuleInit,
     private readonly accesoMedicos: AccesoMedicoAgendaService,
     private readonly citasMedico: AgendaMedicoCitasService,
     private readonly imagenesAgenda: ImagenAgendaMedicoService,
+    private readonly escuchas: EscuchaAudiosService,
     private readonly promociones: PromocionesChatService,
     private readonly cobros: CobrosService,
     private readonly menus: MenuAtencionService,
@@ -229,7 +238,9 @@ export class AsistenteChatService implements ProgramadorAsistente, OnModuleInit,
     })).reverse();
 
     const ultimoEntrante = [...mensajes].reverse().find(m => m.direccion === 'ENTRANTE');
-    if (!ultimoEntrante || ultimoEntrante.tipo !== 'TEXTO') return registrar({ resultado: 'OMITIDO', motivo: 'Lo último que mandó no es un texto.' });
+    if (!ultimoEntrante || (ultimoEntrante.tipo !== 'TEXTO' && ultimoEntrante.tipo !== 'AUDIO')) {
+      return registrar({ resultado: 'OMITIDO', motivo: 'Lo último que mandó no es un texto ni una nota de voz.' });
+    }
     const personas = mensajes.filter(m => m.direccion === 'SALIENTE' && !m.automatico);
     if (personas.some(m => m.createdAt > ultimoEntrante.createdAt)) return registrar({ resultado: 'OMITIDO', motivo: 'Una persona ya contestó.' });
     if (responde && conversacion.automatizacionPausadaEn) return registrar({ resultado: 'OMITIDO', motivo: 'La automatización está pausada: espera a una persona.' });
@@ -244,11 +255,20 @@ export class AsistenteChatService implements ProgramadorAsistente, OnModuleInit,
       return registrar({ resultado: 'OMITIDO', motivo: `Más de ${TURNOS_POR_HORA} turnos en una hora.` });
     }
 
-    const historial = mensajes.map(aTurno).filter((t): t is TurnoModelo => t !== null);
-
-    /* ¿Quien escribe es un médico con el número autorizado? Es otra conversación, con otras reglas. */
+    /* ¿Quien escribe es un médico con el número autorizado? Es otra conversación, con otras reglas.
+       Se mira ANTES de escuchar: lo que no se va a contestar no se manda a transcribir. */
     const medico = await this.accesoMedicos.porTelefono(e.telefono);
-    if (medico) return this.atenderMedico(e, medico, historial, ultimoEntrante, inicio, registrar);
+    if (medico && !responde) {
+      return registrar({ resultado: 'OMITIDO', motivo: 'Es un médico autorizado: su agenda solo se contesta en «Responder solo».' });
+    }
+
+    /* Las notas de voz de la ráfaga, a texto. Desde aquí son mensajes como cualquier otro. */
+    const escucha = await this.escuchas.escuchar(mensajes);
+    if (ultimoEntrante.tipo === 'AUDIO' && !escucha.transcripciones.get(ultimoEntrante.id)) {
+      return this.audioNoEntendido(e, ultimoEntrante, responde, registrar, escucha.uso);
+    }
+    const historial = mensajes.map(m => aTurno(m, escucha.transcripciones)).filter((t): t is TurnoModelo => t !== null);
+    if (medico) return this.atenderMedico(e, medico, historial, ultimoEntrante, inicio, registrar, escucha.uso);
 
     /* 1. El filtro de entrada, antes de que el modelo escriba nada. */
     let clasificacion: Pick<Clasificacion, 'categoria' | 'confianza'>;
@@ -256,11 +276,12 @@ export class AsistenteChatService implements ProgramadorAsistente, OnModuleInit,
     try {
       const c = await this.clasificador.clasificar({ mensaje: rafagaDeLaPaciente(historial), contexto: historial, criterio: e.asistente.criterioDerivacion });
       clasificacion = c;
-      tokensExtra = c.uso;
+      tokensExtra = sumarUso(c.uso, escucha.uso);
     } catch (error: unknown) {
       /* Si el filtro no responde, no se arriesga: se trata como duda. */
       this.logger.warn(`Clasificador: ${error instanceof Error ? error.message : 'falló'}`);
       clasificacion = CLASIFICACION_FALLIDA;
+      tokensExtra = escucha.uso;
     }
     const triaje = decidirTriaje(clasificacion);
     if (triaje.tipo === 'DERIVAR') {
@@ -322,14 +343,20 @@ export class AsistenteChatService implements ProgramadorAsistente, OnModuleInit,
 
   /* ── Un médico pregunta por su agenda ───────────────────────────────── */
 
-  /** Lo que el modelo no puede decir de una agenda sin haberla consultado: horas, cantidades y estados. */
-  private static readonly AFIRMA_AGENDA = /\b\d{1,2}:\d{2}\b|\b\d+\s+citas?\b|\b(confirmadas?|por confirmar|pendientes?)\b/i;
+  /**
+   * Lo que el modelo no puede decir sin haberlo consultado. Las HORAS pueden salir
+   * de una consulta informativa (el horario de un médico, los cupos). Las
+   * CANTIDADES y ESTADOS de citas, nunca del modelo: solo de `mi_agenda`, cuyo texto
+   * arma el código. Un «tienes 3 citas» tras mirar las especialidades es inventado.
+   */
+  private static readonly AFIRMA_HORAS = /\b\d{1,2}:\d{2}\b/;
+  private static readonly AFIRMA_CITAS = /\b\d+\s+citas?\b|\b(confirmadas?|por confirmar|pendientes?)\b/i;
 
   /**
    * El turno de un médico autorizado (docs/asistente-ia.md, «Agenda del médico»).
    *
-   * - Solo en «Responder solo»: el borrador de «Sugerir» lo ve una agente, y la
-   *   agenda de un médico no es para ella.
+   * - Solo en «Responder solo» (lo comprueba `atender`, antes de escuchar sus audios):
+   *   el borrador de «Sugerir» lo ve una agente, y la agenda de un médico no es para ella.
    * - Sin el filtro de entrada ni nada que mande, cobre o reserve: `mi_agenda`
    *   (atada al médico que salió del NÚMERO), lo informativo de la clínica
    *   (especialidades, médicos, horarios, cupos, promociones) y pasar a una persona.
@@ -338,11 +365,8 @@ export class AsistenteChatService implements ProgramadorAsistente, OnModuleInit,
    */
   private async atenderMedico(
     e: EntranteParaAsistente, medico: MedicoAutorizado, historial: readonly TurnoModelo[], ultimoEntrante: MensajeDeContexto,
-    inicio: number, registrar: (r: Registro) => Promise<ResultadoTurnoAsistente>,
+    inicio: number, registrar: (r: Registro) => Promise<ResultadoTurnoAsistente>, tokensExtra: UsoModelo,
   ): Promise<ResultadoTurnoAsistente> {
-    if (e.asistente.modo !== 'RESPONDER') {
-      return registrar({ resultado: 'OMITIDO', motivo: 'Es un médico autorizado: su agenda solo se contesta en «Responder solo».' });
-    }
     const salida = await this.conversacion.responder({
       sistema: promptDelMedico({
         ahora: ahoraEnLaPaz(new Date(inicio)), medico: medico.nombre, conocimiento: e.asistente.conocimiento, ventas: e.asistente.comercial,
@@ -352,7 +376,7 @@ export class AsistenteChatService implements ProgramadorAsistente, OnModuleInit,
       historial,
       permitirEscritura: false,
     });
-    const base = { categoria: 'MEDICO_AGENDA', traza: salida.traza };
+    const base = { categoria: 'MEDICO_AGENDA', traza: salida.traza, tokensExtra };
     if (salida.tipo === 'sin-respuesta') {
       /* Con un médico no vale el acuse de siempre: una persona lo atiende. */
       await this.derivar(e, 'DERIVADA_ASISTENTE');
@@ -377,12 +401,12 @@ export class AsistenteChatService implements ProgramadorAsistente, OnModuleInit,
       }
       return registrar({ resultado: 'RESPONDIO', ...base });
     }
-    /* Sin consulta no hay dato: un texto que afirme horas o cantidades sin haber
-       consultado nada no sale. Con una consulta informativa (el horario de otro
-       médico, cupos) las horas salen de ella. */
+    /* Sin consulta no hay dato. Con una consulta informativa (el horario de otro
+       médico, cupos) las horas salen de ella; las citas, nunca del modelo. */
     const texto = salida.texto ? paraWhatsapp(salida.texto) : '';
     const consultoLaClinica = salida.traza.herramientas.some(h => h.ok && HERRAMIENTAS.some(x => x.nombre === h.nombre && x.informativa));
-    if (!texto || (!consultoLaClinica && AsistenteChatService.AFIRMA_AGENDA.test(texto))) {
+    const inventa = AsistenteChatService.AFIRMA_CITAS.test(texto) || (!consultoLaClinica && AsistenteChatService.AFIRMA_HORAS.test(texto));
+    if (!texto || inventa) {
       await this.derivar(e, 'DERIVADA_ASISTENTE');
       return registrar({ resultado: 'DERIVO', motivo: texto ? 'El modelo habló de la agenda sin consultarla.' : 'Sin respuesta utilizable.', ...base });
     }
@@ -416,6 +440,28 @@ export class AsistenteChatService implements ProgramadorAsistente, OnModuleInit,
       return this.ingesta.responderComoAsistente(e.conversacionId, e.telefono, await presentar(textoListado(medico, agenda)));
     }
     return this.ingesta.responderComoAsistente(e.conversacionId, e.telefono, await presentar(textoResumen(medico, agenda)));
+  }
+
+  /**
+   * La nota de voz que se iba a contestar no se pudo escuchar (no bajó a tiempo,
+   * pesaba demasiado, no se entendía o el proveedor falló). No se adivina: en
+   * «Responder solo» se le pide, con un texto fijo, que lo escriba; en «Sugerir»,
+   * la agente ve el aviso y la escucha ella.
+   */
+  private async audioNoEntendido(
+    e: EntranteParaAsistente, ultimo: MensajeDeContexto, responde: boolean,
+    registrar: (r: Registro) => Promise<ResultadoTurnoAsistente>, tokensExtra: UsoModelo,
+  ): Promise<ResultadoTurnoAsistente> {
+    const motivo = 'No se pudo escuchar la nota de voz.';
+    if (!responde) {
+      await this.sugerir(e, '', [], 'El asistente no pudo escuchar esta nota de voz: escúchala tú.');
+      return registrar({ resultado: 'OMITIDO', motivo, tokensExtra });
+    }
+    if (await this.llegoAlgoDespues(e.conversacionId, ultimo)) {
+      return registrar({ resultado: 'OMITIDO', motivo: `${motivo} Llegó otro mensaje: lo contesta el turno siguiente.`, tokensExtra });
+    }
+    const enviado = await this.ingesta.responderComoAsistente(e.conversacionId, e.telefono, TEXTO_AUDIO_NO_ENTENDIDO);
+    return registrar({ resultado: enviado ? 'RESPONDIO' : 'OMITIDO', motivo: `${motivo} Se le pidió que lo escriba.`, tokensExtra });
   }
 
   /** ¿Escribió ella o una persona después del mensaje que se está contestando? */
