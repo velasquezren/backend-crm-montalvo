@@ -36,6 +36,14 @@
   La suite completa detectó una aserción de prompt antigua: se actualizó para exigir
   información sin invitación automática a reservar. Las otras 1.176 unitarias pasaron.
   La corrección de esa aserción no cambia los binarios publicados.
+- Comprobación ampliada: GitHub aprobó las 1.177 unitarias, compilación,
+  tipos y arranque del backend; su paso de integración falló. La suite completa
+  repetida localmente pasó: 48 suites, 960 pruebas y 45 omitidas (incluye
+  verificaciones que necesitan fuentes externas de prueba). No se reprodujo
+  el fallo; no se atribuye todavía una causa. El acceso anónimo al log de ese
+  job responde 403. Frontend: control completo de GitHub aprobado, además del
+  despliegue de Vercel verificado. La siguiente ejecución comprueba si persiste.
+
 - Evaluación en copia temporal aislada del VPS con Vertex, modelo configurado
   `gemini-3.8-flash`: seis escenarios ficticios verificados. Cinco pasaron de
   inicio; «dime en qué te puedo ayudar» fue un falso negativo del evaluador por
