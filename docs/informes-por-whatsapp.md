@@ -21,12 +21,12 @@ Paciente: «Mis informes» / menú / intención reconocida por IA
   → Historial y estados existentes; nunca se marca el portal como «leído» por esta descarga
 ```
 
-No depende de Flows ni requiere publicar una plantilla. La consulta ocurre dentro de la ventana de atención existente de 24 horas. Los avisos manuales con plantilla y enlace del módulo Resultados siguen funcionando igual.
+No depende de Flows ni requiere publicar una plantilla. Una petición textual funciona también con el menú general apagado, siempre que la línea esté habilitada para informes. La consulta ocurre dentro de la ventana de atención existente de 24 horas. Los avisos manuales con plantilla y enlace del módulo Resultados siguen funcionando igual.
 
 ## Identidad y límites reales
 
 - La identidad procede de la ficha asociada al teléfono del webhook firmado. El PAC debe existir en el CRM y coincidir exactamente en Resultados. El paciente y el modelo no pueden aportar un PAC, un CI ni un informe para elegir a otra persona.
-- Si ambos sistemas tienen CI, un conflicto bloquea la consulta. No se intenta resolver por nombre, búsqueda aproximada o CI aislado. Sin PAC, recepción revisa la ficha mediante las funciones que ya existen.
+- Si ambos sistemas tienen CI, un conflicto bloquea la consulta. No se intenta resolver por nombre, búsqueda aproximada o CI aislado. Sin PAC, el CRM pide el número de carnet (sin foto) y deriva a recepción con automatización pausada. El siguiente mensaje queda en el mismo chat para revisión; no cambia el CI/PAC de la ficha ni autoriza una descarga. Recepción verifica la identidad y vincula la ficha mediante las funciones que ya existen. Un fallo del portal no vuelve a pedir el carnet.
 - **Esto prueba la asociación registrada teléfono–PAC, no la identidad civil de quien sostiene el teléfono.** Antes de habilitarlo, la clínica debe revisar ese vínculo. Un teléfono familiar, compartido, reasignado o con una ficha incorrecta requiere atención humana. No se implementa OTP, autenticación adicional ni acceso de tutores.
 - La oferta queda cifrada y asociada a cliente, línea, conversación, teléfono, opciones, identificadores del informe y del archivo original. Caduca en 15 minutos y solo admite una selección. Para otro documento se abre otra lista.
 - Correlación por mensaje Meta original, tipo de respuesta, opción ofrecida y vigencia. Los reintentos del webhook se deduplican. No se confía en el título devuelto por el teléfono.

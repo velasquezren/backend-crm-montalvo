@@ -40,7 +40,7 @@ import { MediaEntranteService } from './media-entrante.service';
 import { WhatsappWebhookController } from './webhooks/whatsapp-webhook.controller';
 import { OfertaInteraccion } from './interacciones-integracion';
 
-import { InformesChatService } from '../resultados/informes-chat.service';
+import { InformesChatService, PEDIR_CARNET_INFORME } from '../resultados/informes-chat.service';
 import { PortalResultadosClient } from '../resultados/portal-resultados.client';
 
 // URL deliberadamente fija, como el resto de las suites: nunca DATABASE_URL ni un .env,
@@ -96,7 +96,11 @@ function respuesta(contexto: string, opcion = `INFORME_${informe.id}`) {
   return { id: `wamid.in.${randomUUID()}`, from: telefono.slice(1), type: 'interactive', timestamp: String(Math.floor(Date.now() / 1000)),
     context: { id: contexto }, interactive: { type: 'list_reply', list_reply: { id: opcion, title: 'Texto no confiable del teléfono' } } };
 }
-async function webhook(raw: ReturnType<typeof respuesta>) {
+function texto(contenido: string) {
+  return { id: `wamid.in.${randomUUID()}`, from: telefono.slice(1), type: 'text',
+    timestamp: String(Math.floor(Date.now() / 1000)), text: { body: contenido } };
+}
+async function webhook(raw: ReturnType<typeof respuesta> | ReturnType<typeof texto>) {
   const body = JSON.stringify({ object: 'whatsapp_business_account', entry: [{ changes: [{ field: 'messages', value: { metadata: { phone_number_id: 'meta-informes-test' }, messages: [raw] } }] }] });
   return fetch(base + '/webhooks/whatsapp', { method: 'POST', headers: { 'Content-Type': 'application/json',
     'x-hub-signature-256': `sha256=${createHmac('sha256', secretoSintetico).update(body).digest('hex')}` }, body });
@@ -161,11 +165,38 @@ it.each(['PAC', 'CI', 'HUMANO', 'CERRADA', 'LINEA', 'VENTANA'] as const)('revali
   expect(transporte.subirPdf).not.toHaveBeenCalled();
 });
 
-it('sin PAC no busca por nombre o CI, responde sin datos y deriva a recepción', async () => {
+it('sin PAC pide carnet por webhook y deriva; el carnet recibido no autoriza PDFs ni cambia la ficha', async () => {
   await prisma.cliente.update({ where: { id: paciente }, data: { pac: null } });
-  expect(await ingesta.ofrecerInformes(chat, telefono)).toBe(false);
+  const solicitud = texto('Quiero mi informe');
+  expect((await webhook(solicitud)).status).toBe(200);
+  await esperar(async () => (await prisma.conversacion.findUniqueOrThrow({ where: { id: chat } })).automatizacionPausadaEn !== null);
+  expect(transporte.enviar).toHaveBeenCalledWith(telefono, expect.objectContaining({ text: { body: PEDIR_CARNET_INFORME } }), expect.any(String), expect.anything());
+  const carnet = texto('12345678');
+  expect((await webhook(carnet)).status).toBe(200);
+  expect((await webhook(solicitud)).status).toBe(200);
   expect(portal.informesDelPaciente).not.toHaveBeenCalled();
-  expect((await prisma.conversacion.findUniqueOrThrow({ where: { id: chat } })).automatizacionPausadaEn).not.toBeNull();
+  expect(portal.pdfDelPaciente).not.toHaveBeenCalled();
+  expect(await documentos()).toHaveLength(0);
+  expect(await prisma.cliente.findUniqueOrThrow({ where: { id: paciente }, select: { pac: true, ci: true } })).toEqual({ pac: null, ci: 'CI-TEST' });
+  expect(await prisma.mensaje.count({ where: { conversacionId: chat, direccion: 'SALIENTE', contenido: PEDIR_CARNET_INFORME } })).toBe(1);
+  expect(await prisma.conversacion.findUniqueOrThrow({ where: { id: chat } })).toMatchObject({ atencionMotivo: 'REVISION' });
+});
+
+it('si falla el portal no pide carnet de nuevo ni atribuye el fallo a la identidad', async () => {
+  portal.informesDelPaciente.mockRejectedValueOnce(new Error('Fallo sintético de disponibilidad'));
+  expect(await ingesta.ofrecerInformes(chat, telefono)).toBe(false);
+  const mensajes = await prisma.mensaje.findMany({ where: { conversacionId: chat, direccion: 'SALIENTE' }, select: { contenido: true } });
+  expect(mensajes).toEqual([{ contenido: 'No pudimos consultar tus informes en este momento. Recepción revisará tu solicitud. No necesitas enviar documentos personales por aquí.' }]);
+  expect(portal.pdfDelPaciente).not.toHaveBeenCalled();
+});
+
+it('pedir el informe por texto funciona con el menú general apagado', async () => {
+  await prisma.menuAtencion.create({ data: { lineaId: linea, activo: false, saludo: 'Menú sintético', opciones: [{ tipo: 'PERSONA', titulo: 'Recepción' }] } });
+  expect((await webhook(texto('Quiero mi informe'))).status).toBe(200);
+  await esperar(async () => transporte.enviar.mock.calls.length === 1);
+  expect(portal.informesDelPaciente).toHaveBeenCalledWith({ pac: 'PAC-TEST', ci: 'CI-TEST' }, 1);
+  expect(transporte.enviar.mock.calls[0][1]).toMatchObject({ type: 'interactive' });
+  expect((await prisma.menuAtencion.findUniqueOrThrow({ where: { lineaId: linea } })).activo).toBe(false);
 });
 
 it('un documento retirado mientras se transfiere a Meta no se envía al paciente', async () => {

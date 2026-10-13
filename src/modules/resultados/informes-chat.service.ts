@@ -5,6 +5,11 @@ import { descifrarInteraccion, interaccionesEnLinea, OfertaInteraccion, preparar
 import { IdentidadInformeChat, InformeParaChat, PortalResultadosClient } from './portal-resultados.client';
 
 export const PREFIJO_INFORME_CHAT = 'informe-chat/';
+/** Falta vincular la ficha. Un CI escrito ayuda a recepción, nunca autoriza un PDF. */
+export class IdentificacionInformePendiente extends NotFoundException {
+  constructor() { super('Recepción debe verificar la identidad para consultar informes.'); }
+}
+export const PEDIR_CARNET_INFORME = 'Para que recepción pueda verificar tu solicitud, escribe el número de carnet del paciente, solo el número; no envíes una foto del documento. Recepción revisará la identidad y el teléfono antes de entregar el informe.';
 export interface ContextoInformes {
   clienteId: string; lineaId: string; identidad: IdentidadInformeChat;
   informes: InformeParaChat[]; pagina: number;
@@ -31,8 +36,11 @@ export class InformesChatService {
     } });
     const ultimo = await this.prisma.mensaje.findFirst({ where: { conversacionId, direccion: 'ENTRANTE' }, orderBy: { createdAt: 'desc' }, select: { createdAt: true } });
     if (!c || !c.linea.activa || !informesEnLinea(c.lineaId) || c.cerradaEn || c.automatizacionPausadaEn || c.atencionTomadaEn
-      || c.cliente.telefono !== telefono || !c.cliente.pac || !ultimo || Date.now() - ultimo.createdAt.getTime() >= 86_400_000)
+      || c.cliente.telefono !== telefono || !ultimo || Date.now() - ultimo.createdAt.getTime() >= 86_400_000)
       throw new NotFoundException('Recepción debe verificar la solicitud de informes.');
+    // Solo tras validar el chat: nunca pedir identificación para un teléfono ajeno
+    // o una sesión cerrada, pausada o fuera de la ventana de atención.
+    if (!c.cliente.pac) throw new IdentificacionInformePendiente();
     return { clienteId: c.clienteId, identidad: { pac: c.cliente.pac, ...(c.cliente.ci ? { ci: c.cliente.ci } : {}) }, lineaId: c.lineaId };
   }
 

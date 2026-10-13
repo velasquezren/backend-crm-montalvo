@@ -1,6 +1,6 @@
 import { LINEA_COMERCIAL_INICIAL, obtenerOCrearConversacion } from './acceso-conversacion';
 import { Injectable, Logger, Optional } from '@nestjs/common';
-import { InformesChatService, informesEnLinea, pideSusInformes, PREFIJO_INFORME_CHAT } from '../resultados/informes-chat.service';
+import { IdentificacionInformePendiente, InformesChatService, informesEnLinea, PEDIR_CARNET_INFORME, pideSusInformes, PREFIJO_INFORME_CHAT } from '../resultados/informes-chat.service';
 import { randomUUID } from 'node:crypto';
 import { Mensaje, MotivoAtencion, OrigenLead, Prisma } from '../../prisma/prisma-client';
 
@@ -943,9 +943,10 @@ export class IngestaWhatsappService {
       await this.despachador.interaccion({ mensajeId: filas[0].id, conversacionId, telefono });
       const enviado = await this.prisma.mensaje.findUnique({ where: { id: filas[0].id }, select: { estadoEnvio: true } });
       return !!enviado && enviado.estadoEnvio !== 'FALLIDO';
-    } catch {
+    } catch (error: unknown) {
       await this.responderTexto(conversacionId, telefono,
-        'Recepción debe revisar tu solicitud de informes. No necesitas enviar documentos personales por aquí.',
+        error instanceof IdentificacionInformePendiente ? PEDIR_CARNET_INFORME
+          : 'No pudimos consultar tus informes en este momento. Recepción revisará tu solicitud. No necesitas enviar documentos personales por aquí.',
         { respetaPausa: true, noRepetir: true });
       const origen = mensajeId ?? (await this.prisma.mensaje.findFirst({ where: { conversacionId, direccion: 'ENTRANTE' },
         orderBy: { createdAt: 'desc' }, select: { id: true } }))?.id;
