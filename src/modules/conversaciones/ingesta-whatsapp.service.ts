@@ -1,5 +1,6 @@
 import { LINEA_COMERCIAL_INICIAL, obtenerOCrearConversacion } from './acceso-conversacion';
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
+import { InformesChatService, informesEnLinea, pideSusInformes, PREFIJO_INFORME_CHAT } from '../resultados/informes-chat.service';
 import { randomUUID } from 'node:crypto';
 import { Mensaje, MotivoAtencion, OrigenLead, Prisma } from '../../prisma/prisma-client';
 
@@ -29,7 +30,7 @@ import { ConversacionesGateway } from './conversaciones.gateway';
 import { DespachadorSalienteService } from './despachador-saliente.service';
 import { MediaEntranteService, MediaEntrante } from './media-entrante.service';
 import { CONTENIDO_PIN, TEXTO_UBICACION, UBICACION_CLINICA } from './ubicacion-clinica';
-import { registrarComprobante } from './pagos-chat';
+import { registrarComprobante, uuidEstable } from './pagos-chat';
 import { comprobanteAmbiguo, marcarComprobanteDeReserva, PagoDeReserva, registrarReservaDeChat, TEXTO_COMPROBANTE_RESERVA } from './reservas-chat';
 import { codigoEnTexto, ELEGIR_SERVICIO, HABLAR_CON_PERSONA, PAGAR_PROMOCION, servicioDeOpcion, TEXTO_COMPROBANTE_RECIBIDO, TEXTO_PERSONA_TARJETA } from './promocion-chat';
 import { PromocionesChatService } from './promociones-chat.service';
@@ -112,6 +113,7 @@ export class IngestaWhatsappService {
     private readonly primerContacto: PrimerContactoService,
     private readonly menus: MenuAtencionService,
     private readonly promocionesChat: PromocionesChatService,
+    @Optional() private readonly informes?: InformesChatService,
   ) {}
 
   /** Lo llama `AsistenteChatService` al arrancar. */
@@ -219,6 +221,8 @@ export class IngestaWhatsappService {
     let reservoPorChat = false;
     /* Y se cobra por el chat: el QR del médico que hay que mandarle. */
     let pagoDeReserva = null as PagoDeReserva | null;
+    let respuestaInformes = false;
+    let pdfPendiente: Mensaje | null = null;
     try {
       mensaje = await this.prisma.$transaction(async tx => {
         const creado = await tx.mensaje.create({
@@ -238,6 +242,15 @@ export class IngestaWhatsappService {
         });
         if (interaccionOriginal !== undefined && interacciones) {
           const resultado = await guardarRespuesta(tx, creado.id, conversacion.id, telefono, interaccionOriginal);
+          respuestaInformes = resultado.deInformes === true && resultado.estado === 'CORRELACIONADA' && resultado.seleccionId !== 'TALK_TO_HUMAN';
+          if (respuestaInformes && resultado.seleccionId?.startsWith('INFORME_') && informesEnLinea(lineaId)) {
+            pdfPendiente = await tx.mensaje.create({ data: {
+              conversacionId: conversacion.id, direccion: 'SALIENTE', tipo: 'DOCUMENTO', automatico: true,
+              contenido: 'Informe solicitado por el paciente. Documento clínico privado.',
+              mediaKey: `${PREFIJO_INFORME_CHAT}${creado.id}`, mediaNombre: 'informe.pdf', mediaMime: 'application/pdf',
+              clientMessageId: uuidEstable(`informe-paciente:${creado.id}`), estadoEnvio: 'FALLIDO', proximoIntento: new Date(),
+            } });
+          }
           reservoPorChat = resultado.propositoFlow === 'RESERVA_CITA' && resultado.estado === 'CORRELACIONADA';
           if (reservoPorChat && resultado.reservaChat) pagoDeReserva = await registrarReservaDeChat(tx, conversacion.id, resultado.reservaChat);
           const servicioElegido = servicioDeOpcion(resultado.seleccionId);
@@ -268,7 +281,7 @@ export class IngestaWhatsappService {
             /* Lo informativo (horarios, cómo llegar, promociones) se contesta solo
                siempre que ella lo toque en una oferta vigente, aunque ya espere a una
                persona: lo acaba de pedir ella, y su solicitud sigue como estaba. */
-            const resuelveSola = seResuelveSola(accion);
+            const resuelveSola = seResuelveSola(accion) || respuestaInformes;
             /* En la MISMA transacción: si el mensaje queda guardado, su solicitud
                también. Un refresco, una desconexión o un reinicio no la pierden. */
             pedido = motivoDeRespuesta(resultado, resuelveSola);
@@ -370,6 +383,20 @@ export class IngestaWhatsappService {
     // disparar automáticos/opt-out por títulos no confiables de un botón:
     // solo lo que el menú de HOY dice de una opción que estaba en nuestra oferta.
     if (interaccionOriginal !== undefined && interacciones) {
+      if (respuestaInformes) {
+        const pdf = pdfPendiente as Mensaje | null;
+        void enSegundoPlano('informe solicitado', this.logger, async () => {
+          if (pdf) await this.despachador.texto({ mensajeId: pdf.id, conversacionId: conversacion.id, telefono: cliente.telefono }, pdf.contenido,
+            { key: pdf.mediaKey!, mime: 'application/pdf', nombre: 'informe.pdf' });
+          else {
+            try {
+              const seleccion = await this.informes?.seleccion(conversacion.id, cliente.telefono, mensaje.id);
+              if (seleccion?.pagina) await this.ofrecerInformes(conversacion.id, cliente.telefono, mensaje.id, seleccion.pagina);
+              else await this.pedirRevision(conversacion.id, mensaje.id);
+            } catch { await this.pedirRevision(conversacion.id, mensaje.id); }
+          }
+        });
+      }
       const elegida = accion;
       if (elegida && elegida.tipo !== 'EMERGENCIA') {
         void enSegundoPlano('respuesta del menú de atención', this.logger, () =>
@@ -417,6 +444,10 @@ export class IngestaWhatsappService {
     /* El enlace de la landing escribe el código de la promoción (`PRM-…`). */
     const codigo = linea.comercial && !media && !esRespuestaBoton ? codigoEnTexto(contenido) : null;
     void enSegundoPlano('respuestas automáticas', this.logger, async () => {
+      if (!media && !esRespuestaBoton && !pedido && pideSusInformes(contenido) && informesEnLinea(lineaId)) {
+        await this.ofrecerInformes(conversacion.id, cliente.telefono, mensaje.id);
+        return;
+      }
       /* Vino por una promoción: queda atribuida y recibe su tarjeta, que hace de
          menú y de acuse a la vez. */
       const tarjeta = codigo ? await this.atenderCodigo(conversacion.id, cliente.id, cliente.telefono, lineaId, codigo) : false;
@@ -770,6 +801,9 @@ export class IngestaWhatsappService {
       if (!linea?.comercial) { await this.pedirRevision(conversacionId, mensajeId); return; }
     }
     switch (accion.tipo) {
+      case 'INFORMES':
+        await this.ofrecerInformes(conversacionId, telefono, mensajeId);
+        return;
       case 'CITA': {
         /* Si la WABA de la línea tiene publicado el Flow de solicitud de cita, se lo
            abre: especialidad, cuándo y horario llegan al chat ordenados. La
@@ -876,19 +910,46 @@ export class IngestaWhatsappService {
    */
   private async responderTexto(
     conversacionId: string, telefono: string, texto: string,
-    { respetaPausa, noRepetir, asistente = false }: { respetaPausa: boolean; noRepetir: boolean; asistente?: boolean },
+    { respetaPausa, noRepetir, asistente = false, resuelve = false }: { respetaPausa: boolean; noRepetir: boolean; asistente?: boolean; resuelve?: boolean },
   ): Promise<boolean> {
     try {
       const desde = new Date(this.ahora().getTime() - RESPUESTA_REPETIDA_MS);
       const [mensaje] = await this.guardarMensajeAutomatico(conversacionId, [texto], async tx =>
         noRepetir && !!(await tx.mensaje.findFirst({ where: { conversacionId, automatico: true, contenido: texto, createdAt: { gte: desde } }, select: { id: true } })),
-        { respetaPausa, asistente },
+        { respetaPausa, asistente, resuelve },
       ) ?? [];
       if (!mensaje || (respetaPausa && !(await this.sigueSinPausa(conversacionId, [mensaje])))) return false;
       await this.despachador.texto({ mensajeId: mensaje.id, conversacionId, telefono }, texto);
       return true;
     } catch (error) {
       this.logger.error('No se pudo enviar la respuesta del menú de atención', error);
+      return false;
+    }
+  }
+
+  /** El modelo solo puede abrir esta lista: nunca recibe su contenido ni un PDF. */
+  async ofrecerInformes(conversacionId: string, telefono: string, mensajeId?: string, pagina = 1): Promise<boolean> {
+    const chat = await this.prisma.conversacion.findUnique({ where: { id: conversacionId },
+      select: { lineaId: true, cerradaEn: true, automatizacionPausadaEn: true, atencionTomadaEn: true } });
+    if (!chat || !informesEnLinea(chat.lineaId) || chat.cerradaEn || chat.automatizacionPausadaEn || chat.atencionTomadaEn) return false;
+    try {
+      if (!this.informes) return false;
+      const oferta = await this.informes.oferta(conversacionId, telefono, pagina);
+      if (!oferta) return this.responderTexto(conversacionId, telefono,
+        'No hay informes vigentes disponibles para enviar automáticamente. Recepción puede ayudarte a revisar si hay uno pendiente o renovar su acceso.',
+        { respetaPausa: true, noRepetir: true });
+      const filas = await this.guardarMensajeAutomatico(conversacionId, [{ oferta }], async () => false);
+      if (!filas || !(await this.sigueSinPausa(conversacionId, filas))) return false;
+      await this.despachador.interaccion({ mensajeId: filas[0].id, conversacionId, telefono });
+      const enviado = await this.prisma.mensaje.findUnique({ where: { id: filas[0].id }, select: { estadoEnvio: true } });
+      return !!enviado && enviado.estadoEnvio !== 'FALLIDO';
+    } catch {
+      await this.responderTexto(conversacionId, telefono,
+        'Recepción debe revisar tu solicitud de informes. No necesitas enviar documentos personales por aquí.',
+        { respetaPausa: true, noRepetir: true });
+      const origen = mensajeId ?? (await this.prisma.mensaje.findFirst({ where: { conversacionId, direccion: 'ENTRANTE' },
+        orderBy: { createdAt: 'desc' }, select: { id: true } }))?.id;
+      if (origen) await this.pedirRevision(conversacionId, origen);
       return false;
     }
   }
@@ -907,9 +968,14 @@ export class IngestaWhatsappService {
     if (linea?.linea.comercial) await this.responderFueraDeHorario(conversacionId, telefono);
   }
 
-  /** Su respuesta. Respeta la pausa: si ella pidió una persona mientras pensaba, no sale. */
-  responderComoAsistente(conversacionId: string, telefono: string, texto: string): Promise<boolean> {
-    return this.responderTexto(conversacionId, telefono, texto, { respetaPausa: true, noRepetir: false, asistente: true });
+  /**
+   * Su respuesta. Respeta la pausa: si ella pidió una persona mientras pensaba, no sale.
+   * A un MÉDICO autorizado (`medico`) se le contesta aunque haya una solicitud en
+   * curso —la pausa es para pacientes— y lo que recibe de su autoservicio
+   * (`resuelve`) es una respuesta: su chat sale de «Sin responder».
+   */
+  responderComoAsistente(conversacionId: string, telefono: string, texto: string, { medico = false, resuelve = false } = {}): Promise<boolean> {
+    return this.responderTexto(conversacionId, telefono, texto, { respetaPausa: !medico, noRepetir: false, asistente: true, resuelve: medico && resuelve });
   }
 
   /** El aviso al pasarla a una persona: sale aunque esa misma derivación haya pausado el chat. Una vez cada 30 min. */
@@ -917,9 +983,9 @@ export class IngestaWhatsappService {
     await this.responderTexto(conversacionId, telefono, texto, { respetaPausa: false, noRepetir: true, asistente: true });
   }
 
-  /** Pasa la conversación a una persona: la misma solicitud que un botón, con su motivo. */
-  async derivarDesdeAsistente(conversacionId: string, mensajeId: string, motivo: MotivoAtencion): Promise<void> {
-    await this.prisma.$transaction(tx => registrarSolicitudAtencion(tx, conversacionId, motivo, mensajeId, this.ahora()));
+  /** Pasa la conversación a una persona: la misma solicitud que un botón, con su motivo. `pausar: false` solo con un médico. */
+  async derivarDesdeAsistente(conversacionId: string, mensajeId: string, motivo: MotivoAtencion, { pausar = true } = {}): Promise<void> {
+    await this.prisma.$transaction(tx => registrarSolicitudAtencion(tx, conversacionId, motivo, mensajeId, this.ahora(), { pausar }));
     this.gateway.emitirActividad(conversacionId);
   }
 
@@ -935,16 +1001,16 @@ export class IngestaWhatsappService {
   /** Una imagen con su pie (el horario de un médico); sin imagen, el pie solo. */
   async imagenDesdeAsistente(
     conversacionId: string, telefono: string, pie: string, imagen: { key: string; mime: string; nombre: string } | null,
-    { respetaPausa, repetible = false }: { respetaPausa: boolean; repetible?: boolean },
+    { respetaPausa, repetible = false, resuelve = false }: { respetaPausa: boolean; repetible?: boolean; resuelve?: boolean },
   ): Promise<boolean> {
-    if (!imagen) return this.responderTexto(conversacionId, telefono, pie, { respetaPausa, noRepetir: !repetible, asistente: true });
+    if (!imagen) return this.responderTexto(conversacionId, telefono, pie, { respetaPausa, noRepetir: !repetible, asistente: true, resuelve });
     try {
       const desde = new Date(this.ahora().getTime() - RESPUESTA_REPETIDA_MS);
       const media = { key: imagen.key, mime: imagen.mime, nombre: imagen.nombre };
       const [fila] = await this.guardarMensajeAutomatico(conversacionId, [{ texto: pie, media }], async tx =>
         /* `repetible`: lo que ella pide otra vez (la agenda de hoy, a media mañana) se contesta otra vez. */
         !repetible && !!(await tx.mensaje.findFirst({ where: { conversacionId, automatico: true, mediaKey: imagen.key, createdAt: { gte: desde } }, select: { id: true } })),
-        { respetaPausa, asistente: true },
+        { respetaPausa, asistente: true, resuelve },
       ) ?? [];
       if (!fila || (respetaPausa && !(await this.sigueSinPausa(conversacionId, [fila])))) return false;
       await this.despachador.texto({ mensajeId: fila.id, conversacionId, telefono }, pie, media);
@@ -992,7 +1058,7 @@ export class IngestaWhatsappService {
     conversacionId: string,
     contenidos: readonly Automatico[],
     yaHecho: (tx: Prisma.TransactionClient) => Promise<boolean>,
-    { respetaPausa = true, asistente = false } = {},
+    { respetaPausa = true, asistente = false, resuelve = false } = {},
   ): Promise<Mensaje[] | null> {
     const filas = await this.prisma.$transaction(async tx => {
       await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${conversacionId}, ${CANDADO_AUTOMATICOS}))::text`;
@@ -1038,8 +1104,11 @@ export class IngestaWhatsappService {
         /* `true`, no `false`: el acuse NO es una respuesta. Si esto lo pusiera
            en `false`, todo lo que entra un fin de semana saldría de "Sin
            responder" y el lunes nadie sabría quién quedó esperando — el mismo
-           caso que ya cubre `automatico` en `estaSinResponder()`. */
-        data: { updatedAt: new Date(), esperandoRespuesta: true },
+           caso que ya cubre `automatico` en `estaSinResponder()`.
+           La única excepción es `resuelve`: lo que un MÉDICO autorizado pidió y
+           el asistente le sirvió entero (su agenda, un dato de la clínica). A él
+           nadie le debe una respuesta; a una paciente, siempre. */
+        data: resuelve ? { updatedAt: new Date(), esperandoRespuesta: false } : { updatedAt: new Date(), esperandoRespuesta: true },
       });
       return creadas;
     });

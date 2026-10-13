@@ -15,7 +15,7 @@ import type { MensajePreparado, Opcion } from '../../common/whatsapp/interaccion
  */
 
 /** Qué hace cada opción. El orden es el del catálogo en la pantalla. */
-export const TIPOS_OPCION = ['PERSONA', 'EMERGENCIA', 'CITA', 'RESPUESTA', 'UBICACION', 'PROMOCIONES'] as const;
+export const TIPOS_OPCION = ['PERSONA', 'EMERGENCIA', 'CITA', 'RESPUESTA', 'UBICACION', 'PROMOCIONES', 'INFORMES'] as const;
 export type TipoOpcion = (typeof TIPOS_OPCION)[number];
 
 export interface OpcionMenu {
@@ -57,6 +57,7 @@ export const LIMITES = {
 
 /** Lo que pide cada tipo. `respuesta` es el único texto que la clínica escribe por opción. */
 export const REGLAS: Readonly<Record<TipoOpcion, { unica: boolean; respuesta: 'obligatoria' | 'opcional' }>> = {
+  INFORMES: { unica: true, respuesta: 'opcional' },
   /** Pide una persona: prioridad alta. `respuesta` = confirmación que recibe ella. */
   PERSONA: { unica: true, respuesta: 'opcional' },
   /** Dice que es una emergencia: prioridad crítica. `respuesta` = la orientación aprobada por la clínica. */
@@ -82,6 +83,7 @@ export const REGLAS: Readonly<Record<TipoOpcion, { unica: boolean; respuesta: 'o
  * mano no llega correlacionado.
  */
 const ID_FIJO: Readonly<Record<Exclude<TipoOpcion, 'RESPUESTA'>, string>> = {
+  INFORMES: 'VIEW_MY_REPORTS',
   PERSONA: 'TALK_TO_HUMAN',
   EMERGENCIA: 'EMERGENCY',
   CITA: 'BOOK_APPOINTMENT',
@@ -235,6 +237,7 @@ export function mensajeDePromociones(menu: MenuAtencion, promociones: readonly P
 /* ── Qué significa una selección ────────────────────────────────────── */
 
 export type AccionMenu =
+  | { tipo: 'INFORMES' }
   | { tipo: 'PERSONA' | 'CITA'; confirmacion: string | null }
   | { tipo: 'EMERGENCIA'; orientacion: string }
   | { tipo: 'RESPUESTA'; texto: string }
@@ -245,7 +248,7 @@ export type AccionMenu =
 
 /** Las acciones que el menú resuelve solo, sin pedir a una persona. */
 export function seResuelveSola(a: AccionMenu | null): boolean {
-  return a?.tipo === 'RESPUESTA' || a?.tipo === 'UBICACION' || a?.tipo === 'PROMOCIONES' || a?.tipo === 'PROMOCION';
+  return a?.tipo === 'INFORMES' || a?.tipo === 'RESPUESTA' || a?.tipo === 'UBICACION' || a?.tipo === 'PROMOCIONES' || a?.tipo === 'PROMOCION';
 }
 
 /**
@@ -265,6 +268,7 @@ export function accionDeSeleccion(menu: MenuAtencion | null, seleccionId: string
   const o = menu.opciones.find(x => idDeOpcion(x) === seleccionId);
   if (!o) return null;
   switch (o.tipo) {
+    case 'INFORMES': return { tipo: 'INFORMES' };
     case 'PERSONA':
     case 'CITA':
       return { tipo: o.tipo, confirmacion: o.respuesta ?? null };

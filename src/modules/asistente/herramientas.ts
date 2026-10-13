@@ -68,6 +68,7 @@ export interface Herramienta {
   readonly efecto: EfectoHerramienta;
   /** Solo en una línea comercial (promociones, pagos). */
   readonly soloVentas?: true;
+  readonly soloInformes?: true;
   /**
    * Solo con un médico autorizado al otro lado (`ContextoAsistente.medico`). A
    * una paciente nunca se le ofrece la de agenda; a un médico, además de la
@@ -147,6 +148,7 @@ export interface PuertoMedico {
  * modelo sería darle la posibilidad de reservar a nombre de otro número.
  */
 export interface ContextoAsistente {
+  readonly informes?: boolean;
   readonly telefono: string;
   /** `null` en una línea que no es comercial: no hay promociones ni pagos. */
   readonly ventas: PuertoVentas | null;
@@ -161,6 +163,7 @@ export type MotivoDerivacion = (typeof MOTIVOS_DERIVACION)[number];
 
 /** Una acción que el turno propone (SUGERIR) o hace al terminar (RESPONDER). */
 export type AccionAsistente =
+  | { readonly tipo: 'INFORMES' }
   | { readonly tipo: 'PROMOCION'; readonly promocionId: string; readonly titulo: string; readonly servicioId?: string }
   | { readonly tipo: 'HORARIO'; readonly medicoId: number; readonly nombre: string; readonly horario: string | null }
   | { readonly tipo: 'DERIVAR'; readonly motivo: MotivoDerivacion; readonly resumen: string }
@@ -205,6 +208,11 @@ const ENVIO_PROMOCION: EsquemaHerramienta = {
 };
 
 export const HERRAMIENTAS: readonly Herramienta[] = [
+  {
+    nombre: 'abrir_mis_informes',
+    descripcion: 'Abre la lista privada de informes de quien escribe. Solo para pedir ver, descargar o recibir sus documentos, nunca para interpretarlos. No recibe PAC, CI, teléfono ni identificadores. El sistema verifica la ficha y la persona elige el PDF. No afirmes que hay informes ni que ya se enviaron.',
+    parametros: SIN_PARAMETROS, efecto: 'mensaje', soloInformes: true,
+  },
   /* ── Ventas ── */
   {
     nombre: 'listar_promociones',
@@ -361,7 +369,7 @@ export const HERRAMIENTAS: readonly Herramienta[] = [
     nombre: 'pasar_a_persona',
     descripcion:
       'Pasa la conversación a una persona del equipo. Úsala SIEMPRE que pregunte algo médico (síntomas, ' +
-      'diagnósticos, tratamientos, medicamentos, resultados, cuidados después de un procedimiento), si se queja, ' +
+      'diagnósticos, tratamientos, medicamentos, interpretación de resultados, cuidados después de un procedimiento), si se queja, ' +
       'si pide hablar con alguien, si algo de un pago no cuadra, o si no estás segura de la respuesta. ' +
       'Ante la duda, pásala: es lo correcto.',
     parametros: {
@@ -382,6 +390,7 @@ export function herramientasDisponibles(contexto: ContextoAsistente, { permitirE
   return HERRAMIENTAS.filter(h =>
     (h.efecto !== 'escritura' || permitirEscritura)
     && (!h.soloVentas || contexto.ventas !== null)
+    && (!h.soloInformes || contexto.informes === true)
     /* Con un médico al otro lado: su agenda, lo informativo de la clínica y la salida a una persona. */
     && (medico ? h.soloMedico === true || h.informativa === true || h.efecto === 'derivar' : !h.soloMedico));
 }
@@ -447,6 +456,7 @@ export class HerramientasAsistenteService {
   ): Promise<ResultadoHerramienta> {
     const h = HERRAMIENTAS.find(x => x.nombre === nombre);
     if (!h) return { ok: false, motivo: `No existe la herramienta «${nombre}».` };
+    if (h.soloInformes && !contexto.informes) return { ok: false, motivo: 'Autoconsulta no habilitada en esta línea.' };
     if (h.efecto === 'escritura' && !opciones.permitirEscritura) {
       return { ok: false, motivo: `«${nombre}» cambia datos y está desactivada: pásale la conversación a una persona.` };
     }
@@ -462,6 +472,7 @@ export class HerramientasAsistenteService {
     const a = v.valores;
 
     switch (h.nombre) {
+      case 'abrir_mis_informes': return { ok: true, datos: 'El sistema abrirá la consulta privada; no tienes acceso a su contenido.', accion: { tipo: 'INFORMES' } };
       case 'listar_promociones': {
         const lista = await ventas!.promociones();
         return {

@@ -228,6 +228,10 @@ Diseño en [asistente-ia](../../../docs/asistente-ia.md). Lo que no se puede olv
   herramienta**. Al modelo vuelven cantidades, no nombres de pacientes; la imagen y el texto los arma el
   código (`agenda-medico-imagen.ts`) y el texto del modelo se descarta. Solo en «Responder solo». Una
   herramienta nueva para médicos lleva `soloMedico` y se prueba con la paciente (no debe verla).
+  **Un médico no se pausa** (`registrarSolicitudAtencion(…, { pausar: false })`, y el turno no mira la
+  pausa con él) y **lo que le sirve el asistente lo saca de «Sin responder»** (`resuelve`, solo en
+  `guardarMensajeAutomatico`): la pausa y «Sin responder» existen para PACIENTES; no extiendas
+  ninguna de las dos excepciones a una paciente.
 - **Una nota de voz es un texto más** (`EscuchaAudiosService`, 12/10): se transcribe una vez,
   se guarda en `Mensaje.transcripcion` y entra por el MISMO filtro y las mismas herramientas.
   Si no se entiende, texto fijo; nunca se adivina. Todo lo que decida NO contestar (un médico en

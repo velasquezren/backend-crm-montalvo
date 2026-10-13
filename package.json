@@ -25,6 +25,7 @@
     "test:integracion": "jest --runInBand --testPathIgnorePatterns '/node_modules/' --testPathPattern '\\.integracion\\.spec\\.ts$'",
     "test:agenda-mysql": "bash scripts/probar-agenda-mysql.sh",
     "asistente:probar": "node --env-file-if-exists=.env scripts/probar-asistente.mjs",
+    "asistente:caminos": "node --env-file-if-exists=.env scripts/probar-caminos.mjs",
     "postinstall": "prisma generate"
   },
   "dependencies": {

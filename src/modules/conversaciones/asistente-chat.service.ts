@@ -25,6 +25,7 @@ import { obtenerConversacionPropia } from './envio-comun';
 import { EscuchaAudiosService } from './escucha-audios.service';
 import { IngestaWhatsappService } from './ingesta-whatsapp.service';
 import { interaccionesEnLinea } from './interacciones-integracion';
+import { informesEnLinea } from '../resultados/informes-chat.service';
 import { pagoDelChat } from './pagos-chat';
 import { PromocionesChatService } from './promociones-chat.service';
 import type { PromocionChat } from '../promociones/promociones.service';
@@ -68,8 +69,13 @@ export interface ProgramadorAsistente {
 /** Lo que se le dice a la paciente cuando el asistente la pasa a una persona. No lo escribe el modelo. */
 export const TEXTO_DERIVACION = 'Gracias por escribirnos. Le paso tu consulta a una persona del equipo, que te responderá por aquí.';
 
-/** Cuánto se espera a que termine de escribir. Cada mensaje nuevo reinicia la espera… */
-const ESPERA_POR_DEFECTO_MS = 6_000;
+/**
+ * Cuánto se espera a que termine de escribir. Cada mensaje nuevo reinicia la espera…
+ * 3 s (antes 6, 12/10): la ráfaga típica entra en ese tiempo, y si llega otro mensaje
+ * mientras piensa, `llegoAlgoDespues` descarta la respuesta y el turno siguiente
+ * contesta todo junto. Más corto no cambia QUÉ contesta, solo cuándo.
+ */
+const ESPERA_POR_DEFECTO_MS = 3_000;
 /** …pero nunca más que esto desde el primero. */
 const ESPERA_MAXIMA_MS = 20_000;
 /** Turnos simultáneos en todo el servidor: comparte máquina y pool con las agentes. */
@@ -84,14 +90,17 @@ const VENTANA_MS = 24 * 3_600_000;
 
 const SELECT_MENSAJE = {
   id: true, direccion: true, tipo: true, contenido: true, mediaNombre: true, transcripcion: true, automatico: true, createdAt: true,
+  interaccion: { select: { vista: true } },
 } satisfies Prisma.MensajeSelect;
-type MensajeDeContexto = Pick<Mensaje, keyof typeof SELECT_MENSAJE>;
+type MensajeDeContexto = Pick<Mensaje, Exclude<keyof typeof SELECT_MENSAJE, 'interaccion'>> & { interaccion?: { vista: Prisma.JsonValue } | null };
 
 /**
  * Un mensaje como lo ve el modelo. Lo que no puede ver, lo dice. Una nota de voz
  * de la ráfaga que se contesta llega transcrita (`escuchados`); las anteriores, no.
  */
 export function aTurno(m: MensajeDeContexto, escuchados?: ReadonlyMap<string, string | null>): TurnoModelo | null {
+  const vista = m.interaccion?.vista;
+  if (vista && typeof vista === 'object' && !Array.isArray(vista) && vista['proposito'] === 'INFORMES') return null;
   const pie = m.contenido.trim().slice(0, 1000);
   const oido = m.tipo === 'AUDIO' ? escuchados?.get(m.id) : undefined;
   const texto = m.tipo === 'TEXTO' ? pie
@@ -243,7 +252,11 @@ export class AsistenteChatService implements ProgramadorAsistente, OnModuleInit,
     }
     const personas = mensajes.filter(m => m.direccion === 'SALIENTE' && !m.automatico);
     if (personas.some(m => m.createdAt > ultimoEntrante.createdAt)) return registrar({ resultado: 'OMITIDO', motivo: 'Una persona ya contestó.' });
-    if (responde && conversacion.automatizacionPausadaEn) return registrar({ resultado: 'OMITIDO', motivo: 'La automatización está pausada: espera a una persona.' });
+    /* ¿Quien escribe es un médico con el número autorizado? Es otra conversación, con otras reglas. */
+    const medico = await this.accesoMedicos.porTelefono(e.telefono);
+    /* La pausa protege a una PACIENTE que pidió una persona; a un médico solo lo dejaría
+       sin su agenda. Lo que sí vale para los dos: si una persona está escribiendo, no se interrumpe. */
+    if (responde && !medico && conversacion.automatizacionPausadaEn) return registrar({ resultado: 'OMITIDO', motivo: 'La automatización está pausada: espera a una persona.' });
     if (responde && personas.some(m => m.createdAt.getTime() > inicio - PERSONA_ATENDIENDO_MS)) {
       return registrar({ resultado: 'OMITIDO', motivo: 'Una persona está atendiendo este chat.' });
     }
@@ -255,9 +268,7 @@ export class AsistenteChatService implements ProgramadorAsistente, OnModuleInit,
       return registrar({ resultado: 'OMITIDO', motivo: `Más de ${TURNOS_POR_HORA} turnos en una hora.` });
     }
 
-    /* ¿Quien escribe es un médico con el número autorizado? Es otra conversación, con otras reglas.
-       Se mira ANTES de escuchar: lo que no se va a contestar no se manda a transcribir. */
-    const medico = await this.accesoMedicos.porTelefono(e.telefono);
+    /* Un médico en «Sugerir» se omite ANTES de escuchar: lo que no se va a contestar no se manda a transcribir. */
     if (medico && !responde) {
       return registrar({ resultado: 'OMITIDO', motivo: 'Es un médico autorizado: su agenda solo se contesta en «Responder solo».' });
     }
@@ -265,7 +276,7 @@ export class AsistenteChatService implements ProgramadorAsistente, OnModuleInit,
     /* Las notas de voz de la ráfaga, a texto. Desde aquí son mensajes como cualquier otro. */
     const escucha = await this.escuchas.escuchar(mensajes);
     if (ultimoEntrante.tipo === 'AUDIO' && !escucha.transcripciones.get(ultimoEntrante.id)) {
-      return this.audioNoEntendido(e, ultimoEntrante, responde, registrar, escucha.uso);
+      return this.audioNoEntendido(e, ultimoEntrante, responde, !!medico, registrar, escucha.uso);
     }
     const historial = mensajes.map(m => aTurno(m, escucha.transcripciones)).filter((t): t is TurnoModelo => t !== null);
     if (medico) return this.atenderMedico(e, medico, historial, ultimoEntrante, inicio, registrar, escucha.uso);
@@ -298,7 +309,7 @@ export class AsistenteChatService implements ProgramadorAsistente, OnModuleInit,
         ventas: e.asistente.comercial,
         conocimiento: e.asistente.conocimiento,
       }),
-      contexto: { telefono: e.telefono, ventas: e.asistente.comercial ? this.puertoVentas(e) : null },
+      contexto: { telefono: e.telefono, ventas: e.asistente.comercial ? this.puertoVentas(e) : null, informes: informesEnLinea(e.lineaId) },
       historial,
       permitirEscritura: false,
     });
@@ -310,7 +321,8 @@ export class AsistenteChatService implements ProgramadorAsistente, OnModuleInit,
 
     const derivacion = salida.acciones.find(a => a.tipo === 'DERIVAR');
     const envios = salida.acciones.filter(a => a.tipo !== 'DERIVAR');
-    const texto = salida.texto ? paraWhatsapp(salida.texto) : '';
+    // La gestión de informes usa exclusivamente el texto determinista de la lista.
+    const texto = envios.some(a => a.tipo === 'INFORMES') ? '' : salida.texto ? paraWhatsapp(salida.texto) : '';
 
     if (!responde) {
       /* Lo médico no se sugiere ni redactado: la agente lo escribe ella. */
@@ -379,7 +391,7 @@ export class AsistenteChatService implements ProgramadorAsistente, OnModuleInit,
     const base = { categoria: 'MEDICO_AGENDA', traza: salida.traza, tokensExtra };
     if (salida.tipo === 'sin-respuesta') {
       /* Con un médico no vale el acuse de siempre: una persona lo atiende. */
-      await this.derivar(e, 'DERIVADA_ASISTENTE');
+      await this.derivar(e, 'DERIVADA_ASISTENTE', { medico: true });
       return registrar({ resultado: 'FALLO', motivo: salida.motivo, ...base });
     }
     if (await this.llegoAlgoDespues(e.conversacionId, ultimoEntrante)) {
@@ -387,7 +399,7 @@ export class AsistenteChatService implements ProgramadorAsistente, OnModuleInit,
     }
     const derivacion = salida.acciones.find(a => a.tipo === 'DERIVAR');
     if (derivacion?.tipo === 'DERIVAR') {
-      await this.derivar(e, derivacion.motivo === 'URGENCIA' ? 'POSIBLE_URGENCIA' : 'DERIVADA_ASISTENTE');
+      await this.derivar(e, derivacion.motivo === 'URGENCIA' ? 'POSIBLE_URGENCIA' : 'DERIVADA_ASISTENTE', { medico: true });
       return registrar({ resultado: 'DERIVO', motivo: derivacion.resumen, ...base });
     }
     const agendas = salida.acciones.filter((a): a is Extract<AccionAsistente, { tipo: 'AGENDA_MEDICO' }> => a.tipo === 'AGENDA_MEDICO');
@@ -407,13 +419,13 @@ export class AsistenteChatService implements ProgramadorAsistente, OnModuleInit,
     const consultoLaClinica = salida.traza.herramientas.some(h => h.ok && HERRAMIENTAS.some(x => x.nombre === h.nombre && x.informativa));
     const inventa = AsistenteChatService.AFIRMA_CITAS.test(texto) || (!consultoLaClinica && AsistenteChatService.AFIRMA_HORAS.test(texto));
     if (!texto || inventa) {
-      await this.derivar(e, 'DERIVADA_ASISTENTE');
+      await this.derivar(e, 'DERIVADA_ASISTENTE', { medico: true });
       return registrar({ resultado: 'DERIVO', motivo: texto ? 'El modelo habló de la agenda sin consultarla.' : 'Sin respuesta utilizable.', ...base });
     }
     const presentado = await this.prisma.mensaje.findFirst({
       where: { conversacionId: e.conversacionId, asistente: true, createdAt: { gte: new Date(inicio - VENTANA_MS) } }, select: { id: true },
     });
-    if (!(await this.ingesta.responderComoAsistente(e.conversacionId, e.telefono, conPresentacion(texto, this.presentarse(!!presentado))))) {
+    if (!(await this.ingesta.responderComoAsistente(e.conversacionId, e.telefono, conPresentacion(texto, this.presentarse(!!presentado)), { medico: true, resuelve: true }))) {
       return registrar({ resultado: 'OMITIDO', motivo: 'Se pausó la automatización mientras pensaba.', ...base });
     }
     return registrar({ resultado: 'RESPONDIO', ...base });
@@ -424,7 +436,11 @@ export class AsistenteChatService implements ProgramadorAsistente, OnModuleInit,
     return { nombre: medico.nombre, agendaDelDia: fecha => this.citasMedico.delDia(medico.agendaMedicoId, fecha) };
   }
 
-  /** Imagen con el resumen de pie si es una lista; texto si solo pidió cantidades o si la imagen no se pudo. */
+  /**
+   * Imagen con el resumen de pie si es una lista; texto si solo pidió cantidades o si la imagen no se pudo.
+   * Sale aunque haya una solicitud en curso (la pausa es para pacientes) y deja su chat
+   * fuera de «Sin responder»: su autoservicio quedó servido.
+   */
   private async enviarAgendaMedico(e: EntranteParaAsistente, a: Extract<AccionAsistente, { tipo: 'AGENDA_MEDICO' }>, primero: boolean): Promise<boolean> {
     const { medico, agenda, detalle } = a;
     const presentar = async (texto: string) => {
@@ -436,10 +452,12 @@ export class AsistenteChatService implements ProgramadorAsistente, OnModuleInit,
     };
     if (detalle === 'LISTA' && agenda.total > 0) {
       const imagen = await this.imagenesAgenda.de(medico, agenda);
-      if (imagen) return this.ingesta.imagenDesdeAsistente(e.conversacionId, e.telefono, await presentar(pieDeLaImagen(medico, agenda)), imagen, { respetaPausa: true, repetible: true });
-      return this.ingesta.responderComoAsistente(e.conversacionId, e.telefono, await presentar(textoListado(medico, agenda)));
+      if (imagen) {
+        return this.ingesta.imagenDesdeAsistente(e.conversacionId, e.telefono, await presentar(pieDeLaImagen(medico, agenda)), imagen, { respetaPausa: false, repetible: true, resuelve: true });
+      }
+      return this.ingesta.responderComoAsistente(e.conversacionId, e.telefono, await presentar(textoListado(medico, agenda)), { medico: true, resuelve: true });
     }
-    return this.ingesta.responderComoAsistente(e.conversacionId, e.telefono, await presentar(textoResumen(medico, agenda)));
+    return this.ingesta.responderComoAsistente(e.conversacionId, e.telefono, await presentar(textoResumen(medico, agenda)), { medico: true, resuelve: true });
   }
 
   /**
@@ -449,7 +467,7 @@ export class AsistenteChatService implements ProgramadorAsistente, OnModuleInit,
    * la agente ve el aviso y la escucha ella.
    */
   private async audioNoEntendido(
-    e: EntranteParaAsistente, ultimo: MensajeDeContexto, responde: boolean,
+    e: EntranteParaAsistente, ultimo: MensajeDeContexto, responde: boolean, medico: boolean,
     registrar: (r: Registro) => Promise<ResultadoTurnoAsistente>, tokensExtra: UsoModelo,
   ): Promise<ResultadoTurnoAsistente> {
     const motivo = 'No se pudo escuchar la nota de voz.';
@@ -460,7 +478,7 @@ export class AsistenteChatService implements ProgramadorAsistente, OnModuleInit,
     if (await this.llegoAlgoDespues(e.conversacionId, ultimo)) {
       return registrar({ resultado: 'OMITIDO', motivo: `${motivo} Llegó otro mensaje: lo contesta el turno siguiente.`, tokensExtra });
     }
-    const enviado = await this.ingesta.responderComoAsistente(e.conversacionId, e.telefono, TEXTO_AUDIO_NO_ENTENDIDO);
+    const enviado = await this.ingesta.responderComoAsistente(e.conversacionId, e.telefono, TEXTO_AUDIO_NO_ENTENDIDO, { medico });
     return registrar({ resultado: enviado ? 'RESPONDIO' : 'OMITIDO', motivo: `${motivo} Se le pidió que lo escriba.`, tokensExtra });
   }
 
@@ -475,9 +493,13 @@ export class AsistenteChatService implements ProgramadorAsistente, OnModuleInit,
     }));
   }
 
-  /** La pasa a una persona: la solicitud en «Atención» y un aviso a la paciente que no inventa nada. */
-  private async derivar(e: EntranteParaAsistente, motivo: Extract<MotivoAtencion, 'POSIBLE_URGENCIA' | 'DERIVADA_ASISTENTE'>): Promise<void> {
-    await this.ingesta.derivarDesdeAsistente(e.conversacionId, e.mensajeId, motivo);
+  /**
+   * La pasa a una persona: la solicitud en «Atención» y un aviso que no inventa nada.
+   * Con un médico (`medico`), la solicitud queda pero lo automático NO se pausa: su
+   * próxima pregunta por la agenda se sigue contestando.
+   */
+  private async derivar(e: EntranteParaAsistente, motivo: Extract<MotivoAtencion, 'POSIBLE_URGENCIA' | 'DERIVADA_ASISTENTE'>, { medico = false } = {}): Promise<void> {
+    await this.ingesta.derivarDesdeAsistente(e.conversacionId, e.mensajeId, motivo, { pausar: !medico });
     /* Ante una posible urgencia, la orientación que aprobó la clínica, si la escribió. */
     const orientacion = motivo === 'POSIBLE_URGENCIA' ? orientacionDeEmergencia(await this.menus.activoDe(e.lineaId)) : null;
     await this.ingesta.avisoDelAsistente(e.conversacionId, e.telefono, orientacion ?? TEXTO_DERIVACION);
@@ -486,6 +508,7 @@ export class AsistenteChatService implements ProgramadorAsistente, OnModuleInit,
   /** Lo que el turno mandó hacer (RESPONDER) o lo que una agente aprobó de una sugerencia. */
   private async ejecutar(conversacionId: string, telefono: string, lineaId: string, accion: AccionAsistente | AccionSugerida, { respetaPausa }: { respetaPausa: boolean }): Promise<boolean> {
     try {
+      if (accion.tipo === 'INFORMES') return await this.ingesta.ofrecerInformes(conversacionId, telefono);
       if (accion.tipo === 'PROMOCION' && accion.promocionId) {
         return await this.ingesta.tarjetaDesdeAsistente(conversacionId, telefono, lineaId, accion.promocionId, { respetaPausa, servicioId: accion.servicioId });
       }

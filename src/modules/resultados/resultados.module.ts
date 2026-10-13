@@ -3,7 +3,7 @@ import { Module } from '@nestjs/common';
 import { ClientesModule } from '../clientes/clientes.module';
 import { ConversacionesModule } from '../conversaciones/conversaciones.module';
 import { LineasWhatsappModule } from '../lineas-whatsapp/lineas-whatsapp.module';
-import { PortalResultadosClient } from './portal-resultados.client';
+import { PortalResultadosModule } from './portal-resultados.module';
 import { ResultadosController } from './resultados.controller';
 import { ResultadosService } from './resultados.service';
 
@@ -17,8 +17,8 @@ import { ResultadosService } from './resultados.service';
  * `AvisoResultado`, que es suyo.
  */
 @Module({
-  imports: [ClientesModule, ConversacionesModule, LineasWhatsappModule],
+  imports: [ClientesModule, ConversacionesModule, LineasWhatsappModule, PortalResultadosModule],
   controllers: [ResultadosController],
-  providers: [PortalResultadosClient, ResultadosService],
+  providers: [ResultadosService],
 })
 export class ResultadosModule {}

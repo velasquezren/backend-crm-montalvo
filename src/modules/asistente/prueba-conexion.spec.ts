@@ -1,5 +1,8 @@
-import { ClasificadorMensajes, DatosComprobante, LectorComprobantes, ModeloConversacional, RespuestaModelo } from './modelo.port';
-import { explicarErrorIA, probarProveedor, ProveedorAProbar } from './prueba-conexion';
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
+
+import { ClasificadorMensajes, DatosComprobante, LectorComprobantes, ModeloConversacional, RespuestaModelo, TranscriptorAudio } from './modelo.port';
+import { explicarErrorIA, probarProveedor, ProveedorAProbar, RUTA_AUDIO_DE_PRUEBA } from './prueba-conexion';
 
 const USO = { tokensEntrada: 1, tokensSalida: 1 };
 const LISTO = { encendido: true, proyecto: true, claveApi: false, credenciales: 'ARCHIVO' as const, ubicacion: 'global', modelo: 'gemini-3.5-flash', modeloClasificador: 'gemini-3.5-flash-lite', listo: true };
@@ -14,6 +17,8 @@ function proveedor(guion: (RespuestaModelo | Error)[], p: Partial<ProveedorAProb
     clasificador: { nombre: 'lite', clasificar: jest.fn(async () => ({ categoria: 'VENTAS', confianza: 'ALTA', uso: USO })) } as unknown as ClasificadorMensajes,
     lector: { nombre: 'gemini-3.5-flash', leer: jest.fn(async () => ({ datos: COMPROBANTE, uso: USO })) } as unknown as LectorComprobantes,
     dibujar: async () => new Uint8Array([1]),
+    transcriptor: { nombre: 'gemini-3.5-flash', transcribir: jest.fn(async () => ({ texto: 'Hola, buenas tardes. Quería saber cuánto cuesta el Control Prenatal.', uso: USO })) } as unknown as TranscriptorAudio,
+    audioDePrueba: async () => new Uint8Array([0x4f, 0x67, 0x67, 0x53]),
     vistas,
     ...p,
   };
@@ -28,11 +33,12 @@ describe('probar la conexión con Google', () => {
     expect(p.modelo.responder).not.toHaveBeenCalled();
   });
 
-  it('pasa los cuatro pasos, y la segunda vuelta lleva la firma del razonamiento intacta', async () => {
+  it('pasa los cinco pasos, y la segunda vuelta lleva la firma del razonamiento intacta', async () => {
     const p = proveedor([pideHora, { tipo: 'texto', texto: 'Son las 15:40.', uso: USO }]);
     const r = await probarProveedor(p);
     expect(r.ok).toBe(true);
-    expect(r.pasos.map(x => x.paso)).toEqual(['CONFIGURACION', 'FILTRO', 'CONVERSACION', 'COMPROBANTE']);
+    expect(r.pasos.map(x => x.paso)).toEqual(['CONFIGURACION', 'FILTRO', 'CONVERSACION', 'COMPROBANTE', 'AUDIO']);
+    expect(p.transcriptor.transcribir).toHaveBeenCalledWith({ bytes: new Uint8Array([0x4f, 0x67, 0x67, 0x53]), mime: 'audio/ogg; codecs=opus' });
     expect(JSON.stringify(p.vistas[1])).toContain('FIRMA');
   });
 
@@ -49,6 +55,23 @@ describe('probar la conexión con Google', () => {
       lector: { nombre: 'x', leer: jest.fn(async () => ({ datos: { ...COMPROBANTE, monto: 28.05 }, uso: USO })) } as unknown as LectorComprobantes,
     });
     expect((await probarProveedor(p)).pasos.at(-1)).toMatchObject({ paso: 'COMPROBANTE', ok: false });
+  });
+
+  it('una nota de voz que no se entiende, o se entiende otra cosa, es un fallo', async () => {
+    for (const texto of [null, 'Hola, quería una cita']) {
+      const p = proveedor([pideHora, { tipo: 'texto', texto: 'ok', uso: USO }], {
+        transcriptor: { nombre: 'x', transcribir: jest.fn(async () => ({ texto, uso: USO })) } as unknown as TranscriptorAudio,
+      });
+      const r = await probarProveedor(p);
+      expect(r.ok).toBe(false);
+      expect(r.pasos.at(-1)).toMatchObject({ paso: 'AUDIO', ok: false });
+    }
+  });
+
+  it('la nota de voz de prueba existe y es un OGG (la lee el servidor desde assets/)', async () => {
+    const bytes = await readFile(join(process.cwd(), ...RUTA_AUDIO_DE_PRUEBA));
+    expect(bytes.subarray(0, 4).toString('latin1')).toBe('OggS');
+    expect(bytes.byteLength).toBeLessThan(100_000);
   });
 });
 

@@ -2,6 +2,34 @@
 
 > **Revisión del 10/10/2026, módulo por módulo (sin Comisiones ni Finanzas):** [REVISION_2026-10-10.md](REVISION_2026-10-10.md). La API está sana; la lista de mejoras por impacto está ahí.
 
+## 13 de octubre de 2026 · Mis informes por WhatsApp · LOCAL, APAGADO, SIN DESPLEGAR
+
+Menú o petición textual → lista del paciente → elección explícita → PDF original.
+La IA existente solo puede abrir esa lista; no recibe su contenido. Alcance por
+PAC exacto y teléfono de la conversación, oferta cifrada de 15 minutos, misma
+ingesta y despachador, sin duplicar PDFs en R2 ni crear tablas. API privada nueva
+en Resultados, también apagada. Las garantías y las limitaciones de teléfonos
+compartidos están en [informes-por-whatsapp](informes-por-whatsapp.md).
+No se modificaron servidores, números, webhooks ni menús guardados.
+Validación local: CRM 1.165 unitarias + 18 de integración; Angular 765;
+Resultados 22 unitarias + 54 de integración. Builds y tipos aprobados.
+
+## 13 de octubre de 2026 · el médico sin pausa y fuera de «Sin responder», espera de 3 s, caminos contra Gemini · EN EL REPO, SIN DESPLEGAR
+
+- **Médico** ([asistente-ia](asistente-ia.md#agenda-del-médico-por-whatsapp-10102026)): derivarlo deja la
+  solicitud en «Atención» pero **no pausa**; una pausa previa no lo calla; lo que el asistente le sirve
+  lo saca de «Sin responder»; la bandeja y el chat lo rotulan **«Médico»** (`medicos-en-chat.ts`).
+- **Espera antes de contestar: 3 s** (antes 6). No cambia qué contesta; si llega otro mensaje mientras
+  piensa, se descarta y contesta todo junto en el turno siguiente.
+- **«Probar conexión» tiene un quinto paso, «Nota de voz»** (`assets/asistente/nota-de-voz-de-prueba.ogg`,
+  voz sintética).
+- **`npm run asistente:caminos`**: unos veinte casos de paciente y de médico contra Gemini real. Primera
+  corrida (13/10): los cinco de derivación (médico, urgencia, queja, persona, triaje) y el saludo y el
+  precio, bien; el resto quedó sin juzgar porque **la clave gratuita da 20 llamadas por día** y se agotó.
+- La prueba de MySQL que fallaba los sábados («la ficha web nace oculta…») ya no depende del día.
+- Pendiente de René: Vertex (o API de pago) — con la clave gratuita la línea de prueba se queda sin cuota
+  tras ~7 mensajes al día — y correr `asistente:caminos` completo con él.
+
 ## 12 de octubre de 2026 (noche, 6) · notas de voz, y la integración con lo de la otra máquina · EN EL REPO, SIN DESPLEGAR
 
 - **Notas de voz** ([asistente-ia](asistente-ia.md#notas-de-voz-12102026)): en una línea con asistente,

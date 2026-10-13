@@ -1,4 +1,5 @@
 import { AgendaModule } from '../agenda/agenda.module';
+import { PortalResultadosModule } from '../resultados/portal-resultados.module';
 import { AsistenteModule } from '../asistente/asistente.module';
 import { AsistenteChatController } from './asistente-chat.controller';
 import { EscuchaAudiosService } from './escucha-audios.service';
@@ -38,7 +39,7 @@ import { ReintentoSalienteService } from './reintento-saliente.service';
 import { WhatsappWebhookController } from './webhooks/whatsapp-webhook.controller';
 
 @Module({
-  imports: [AgendaModule, AsistenteModule, LeadsModule, MemoriaAgenteModule, LineasWhatsappModule, MenuAtencionModule, CobrosModule, PromocionesModule, VentasModule, ClientesModule, StorageModule, PushModule, AuthModule],
+  imports: [PortalResultadosModule, AgendaModule, AsistenteModule, LeadsModule, MemoriaAgenteModule, LineasWhatsappModule, MenuAtencionModule, CobrosModule, PromocionesModule, VentasModule, ClientesModule, StorageModule, PushModule, AuthModule],
   controllers: [ConversacionesController, AsistenteChatController, WhatsappWebhookController, CabecerasPlantillaController],
   providers: [
     ConversacionesService,

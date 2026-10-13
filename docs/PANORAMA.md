@@ -31,6 +31,11 @@ Los dos primeros comparten servidor y Postgres (bases separadas) y se hablan
 **por loopback** con una credencial de solo lectura y renovación de enlaces.
 **El CRM es el único que envía WhatsApp**, también los avisos de resultados.
 
+**Preparación local, apagada (13/10):** «Mis informes» permite autoconsulta por
+WhatsApp usando la API privada de Resultados. La IA solo abre la lista; paciente,
+publicación y archivo se verifican fuera del modelo. No crea otra fuente clínica
+ni copia PDFs a R2 del CRM. Ver [alcance y activación](informes-por-whatsapp.md).
+
 ## Backend del CRM — módulos (`src/modules/`)
 
 | Módulo | Qué hace | Quién entra |

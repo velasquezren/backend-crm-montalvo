@@ -1,11 +1,13 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
 
 import { CacheMemoria } from '../../common/cache/cache-memoria';
 import { ModoAsistente, ResultadoTurnoAsistente } from '../../prisma/prisma-client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ImagenHorarioService } from './imagen-horario.service';
-import { ClasificadorMensajes, LectorComprobantes, ModeloConversacional } from './modelo.port';
-import { probarProveedor, ResultadoPrueba } from './prueba-conexion';
+import { ClasificadorMensajes, LectorComprobantes, ModeloConversacional, TranscriptorAudio } from './modelo.port';
+import { probarProveedor, ResultadoPrueba, RUTA_AUDIO_DE_PRUEBA } from './prueba-conexion';
 import { ConfiguracionIA, EstadoProveedorIA } from './vertex/proveedor-vertex';
 
 export const MODOS_ASISTENTE: readonly ModoAsistente[] = ['APAGADO', 'SUGERIR', 'RESPONDER'];
@@ -55,6 +57,7 @@ export class AsistenteLineasService {
     private readonly clasificador: ClasificadorMensajes,
     private readonly lector: LectorComprobantes,
     private readonly imagenes: ImagenHorarioService,
+    private readonly transcriptor: TranscriptorAudio,
   ) {}
 
   estadoProveedor(): EstadoProveedorIA {
@@ -66,6 +69,8 @@ export class AsistenteLineasService {
     return probarProveedor({
       estado: this.ia.estado(), modelo: this.modelo, clasificador: this.clasificador, lector: this.lector,
       dibujar: svg => this.imagenes.dibujar(svg),
+      transcriptor: this.transcriptor,
+      audioDePrueba: async () => new Uint8Array(await readFile(join(process.cwd(), ...RUTA_AUDIO_DE_PRUEBA))),
     });
   }
 

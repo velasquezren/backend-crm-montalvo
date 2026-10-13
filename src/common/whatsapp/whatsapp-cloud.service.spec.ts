@@ -161,3 +161,24 @@ describe('WhatsappCloudService', () => {
     });
   });
 });
+
+describe('PDF privado solicitado', () => {
+  it('sube multipart y devuelve media ID, sin URL pública ni nombre del paciente', async () => {
+    const f = jest.spyOn(global, 'fetch').mockReset().mockResolvedValue(new Response(JSON.stringify({ id: '123456' }), { status: 200 }));
+    expect(await servicio().subirPdf(Buffer.from('%PDF-sintetico'), CUENTA)).toBe('123456');
+    const [url, opciones] = f.mock.calls[0];
+    expect(url).toBe('https://graph.facebook.com/v25.0/123/media');
+    const form = opciones!.body as FormData;
+    expect(form.get('messaging_product')).toBe('whatsapp'); expect(form.get('type')).toBe('application/pdf');
+    expect((form.get('file') as File).name).toBe('informe.pdf');
+    expect(opciones!.redirect).toBe('error');
+  });
+  it('archivo inválido o demasiado grande no sale; error de Meta no revela su respuesta', async () => {
+    const f = jest.spyOn(global, 'fetch').mockReset().mockResolvedValue(new Response('error sintético', { status: 500 }));
+    expect(await servicio().subirPdf(Buffer.from('no pdf'), CUENTA)).toBeNull();
+    expect(await servicio().subirPdf(Buffer.alloc(10 * 1024 * 1024 + 1), CUENTA)).toBeNull();
+    expect(f).not.toHaveBeenCalled();
+    expect(await servicio().subirPdf(Buffer.from('%PDF-sintetico'), CUENTA)).toBeNull();
+    expect(f).toHaveBeenCalledTimes(1);
+  });
+});

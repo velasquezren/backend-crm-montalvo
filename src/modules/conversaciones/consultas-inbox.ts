@@ -236,6 +236,8 @@ export type ConversacionDeInbox = Omit<FilaCruda, '_count' | ColumnasAtencion> &
   noLeidosCount: number;
   mensajes: MensajeDeInbox[];
   atencion: AtencionDeFila | null;
+  /** «Dr. Juan Pérez» si quien escribe es un médico autorizado (`medicos-en-chat.ts`); si no, null. */
+  medico: string | null;
 };
 
 /** Las columnas de atención, en la forma que consume el frontend. Una sola regla de estado y prioridad. */
@@ -289,7 +291,7 @@ export interface ContadoresInbox {
  * había quedado. Ver `crm-conversaciones`, «Quién atiende y de quién es la
  * paciente».
  */
-export function aFilaDeInbox(fila: FilaCruda, ultimo?: MensajeDeInbox): ConversacionDeInbox {
+export function aFilaDeInbox(fila: FilaCruda, ultimo?: MensajeDeInbox, medico: string | null = null): ConversacionDeInbox {
   const { _count, atencionSolicitadaEn, atencionMotivo, atencionTomadaEn, atencionTomadaPor, ...resto } = fila;
   return {
     ...resto,
@@ -297,6 +299,7 @@ export function aFilaDeInbox(fila: FilaCruda, ultimo?: MensajeDeInbox): Conversa
     cliente: fila.linea.comercial ? fila.cliente : { ...fila.cliente, agente: null },
     noLeidosCount: _count.mensajes,
     mensajes: ultimo ? [ultimo] : [],
+    medico,
   };
 }
 

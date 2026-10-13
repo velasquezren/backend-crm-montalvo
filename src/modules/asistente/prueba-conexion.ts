@@ -8,16 +8,17 @@
  * 1. el filtro (el modelo chico, respuesta estructurada);
  * 2. una vuelta con herramienta y su firma de razonamiento — lo único que una
  *    prueba sin red no puede garantizar es que Google acepte lo que le devolvemos;
- * 3. la lectura de un comprobante dibujado aquí mismo (visión + JSON).
+ * 3. la lectura de un comprobante dibujado aquí mismo (visión + JSON);
+ * 4. una nota de voz de prueba (`assets/asistente/`, voz sintética) pasada a texto.
  *
  * Se detiene en el primer paso que falla y lo explica en palabras.
  */
 import { evaluarComprobante } from './comprobante';
-import { ClasificadorMensajes, LectorComprobantes, ModeloConversacional, TurnoModelo } from './modelo.port';
+import { ClasificadorMensajes, LectorComprobantes, ModeloConversacional, TranscriptorAudio, TurnoModelo } from './modelo.port';
 import { EstadoProveedorIA } from './vertex/proveedor-vertex';
 
 export interface PasoPrueba {
-  readonly paso: 'CONFIGURACION' | 'FILTRO' | 'CONVERSACION' | 'COMPROBANTE';
+  readonly paso: 'CONFIGURACION' | 'FILTRO' | 'CONVERSACION' | 'COMPROBANTE' | 'AUDIO';
   readonly ok: boolean;
   readonly detalle: string;
   readonly ms: number;
@@ -87,7 +88,15 @@ export interface ProveedorAProbar {
   readonly lector: LectorComprobantes;
   /** SVG → PNG (el mismo motor de la imagen del horario). */
   readonly dibujar: (svg: string) => Promise<Uint8Array>;
+  readonly transcriptor: TranscriptorAudio;
+  /** La nota de voz de prueba (ogg/opus, como las de WhatsApp): dice «…cuánto cuesta el control prenatal». */
+  readonly audioDePrueba: () => Promise<Uint8Array>;
 }
+
+/** Lo que tiene que reconocerse en la nota de voz de prueba, sin tildes ni mayúsculas. */
+export const FRASE_AUDIO_DE_PRUEBA = 'control prenatal';
+export const RUTA_AUDIO_DE_PRUEBA = ['assets', 'asistente', 'nota-de-voz-de-prueba.ogg'] as const;
+const comparable = (t: string) => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
 
 const HERRAMIENTA_DE_PRUEBA = {
   name: 'hora_de_la_clinica',
@@ -143,5 +152,12 @@ export async function probarProveedor(p: ProveedorAProbar): Promise<ResultadoPru
     if (!datos.esComprobante || monto?.estado !== 'OK') throw new Error(`leyó mal el comprobante de prueba: ${monto?.texto ?? 'no lo reconoció como comprobante'}`);
     return `Leyó Bs ${datos.monto} y la operación ${datos.referencia ?? '—'} del comprobante de prueba.`;
   });
-  return { ok: comprobante, pasos };
+  if (!comprobante) return { ok: false, pasos };
+
+  const audio = await medir('AUDIO', p.transcriptor.nombre, async () => {
+    const { texto } = await p.transcriptor.transcribir({ bytes: await p.audioDePrueba(), mime: 'audio/ogg; codecs=opus' });
+    if (!texto || !comparable(texto).includes(FRASE_AUDIO_DE_PRUEBA)) throw new Error(`no entendió la nota de voz de prueba${texto ? `: «${texto.slice(0, 80)}»` : ''}`);
+    return `Escuchó la nota de voz de prueba: «${texto.slice(0, 80)}».`;
+  });
+  return { ok: audio, pasos };
 }

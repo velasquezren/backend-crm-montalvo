@@ -61,6 +61,7 @@ export type ContenidoMensaje =
   | { type: 'text'; text: { body: string } }
   | { type: 'image'; image: { link: string; caption?: string } }
   | { type: 'document'; document: { link: string; filename: string; caption?: string } }
+  | { type: 'document'; document: { id: string; filename: string; caption?: string } }
   | { type: 'template'; template: Record<string, unknown> }
   | { type: 'interactive'; interactive: Record<string, unknown> }
   | { type: 'location'; location: { latitude: number; longitude: number; name?: string; address?: string } };
@@ -70,6 +71,21 @@ export interface CredencialesWhatsapp { token: string; phoneId: string; wabaId?:
 @Injectable()
 export class WhatsappCloudService {
   private readonly logger = new Logger(WhatsappCloudService.name);
+
+  /** PDF solicitado expresamente: se sube a Meta, sin URL pública ni copia en R2. */
+  async subirPdf(bytes: Buffer, cuenta: CredencialesWhatsapp | null): Promise<string | null> {
+    if (!cuenta || bytes.length > 10 * 1024 * 1024 || bytes.subarray(0, 5).toString() !== '%PDF-') return null;
+    try {
+      const form = new FormData();
+      form.set('messaging_product', 'whatsapp');
+      form.set('type', 'application/pdf');
+      form.set('file', new Blob([new Uint8Array(bytes)], { type: 'application/pdf' }), 'informe.pdf');
+      const r = await fetch(`${BASE}/${cuenta.phoneId}/media`, { method: 'POST', headers: { Authorization: `Bearer ${cuenta.token}` }, body: form, signal: AbortSignal.timeout(ESPERA_MEDIA_MS), redirect: 'error' });
+      if (!r.ok) { await r.body?.cancel(); return null; }
+      const data = await r.json() as { id?: unknown };
+      return typeof data.id === 'string' && /^\d+$/.test(data.id) ? data.id : null;
+    } catch { return null; } // jamás registrar el cuerpo ni datos clínicos
+  }
 
 
   /**

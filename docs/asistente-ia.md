@@ -105,13 +105,23 @@ chat pasa a una persona. Sin R2, el listado sale entero en texto.
 **Reglas de este camino** (cada una con su prueba, comprobada rompiéndola):
 
 - Solo en **«Responder solo»**: el borrador de «Sugerir» lo vería una agente de ventas.
-- Sin filtro de entrada ni herramientas de ventas: a un médico solo se le declaran `mi_agenda` y
-  `pasar_a_persona`; a una paciente, nunca `mi_agenda`.
+- Sin filtro de entrada ni nada que mande, cobre o reserve: `mi_agenda`, lo informativo de la
+  clínica y `pasar_a_persona`; a una paciente, nunca `mi_agenda`.
 - Si falla el modelo o la agenda, **no sale el acuse de las pacientes**: pasa a una persona.
-- Sale por `guardarMensajeAutomatico` como todo lo del asistente: respeta la pausa y a la persona
-  que esté atendiendo; la imagen es `repetible` (preguntar lo mismo a los diez minutos se contesta).
-- El médico autorizado sigue siendo una «paciente» más en el CRM: su chat nace como cualquier otro
-  (con su ficha y su lead de primer contacto). No se tocó la ingesta.
+- **Un médico no se pausa** (13/10): pasarlo a una persona deja la solicitud en «Atención», pero su
+  próxima pregunta por la agenda se contesta (`registrarSolicitudAtencion(…, { pausar: false })`), y
+  una pausa que ya tuviera su chat no lo calla. La pausa protege a una paciente que pidió una persona;
+  a un médico solo lo dejaba sin su agenda hasta que alguien la reanudara. Lo que sí vale para los dos:
+  si una persona de la clínica le escribió hace menos de 15 min, el asistente no interrumpe.
+- **Servido, sale de «Sin responder»** (13/10): lo que el asistente le sirve entero (su agenda, un dato
+  de la clínica) es una respuesta —nadie le debe nada—, así que su chat deja de esperar
+  (`guardarMensajeAutomatico({ resuelve })`). Derivado, sigue esperando. A una paciente, un
+  automático nunca la saca de «Sin responder».
+- **Rotulado «Médico»** en la bandeja y en la cabecera del chat (`medicos-en-chat.ts`), en lugar del
+  sello Gold: no es una paciente ni una venta. Su chat sigue naciendo como cualquier otro (ficha y lead
+  de primer contacto): la ingesta no se tocó.
+- Sale por `guardarMensajeAutomatico` como todo lo del asistente; la imagen es `repetible` (preguntar
+  lo mismo a los diez minutos se contesta).
 
 **Para encenderlo** (nada de esto se hizo; es de René):
 
@@ -152,6 +162,22 @@ Probado con notas sintéticas en ogg/opus (el formato de WhatsApp): transcripci�
   agenda. Con un médico en «Sugerir» el turno se omite ANTES de escuchar: su audio no sale.
 - **En el chat**, debajo del reproductor, la agente ve lo que el asistente entendió.
 - **Línea sin asistente:** el audio nunca sale del CRM.
+
+## Probar los caminos contra Gemini real (13/10/2026)
+
+`npm run build && npm run asistente:caminos` (o `-- medico` para filtrar) recorre unos veinte casos
+con el código compilado real —filtro, bucle, herramientas, prompts, transcriptor— y una clínica
+inventada: saludo, precio, especialidades, horario, pagar, «ya pagué», fuera de tema, consulta
+médica, urgencia, queja, pedir una persona, manipulación, nota de voz; y del médico: mañana, hoy en
+resumen, un día con fecha, cancelar, la clínica y la agenda de otro. Cada caso afirma lo que no
+puede fallar (qué herramienta, si deriva, que no invente ni dé datos bancarios) e imprime la
+respuesta para juzgar el tono. Correrlo al cambiar de modelo, de prompt o de proveedor.
+
+**La clave gratuita da 20 llamadas POR DÍA por modelo** (medido el 13/10: `GenerateRequestsPerDayPerProjectPerModel-FreeTier = 20`).
+Un mensaje gasta 2–3 (filtro + una o dos vueltas), así que alcanza para unos 7 mensajes al día;
+después, todo turno cae en su respaldo hasta el día siguiente. El script espera entre casos, reintenta
+un 429 una vez y, si sigue, se detiene avisando que se agotó la cuota diaria. **Para pacientes —y para
+probar en serio— hace falta Vertex o la API de pago.**
 
 ## Por qué así: lo que hacen los que lo hacen bien
 
@@ -199,15 +225,15 @@ Cada una tiene su prueba.
 7. **Si Gemini falla, la paciente recibe lo de siempre** (el acuse fuera de horario):
    encender el asistente no puede empeorar el peor caso.
 8. **No contesta** si una persona escribió en los últimos 15 minutos, si el chat está
-   pausado, si lo último que mandó ella no es un texto, ni más de 15 veces por hora en
-   un chat.
+   pausado (salvo a un médico autorizado: ver «Agenda del médico»), si lo último que
+   mandó no es un texto ni una nota de voz, ni más de 15 veces por hora en un chat.
 
 ## Arquitectura
 
 ```
 webhook → IngestaWhatsappService.procesarEntrante (sin cambios en su transacción)
             └─ en segundo plano: ¿la línea tiene asistente? → AsistenteChatService.programar
-                                                                   │ espera 6 s (ráfagas), máx. 20 s
+                                                                   │ espera 3 s (ráfagas), máx. 20 s
                                                                    ▼
                                      AsistenteChatService.atender  (modules/conversaciones)
                                         1. historial de 24 h (30 mensajes)
@@ -268,7 +294,7 @@ mkdir -p secretos && chown crmapp:crmapp secretos && chmod 700 secretos
 chown crmapp:crmapp secretos/google-asistente.json && chmod 600 secretos/google-asistente.json
 # .env: ASISTENTE_IA=on, GOOGLE_CLOUD_PROJECT, GOOGLE_CLOUD_LOCATION=global,
 #       GOOGLE_APPLICATION_CREDENTIALS=/opt/crm-backend/secretos/google-asistente.json
-sudo -u crmapp npm run asistente:probar      # cuatro ✓ antes de seguir
+sudo -u crmapp npm run asistente:probar      # cinco ✓ antes de seguir
 systemctl restart crm_backend.service
 ```
 
@@ -310,10 +336,11 @@ GOOGLE_APPLICATION_CREDENTIALS=/opt/crm-backend/secretos/google-asistente.json
 # Opcionales (estos son los valores por defecto):
 # ASISTENTE_MODELO=gemini-3.5-flash
 # ASISTENTE_MODELO_CLASIFICADOR=gemini-3.5-flash-lite
-# ASISTENTE_ESPERA_MS=6000
+# ASISTENTE_ESPERA_MS=3000
 ```
 
-Comprobar con `sudo -u crmapp npm run asistente:probar` (cuatro ✓) y reiniciar
+Comprobar con `sudo -u crmapp npm run asistente:probar` (cinco ✓: configuración, filtro,
+conversación con herramienta, comprobante y nota de voz) y reiniciar
 `crm_backend`. En el CRM, **Líneas WhatsApp → Asistente** dice «Conectado a Gemini
 (gemini-3.5-flash)» y su botón **«Probar conexión»** repite la prueba.
 
@@ -357,3 +384,13 @@ y `uso=conversar|clasificar|leer-comprobante|transcribir-audio` (solo en Vertex:
   promociones.
 - **Notas de voz:** hechas el 12/10 (sección «Notas de voz»). Falta el paso de audio en
   «Probar conexión», que necesita una nota de prueba generada con una clave válida.
+
+## Mis informes: entrada opcional de IA, entrega determinista (local, apagada)
+
+`abrir_mis_informes()` abre la misma lista que el menú **Mis informes**. No recibe
+PAC/CI/teléfono/IDs del modelo ni devuelve estudios o PDFs a Gemini. Solo se declara
+en líneas autorizadas para autoconsulta. El paciente elige; el CRM y Resultados
+revalidan identidad, publicación, versión y vigencia antes de entregar el PDF.
+Interpretación de resultados y consultas médicas siguen derivándose a humanos.
+En SUGERIR aparece «Abrir lista de informes»; RESPONDER ejecuta la misma acción.
+Detalles, límites de identidad, privacidad y activación: [informes por WhatsApp](informes-por-whatsapp.md).

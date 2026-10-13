@@ -1,6 +1,8 @@
 import { AdjuntoSaliente, contenidoAdjunto } from './contenido-adjunto';
 import { LineasWhatsappService } from '../lineas-whatsapp/lineas-whatsapp.service';
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
+import { InformesChatService, PREFIJO_INFORME_CHAT } from '../resultados/informes-chat.service';
+import { registrarSolicitudAtencion } from './atencion-humana';
 import { botonPlantilla } from '../../common/whatsapp/interacciones/mensaje-interactivo';
 import { cifrarInteraccion, contenidoOferta, descifrarInteraccion, interaccionesEnLinea, interaccionesHabilitadas, OfertaInteraccion } from './interacciones-integracion';
 import { permiteReintentarError } from '../../common/whatsapp/error-envio';
@@ -120,10 +122,15 @@ export class DespachadorSalienteService {
     private readonly r2: R2Service,
     private readonly whatsapp: WhatsappCloudService,
     private readonly lineas: LineasWhatsappService,
+    @Optional() private readonly informes?: InformesChatService,
   ) {}
 
   /** Texto del agente, con adjunto opcional guardado en R2. */
   async texto(destino: Destino, contenido: string, adjunto?: AdjuntoSaliente): Promise<void> {
+    if (adjunto?.key.startsWith(PREFIJO_INFORME_CHAT)) {
+      await this.informe(destino, adjunto.key);
+      return;
+    }
     // `cobros/` es el namespace privado de CobrosService. Un QR ya encolado
     // tampoco debe salir por Atención al recuperar el proceso.
     if (adjunto?.key.startsWith('cobros/') && !await this.prisma.conversacion.findFirst({
@@ -182,6 +189,12 @@ export class DespachadorSalienteService {
       return;
     }
     const oferta = descifrarInteraccion(i.privado, fila.clientMessageId) as OfertaInteraccion;
+    if (oferta.origen === 'INFORMES') {
+      try {
+        if (!this.informes) throw new Error('Autoconsulta no disponible');
+        await this.informes.validarOferta(destino.conversacionId, destino.telefono, oferta);
+      } catch { await this.detenerPorLinea(destino); return; }
+    }
     if (!fila.conversacion.linea.comercial && esOfertaComercial(oferta)) {
       await this.detenerPorLinea(destino);
       return;
@@ -304,6 +317,32 @@ export class DespachadorSalienteService {
        tendría con qué rearmarla — y mandarla como texto plano es justo lo que
        Meta rechaza fuera de la ventana de 24 h, que es cuando se usan plantillas. */
     await this.registrarResultadoEnvio(destino, resultado, false);
+  }
+
+  private async informe(destino: Destino, key: string): Promise<void> {
+    if (!this.informes) { await this.detenerPorLinea(destino); return; }
+    // Reclamar ANTES de cualquier efecto. Caída/reinicio nunca reenvía a ciegas.
+    const claim = await this.prisma.mensaje.updateMany({ where: { id: destino.mensajeId, conversacionId: destino.conversacionId,
+      mediaKey: key, automatico: true, estadoEnvio: 'FALLIDO', whatsappMsgId: null, permiteReintento: true },
+      data: { estadoEnvio: 'INCIERTO', proximoIntento: null, permiteReintento: false } });
+    if (!claim.count) return;
+    let mediaId: string | null;
+    let cuenta: Awaited<ReturnType<LineasWhatsappService['cuentaDeConversacion']>>;
+    try {
+      const pdf = await this.informes.pdf(destino.conversacionId, destino.telefono, key);
+      cuenta = await this.lineas.cuentaDeConversacion(destino.conversacionId);
+      mediaId = await this.whatsapp.subirPdf(pdf, cuenta);
+      if (!mediaId) throw new Error('No se pudo preparar el archivo');
+      // Entre la descarga y la subida pudieron pausar el chat o corregir su ficha.
+      await this.informes.seleccion(destino.conversacionId, destino.telefono, key.slice(PREFIJO_INFORME_CHAT.length), true);
+    } catch {
+      await this.registrarResultadoEnvio(destino, { estado: 'NO_SALIO', motivo: 'Informe no disponible o autorización cambiada. Requiere revisión.' }, false);
+      await this.prisma.$transaction(tx => registrarSolicitudAtencion(tx, destino.conversacionId, 'REVISION', destino.mensajeId, new Date()));
+      return;
+    }
+    await this.registrarResultadoEnvio(destino, await this.whatsapp.enviar(destino.telefono,
+      { type: 'document', document: { id: mediaId, filename: 'informe.pdf', caption: 'Este es el informe que elegiste. Para consultas sobre su contenido, habla con tu médico.' } },
+      destino.mensajeId, cuenta), false);
   }
 
   /** No toca entregados ni resultados inciertos: solo intentos que aún no salieron. */

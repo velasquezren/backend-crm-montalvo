@@ -7,7 +7,7 @@ import { AgendaConsultaClient } from '../agenda/agenda-consulta.client';
 import { AgendaMedicosCrmService } from '../agenda/agenda-medicos-crm.service';
 import { AsistenteLineasService } from '../asistente/asistente-lineas.service';
 import { ImagenHorarioService } from '../asistente/imagen-horario.service';
-import { ClasificadorMensajes, LectorComprobantes, ModeloConversacional } from '../asistente/modelo.port';
+import { ClasificadorMensajes, LectorComprobantes, TranscriptorAudio, ModeloConversacional } from '../asistente/modelo.port';
 import { ConfiguracionIA } from '../asistente/vertex/proveedor-vertex';
 import { ConstanciaReservaService } from './constancia-reserva.service';
 import { ConversacionesGateway } from './conversaciones.gateway';
@@ -39,7 +39,7 @@ const gateway = { emitirActividad: jest.fn() };
 const motor = new ImagenHorarioService({} as AgendaMedicosCrmService, {} as R2Service);
 /* El real: «¿está encendido el asistente en la línea?» se lee de la base. El proveedor de IA no se usa. */
 const asistente = new AsistenteLineasService(
-  db, {} as ConfiguracionIA, {} as ModeloConversacional, {} as ClasificadorMensajes, {} as LectorComprobantes, motor,
+  db, {} as ConfiguracionIA, {} as ModeloConversacional, {} as ClasificadorMensajes, {} as LectorComprobantes, motor, {} as TranscriptorAudio,
 );
 
 const servicio = () => new ConstanciaReservaService(

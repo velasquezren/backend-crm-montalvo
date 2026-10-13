@@ -209,3 +209,10 @@ describe('el bucle con un médico', () => {
     expect(JSON.stringify(modelo.entradas[4].historial)).toContain('Ya hay suficientes envíos');
   });
 });
+
+it('la IA pide la lista dos veces pero solo queda una acción de informes', async () => {
+  const { bucle } = montar([pide({ nombre: 'abrir_mis_informes' }, { nombre: 'abrir_mis_informes' }), dice('Listo')],
+    jest.fn().mockResolvedValue({ ok: true, datos: 'El CRM abrirá la lista', accion: { tipo: 'INFORMES' } }));
+  const r = await bucle.responder({ ...PETICION, contexto: { telefono: '+59170000001', ventas: null, informes: true } });
+  expect(r.acciones).toEqual([{ tipo: 'INFORMES' }]);
+});

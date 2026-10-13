@@ -3,6 +3,7 @@ import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
 import { Prisma } from '../../prisma/prisma-client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { abrirCierreReserva, CierreReserva, sellarTokenFlow } from '../../common/whatsapp/flows/token-flow';
+import type { ContextoInformes } from '../resultados/informes-chat.service';
 import { MensajePreparado, contenidoMeta, validarMensaje } from '../../common/whatsapp/interacciones/mensaje-interactivo';
 import { objeto, parsearRespuesta } from '../../common/whatsapp/interacciones/respuesta-interactiva';
 import { ResultadoRespuesta } from './atencion-humana';
@@ -143,7 +144,8 @@ export interface OfertaInteraccion {
    *   `TALK_TO_HUMAN` en una plantilla de campaña pide una persona, pero no recibe la
    *   confirmación del menú.
    */
-  origen?: 'MENU_ATENCION' | 'PROMOCION';
+  origen?: 'MENU_ATENCION' | 'PROMOCION' | 'INFORMES';
+  informes?: ContextoInformes;
   /** Con `origen: 'PROMOCION'`: de qué promoción es la tarjeta. */
   promocionId?: string;
   /** Metadatos de transporte; no forman parte de la intención ni llegan a UI. */
@@ -189,6 +191,7 @@ function vistaDeOferta(oferta: OfertaInteraccion) {
   const m = oferta.mensaje;
   const opciones = oferta.respuestasPlantilla ?? (m.tipo === 'botones' ? m.opciones : m.tipo === 'lista' ? m.secciones.flatMap(s => s.opciones) : []);
   return {
+    ...(oferta.origen === 'INFORMES' ? { proposito: 'INFORMES' } : {}),
     tipo: oferta.respuestasPlantilla ? 'botones' : m.tipo,
     cuerpo: m.cuerpo,
     opciones: opciones.map(o => ({ ...o })),
@@ -204,7 +207,7 @@ export function datosOferta(oferta: OfertaInteraccion, identidad: string) {
   return {
     privado: cifrarInteraccion(oferta, identidad),
     vista: vistaDeOferta(oferta),
-    estado: 'OFRECIDA', venceEn: new Date(Date.now() + DIA), purgarEn: new Date(Date.now() + 7 * DIA),
+    estado: 'OFRECIDA', venceEn: new Date(Date.now() + (oferta.origen === 'INFORMES' ? 15 * 60_000 : DIA)), purgarEn: new Date(Date.now() + 7 * DIA),
   };
 }
 
@@ -295,7 +298,7 @@ export async function guardarRespuesta(
         }
         if (!vigente) estado = 'CADUCADA';
         else if (estado === 'INVALIDA') { /* Sello incorrecto: no consumir la oferta. */ }
-        else if (guardada.origen) estado = 'CORRELACIONADA';
+        else if (guardada.origen && guardada.origen !== 'INFORMES') estado = 'CORRELACIONADA';
         else {
           const reclamo = await tx.interaccionMensaje.updateMany({ where: { mensajeId: fuente.id, consumidaPor: null }, data: { consumidaPor: mensajeId } });
           estado = reclamo.count ? 'CORRELACIONADA' : 'DUPLICADA';
@@ -305,7 +308,7 @@ export async function guardarRespuesta(
   }
   await tx.interaccionMensaje.create({ data: {
     mensajeId, estado, privado: cifrarInteraccion(raw, mensajeId),
-    vista: { tipo: r.seleccion?.tipo === 'nfm_reply' ? 'respuesta_flow' : r.seleccion ? 'seleccion' : 'error', cuerpo, estado, ...(contextoId ? { contextoId } : {}), ...(seleccionId ? { seleccionId } : {}), ...(versionFlow ? { versionFlow } : {}), ...(propositoFlow ? { proposito: propositoFlow } : {}), ...(datosFlow?.length ? { datos: datosFlow } : {}) },
+    vista: { tipo: r.seleccion?.tipo === 'nfm_reply' ? 'respuesta_flow' : r.seleccion ? 'seleccion' : 'error', cuerpo, estado, ...(contextoId ? { contextoId } : {}), ...(seleccionId ? { seleccionId } : {}), ...(versionFlow ? { versionFlow } : {}), ...(origenOferta === 'INFORMES' ? { proposito: 'INFORMES' } : propositoFlow ? { proposito: propositoFlow } : {}), ...(datosFlow?.length ? { datos: datosFlow } : {}) },
     venceEn: new Date(), purgarEn: new Date(Date.now() + 7 * DIA),
   } });
   await tx.mensaje.update({ where: { id: mensajeId }, data: { contenido: cuerpo } });
@@ -314,6 +317,7 @@ export async function guardarRespuesta(
     ...(seleccionId ? { seleccionId } : {}),
     ...(propositoFlow ? { propositoFlow } : {}),
     ...(origenOferta === 'MENU_ATENCION' ? { deMenu: true } : {}),
+    ...(origenOferta === 'INFORMES' ? { deInformes: true } : {}),
     ...(origenOferta === 'PROMOCION' && promocionOferta ? { promocionId: promocionOferta } : {}),
     ...(reservaChat ? { reservaChat } : {}),
   };

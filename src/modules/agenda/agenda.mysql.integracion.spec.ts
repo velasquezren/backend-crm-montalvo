@@ -744,9 +744,14 @@ ejecutar('Agenda HTTP → adaptador TLS → MySQL real descartable', () => {
       const especialidad = await prisma.especialidad.upsert({
         where: { nombre: 'Especialidad web sintética' }, update: {}, create: { nombre: 'Especialidad web sintética', slug: 'especialidad-web-sintetica' },
       });
+      /* El horario del fixture cae «mañana»: un sábado eso es domingo, que la grilla
+         (lunes a sábado) no tiene, y la ficha nacía sin horario — fallaba solo los
+         sábados. Un turno fijo el lunes lo hace igual cualquier día. */
+      const antes = await medicos.ficha(1, usuarios.recepcion);
+      await medicos.guardarHorario(1, { version: antes.version, activas: [{ dia: 'Lunes', hora: '09:00' }] }, usuarios.recepcion);
       let ficha = await medicos.crearPresentacion(1, usuarios.recepcion);
       expect(ficha.presentacion).toMatchObject({ agendaMedicoId: 1, nombrePublico: 'Dra. Profesional sintético A', publicado: false, precioConsulta: 400.25, orden: 1, especialidades: [] });
-      expect(ficha.presentacion!.horario.length).toBeGreaterThan(0);
+      expect(ficha.presentacion!.horario).toEqual([{ diaSemana: 1, desde: '09:00', hasta: '09:30', lugar: null }]);
       await expect(medicos.crearPresentacion(1, usuarios.recepcion)).rejects.toMatchObject({ status: 409 });
       // Sin especialidad web no se publica; con ella, sí. La foto pública de la reserva sale del directorio solo si hay foto.
       await expect(medicos.publicarPresentacion(1, true, usuarios.recepcion)).rejects.toMatchObject({ status: 400 });

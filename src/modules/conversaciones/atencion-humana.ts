@@ -94,6 +94,7 @@ export function estadoDeAtencion(c: { atencionSolicitadaEn: Date | null; atencio
 
 /** Lo que `guardarRespuesta` concluyó de una respuesta interactiva. */
 export interface ResultadoRespuesta {
+  deInformes?: boolean;
   /** `CORRELACIONADA`, `CADUCADA`, `DUPLICADA`, `NO_CORRELACIONADA`, `INVALIDA`, `DESCONOCIDA`. */
   estado: string;
   /** Solo si la opción estaba en NUESTRA oferta, para este paciente y esta conversación. */
@@ -155,6 +156,12 @@ export async function registrarSolicitudAtencion(
   motivo: MotivoAtencion,
   mensajeId: string,
   ahora: Date,
+  /**
+   * `false` = la solicitud queda en «Atención» pero lo automático sigue. Solo para
+   * un MÉDICO autorizado: la pausa protege a una paciente que pidió una persona,
+   * y a un médico solo lo dejaría sin su agenda hasta que alguien la reanude.
+   */
+  { pausar = true }: { pausar?: boolean } = {},
 ): Promise<boolean> {
   await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${conversacionId}, ${CANDADO_AUTOMATICOS}))::text`;
   const actual = await tx.conversacion.findUniqueOrThrow({
@@ -168,7 +175,7 @@ export async function registrarSolicitudAtencion(
     data: {
       ...(nueva ? { atencionSolicitadaEn: ahora, atencionTomadaEn: null, atencionTomadaPorId: null } : {}),
       ...(sube ? { atencionMotivo: motivo, atencionMensajeId: mensajeId } : {}),
-      ...(actual.automatizacionPausadaEn ? {} : { automatizacionPausadaEn: ahora }),
+      ...(actual.automatizacionPausadaEn || !pausar ? {} : { automatizacionPausadaEn: ahora }),
     },
   });
   return nueva;

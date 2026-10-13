@@ -51,6 +51,10 @@ interface ColaInformes {
   total: number;
 }
 
+export interface IdentidadInformeChat { pac: string; ci?: string; }
+export interface InformeParaChat { id: string; archivoId: string; estudio: string; fechaEstudio: string; }
+export interface PaginaInformesChat { datos: InformeParaChat[]; total: number; pagina: number; limite: number; }
+
 /**
  * Lectura del portal de resultados, que vive en el MISMO servidor detrás de
  * loopback. No es una base compartida ni un join entre bases: es su API
@@ -63,6 +67,38 @@ interface ColaInformes {
 @Injectable()
 export class PortalResultadosClient {
   private readonly logger = new Logger(PortalResultadosClient.name);
+
+  informesDelPaciente(identidad: IdentidadInformeChat, pagina: number): Promise<PaginaInformesChat> {
+    return this.pedir('/v1/integraciones/crm/paciente/informes', 'POST', { ...identidad, pagina });
+  }
+
+  /** Solo memoria durante el despacho. No guarda PDFs clínicos en R2 del CRM. */
+  async pdfDelPaciente(identidad: IdentidadInformeChat, informe: Pick<InformeParaChat, 'id' | 'archivoId'>): Promise<Buffer> {
+    const { base, token } = this.configuracion();
+    const r = await fetch(`${base}/v1/integraciones/crm/paciente/informes/${encodeURIComponent(informe.id)}/pdf`, {
+      method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...identidad, archivoId: informe.archivoId }), signal: AbortSignal.timeout(15_000), redirect: 'error',
+    });
+    if (!r.ok || !r.body || !r.headers.get('content-type')?.startsWith('application/pdf')) {
+      await r.body?.cancel();
+      throw new ServiceUnavailableException('No se pudo autorizar el informe seleccionado.');
+    }
+    const lector = r.body.getReader();
+    const partes: Uint8Array[] = [];
+    let bytes = 0;
+    try {
+      while (true) {
+        const p = await lector.read();
+        if (p.done) break;
+        bytes += p.value.byteLength;
+        if (bytes > 10 * 1024 * 1024) throw new ServiceUnavailableException('Informe demasiado grande.');
+        partes.push(p.value);
+      }
+      const pdf = Buffer.concat(partes);
+      if (pdf.subarray(0, 5).toString() !== '%PDF-') throw new ServiceUnavailableException('Informe inválido.');
+      return pdf;
+    } finally { await lector.cancel().catch(() => undefined); }
+  }
 
   private configuracion(): { base: string; token: string } {
     const base = process.env.PORTAL_RESULTADOS_URL;
@@ -124,13 +160,14 @@ export class PortalResultadosClient {
     return this.pedir(`/v1/integraciones/crm/informes/${informeId}/acceso/renovar`, 'POST');
   }
 
-  private async pedir<T>(ruta: string, method: 'GET' | 'POST'): Promise<T> {
+  private async pedir<T>(ruta: string, method: 'GET' | 'POST', body?: unknown): Promise<T> {
     const { base, token } = this.configuracion();
     let respuesta: Response;
     try {
       respuesta = await fetch(`${base}${ruta}`, {
         method,
-        headers: { Authorization: `Bearer ${token}` },
+        headers: { Authorization: `Bearer ${token}`, ...(body ? { 'Content-Type': 'application/json' } : {}) },
+        ...(body ? { body: JSON.stringify(body) } : {}),
         signal: AbortSignal.timeout(10_000),
       });
     } catch (error) {

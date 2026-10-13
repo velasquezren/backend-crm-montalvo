@@ -1,4 +1,5 @@
 import { pagoDelChat, promocionDelChat } from './pagos-chat';
+import { medicosDeTelefonos } from './medicos-en-chat';
 import { sugerenciaDelChat } from './sugerencias-chat';
 import { esOfertaComercial } from './interaccion-comercial';
 import { estadoDeIntentoAnterior, verificarIntencion, datosOferta, interaccionesEnLinea, OfertaInteraccion, prepararOferta, proyectarInteracciones } from './interacciones-integracion';
@@ -193,9 +194,12 @@ export class ConversacionesService {
       this.contadoresInbox(query, soloAgenteId, usuarioId),
     ]);
 
-    const ultimos = await ultimosMensajesDeInbox(this.prisma, conversaciones.map(c => c.id));
+    const [ultimos, medicos] = await Promise.all([
+      ultimosMensajesDeInbox(this.prisma, conversaciones.map(c => c.id)),
+      medicosDeTelefonos(this.prisma, conversaciones.map(c => c.cliente.telefono)),
+    ]);
     return {
-      ...paginar(conversaciones.map(c => aFilaDeInbox(c, ultimos.get(c.id))), total, dto),
+      ...paginar(conversaciones.map(c => aFilaDeInbox(c, ultimos.get(c.id), medicos.get(c.cliente.telefono) ?? null)), total, dto),
       contadores,
     };
   }
@@ -273,9 +277,12 @@ export class ConversacionesService {
       select: SELECT_INBOX,
     });
 
-    const ultimos = await ultimosMensajesDeInbox(this.prisma, fila ? [fila.id] : []);
+    const [ultimos, medicos] = await Promise.all([
+      ultimosMensajesDeInbox(this.prisma, fila ? [fila.id] : []),
+      medicosDeTelefonos(this.prisma, fila ? [fila.cliente.telefono] : []),
+    ]);
     return {
-      conversacion: fila ? aFilaDeInbox(fila, ultimos.get(fila.id)) : null,
+      conversacion: fila ? aFilaDeInbox(fila, ultimos.get(fila.id), medicos.get(fila.cliente.telefono) ?? null) : null,
       contadores: await this.contadoresInbox(query, soloAgenteId, usuarioId),
     };
   }
@@ -346,18 +353,20 @@ export class ConversacionesService {
     const mensajes = await Promise.all(
       conversacion.mensajes.map(async m => ({
         ...m,
-        mediaUrl: m.mediaKey ? await this.r2.urlFirmada(m.mediaKey) : null,
+        mediaUrl: m.mediaKey && !m.mediaKey.startsWith('informe-chat/') ? await this.r2.urlFirmada(m.mediaKey) : null,
       })),
     );
     /* Ya con el acceso comprobado arriba: todo se lee acotado a este chat, en
        paralelo. El pago de una promoción en curso (o el último, cerrado hace poco) y
        la promoción por la que llegó con su código. */
-    const [atencion, pago, promocion, sugerencia] = await Promise.all([
+    const [atencion, pago, promocion, sugerencia, medicos] = await Promise.all([
       contextoDeAtencion(this.prisma, conversacion.id, conversacion),
       pagoDelChat(this.prisma, conversacion.id),
       conversacion.linea.comercial ? promocionDelChat(this.prisma, conversacion.clienteId) : null,
       /* Lo que el asistente le preparó a la agente (modo SUGERIR), si hay. */
       sugerenciaDelChat(this.prisma, conversacion.id),
+      /* Un médico autorizado: el chat lo rotula para que nadie lo atienda como venta. */
+      medicosDeTelefonos(this.prisma, [conversacion.cliente.telefono]),
     ]);
     return {
       ...conversacion,
@@ -365,6 +374,7 @@ export class ConversacionesService {
       pago,
       promocion,
       sugerencia,
+      medico: medicos.get(conversacion.cliente.telefono) ?? null,
       /* `agente` es quien atiende el chat, sin caer a la dueña de la paciente:
          ver `aFilaDeInbox`. */
       cliente: conversacion.linea.comercial ? conversacion.cliente : { ...conversacion.cliente, datosExtra: null, intereses: [], agente: null, agenteId: null },
@@ -420,7 +430,7 @@ export class ConversacionesService {
     return proyectarInteracciones(this.prisma, await Promise.all(
       mensajes.map(async m => ({
         ...m,
-        mediaUrl: m.mediaKey ? await this.r2.urlFirmada(m.mediaKey) : null,
+        mediaUrl: m.mediaKey && !m.mediaKey.startsWith('informe-chat/') ? await this.r2.urlFirmada(m.mediaKey) : null,
       })),
     ));
   }

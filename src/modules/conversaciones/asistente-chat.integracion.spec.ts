@@ -354,15 +354,24 @@ describe('la configuración por línea', () => {
     expect(await prisma.auditLog.count({ where: { entidad: 'AsistenteLinea', entidadId: ventas, accion: 'ASISTENTE_CONFIGURADO' } })).toBe(1);
   });
 
-  it('«Probar conexión»: solo SUPER_ADMIN, y recorre filtro, herramienta y comprobante con datos sintéticos', async () => {
+  it('«Probar conexión»: solo SUPER_ADMIN, y recorre filtro, herramienta, comprobante y nota de voz con datos sintéticos', async () => {
     expect((await http('/asistente/probar', 'POST', usuarios.agente.token)).status).toBe(403);
-    lector.datos = { ...lector.datos, monto: 280.5 };
-    modelo.guion = [pide('hora_de_la_clinica'), dice('Son las 15:40.')];
-    const r = await http('/asistente/probar', 'POST', usuarios.admin.token);
-    expect(r.status).toBe(200);
-    expect(r.body).toMatchObject({ ok: true });
-    expect((r.body['pasos'] as { paso: string }[]).map(p => p.paso)).toEqual(['CONFIGURACION', 'FILTRO', 'CONVERSACION', 'COMPROBANTE']);
-    lector.datos = { ...lector.datos, monto: 280 };
+    /* Datos compartidos con otras pruebas: se restauran pase lo que pase, o un fallo aquí rompe las siguientes. */
+    const datosAntes = lector.datos;
+    try {
+      lector.datos = { ...lector.datos, monto: 280.5 };
+      transcriptor.siguiente = 'Hola, buenas tardes. Quería saber cuánto cuesta el control prenatal.';
+      modelo.guion = [pide('hora_de_la_clinica'), dice('Son las 15:40.')];
+      const r = await http('/asistente/probar', 'POST', usuarios.admin.token);
+      expect(r.status).toBe(200);
+      expect(r.body).toMatchObject({ ok: true });
+      expect((r.body['pasos'] as { paso: string }[]).map(p => p.paso)).toEqual(['CONFIGURACION', 'FILTRO', 'CONVERSACION', 'COMPROBANTE', 'AUDIO']);
+      /* La nota de prueba es el archivo real de `assets/`, no unos bytes inventados. */
+      expect(transcriptor.llamadas).toEqual([{ bytes: expect.any(Number), mime: 'audio/ogg; codecs=opus' }]);
+      expect(transcriptor.llamadas[0].bytes).toBeGreaterThan(1000);
+    } finally {
+      lector.datos = datosAntes;
+    }
   });
 
   it('APAGADO, la línea se comporta como siempre: acuse y ningún turno', async () => {
@@ -942,15 +951,61 @@ describe('la agenda del médico por WhatsApp', () => {
       expect(await turnos(id)).toMatchObject([{ resultado: 'OMITIDO', motivo: expect.stringContaining('Responder solo') }]);
     });
 
-    it('con el chat pausado esperando a una persona, el asistente no contesta aunque sea un médico', async () => {
+    it('pasarlo a una persona deja la solicitud en «Atención» pero NO lo pausa: su próxima pregunta por la agenda se contesta', async () => {
       modelo.guion = [pide('pasar_a_persona', { motivo: 'OTRO', resumen: 'Quiere cambiar una cita.' }), dice('ok')];
       const id = await medicoEscribe('quiero mover una cita');
-      expect((await prisma.conversacion.findUniqueOrThrow({ where: { id } })).automatizacionPausadaEn).not.toBeNull();
-      modelo.vistas.length = 0;
+      const derivada = await prisma.conversacion.findUniqueOrThrow({ where: { id } });
+      expect(derivada.atencionSolicitadaEn).not.toBeNull();
+      expect(derivada.automatizacionPausadaEn).toBeNull();
+      expect(derivada.esperandoRespuesta).toBe(true);
       modelo.guion = [pideAgenda(), dice('ok')];
       await medicoEscribe('mis citas de hoy', 2);
-      expect(modelo.vistas).toHaveLength(0);
+      expect(citasMedico.delDia).toHaveBeenCalledTimes(1);
+      expect((await salientes(id)).filter(m => m.tipo === 'IMAGEN')).toHaveLength(1);
+    });
+
+    it('un chat de médico que quedó pausado de antes no lo deja sin su agenda (a una paciente pausada la cubre «con la automatización pausada…»)', async () => {
+      modelo.guion = [pideAgenda(), dice('ok')];
+      expect((await webhook([textoMedico('hola')])).status).toBe(200);
+      const id = (await chatMedico()).id;
+      await esperar(async () => (await turnos(id)).length >= 1);
+      await prisma.conversacion.update({ where: { id }, data: { automatizacionPausadaEn: new Date() } });
+      modelo.guion = [pideAgenda(), dice('ok')];
+      await medicoEscribe('mis citas de hoy', 2);
+      expect((await turnos(id)).at(-1)).toMatchObject({ resultado: 'RESPONDIO', categoria: 'MEDICO_AGENDA' });
+    });
+
+    it('si una persona de la clínica le está escribiendo al médico, el asistente no la interrumpe', async () => {
+      modelo.guion = [dice('Hola, doctor.')];
+      const id = await medicoEscribe('hola');
+      expect((await http(`/conversaciones/${id}/mensajes`, 'POST', usuarios.agente.token, { contenido: 'Doctor, ya le movimos la cita.', clientMessageId: randomUUID() })).status).toBe(201);
+      modelo.guion = [pideAgenda(), dice('ok')];
+      await medicoEscribe('gracias, y mis citas de hoy?', 2);
+      expect((await turnos(id)).at(-1)).toMatchObject({ resultado: 'OMITIDO', motivo: 'Una persona está atendiendo este chat.' });
       expect(citasMedico.delDia).not.toHaveBeenCalled();
+    });
+
+    it('servido por el asistente, su chat sale de «Sin responder»; derivado, sigue esperando; una paciente siempre espera', async () => {
+      modelo.guion = [pideAgenda(), dice('ok')];
+      const id = await medicoEscribe('mis citas de hoy');
+      expect((await prisma.conversacion.findUniqueOrThrow({ where: { id } })).esperandoRespuesta).toBe(false);
+      modelo.guion = [dice('Hoy tienes 3 citas.')];
+      await medicoEscribe('y cuántas tengo?', 2);
+      expect((await prisma.conversacion.findUniqueOrThrow({ where: { id } })).esperandoRespuesta).toBe(true);
+    });
+
+    it('la bandeja y el detalle lo rotulan como médico; a una paciente, no', async () => {
+      modelo.guion = [pideAgenda(), dice('ok')];
+      const idMedico = await medicoEscribe('mis citas de hoy');
+      modelo.guion = [dice('Hola.')];
+      const idPaciente = await escribir('hola');
+      const bandeja = await http('/conversaciones?tab=TODAS&limite=50', 'GET', usuarios.admin.token);
+      expect(bandeja.status).toBe(200);
+      const filas = bandeja.body['datos'] as { id: string; medico: string | null }[];
+      expect(filas.find(f => f.id === idMedico)?.medico).toBe('Dr. Claudia Azogue');
+      expect(filas.find(f => f.id === idPaciente)?.medico).toBeNull();
+      expect((await http(`/conversaciones/${idMedico}`, 'GET', usuarios.admin.token)).body['medico']).toBe('Dr. Claudia Azogue');
+      expect((await http(`/conversaciones/${idPaciente}`, 'GET', usuarios.admin.token)).body['medico']).toBeNull();
     });
   });
 });
