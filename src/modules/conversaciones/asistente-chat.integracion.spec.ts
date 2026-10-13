@@ -119,7 +119,7 @@ class ModeloGuionado extends ModeloConversacional {
 }
 class ClasificadorGuionado extends ClasificadorMensajes {
   readonly nombre = 'clasificador-guionado';
-  siguiente: Pick<Clasificacion, 'categoria' | 'confianza'> | Error = { categoria: 'VENTAS', confianza: 'ALTA' };
+  siguiente: Pick<Clasificacion, 'categoria' | 'confianza' | 'solicitud'> | Error = { categoria: 'VENTAS', confianza: 'ALTA' };
   llamadas = 0;
   /** Lo que le llegó a filtrar: con un audio, tiene que ser lo que ella DIJO. */
   readonly vistos: string[] = [];
@@ -386,6 +386,27 @@ describe('la configuración por línea', () => {
 describe('RESPONDER: contesta lo comercial', () => {
   beforeEach(() => configurarAsistente('RESPONDER'));
 
+  it('no convierte «solo el precio» en un cobro aunque el modelo intente enviar una tarjeta', async () => {
+    clasificador.siguiente = { categoria: 'VENTAS', confianza: 'ALTA', solicitud: 'CONSULTAR' };
+    modelo.guion = [pide('enviar_promocion', { promocionId }), pide('ver_promocion', { promocionId }), dice('El control cuesta Bs 280.')];
+    const id = await escribir('No quiero agendar ni pagar, solo saber el precio del control prenatal.');
+    expect(modelo.vistas[0].herramientas.map(h => h.name)).not.toContain('enviar_promocion');
+    expect(await turnos(id)).toMatchObject([{ herramientas: [{ nombre: 'enviar_promocion', ok: false }, { nombre: 'ver_promocion', ok: true }] }]);
+    expect(await prisma.mensaje.count({ where: { conversacionId: id, direccion: 'SALIENTE', interaccion: { isNot: null } } })).toBe(0);
+    expect(await prisma.pagoPromocion.count({ where: { conversacionId: id } })).toBe(0);
+    expect((await prisma.conversacion.findUniqueOrThrow({ where: { id } })).atencionMotivo).toBeNull();
+  });
+
+  it('una petición ambigua pide aclaración y no permite consultar cupos ni abrir promociones', async () => {
+    clasificador.siguiente = { categoria: 'OTRO', confianza: 'ALTA', solicitud: 'ACLARAR' };
+    modelo.guion = [pide('dias_con_cupo', { medicoId: '7' }), dice('¿A cuál de las dos consultas te refieres?')];
+    const id = await escribir('Lo de la otra, eso quería.');
+    expect(modelo.vistas[0].herramientas.map(h => h.name)).toEqual(['pasar_a_persona']);
+    expect(await turnos(id)).toMatchObject([{ resultado: 'RESPONDIO', herramientas: [{ nombre: 'dias_con_cupo', ok: false }] }]);
+    expect((await salientes(id))[0].contenido).toContain('¿A cuál');
+    expect((await prisma.conversacion.findUniqueOrThrow({ where: { id } })).atencionMotivo).toBeNull();
+  });
+
   it('contesta con datos de una herramienta, se presenta, NO manda el acuse y la conversación sigue en «Sin responder»', async () => {
     modelo.guion = [pide('listar_promociones'), dice('El **Control prenatal** está a Bs 280 hasta fin de mes.')];
     const id = await escribir('hola, cuánto cuesta el control prenatal?');
@@ -410,6 +431,7 @@ describe('RESPONDER: contesta lo comercial', () => {
 
   it('enviar_promocion manda la TARJETA de verdad: «Pagar ahora» de esa tarjeta abre el pago con el QR', async () => {
     await configurarCobro();
+    clasificador.siguiente = { categoria: 'VENTAS', confianza: 'ALTA', solicitud: 'PROMOCION' };
     modelo.guion = [pide('enviar_promocion', { promocionId }), dice('Te envío la promoción 👇')];
     const id = await escribir('me interesa el control prenatal, cómo pago?');
     const tarjeta = await prisma.mensaje.findFirstOrThrow({ where: { conversacionId: id, automatico: true, interaccion: { isNot: null } } });
@@ -421,6 +443,7 @@ describe('RESPONDER: contesta lo comercial', () => {
   });
 
   it('enviar_horario manda la imagen con el horario en el pie', async () => {
+    clasificador.siguiente = { categoria: 'INFORMACION', confianza: 'ALTA', solicitud: 'HORARIO' };
     modelo.guion = [pide('enviar_horario', { medicoId: '7' }), dice('Te paso su horario.')];
     const id = await escribir('qué días atiende la dra sintética?');
     const imagen = await prisma.mensaje.findFirstOrThrow({ where: { conversacionId: id, tipo: 'IMAGEN' } });
@@ -440,6 +463,12 @@ describe('RESPONDER: lo que no le toca, pasa a una persona', () => {
     expect(c.automatizacionPausadaEn).not.toBeNull();
     expect((await salientes(id)).map(m => [m.contenido, m.asistente])).toEqual([[TEXTO_DERIVACION, true]]);
     expect(await turnos(id)).toMatchObject([{ resultado: 'DERIVO', categoria: 'MEDICO' }]);
+    const detalle = await http(`/conversaciones/${id}`, 'GET', usuarios.admin.token);
+    expect(detalle.status).toBe(200);
+    expect(detalle.body['atencion']).toMatchObject({
+      explicacionAsistente: 'Consulta médica: requiere respuesta del equipo clínico.',
+      origen: { tipo: 'mensaje', cuerpo: 'puedo tomar ibuprofeno después del peeling?' },
+    });
   });
 
   it('una posible urgencia sube como POSIBLE_URGENCIA (ALTA), no como EMERGENCIA', async () => {
@@ -594,6 +623,7 @@ describe('SUGERIR: prepara, no escribe', () => {
   beforeEach(() => configurarAsistente('SUGERIR'));
 
   it('queda una sugerencia en el detalle, con sus acciones; no sale nada del asistente', async () => {
+    clasificador.siguiente = { categoria: 'VENTAS', confianza: 'ALTA', solicitud: 'PROMOCION' };
     modelo.guion = [pide('enviar_promocion', { promocionId }), dice('Te comparto la promoción del control prenatal.')];
     const id = await escribir('promo del control?');
     expect((await salientes(id)).filter(m => m.asistente)).toHaveLength(0);

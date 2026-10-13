@@ -16,7 +16,7 @@ import { Clasificacion, ClasificadorMensajes, ModeloConversacional, TurnoModelo,
 import { ahoraEnLaPaz, promptDelMedico, promptDelSistema } from '../asistente/prompt-sistema';
 import { conPresentacion, debePresentarse, paraWhatsapp } from '../asistente/texto-whatsapp';
 import { TEXTO_AUDIO_NO_ENTENDIDO } from '../asistente/transcripcion';
-import { CLASIFICACION_FALLIDA, decidirTriaje } from '../asistente/triaje';
+import { CLASIFICACION_FALLIDA, decidirTriaje, solicitudDelTurno } from '../asistente/triaje';
 import { CobrosService } from '../cobros/cobros.service';
 import { orientacionDeEmergencia } from '../menu-atencion/menu-atencion';
 import { MenuAtencionService } from '../menu-atencion/menu-atencion.service';
@@ -96,13 +96,16 @@ type MensajeDeContexto = Pick<Mensaje, Exclude<keyof typeof SELECT_MENSAJE, 'int
 
 /**
  * Un mensaje como lo ve el modelo. Lo que no puede ver, lo dice. Una nota de voz
- * de la ráfaga que se contesta llega transcrita (`escuchados`); las anteriores, no.
+ * de la ráfaga llega transcrita (`escuchados`); de las anteriores reutiliza la
+ * transcripción guardada, sin volver a enviar el audio al proveedor.
  */
 export function aTurno(m: MensajeDeContexto, escuchados?: ReadonlyMap<string, string | null>): TurnoModelo | null {
   const vista = m.interaccion?.vista;
   if (vista && typeof vista === 'object' && !Array.isArray(vista) && vista['proposito'] === 'INFORMES') return null;
   const pie = m.contenido.trim().slice(0, 1000);
-  const oido = m.tipo === 'AUDIO' ? escuchados?.get(m.id) : undefined;
+  const oido = m.tipo === 'AUDIO'
+    ? (escuchados?.has(m.id) ? escuchados.get(m.id) : m.transcripcion ?? undefined)
+    : undefined;
   const texto = m.tipo === 'TEXTO' ? pie
     : m.tipo === 'IMAGEN' ? `[Imagen${pie ? `: ${pie}` : ''}]`
     : m.tipo === 'DOCUMENTO' ? `[Documento${m.mediaNombre ? ` «${m.mediaNombre}»` : ''}]`
@@ -282,7 +285,7 @@ export class AsistenteChatService implements ProgramadorAsistente, OnModuleInit,
     if (medico) return this.atenderMedico(e, medico, historial, ultimoEntrante, inicio, registrar, escucha.uso);
 
     /* 1. El filtro de entrada, antes de que el modelo escriba nada. */
-    let clasificacion: Pick<Clasificacion, 'categoria' | 'confianza'>;
+    let clasificacion: Pick<Clasificacion, 'categoria' | 'confianza' | 'solicitud'>;
     let tokensExtra: UsoModelo = { tokensEntrada: 0, tokensSalida: 0 };
     try {
       const c = await this.clasificador.clasificar({ mensaje: rafagaDeLaPaciente(historial), contexto: historial, criterio: e.asistente.criterioDerivacion });
@@ -302,14 +305,19 @@ export class AsistenteChatService implements ProgramadorAsistente, OnModuleInit,
     }
 
     /* 2. La conversación. */
+    const solicitud = solicitudDelTurno(clasificacion);
     const salida = await this.conversacion.responder({
       sistema: promptDelSistema({
         ahora: ahoraEnLaPaz(new Date(inicio)),
         nombrePaciente: conversacion.cliente.nombre,
         ventas: e.asistente.comercial,
         conocimiento: e.asistente.conocimiento,
+        solicitud,
       }),
-      contexto: { telefono: e.telefono, ventas: e.asistente.comercial ? this.puertoVentas(e) : null, informes: informesEnLinea(e.lineaId) },
+      contexto: {
+        telefono: e.telefono, ventas: e.asistente.comercial ? this.puertoVentas(e) : null, informes: informesEnLinea(e.lineaId),
+        solicitud,
+      },
       historial,
       permitirEscritura: false,
     });
@@ -629,6 +637,8 @@ export class AsistenteChatService implements ProgramadorAsistente, OnModuleInit,
           latenciaMs: Date.now() - inicio,
         },
       });
+      // El detalle de la derivación ya existe: refrescar el contexto visible a recepción.
+      if (r.resultado === 'DERIVO' || r.resultado === 'FALLO') this.gateway.emitirActividad(e.conversacionId);
     } catch (error: unknown) {
       /* El registro es para auditar; su fallo no deshace lo que ya se hizo. */
       this.logger.warn(`No se pudo registrar el turno: ${error instanceof Error ? error.message : 'falló'}`);

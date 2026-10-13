@@ -11,7 +11,7 @@
  * tiene `pasar_a_persona` y la instrucción de usarla.
  */
 import type { MotivoAtencion } from '../../prisma/prisma-client';
-import type { Categoria, Clasificacion, Confianza, TurnoModelo } from './modelo.port';
+import type { Categoria, Clasificacion, Confianza, SolicitudPaciente, TurnoModelo } from './modelo.port';
 
 export type DecisionTriaje =
   | { readonly tipo: 'CONTESTAR' }
@@ -43,6 +43,14 @@ export function decidirTriaje(c: Pick<Clasificacion, 'categoria' | 'confianza'>)
 /** Si el clasificador falla, se trata como «no sé»: lo ve una persona. */
 export const CLASIFICACION_FALLIDA = { categoria: 'OTRO', confianza: 'BAJA' } as const satisfies { categoria: Categoria; confianza: Confianza };
 
+/** Sin una intención clara, no convertir el turno en una oferta comercial. */
+export function solicitudDelTurno(c: Pick<Clasificacion, 'categoria' | 'confianza' | 'solicitud'>): SolicitudPaciente {
+  if (c.confianza !== 'ALTA') return 'ACLARAR';
+  if (c.solicitud === 'CERRAR') return 'CERRAR';
+  if (c.categoria === 'OTRO' || c.categoria === 'SALUDO') return 'ACLARAR';
+  return c.solicitud ?? 'CONSULTAR';
+}
+
 /** Lo que el clasificador recibe como instrucción. El criterio de la clínica va dentro. */
 export function instruccionClasificador(criterio: string): string {
   return [
@@ -65,6 +73,20 @@ export function instruccionClasificador(criterio: string): string {
     '- OTRO: nada de lo anterior.',
     '',
     'Confianza: ALTA si es inequívoco, MEDIA si es probable, BAJA si podría ser otra cosa.',
+    '',
+    'Solicitud actual (independiente de la categoría):',
+    '- CONSULTAR: quiere información. Preguntar precios NO significa querer comprar ni reservar.',
+    '- ACLARAR: no se entiende qué pide, falta un referente o hay varias interpretaciones no médicas. No adivines ventas.',
+    '- CERRAR: agradece, se despide o rechaza continuar, sin otra petición pendiente.',
+    '- AGENDAR: pide explícitamente una NUEVA cita. Consultar, cambiar o cancelar una cita existente no autoriza otra reserva.',
+    '- PROMOCION: pide ver o recibir una promoción, no solo saber un precio.',
+    '- PAGAR: pide pagar una promoción concreta. «Ya pagué» es CONSULTAR, no otro cobro.',
+    '- HORARIO: pide recibir el horario de un médico.',
+    'Resuelve «sí», «eso», «la otra» con la pregunta anterior. Si no hay un referente único, ACLARAR.',
+    'La última corrección o negativa prevalece sobre el interés anterior. «No quiero agendar, solo el precio» es CONSULTAR.',
+    '«Tengo una consulta» sin más es ACLARAR, no AGENDAR ni MEDICO. «No entendiste» pide aclaración, no una venta.',
+    'No arrastres síntomas de un tema ya terminado hacia un agradecimiento. Si siguen sin atenderse, conserva MEDICO/URGENCIA.',
+    'ACLARAR no reemplaza el filtro médico: si hay posibles síntomas o riesgos, sigue siendo MEDICO/URGENCIA.',
     ...(criterio.trim()
       ? ['', 'Criterio de la clínica: lo que se describe aquí es SIEMPRE MEDICO o URGENCIA, aunque parezca una venta:', criterio.trim()]
       : []),
@@ -72,7 +94,7 @@ export function instruccionClasificador(criterio: string): string {
 }
 
 /** Lo último de la conversación, en texto, para que el clasificador entienda «¿y eso duele?». */
-export function contextoParaClasificar(historial: readonly TurnoModelo[], maximo = 6): string {
+export function contextoParaClasificar(historial: readonly TurnoModelo[], maximo = 12): string {
   return historial
     .filter((t): t is Extract<TurnoModelo, { rol: 'paciente' | 'clinica' }> => t.rol === 'paciente' || t.rol === 'clinica')
     .slice(-maximo)

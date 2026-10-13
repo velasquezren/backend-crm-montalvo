@@ -259,6 +259,8 @@ export interface DatoDeFlow {
  * último mensaje—. Nada generado y ningún resumen médico.
  */
 export interface ContextoAtencion {
+  /** Explicación operativa del turno que originó la atención; sin texto libre del modelo. */
+  explicacionAsistente: string | null;
   estado: EstadoAtencion;
   motivo: MotivoAtencion;
   prioridad: PrioridadAtencion;
@@ -318,11 +320,11 @@ export async function contextoDeAtencion(
   const estado = estadoDeAtencion(c);
   if (!estado || !c.atencionSolicitadaEn || !c.atencionMotivo) return null;
 
-  const [origen, ultimo] = await Promise.all([
+  const [origen, ultimo, turno] = await Promise.all([
     c.atencionMensajeId
       ? db.mensaje.findFirst({
           where: { id: c.atencionMensajeId, conversacionId },
-          select: { id: true, createdAt: true, interaccion: { select: { vista: true } } },
+          select: { id: true, tipo: true, contenido: true, transcripcion: true, createdAt: true, interaccion: { select: { vista: true } } },
         })
       : null,
     db.mensaje.findFirst({
@@ -330,6 +332,13 @@ export async function contextoDeAtencion(
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       select: { id: true, contenido: true, createdAt: true },
     }),
+    c.atencionMensajeId && (c.atencionMotivo === 'DERIVADA_ASISTENTE' || c.atencionMotivo === 'POSIBLE_URGENCIA')
+      ? db.turnoAsistente.findFirst({
+          where: { conversacionId, mensajeId: c.atencionMensajeId, modo: 'RESPONDER', resultado: { in: ['DERIVO', 'FALLO'] }, createdAt: { gte: c.atencionSolicitadaEn } },
+          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+          select: { resultado: true, categoria: true },
+        })
+      : null,
   ]);
 
   const vista = comoObjeto(origen?.interaccion?.vista);
@@ -349,24 +358,38 @@ export async function contextoDeAtencion(
     : [];
 
   return {
+    explicacionAsistente: explicacionDeDerivacion(turno),
     estado,
     motivo: c.atencionMotivo,
     prioridad: prioridadDeMotivo(c.atencionMotivo),
     solicitadaEn: c.atencionSolicitadaEn,
     tomadaEn: c.atencionTomadaEn,
     tomadaPor: c.atencionTomadaPor,
-    origen: origen && vista
+    origen: origen
       ? {
-          tipo: texto(vista['tipo']) ?? 'error',
-          cuerpo: texto(vista['cuerpo']) ?? '',
+          tipo: texto(vista?.['tipo']) ?? (origen.tipo === 'AUDIO' ? 'audio' : 'mensaje'),
+          cuerpo: texto(vista?.['cuerpo']) ?? (origen.tipo === 'AUDIO' ? origen.transcripcion ?? 'Nota de voz sin transcripción disponible.' : origen.contenido),
           recibidoEn: origen.createdAt,
-          datos: datosDeVista(vista['datos']),
-          versionFlow: texto(vista['versionFlow']),
+          datos: datosDeVista(vista?.['datos']),
+          versionFlow: texto(vista?.['versionFlow']),
           ofrecido: vistaOferta ? { cuerpo: texto(vistaOferta['cuerpo']) ?? '', opciones } : null,
         }
       : null,
     ultimoMensaje: ultimo && ultimo.id !== origen?.id ? { contenido: ultimo.contenido, createdAt: ultimo.createdAt } : null,
   };
+}
+
+/** Categorías verificadas del registro; nunca mostramos errores del proveedor ni resúmenes inventados. */
+export function explicacionDeDerivacion(turno: { resultado: string; categoria: string | null } | null): string | null {
+  if (!turno) return null;
+  if (turno.resultado === 'FALLO') return 'El asistente no pudo completar la respuesta. Una persona debe continuar.';
+  switch (turno.categoria) {
+    case 'MEDICO': return 'Consulta médica: requiere respuesta del equipo clínico.';
+    case 'URGENCIA': return 'Posible urgencia detectada por el asistente. Revisar el mensaje con prioridad.';
+    case 'QUEJA': return 'Posible reclamo: revisar lo ocurrido antes de ofrecer servicios.';
+    case 'PERSONA': return 'Pidió hablar con una persona del equipo.';
+    default: return 'El asistente no pudo resolver la consulta con seguridad. Leer el contexto y continuar la atención.';
+  }
 }
 
 /* ── Resolución: quién, cuándo y cuánto esperó ──────────────────────── */

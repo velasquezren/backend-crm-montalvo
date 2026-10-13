@@ -63,7 +63,7 @@ describe('de la respuesta de Gemini', () => {
   });
 
   it('una clasificación fuera de la lista se rechaza (y el filtro la trata como duda)', () => {
-    expect(clasificacionDe({ categoria: 'VENTAS', confianza: 'ALTA' })).toEqual({ categoria: 'VENTAS', confianza: 'ALTA' });
+    expect(clasificacionDe({ categoria: 'VENTAS', confianza: 'ALTA' })).toEqual({ categoria: 'VENTAS', confianza: 'ALTA', solicitud: 'CONSULTAR' });
     expect(() => clasificacionDe({ categoria: 'COMPRAS', confianza: 'ALTA' })).toThrow();
     expect(() => clasificacionDe(null)).toThrow();
   });

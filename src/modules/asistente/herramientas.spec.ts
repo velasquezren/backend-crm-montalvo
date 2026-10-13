@@ -59,6 +59,28 @@ function montar(agenda: Partial<AgendaService> = {}, reservas: Partial<AgendaRes
 }
 
 describe('catálogo de herramientas del asistente', () => {
+  it('una consulta de precio permite leer datos pero no enviar cobros aunque el modelo lo intente', async () => {
+    const puerto = ventas();
+    const contexto: ContextoAsistente = { ...CONTEXTO, ventas: puerto, solicitud: 'CONSULTAR' };
+    const declaradas = herramientasDisponibles(contexto, { permitirEscritura: false }).map(h => h.nombre);
+    expect(declaradas).toContain('ver_promocion');
+    expect(declaradas).not.toContain('enviar_promocion');
+    expect(declaradas).not.toContain('enviar_horario');
+    expect(await montar().ejecutar('enviar_promocion', { promocionId: 'p1' }, contexto, { permitirEscritura: false })).toMatchObject({ ok: false });
+    expect(puerto.promocion).not.toHaveBeenCalled();
+  });
+
+  it.each(['ACLARAR', 'CERRAR'] as const)('%s solo permite pasar a una persona; no catálogos ni agenda', async solicitud => {
+    const contexto: ContextoAsistente = { ...CONTEXTO, ventas: ventas(), solicitud, informes: true };
+    expect(herramientasDisponibles(contexto, { permitirEscritura: false }).map(h => h.nombre)).toEqual(['pasar_a_persona']);
+    expect(await montar().ejecutar('horas_libres', { medicoId: '7', fecha: '2026-10-14' }, contexto, { permitirEscritura: false })).toMatchObject({ ok: false });
+  });
+
+  it('una petición de pago sí habilita la tarjeta y nunca habilita reservar', () => {
+    const declaradas = herramientasDisponibles({ ...CONTEXTO, ventas: ventas(), solicitud: 'PAGAR' }, { permitirEscritura: false }).map(h => h.nombre);
+    expect(declaradas).toContain('enviar_promocion');
+    expect(declaradas).not.toContain('reservar');
+  });
   it('cada declaración lleva nombre, descripción y esquema, y los requeridos existen como propiedades', () => {
     expect(HERRAMIENTAS.length).toBeGreaterThan(0);
     for (const h of HERRAMIENTAS) {
@@ -190,7 +212,7 @@ describe('qué herramientas tiene a mano', () => {
     expect(sinVentas).not.toContain('reservar');
     expect(sinVentas).not.toContain('enviar_promocion');
     expect(sinVentas).toContain('pasar_a_persona');
-    const conVentas = herramientasDisponibles({ ...CONTEXTO, ventas: ventas() }, { permitirEscritura: false }).map(h => h.nombre);
+    const conVentas = herramientasDisponibles({ ...CONTEXTO, ventas: ventas(), solicitud: 'PROMOCION' }, { permitirEscritura: false }).map(h => h.nombre);
     expect(conVentas).toEqual(expect.arrayContaining(['listar_promociones', 'enviar_promocion', 'estado_de_pago']));
   });
 
@@ -200,7 +222,7 @@ describe('qué herramientas tiene a mano', () => {
 });
 
 describe('las herramientas de ventas', () => {
-  const conVentas = (p: Partial<PuertoVentas> = {}): ContextoAsistente => ({ ...CONTEXTO, ventas: ventas(p) });
+  const conVentas = (p: Partial<PuertoVentas> = {}): ContextoAsistente => ({ ...CONTEXTO, ventas: ventas(p), solicitud: 'PROMOCION' });
 
   it('fuera de una línea comercial se rechazan aunque el modelo las pida', async () => {
     const r = await montar().ejecutar('listar_promociones', {}, CONTEXTO, { permitirEscritura: false });
@@ -271,13 +293,13 @@ describe('agenda y derivación', () => {
   });
 
   it('enviar_horario deja la acción con el horario en texto (el pie de la imagen)', async () => {
-    const r = await montar({ medico: jest.fn().mockResolvedValue(medico) }).ejecutar('enviar_horario', { medicoId: '7' }, CONTEXTO, { permitirEscritura: false });
+    const r = await montar({ medico: jest.fn().mockResolvedValue(medico) }).ejecutar('enviar_horario', { medicoId: '7' }, { ...CONTEXTO, solicitud: 'HORARIO' }, { permitirEscritura: false });
     expect(r).toMatchObject({ ok: true, accion: { tipo: 'HORARIO', medicoId: 7, nombre: 'Dra. Ana Rojas', horario: 'Martes: entre 10:00 y 12:00' } });
   });
 
   it('un médico sin horario fijo no tiene imagen: atiende a solicitud', async () => {
     const sinHorario = { ...medico, medico: { ...medico.medico, horarioInformativo: null } };
-    const r = await montar({ medico: jest.fn().mockResolvedValue(sinHorario) }).ejecutar('enviar_horario', { medicoId: '7' }, CONTEXTO, { permitirEscritura: false });
+    const r = await montar({ medico: jest.fn().mockResolvedValue(sinHorario) }).ejecutar('enviar_horario', { medicoId: '7' }, { ...CONTEXTO, solicitud: 'HORARIO' }, { permitirEscritura: false });
     expect(r.ok).toBe(false);
   });
 

@@ -140,6 +140,11 @@ describe('EscuchaAudiosService', () => {
 describe('aTurno con notas de voz', () => {
   const audio = { id: 'a1', direccion: 'ENTRANTE' as const, tipo: 'AUDIO' as const, contenido: '', mediaNombre: null, transcripcion: null, automatico: false, createdAt: new Date() };
   const textoDe = (t: TurnoModelo | null) => (t && 'texto' in t ? t.texto : null);
+  it('recupera la transcripción guardada de un audio anterior aunque ya no forme parte de la ráfaga', () => {
+    const anterior = { ...audio, transcripcion: 'Quiero consultar con la doctora el jueves.' };
+    expect(textoDe(aTurno(anterior, new Map()))).toContain('la doctora el jueves');
+    expect(textoDe(aTurno(anterior, new Map([['a1', null]])))).toBe('[Nota de voz: no se pudo escuchar]');
+  });
   it('transcrita, el modelo la lee como lo que ella dijo, y entra en la ráfaga que filtra el triaje', () => {
     const t = aTurno(audio, new Map([['a1', 'me duele la panza desde ayer']]));
     expect(t).toEqual({ rol: 'paciente', texto: '[Nota de voz, transcrita] me duele la panza desde ayer' });

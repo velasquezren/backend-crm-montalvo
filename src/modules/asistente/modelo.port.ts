@@ -79,9 +79,14 @@ export type Categoria = (typeof CATEGORIAS)[number];
 export const CONFIANZAS = ['ALTA', 'MEDIA', 'BAJA'] as const;
 export type Confianza = (typeof CONFIANZAS)[number];
 
+/** La petición actual, separada del tema: preguntar un precio no autoriza a cobrar. */
+export const SOLICITUDES = ['CONSULTAR', 'ACLARAR', 'CERRAR', 'AGENDAR', 'PROMOCION', 'PAGAR', 'HORARIO'] as const;
+export type SolicitudPaciente = (typeof SOLICITUDES)[number];
+
 export interface Clasificacion {
   readonly categoria: Categoria;
   readonly confianza: Confianza;
+  readonly solicitud?: SolicitudPaciente;
   readonly uso: UsoModelo;
 }
 

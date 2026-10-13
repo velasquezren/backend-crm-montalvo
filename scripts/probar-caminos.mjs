@@ -37,7 +37,7 @@ const { ConfiguracionIA, ClienteVertex, ModeloVertex, ClasificadorVertex, Transc
 const { ConversacionAsistente } = dist('asistente/conversacion-asistente');
 const { HerramientasAsistenteService } = dist('asistente/herramientas');
 const { promptDelSistema, promptDelMedico, ahoraEnLaPaz } = dist('asistente/prompt-sistema');
-const { decidirTriaje } = dist('asistente/triaje');
+const { decidirTriaje, solicitudDelTurno } = dist('asistente/triaje');
 const { armarAgendaDelDia } = dist('agenda/agenda-medico-citas');
 const { RUTA_AUDIO_DE_PRUEBA } = dist('asistente/prueba-conexion');
 const { aTurno } = dist('conversaciones/asistente-chat.service');
@@ -94,7 +94,7 @@ const esperar = ms => new Promise(listo => setTimeout(listo, ms));
 const PAUSA_MS = Number(process.env.CAMINOS_PAUSA_MS ?? 15_000);
 
 /* ── Un turno, en el orden de `AsistenteChatService.atender` ─────────── */
-async function turno({ texto, audio, medico = false }) {
+async function turno({ texto, audio, medico = false, anteriores = [] }) {
   const inicio = Date.now();
   const llamadas = [];
   const fechasAgenda = [];
@@ -112,12 +112,14 @@ async function turno({ texto, audio, medico = false }) {
     if (!transcripcion) return { ms: Date.now() - inicio, transcripcion: null, llamadas, fechasAgenda };
   }
   const mensaje = { id: 'm1', direccion: 'ENTRANTE', tipo: audio ? 'AUDIO' : 'TEXTO', contenido: audio ? '' : texto, mediaNombre: null, transcripcion: null, automatico: false, createdAt: new Date() };
-  const historial = [aTurno(mensaje, new Map(audio ? [['m1', transcripcion]] : []))];
+  const historial = [...anteriores, aTurno(mensaje, new Map(audio ? [['m1', transcripcion]] : []))];
 
   let categoria = null;
+  let solicitud = 'CONSULTAR';
   if (!medico) {
-    const c = await clasificador.clasificar({ mensaje: historial[0].texto, contexto: historial, criterio: CRITERIO });
+    const c = await clasificador.clasificar({ mensaje: historial.at(-1).texto, contexto: historial, criterio: CRITERIO });
     categoria = `${c.categoria}/${c.confianza}`;
+    solicitud = solicitudDelTurno(c);
     const triaje = decidirTriaje(c);
     if (triaje.tipo === 'DERIVAR') return { ms: Date.now() - inicio, categoria, derivo: 'TRIAJE', transcripcion, llamadas, fechasAgenda };
   }
@@ -125,9 +127,9 @@ async function turno({ texto, audio, medico = false }) {
   const salida = await bucle.responder({
     sistema: medico
       ? promptDelMedico({ ahora, medico: MEDICO.nombre, conocimiento: CONOCIMIENTO, ventas: true })
-      : promptDelSistema({ ahora, nombrePaciente: 'Paciente Sintética', ventas: true, conocimiento: CONOCIMIENTO }),
+      : promptDelSistema({ ahora, nombrePaciente: 'Paciente Sintética', ventas: true, conocimiento: CONOCIMIENTO, solicitud }),
     contexto: {
-      telefono: '+59170000000', ventas,
+      telefono: '+59170000000', ventas, solicitud,
       ...(medico ? { medico: { nombre: MEDICO.nombre, agendaDelDia: async fecha => { fechasAgenda.push(fecha); return armarAgendaDelDia(fecha, [{ hora: '09:00', paciente: 'Paciente Uno' }], [{ hora: '11:00', paciente: 'Paciente Dos', estado: 'PENDIENTE' }]); } } } : {}),
     },
     historial,
@@ -145,8 +147,24 @@ const usoAlgo = r => r.llamadas.length > 0;
 const derivado = r => !!r.derivo;
 const NO = (cond, motivo) => (cond ? motivo : null);
 const CUENTA_BANCARIA = /\b\d{6,}\b|cuenta (bancaria|n[°º]|número)|n[úu]mero de cuenta/i;
+const invitaAComprar = r => /(?:quieres|gustar[ií]a|deseas|puedo ayudarte a|te ayudo a).{0,35}(?:agendar|reservar|pagar|promoci[oó]n)|(?:agendamos|reservamos)\s*\?/i.test(r.texto ?? '');
+const comercialNoPedido = r => usa(r, 'enviar_promocion') || usa(r, 'enviar_horario') || invitaAComprar(r);
+// «Dime sobre qué es tu consulta» también aclara: no exigir un signo de interrogación.
+const pideAclaracion = r => /[?¿]|(?:dime|cu[eé]ntame|ind[ií]came|aclar[aá]me).{0,80}(?:consulta|refieres|qu[eé]|cu[aá]l|necesitas)/i.test(r.texto ?? '');
 
 const CASOS = [
+  { nombre: 'contexto · consulta sin especificar', turno: { texto: 'Tengo una consulta' },
+    espera: r => NO(comercialNoPedido(r), 'convirtió una duda en venta o reserva') ?? NO(!derivado(r) && !pideAclaracion(r), 'no pidió aclaración') },
+  { nombre: 'contexto · rechazo de reserva, solo precio', turno: { texto: 'No quiero agendar ni pagar, solo dime cuánto cuesta el control prenatal', anteriores: [{ rol: 'clinica', texto: '¿Quieres que te ayude a agendar?' }] },
+    espera: r => NO(comercialNoPedido(r), 'insistió después de la negativa') ?? NO(!/280/.test(r.texto ?? ''), 'no respondió el precio consultado') },
+  { nombre: 'contexto · agradecimiento después de resolver', turno: { texto: 'Muchas gracias, eso era todo', anteriores: [{ rol: 'paciente', texto: '¿Qué días atiende la doctora Ana Sintética?' }, { rol: 'clinica', texto: 'Atiende martes y jueves de 10 a 12.' }] },
+    espera: r => NO(derivado(r), 'derivó un agradecimiento resuelto') ?? NO(comercialNoPedido(r) || usoAlgo(r), 'reabrió el tema o consultó herramientas sin petición') },
+  { nombre: 'contexto · referente ambiguo', turno: { texto: 'Sí, esa', anteriores: [{ rol: 'clinica', texto: '¿Preguntas por ginecología o dermatología?' }] },
+    espera: r => NO(comercialNoPedido(r), 'vendió sin saber a qué se refiere') ?? NO(!derivado(r) && (!pideAclaracion(r) || usoAlgo(r)), 'adivinó en vez de aclarar') },
+  { nombre: 'contexto · corregir cita existente', turno: { texto: 'Ya tengo cita. Solo necesito cambiar la hora, no reservar otra.' },
+    espera: r => NO(!derivado(r), 'no derivó una modificación que no puede ejecutar') ?? NO(comercialNoPedido(r), 'ofreció otra reserva') },
+  { nombre: 'contexto · médico mencionado antes', turno: { texto: '¿Qué días atiende ella?', anteriores: [{ rol: 'paciente', texto: 'Quisiera información sobre la doctora Ana Sintética.' }, { rol: 'clinica', texto: '¿Qué información necesitas de la doctora Ana Sintética?' }] },
+    espera: r => NO(derivado(r), 'perdió el referente del historial') ?? NO(!usoAlgo(r) || !/martes|jueves/i.test(r.texto ?? ''), 'no consultó el horario de la médica indicada') ?? NO(invitaAComprar(r), 'añadió una reserva que no se pidió') },
   /* Paciente: lo comercial e informativo se contesta, con datos de herramientas. */
   { nombre: 'paciente · saludo', turno: { texto: 'hola buenas tardes' },
     espera: r => NO(derivado(r), 'un saludo no se deriva') ?? NO(!r.texto, 'no contestó') },

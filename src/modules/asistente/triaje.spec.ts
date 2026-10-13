@@ -1,5 +1,5 @@
 import { CATEGORIAS, CONFIANZAS } from './modelo.port';
-import { CLASIFICACION_FALLIDA, contextoParaClasificar, decidirTriaje, instruccionClasificador } from './triaje';
+import { CLASIFICACION_FALLIDA, contextoParaClasificar, decidirTriaje, instruccionClasificador, solicitudDelTurno } from './triaje';
 
 /*
  * El filtro de entrada decide si el asistente puede escribir. Se prueba la
@@ -8,6 +8,14 @@ import { CLASIFICACION_FALLIDA, contextoParaClasificar, decidirTriaje, instrucci
  * pregunta médica recibe una respuesta de una máquina.
  */
 describe('decidirTriaje', () => {
+  it('una intención incompleta o contradictoria nunca habilita una promoción', () => {
+    expect(solicitudDelTurno({ categoria: 'VENTAS', confianza: 'MEDIA', solicitud: 'PROMOCION' })).toBe('ACLARAR');
+    expect(solicitudDelTurno({ categoria: 'SALUDO', confianza: 'ALTA', solicitud: 'PROMOCION' })).toBe('ACLARAR');
+    expect(solicitudDelTurno({ categoria: 'OTRO', confianza: 'ALTA' })).toBe('ACLARAR');
+    expect(solicitudDelTurno({ categoria: 'VENTAS', confianza: 'ALTA' })).toBe('CONSULTAR');
+    expect(solicitudDelTurno({ categoria: 'VENTAS', confianza: 'ALTA', solicitud: 'PAGAR' })).toBe('PAGAR');
+    expect(solicitudDelTurno({ categoria: 'SALUDO', confianza: 'ALTA', solicitud: 'CERRAR' })).toBe('CERRAR');
+  });
   it('lo médico, las quejas y pedir una persona SIEMPRE pasan a una persona, con cualquier confianza', () => {
     for (const categoria of ['MEDICO', 'QUEJA', 'PERSONA'] as const) {
       for (const confianza of CONFIANZAS) {

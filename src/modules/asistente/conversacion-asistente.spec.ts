@@ -33,7 +33,7 @@ const pide = (...llamadas: { nombre: string; argumentos?: Record<string, unknown
 const dice = (texto: string): RespuestaModelo => ({ tipo: 'texto', texto, uso: USO });
 
 const VENTAS = {} as PuertoVentas;
-const CONTEXTO: ContextoAsistente = { telefono: '+59170012345', ventas: VENTAS };
+const CONTEXTO: ContextoAsistente = { telefono: '+59170012345', ventas: VENTAS, solicitud: 'PROMOCION' };
 const PETICION = { sistema: 'eres el asistente', contexto: CONTEXTO, historial: [{ rol: 'paciente' as const, texto: 'hola' }], permitirEscritura: false };
 
 function montar(guion: (RespuestaModelo | Error)[], ejecutar = jest.fn().mockResolvedValue({ ok: true, datos: [] })) {
@@ -47,6 +47,16 @@ function montar(guion: (RespuestaModelo | Error)[], ejecutar = jest.fn().mockRes
 const nombres = (h: readonly DeclaracionHerramienta[]) => h.map(d => d.name);
 
 describe('el bucle del asistente', () => {
+  it('al derivar termina de inmediato y descarta ofertas previas o posteriores en el mismo lote', async () => {
+    const derivar = { tipo: 'DERIVAR', motivo: 'PERSONA', resumen: 'Pidió recepción.' };
+    const ejecutar = jest.fn()
+      .mockResolvedValueOnce({ ok: true, datos: '', accion: { tipo: 'PROMOCION', promocionId: 'p1', titulo: 'Prueba' } })
+      .mockResolvedValueOnce({ ok: true, datos: '', accion: derivar });
+    const { bucle, modelo } = montar([pide({ nombre: 'enviar_promocion' }, { nombre: 'pasar_a_persona' }, { nombre: 'enviar_promocion' }), dice('¿Agendamos?')], ejecutar);
+    expect(await bucle.responder(PETICION)).toMatchObject({ tipo: 'terminado', texto: null, acciones: [derivar] });
+    expect(ejecutar).toHaveBeenCalledTimes(2);
+    expect(modelo.entradas).toHaveLength(1);
+  });
   it('un texto en la primera vuelta se devuelve recortado, con su consumo', async () => {
     const { bucle } = montar([dice('  Atiende martes y jueves.  ')]);
     const r = await bucle.responder(PETICION);

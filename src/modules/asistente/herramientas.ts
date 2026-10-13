@@ -42,7 +42,7 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import type { AgendaDelDia } from '../agenda/agenda-medico-citas';
 import { AgendaReservasService } from '../agenda/agenda-reservas.service';
 import { AgendaService } from '../agenda/agenda.service';
-import type { DeclaracionHerramienta } from './modelo.port';
+import type { DeclaracionHerramienta, SolicitudPaciente } from './modelo.port';
 
 /** Una propiedad del esquema de parámetros (JSON Schema). */
 interface PropiedadEsquema {
@@ -148,6 +148,8 @@ export interface PuertoMedico {
  * modelo sería darle la posibilidad de reservar a nombre de otro número.
  */
 export interface ContextoAsistente {
+  /** Decisión del filtro de entrada, nunca un argumento elegido por el modelo que conversa. */
+  readonly solicitud?: SolicitudPaciente;
   readonly informes?: boolean;
   readonly telefono: string;
   /** `null` en una línea que no es comercial: no hay promociones ni pagos. */
@@ -405,8 +407,19 @@ export function herramientasDisponibles(contexto: ContextoAsistente, { permitirE
     (h.efecto !== 'escritura' || permitirEscritura)
     && (!h.soloVentas || contexto.ventas !== null)
     && (!h.soloInformes || contexto.informes === true)
+    && permitidaPorSolicitud(h, contexto)
     /* Con un médico al otro lado: su agenda, lo informativo de la clínica y la salida a una persona. */
     && (medico ? h.soloMedico === true || h.informativa === true || h.efecto === 'derivar' : !h.soloMedico));
+}
+
+/** Una pregunta informativa no autoriza tarjetas de cobro. La ambigüedad no abre catálogos. */
+function permitidaPorSolicitud(h: Herramienta, contexto: ContextoAsistente): boolean {
+  if (contexto.medico) return true;
+  const solicitud = contexto.solicitud ?? 'CONSULTAR';
+  if (solicitud === 'ACLARAR' || solicitud === 'CERRAR') return h.efecto === 'derivar';
+  if (h.nombre === 'enviar_promocion') return solicitud === 'PROMOCION' || solicitud === 'PAGAR';
+  if (h.nombre === 'enviar_horario') return solicitud === 'HORARIO';
+  return true;
 }
 
 /** Las declaraciones tal como las espera `tools: [{ functionDeclarations }]`. */
@@ -480,6 +493,9 @@ export class HerramientasAsistenteService {
   ): Promise<ResultadoHerramienta> {
     const h = HERRAMIENTAS.find(x => x.nombre === nombre);
     if (!h) return { ok: false, motivo: `No existe la herramienta «${nombre}».` };
+    if (!permitidaPorSolicitud(h, contexto)) {
+      return { ok: false, motivo: 'La petición actual no autoriza esta acción. Responde su pregunta o pide una aclaración; no ofrezcas una venta ni una cita.' };
+    }
     if (h.soloInformes && !contexto.informes) return { ok: false, motivo: 'Autoconsulta no habilitada en esta línea.' };
     if (h.efecto === 'escritura' && !opciones.permitirEscritura) {
       return { ok: false, motivo: `«${nombre}» cambia datos y está desactivada: pásale la conversación a una persona.` };

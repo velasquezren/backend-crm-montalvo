@@ -101,6 +101,10 @@ export class ConversacionAsistente {
         const resultado = await this.ejecutar(llamada, p, acciones);
         usadas.push({ nombre: llamada.nombre, ok: resultado.ok });
         if (resultado.ok && resultado.accion) agregarAccion(acciones, resultado.accion);
+        if (resultado.ok && resultado.accion?.tipo === 'DERIVAR') {
+          // La persona continúa. Ni otra vuelta del modelo ni tarjetas pendientes después del traspaso.
+          return { tipo: 'terminado', texto: null, acciones: [resultado.accion], traza: traza(vuelta) };
+        }
         /* Vuelve al modelo TAL CUAL, acierto o error, sin la acción interna. */
         resultados.push({ ...llamada, resultado: resultado.ok ? { ok: true, datos: resultado.datos } : resultado });
       }

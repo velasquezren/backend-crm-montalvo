@@ -29,7 +29,7 @@ import { existsSync } from 'node:fs';
 import { datosComprobanteDe, ESQUEMA_COMPROBANTE, INSTRUCCION_COMPROBANTE } from '../comprobante';
 import { INSTRUCCION_TRANSCRIPCION, limpiarTranscripcion, mimeDeAudio } from '../transcripcion';
 import {
-  CATEGORIAS, Clasificacion, ClasificadorMensajes, CONFIANZAS, DatosComprobante, DeclaracionHerramienta, LectorComprobantes,
+  CATEGORIAS, Clasificacion, ClasificadorMensajes, CONFIANZAS, SOLICITUDES, DatosComprobante, DeclaracionHerramienta, LectorComprobantes,
   ModeloConversacional, RespuestaModelo, TranscriptorAudio, TurnoModelo, UsoModelo,
 } from '../modelo.port';
 import { contextoParaClasificar, instruccionClasificador } from '../triaje';
@@ -166,8 +166,8 @@ export class ClasificadorVertex extends ClasificadorMensajes {
         responseMimeType: 'application/json',
         responseJsonSchema: {
           type: 'object',
-          properties: { categoria: { type: 'string', enum: [...CATEGORIAS] }, confianza: { type: 'string', enum: [...CONFIANZAS] } },
-          required: ['categoria', 'confianza'],
+          properties: { categoria: { type: 'string', enum: [...CATEGORIAS] }, confianza: { type: 'string', enum: [...CONFIANZAS] }, solicitud: { type: 'string', enum: [...SOLICITUDES] } },
+          required: ['categoria', 'confianza', 'solicitud'],
         },
         thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
         maxOutputTokens: 256,
@@ -179,12 +179,13 @@ export class ClasificadorVertex extends ClasificadorMensajes {
 }
 
 /** Valida la clasificación; lanza si no tiene la forma pedida (y entonces se trata como «no sé»). */
-export function clasificacionDe(valor: unknown): Pick<Clasificacion, 'categoria' | 'confianza'> {
+export function clasificacionDe(valor: unknown): Pick<Clasificacion, 'categoria' | 'confianza' | 'solicitud'> {
   const o = (valor ?? {}) as Record<string, unknown>;
   const categoria = CATEGORIAS.find(c => c === o['categoria']);
   const confianza = CONFIANZAS.find(c => c === o['confianza']);
   if (!categoria || !confianza) throw new Error('La clasificación no tiene la forma pedida.');
-  return { categoria, confianza };
+  const solicitud = SOLICITUDES.find(s => s === o['solicitud']) ?? 'CONSULTAR';
+  return { categoria, confianza, solicitud };
 }
 
 @Injectable()

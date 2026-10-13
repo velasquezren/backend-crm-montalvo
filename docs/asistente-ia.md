@@ -1,5 +1,33 @@
 # El asistente de IA (Gemini en Vertex)
 
+## Contexto y atención sin presión comercial (13/10/2026)
+
+La clasificación incluye `solicitud`: CONSULTAR, ACLARAR, CERRAR, AGENDAR,
+PROMOCION, PAGAR u HORARIO. La categoría médica y su prioridad se evalúan
+primero; no las rebaja una intención comercial. Solo una petición clara permite
+`enviar_promocion` o `enviar_horario`; el despachador vuelve a comprobarla aunque
+el modelo intente una herramienta no declarada. Sin el campo, se permite
+CONSULTAR, nunca cobros. ACLARAR y CERRAR solo conservan `pasar_a_persona`.
+
+La redacción usa el historial y la última corrección, sin pedir otra vez lo que
+ya se sabe ni ofrecer agendar al final de cada respuesta. Una petición ambigua
+se aclara; si persiste la confusión se deriva. Derivar termina el bucle y anula
+los envíos acumulados. Las dudas del filtro médico siguen derivándose siempre.
+Las transcripciones guardadas de audios previos forman parte del contexto.
+
+El detalle de atención añade `explicacionAsistente` y un `origen` textual o de
+audio además del interactivo. Lee el turno del mensaje de origen, limitado al
+mismo chat y a la solicitud viva. La explicación es un texto operativo fijo;
+no publica errores técnicos ni el resumen libre de un modelo. Realtime avisa
+también cuando se termina de guardar ese turno. El frontend conserva una
+explicación genérica si el backend anterior aún no tiene el campo.
+
+Verificación reproducible con conversaciones ficticias:
+`npm run asistente:caminos -- contexto`. Requiere configuración del proveedor;
+no usa pacientes, base de datos ni WhatsApp. Las pruebas de integración
+comprueban además el bloqueo ante un modelo que insiste en enviar una tarjeta.
+
+
 Estado al 10/10/2026: **construido, probado y desplegable apagado.** Solo falta
 conectar la cuenta de Google Cloud (paso a paso más abajo) y encenderlo por línea
 desde el CRM. Sin esas credenciales, nada llama a Google y cada línea funciona

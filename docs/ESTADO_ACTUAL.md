@@ -2,6 +2,38 @@
 
 > **Revisión del 10/10/2026, módulo por módulo (sin Comisiones ni Finanzas):** [REVISION_2026-10-10.md](REVISION_2026-10-10.md). La API está sana; la lista de mejoras por impacto está ahí.
 
+## 13 de octubre de 2026 · IA contextual y motivos de atención · VALIDADO, PENDIENTE DE PUBLICAR
+
+- El clasificador separa el tema de la petición actual (`solicitud`). Preguntar
+  un precio permite consultar datos, pero no mandar tarjetas de cobro. Pedir
+  aclaración o cerrar la charla deja únicamente la salida a una persona;
+  una intención comercial incierta tampoco abre promociones ni horarios.
+- El prompt prioriza la última corrección, resuelve referencias con el historial,
+  pide una aclaración concreta y deja de invitar a reservar por defecto. Si la
+  duda persiste, pide traspaso. El filtro médico y las pausas se conservan.
+- El clasificador recibe hasta 12 mensajes de contexto (antes 6); la conversación
+  mantiene el límite de 30 mensajes de las últimas 24 horas. Audios anteriores
+  reutilizan su transcripción guardada. No se amplía acceso a informes clínicos.
+- Derivar termina inmediatamente el turno y descarta todas las tarjetas pendientes.
+  No se necesita otra llamada al modelo para despedirse.
+- Atención muestra el mensaje que originó la solicitud (también audio transcrito)
+  y una explicación fija del motivo: consulta médica, posible urgencia, reclamo,
+  petición de persona o fallo. La explicación usa el turno de ese mensaje en ese
+  chat; no muestra errores del proveedor ni resúmenes clínicos generados.
+- Frontend distingue atención humana de urgencias y explica cuándo resolverla.
+  No afirma que una solicitud carezca de reserva sin comprobarlo; dirige a
+  «Próximas reservas». La pausa ya no afirma que el paciente pidió una persona
+  cuando pudo deberse a una derivación técnica.
+- Sin migraciones, dependencias nuevas ni cambios de configuración o menús.
+  Builds y tipos de ambos repos aprobados; 168 unitarias backend, 90 integraciones
+  distintas de asistente/atención (incluidos dos escenarios nuevos) y 15 pruebas UI.
+- Evaluación en copia temporal aislada del VPS con Vertex, modelo configurado
+  `gemini-3.8-flash`: seis escenarios ficticios verificados. Cinco pasaron de
+  inicio; «dime en qué te puedo ayudar» fue un falso negativo del evaluador por
+  exigir `?`. Corregido el evaluador, el caso repetido pasó. Sin base de datos,
+  WhatsApp ni datos de pacientes en esa evaluación. No garantiza determinismo
+  del modelo: el bloqueo de herramientas sí se comprueba sin depender de él.
+
 ## 13 de octubre de 2026 · Mis informes por WhatsApp · DESPLEGADO EN PRUEBA Y RECEPCIÓN
 
 René autorizó habilitarlo también en Recepción y desplegarlo. Publicado a las
