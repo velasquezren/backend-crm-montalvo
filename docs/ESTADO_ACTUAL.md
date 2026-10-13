@@ -2,7 +2,40 @@
 
 > **Revisión del 10/10/2026, módulo por módulo (sin Comisiones ni Finanzas):** [REVISION_2026-10-10.md](REVISION_2026-10-10.md). La API está sana; la lista de mejoras por impacto está ahí.
 
-## 13 de octubre de 2026 · Mis informes por WhatsApp · LOCAL, APAGADO, SIN DESPLEGAR
+## 13 de octubre de 2026 · Mis informes por WhatsApp · DESPLEGADO EN PRUEBA Y RECEPCIÓN
+
+René autorizó habilitarlo también en Recepción y desplegarlo. Publicado a las
+13:48 (La Paz): CRM `ed7f204`, API Resultados `1604ded`, release
+`/opt/montalvo-resultados/releases/20261013-informes-whatsapp-1604ded`.
+
+- `RESULTADOS_AUTOSERVICIO_LINEAS`: únicamente prueba y Recepción;
+  `CRM_AUTOSERVICIO_INFORMES=on` en Resultados. Recepción conserva su menú
+  general apagado: «quiero mi informe» funciona por texto. La IA existente
+  también puede abrir la lista; no lee los documentos ni decide la identidad.
+- Teléfono vinculado a PAC: lista y selección explícita del PDF. Sin PAC:
+  pide número de carnet, sin foto, y deriva a recepción con automatización
+  pausada. Recibir el carnet no vincula fichas ni autoriza automáticamente un
+  informe ajeno. Errores del portal no vuelven a pedir datos de identidad.
+- Respaldo previo verificado: `/root/backup-informes-20261013-174423` con
+  sufijos `-crm.sql.gz`, `-resultados.sql.gz`, `-crm-dist.tar.gz`, `-crm.env`,
+  `-resultados.env` y `-release-anterior.txt`. No hay migraciones nuevas;
+  Resultados comprobó sus siete migraciones aplicadas. El portal conserva su
+  versión anterior mediante enlace al subdirectorio `portal` del release previo.
+- Una primera verificación consultó por error `/resultados` (404) y activó la
+  restauración automática. Se corrigió a `/resultados/pendientes` (401 sin
+  sesión), se recompiló CRM y la segunda activación pasó completamente.
+- Comprobación real: health y base de ambos servicios OK; login inválido 400;
+  cola protegida 401; portal 200; API privada con credencial del CRM reconoce
+  el PAC sintético inexistente con 404 `IDENTIDAD_NO_RESUELTA`, y sin credencial
+  responde 401. Cuatro servicios activos y cero reinicios inesperados.
+- Validación: build y tipos CRM, 61 unitarias de informes/herramientas/menú y
+  20 integraciones de informes; Resultados build, 22 unitarias y 54 integraciones
+  con base propia descartable. Incluyen texto con menú apagado, carnet sin
+  entrega automática, identidad, retiro, vencimiento y duplicados.
+  Meta se simuló: no se enviaron PDFs reales ni mensajes de prueba a pacientes.
+  PostgreSQL temporal de Resultados detenido; `crm_test` existente conservada.
+
+### Implementación inicial de la autoconsulta
 
 Menú o petición textual → lista del paciente → elección explícita → PDF original.
 La IA existente solo puede abrir esa lista; no recibe su contenido. Alcance por
@@ -10,7 +43,8 @@ PAC exacto y teléfono de la conversación, oferta cifrada de 15 minutos, misma
 ingesta y despachador, sin duplicar PDFs en R2 ni crear tablas. API privada nueva
 en Resultados, también apagada. Las garantías y las limitaciones de teléfonos
 compartidos están en [informes-por-whatsapp](informes-por-whatsapp.md).
-No se modificaron servidores, números, webhooks ni menús guardados.
+En la implementación inicial no se modificaron servidores, números, webhooks ni
+menús guardados; la activación posterior está descrita arriba.
 Validación local: CRM 1.165 unitarias + 18 de integración; Angular 765;
 Resultados 22 unitarias + 54 de integración. Builds y tipos aprobados.
 

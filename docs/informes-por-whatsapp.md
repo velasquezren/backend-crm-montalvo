@@ -1,6 +1,6 @@
 # Mis informes por WhatsApp
 
-Estado: implementación local, apagada por defecto. Sin despliegue, sin envíos reales y sin cambios de esquema propios de esta función. Conserva los cambios de IA, notas de voz, promociones y agenda que estaban en el árbol de trabajo.
+Estado: desplegado el 13/10/2026 en las líneas de prueba y Recepción, por petición de René. CRM `ed7f204`, API Resultados `1604ded`. Apagado por defecto en otras instalaciones. Sin envíos reales de prueba ni cambios de esquema propios de esta función. Respaldos y comprobaciones en [ESTADO_ACTUAL](ESTADO_ACTUAL.md).
 
 ## Decisión: menú primero, IA como entrada opcional
 
@@ -55,13 +55,13 @@ El documento nace FALLIDO, con `clientMessageId` estable y trabajo pendiente. Un
 
 Un fallo de identidad, retirada, fuente o subida no entrega el documento y deja revisión humana. Un resultado incierto queda visible en el historial y no se reenvía. Para una nueva entrega se necesita una nueva selección válida; no se reutiliza indefinidamente una intención médica antigua. La consulta vacía informa de que no hay informes vigentes, sin decir que el paciente no tiene estudios.
 
-## Configuración y activación pendiente
+## Configuración y activación
 
 En el CRM, `RESULTADOS_AUTOSERVICIO_LINEAS` contiene exclusivamente IDs explícitos de líneas permitidas, separados por coma. Vacío/ausente no habilita ninguna; `todas` no es un comodín. Además deben estar habilitadas las interacciones existentes en esa línea y la línea debe estar activa. En Resultados, `CRM_AUTOSERVICIO_INFORMES=on` habilita exclusivamente las dos rutas nuevas. El ejemplo queda en `off`.
 
-No se cambiaron variables del servidor, números, WABAs, menús guardados, modelos de IA ni webhooks. La nueva opción se puede configurar desde el editor de menús, pero guardarla no habilita por sí sola la entrega clínica. Las promociones continúan restringidas a ventas.
+En producción se habilitaron exclusivamente prueba y Recepción en la lista del CRM, y la API privada en Resultados. No se cambiaron números, WABAs, menús guardados, modelos de IA ni webhooks. El menú de Recepción sigue apagado; se pueden pedir informes por texto. La nueva opción se puede configurar desde el editor de menús, pero guardarla no habilita por sí sola la entrega clínica. Las promociones continúan restringidas a ventas.
 
-Antes de producción: revisar las fichas y la política de teléfonos compartidos; desplegar las versiones compatibles de ambos backends y Angular; verificar la credencial privada y conectividad existentes; habilitar ambos permisos solo para la línea de prueba; añadir «Mis informes» en su menú y recorrerlo con informes sintéticos. El envío real de un PDF sintético a un número de prueba y cualquier habilitación en recepción necesitan autorización explícita. Esta entrega no los ejecutó.
+La activación fue autorizada expresamente para prueba y Recepción. Se verificaron la credencial privada y conectividad existentes, y ambos recorridos con datos sintéticos en pruebas locales. No se envió un PDF por Meta a un teléfono real durante el despliegue. Antes de habilitar otras líneas, verificar sus permisos y las fichas; no asumir que un teléfono compartido identifica a todos sus usuarios.
 
 Apagar: vaciar la lista de líneas en el CRM y dejar `CRM_AUTOSERVICIO_INFORMES=off`. No elimina informes ni rompe los enlaces/plantillas existentes. Un PDF ya enviado a WhatsApp permanece con el destinatario.
 
