@@ -43,11 +43,9 @@ import { OfertaInteraccion } from './interacciones-integracion';
 import { InformesChatService } from '../resultados/informes-chat.service';
 import { PortalResultadosClient } from '../resultados/portal-resultados.client';
 
-// Base descartable propia; jamás leer DATABASE_URL ni .env.
-const url = process.env.TEST_INFORMES_DATABASE_URL;
-if (!url || !['127.0.0.1', 'localhost'].includes(new URL(url).hostname) || new URL(url).pathname !== '/crm_test')
-  throw new Error('TEST_INFORMES_DATABASE_URL debe ser una base local crm_test descartable');
-const prisma = new PrismaService(url);
+// URL deliberadamente fija, como el resto de las suites: nunca DATABASE_URL ni un .env,
+// y sin variable propia que la CI tendría que conocer (con ella, la suite no corría en CI).
+const prisma = new PrismaService('postgresql://crm_app@127.0.0.1:5433/crm_test');
 const secretoSintetico = 'firma-sintetica-informes';
 const config = new ConfigService({ META_APP_SECRET: secretoSintetico, UBICACION_AUTOMATICA: 'off', TOKEN_INEXISTENTE_INFORMES: 'sintetico' });
 const transporte = { enviar: jest.fn<Promise<ResultadoEnvio>, unknown[]>(), subirPdf: jest.fn(), listarPlantillas: jest.fn() };

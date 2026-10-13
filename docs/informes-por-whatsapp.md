@@ -80,8 +80,8 @@ Apagar: vaciar la lista de líneas en el CRM y dejar `CRM_AUTOSERVICIO_INFORMES=
 Nunca cargar `.env` en las pruebas ni usar una base operativa. Crear un PostgreSQL descartable propio; aplicar las migraciones existentes a `crm_test` y `resultados_test` con variables explícitas. La función de informes no agrega ninguna migración.
 
 ```bash
-# Backend CRM: solo loopback y base crm_test; no usa DATABASE_URL para esta suite.
-TEST_INFORMES_DATABASE_URL=postgresql://crm_app@127.0.0.1:55439/crm_test \
+# Backend CRM: la misma base crm_test local (:5433) que el resto de las suites; nunca DATABASE_URL.
+npm run test:integracion:preparar && \
   npx jest --runInBand --testPathIgnorePatterns '/node_modules/' --testPathPattern informes-chat.integracion
 npm run check:tests
 npm test -- --runInBand
