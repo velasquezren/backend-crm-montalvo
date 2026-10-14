@@ -393,6 +393,7 @@ export class EnvioPlantillasService {
             conversacionId,
             direccion: 'SALIENTE',
             contenido,
+            autorId: agenteId,
             estadoEnvio: 'ENVIADO',
             permiteReintento: false,
             clientMessageId: clientMessageId ?? null,

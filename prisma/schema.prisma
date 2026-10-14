@@ -99,6 +99,7 @@ model Usuario {
   leads                  Lead[]
   conversaciones         Conversacion[]         @relation("ConversacionAgente")
   conversacionesCerradas Conversacion[]         @relation("ConversacionCerradaPor")
+  mensajesEscritos       Mensaje[]              @relation("MensajeAutor")
   atencionesTomadas      Conversacion[]         @relation("ConversacionAtencionTomadaPor")
   menusAtencion          MenuAtencion[]         @relation("MenuAtencionActualizadoPor")
   cobrosLinea            CobroLinea[]           @relation("CobroLineaActualizadoPor")
@@ -681,6 +682,12 @@ model Mensaje {
   /// Cuándo toca reintentar. `null` = nada agendado, que es el caso de casi
   /// todas las filas: solo un FALLIDO con intentos por delante lleva fecha.
   proximoIntento      DateTime?
+  /// Quién del equipo lo escribió (texto, adjunto, ubicación o plantilla desde el
+  /// chat). Null en lo entrante, en lo automático y en lo anterior al 2026-10-14.
+  /// En una línea compartida (Recepción) es lo que dice «esto lo contestó Ana»:
+  /// la conversación tiene un responsable, pero contesta quien esté.
+  autor               Usuario?                @relation("MensajeAutor", fields: [autorId], references: [id], onDelete: SetNull)
+  autorId             String?
   /// true = lo mandó el sistema (acuse fuera de horario), no una persona.
   ///
   /// Existe por el inbox, no por trazabilidad: la pestaña "Sin responder" detecta

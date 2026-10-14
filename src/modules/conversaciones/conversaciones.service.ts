@@ -43,6 +43,9 @@ import { motivoParaNoReenviar, reclamarReenvio } from './reenvio-manual';
  *  Se acota a 50 para máxima velocidad inicial; los anteriores se cargan por cursor al hacer scroll. */
 const LIMITE_MENSAJES_DETALLE = 50;
 
+/** Quién del equipo escribió cada mensaje saliente: el hilo lo rotula («Ana · 10:42»). */
+const SELECT_AUTOR = { select: { id: true, nombre: true } } as const;
+
 /**
  * Conversaciones por página del inbox.
  *
@@ -339,6 +342,7 @@ export class ConversacionesService {
         mensajes: {
           orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
           take: LIMITE_MENSAJES_DETALLE,
+          include: { autor: SELECT_AUTOR },
         },
       },
     });
@@ -424,6 +428,7 @@ export class ConversacionesService {
       },
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       take: limiteParsed,
+      include: { autor: SELECT_AUTOR },
     });
     mensajes.reverse();
 
@@ -603,6 +608,8 @@ export class ConversacionesService {
             conversacionId,
             direccion: 'SALIENTE',
             contenido,
+            /* Quién lo escribió: en una línea compartida contesta quien esté. */
+            autorId: agenteId,
             estadoEnvio: oferta ? 'FALLIDO' : 'ENVIADO',
             ...(oferta && clientMessageId ? {
               proximoIntento: new Date(),

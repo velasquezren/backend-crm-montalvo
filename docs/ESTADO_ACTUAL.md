@@ -2,6 +2,16 @@
 
 > **Revisión del 10/10/2026, módulo por módulo (sin Comisiones ni Finanzas):** [REVISION_2026-10-10.md](REVISION_2026-10-10.md). La API está sana; la lista de mejoras por impacto está ahí.
 
+## 14 de octubre de 2026 · Quién escribió cada mensaje (`Mensaje.autorId`)
+
+- Migración `20261014180000_autor_mensaje`: columna nullable `autorId` → `Usuario` (SET NULL),
+  sin backfill. La escriben `crearMensajeSaliente` (texto, adjunto, ubicación, interacción) y
+  `registrarPlantilla` (plantilla, «Nuevo chat», aviso de resultados enviado por una persona).
+  Lo automático, el asistente y lo entrante quedan en null.
+- `findOne` y `obtenerMensajesAnteriores` traen `autor { id, nombre }`. El chat firma «Ana»
+  sobre lo que escribió otra persona del equipo (frontend, skill `crm-conversaciones`).
+- Prueba: `conversaciones.integracion.spec.ts` › «quién escribió cada mensaje».
+
 ## 14 de octubre de 2026 · Caso del 13/10: la búsqueda de médicos fallaba y el aviso callaba
 
 Conversación revisada a pedido de René (Recepción, número del Dr. Montalvo probando

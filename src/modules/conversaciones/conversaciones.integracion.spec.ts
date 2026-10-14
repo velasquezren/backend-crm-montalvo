@@ -452,6 +452,30 @@ describe('Conversaciones contra Postgres real', () => {
     });
   });
 
+  /* En una línea compartida contesta quien esté: el hilo tiene que poder decir quién fue. */
+  describe('quién escribió cada mensaje', () => {
+    it('el detalle y el historial traen el autor de lo que escribió el equipo, y nada en lo entrante', async () => {
+      const a = await crearAgente('Ana Pérez');
+      const b = await crearAgente('Bea Rojas', 'ADMIN');
+      const { conversacion } = await crearChat({ telefono: '+59171000090' });
+      await crearMensajeEntrante(conversacion.id);
+
+      await service.enviarMensaje(conversacion.id, 'Hola, soy Ana', a.id, a.id);
+      await service.enviarMensaje(conversacion.id, 'Y yo Bea', b.id);
+
+      const detalle = await service.findOne(conversacion.id);
+      expect(detalle.mensajes.map(m => [m.contenido, m.autor?.nombre ?? null])).toEqual([
+        ['Hola, tengo una consulta', null],
+        ['Hola, soy Ana', 'Ana Pérez'],
+        ['Y yo Bea', 'Bea Rojas'],
+      ]);
+
+      const ultimo = detalle.mensajes[detalle.mensajes.length - 1];
+      const previos = await service.obtenerMensajesAnteriores(conversacion.id, ultimo.createdAt.toISOString(), 50, undefined, ultimo.id);
+      expect(previos.map(m => m.autor?.nombre ?? null)).toEqual([null, 'Ana Pérez']);
+    });
+  });
+
   describe('asignarAgente solo cambia la conversación y queda auditado', () => {
     it('reasigna el chat preservando la atribución del cliente y sus leads', async () => {
       const a = await crearAgente('agente-a');
