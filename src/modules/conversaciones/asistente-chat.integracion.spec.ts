@@ -478,6 +478,7 @@ describe('RESPONDER: lo que no le toca, pasa a una persona', () => {
     expect(detalle.status).toBe(200);
     expect(detalle.body['atencion']).toMatchObject({
       explicacionAsistente: 'Consulta médica: requiere respuesta del equipo clínico.',
+      razonAsistente: 'MEDICO',
       origen: { tipo: 'mensaje', cuerpo: 'puedo tomar ibuprofeno después del peeling?' },
     });
   });
@@ -1010,6 +1011,14 @@ describe('la agenda del médico por WhatsApp', () => {
       await esperar(async () => (await prisma.mensaje.count({ where: { conversacionId: paciente.id, direccion: 'SALIENTE', interaccion: { isNot: null } } })) === 1);
       await reposo();
       expect(await turnos(paciente.id)).toHaveLength(0);
+    });
+
+    it('en «Solo médicos», lo que el médico pide y no es su agenda llega a «Atención» con su causa', async () => {
+      await configurarAsistente('SOLO_MEDICOS');
+      modelo.guion = [pide('pasar_a_persona', { motivo: 'OTRO', resumen: 'Quiere mover una cita.' }), dice('ok')];
+      const id = await medicoEscribe('quiero mover una cita');
+      const detalle = await http(`/conversaciones/${id}`, 'GET', usuarios.admin.token);
+      expect(detalle.body['atencion']).toMatchObject({ motivo: 'DERIVADA_ASISTENTE', razonAsistente: expect.any(String) });
     });
 
     it('un médico en «Sugerir»: ni su nota de voz se manda a transcribir', async () => {

@@ -258,9 +258,17 @@ export interface DatoDeFlow {
  * datos que existen —el motivo, lo que se le ofreció, lo que eligió, su
  * último mensaje—. Nada generado y ningún resumen médico.
  */
+/**
+ * Por qué el asistente la pasó a una persona, del registro de su turno (nunca del
+ * texto del modelo). El frontend lo dice con sus palabras: título y qué hacer.
+ */
+export type RazonDerivacion = 'FALLO' | 'MEDICO' | 'URGENCIA' | 'QUEJA' | 'PERSONA' | 'DUDA';
+
 export interface ContextoAtencion {
   /** Explicación operativa del turno que originó la atención; sin texto libre del modelo. */
   explicacionAsistente: string | null;
+  /** La misma causa como código, para que la pantalla la diga sin parsear la frase. */
+  razonAsistente: RazonDerivacion | null;
   estado: EstadoAtencion;
   motivo: MotivoAtencion;
   prioridad: PrioridadAtencion;
@@ -334,7 +342,8 @@ export async function contextoDeAtencion(
     }),
     c.atencionMensajeId && (c.atencionMotivo === 'DERIVADA_ASISTENTE' || c.atencionMotivo === 'POSIBLE_URGENCIA')
       ? db.turnoAsistente.findFirst({
-          where: { conversacionId, mensajeId: c.atencionMensajeId, modo: 'RESPONDER', resultado: { in: ['DERIVO', 'FALLO'] }, createdAt: { gte: c.atencionSolicitadaEn } },
+          /* «Solo médicos» también deriva (un médico que pide algo que no es su agenda). */
+          where: { conversacionId, mensajeId: c.atencionMensajeId, modo: { in: ['RESPONDER', 'SOLO_MEDICOS'] }, resultado: { in: ['DERIVO', 'FALLO'] }, createdAt: { gte: c.atencionSolicitadaEn } },
           orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
           select: { resultado: true, categoria: true },
         })
@@ -359,6 +368,7 @@ export async function contextoDeAtencion(
 
   return {
     explicacionAsistente: explicacionDeDerivacion(turno),
+    razonAsistente: razonDeDerivacion(turno),
     estado,
     motivo: c.atencionMotivo,
     prioridad: prioridadDeMotivo(c.atencionMotivo),
@@ -377,6 +387,19 @@ export async function contextoDeAtencion(
       : null,
     ultimoMensaje: ultimo && ultimo.id !== origen?.id ? { contenido: ultimo.contenido, createdAt: ultimo.createdAt } : null,
   };
+}
+
+/** La causa de la derivación como código; `null` si no la derivó el asistente. */
+export function razonDeDerivacion(turno: { resultado: string; categoria: string | null } | null): RazonDerivacion | null {
+  if (!turno) return null;
+  if (turno.resultado === 'FALLO') return 'FALLO';
+  switch (turno.categoria) {
+    case 'MEDICO': return 'MEDICO';
+    case 'URGENCIA': return 'URGENCIA';
+    case 'QUEJA': return 'QUEJA';
+    case 'PERSONA': return 'PERSONA';
+    default: return 'DUDA';
+  }
 }
 
 /** Categorías verificadas del registro; nunca mostramos errores del proveedor ni resúmenes inventados. */
