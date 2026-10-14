@@ -153,6 +153,10 @@ const clasificador = new ClasificadorGuionado();
 const lector = new LectorGuionado();
 const transcriptor = new TranscriptorGuionado();
 const agenda = {
+  todosLosMedicos: async () => [{
+    medico: { id: '7', especialidadId: 'e1', nombre: 'Dra. Sintética', modalidad: 'ONLINE', precio: { importeCentavos: 25000, moneda: 'BOB' }, horarioInformativo: 'Martes: entre 10:00 y 12:00', fotoUrl: null },
+    especialidad: { id: 'e1', nombre: 'Ginecología' },
+  }],
   especialidades: async () => ({ datos: [{ id: 'e1', nombre: 'Ginecología' }, { id: 'e2', nombre: 'Pediatría' }], total: 2, pagina: 1, limite: 50, totalPaginas: 1 }),
   medico: async () => ({
     medico: { id: '7', especialidadId: 'e1', nombre: 'Dra. Sintética', modalidad: 'ONLINE', precio: { importeCentavos: 25000, moneda: 'BOB' }, horarioInformativo: 'Martes: entre 10:00 y 12:00', fotoUrl: null },
@@ -481,6 +485,24 @@ describe('RESPONDER: lo que no le toca, pasa a una persona', () => {
       razonAsistente: 'MEDICO',
       origen: { tipo: 'mensaje', cuerpo: 'puedo tomar ibuprofeno después del peeling?' },
     });
+  });
+
+  it('tras «Marcar atendida», una derivación nueva vuelve a avisarle (13/10 quedaba muda 30 min)', async () => {
+    clasificador.siguiente = { categoria: 'MEDICO', confianza: 'ALTA' };
+    const id = await escribir('puedo tomar ibuprofeno después del peeling?');
+    expect((await http(`/conversaciones/${id}/atencion/resolver`, 'POST', usuarios.admin.token, { reanudar: true })).status).toBe(201);
+    await escribir('y si me sale una mancha?', 2);
+    const avisos = (await salientes(id)).filter(m => m.contenido === TEXTO_DERIVACION);
+    expect(avisos).toHaveLength(2);
+  });
+
+  it('con la solicitud abierta, una segunda derivación no repite el aviso', async () => {
+    clasificador.siguiente = { categoria: 'MEDICO', confianza: 'ALTA' };
+    const id = await escribir('puedo tomar ibuprofeno después del peeling?');
+    /* La solicitud sigue viva; se quita solo la pausa para que el asistente vuelva a pasar (un médico, p. ej., no pausa). */
+    await prisma.conversacion.update({ where: { id }, data: { automatizacionPausadaEn: null } });
+    await escribir('y si me sale una mancha?', 2);
+    expect((await salientes(id)).filter(m => m.contenido === TEXTO_DERIVACION)).toHaveLength(1);
   });
 
   it('una posible urgencia sube como POSIBLE_URGENCIA (ALTA), no como EMERGENCIA', async () => {

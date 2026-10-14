@@ -986,15 +986,24 @@ export class IngestaWhatsappService {
     return this.responderTexto(conversacionId, telefono, texto, { respetaPausa: !medico, noRepetir: false, asistente: true, resuelve: medico && resuelve });
   }
 
-  /** El aviso al pasarla a una persona: sale aunque esa misma derivación haya pausado el chat. Una vez cada 30 min. */
-  async avisoDelAsistente(conversacionId: string, telefono: string, texto: string): Promise<void> {
-    await this.responderTexto(conversacionId, telefono, texto, { respetaPausa: false, noRepetir: true, asistente: true });
+  /**
+   * El aviso al pasarla a una persona: sale aunque esa misma derivación haya pausado el chat.
+   * Con la solicitud ya abierta, una vez cada 30 min (no se le repite a quien insiste). Si la
+   * derivación abrió una solicitud NUEVA (`nueva`) sale siempre: la anterior se resolvió, y
+   * callar ahí la dejaba sin respuesta (13/10, tras «Resolver» el aviso no volvía a salir).
+   */
+  async avisoDelAsistente(conversacionId: string, telefono: string, texto: string, { nueva = false } = {}): Promise<void> {
+    await this.responderTexto(conversacionId, telefono, texto, { respetaPausa: false, noRepetir: !nueva, asistente: true });
   }
 
-  /** Pasa la conversación a una persona: la misma solicitud que un botón, con su motivo. `pausar: false` solo con un médico. */
-  async derivarDesdeAsistente(conversacionId: string, mensajeId: string, motivo: MotivoAtencion, { pausar = true } = {}): Promise<void> {
-    await this.prisma.$transaction(tx => registrarSolicitudAtencion(tx, conversacionId, motivo, mensajeId, this.ahora(), { pausar }));
+  /**
+   * Pasa la conversación a una persona: la misma solicitud que un botón, con su motivo.
+   * `pausar: false` solo con un médico. Devuelve si abrió una solicitud nueva.
+   */
+  async derivarDesdeAsistente(conversacionId: string, mensajeId: string, motivo: MotivoAtencion, { pausar = true } = {}): Promise<boolean> {
+    const nueva = await this.prisma.$transaction(tx => registrarSolicitudAtencion(tx, conversacionId, motivo, mensajeId, this.ahora(), { pausar }));
     this.gateway.emitirActividad(conversacionId);
+    return nueva;
   }
 
   /** La tarjeta de una promoción que ofreció el asistente (o que una agente aprobó de una sugerencia). */

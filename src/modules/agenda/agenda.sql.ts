@@ -3,7 +3,7 @@ import { fechaConsultable, ID_AGENDA } from './agenda.contrato';
 import { createHash } from 'node:crypto';
 import { horasLibres } from './agenda-ocupacion.sql';
 
-export type RecursoAgendaSql = 'especialidades' | 'medicos' | 'medico' | 'disponibilidad' | 'dias';
+export type RecursoAgendaSql = 'especialidades' | 'medicos' | 'medico' | 'todos' | 'disponibilidad' | 'dias';
 type Fila = Record<string, unknown>;
 type Lector = Pick<PoolConnection, 'execute' | 'query'>;
 const DIAS = ['Domingo', 'Lunes', 'Martes', 'Miercoles', 'Jueves', 'Viernes', 'Sabado'];
@@ -85,8 +85,29 @@ async function medicoPorId(db: Lector, params: URLSearchParams) {
   return { version: 1, medico, especialidad: { id: texto(fila.especialidad_id), nombre: texto(fila.especialidad_nombre) } };
 }
 
+/** Tope de `todos`: la clínica tiene decenas de médicos; mil es un techo, no un objetivo. */
+const TOPE_TODOS = 1000;
+
+/**
+ * TODOS los médicos activos con su especialidad, en una sola lectura. Es lo que
+ * usa el asistente para buscar uno por su nombre: una lectura por especialidad
+ * desbordaba el pool de la agenda (3 conexiones, fila de 9) y la búsqueda
+ * fallaba entera (13/10). Dos consultas, con o sin muchas especialidades.
+ */
+async function todosLosMedicos(db: Lector) {
+  const medicos = await filas(db, `${ESPECIALIDADES} SELECT ${COLUMNAS_TARJETA}, SHA2(e.nombre, 256) AS especialidad_id, e.nombre AS especialidad_nombre
+    FROM medicos m JOIN especialidades e ON TRIM(m.especialidad) = e.nombre
+    WHERE m.estado = 'ACTIVO' ORDER BY e.nombre, m.orden, m.nombre, m.medico_pk LIMIT ${TOPE_TODOS}`);
+  const tarjetas = await tarjetasDeMedicos(db, medicos);
+  return {
+    version: 1,
+    datos: tarjetas.map((medico, i) => ({ medico, especialidad: { id: texto(medicos[i].especialidad_id), nombre: texto(medicos[i].especialidad_nombre) } })),
+  };
+}
+
 export async function consultarAgendaSql(db: Lector, recurso: RecursoAgendaSql, params: URLSearchParams): Promise<unknown> {
   if (recurso === 'medico') return medicoPorId(db, params);
+  if (recurso === 'todos') return todosLosMedicos(db);
   if (recurso === 'disponibilidad') return disponibilidad(db, params);
   if (recurso === 'dias') return dias(db, params);
   const pagina = Number(params.get('pagina'));

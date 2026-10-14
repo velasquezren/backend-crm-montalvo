@@ -521,10 +521,10 @@ export class AsistenteChatService implements ProgramadorAsistente, OnModuleInit,
    * próxima pregunta por la agenda se sigue contestando.
    */
   private async derivar(e: EntranteParaAsistente, motivo: Extract<MotivoAtencion, 'POSIBLE_URGENCIA' | 'DERIVADA_ASISTENTE'>, { medico = false } = {}): Promise<void> {
-    await this.ingesta.derivarDesdeAsistente(e.conversacionId, e.mensajeId, motivo, { pausar: !medico });
+    const nueva = await this.ingesta.derivarDesdeAsistente(e.conversacionId, e.mensajeId, motivo, { pausar: !medico });
     /* Ante una posible urgencia, la orientación que aprobó la clínica, si la escribió. */
     const orientacion = motivo === 'POSIBLE_URGENCIA' ? orientacionDeEmergencia(await this.menus.activoDe(e.lineaId)) : null;
-    await this.ingesta.avisoDelAsistente(e.conversacionId, e.telefono, orientacion ?? TEXTO_DERIVACION);
+    await this.ingesta.avisoDelAsistente(e.conversacionId, e.telefono, orientacion ?? TEXTO_DERIVACION, { nueva });
   }
 
   /** Lo que el turno mandó hacer (RESPONDER) o lo que una agente aprobó de una sugerencia. */

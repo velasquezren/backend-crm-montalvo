@@ -1,8 +1,8 @@
 import { ConfigService } from '@nestjs/config';
 import { AgendaVpsClient } from './agenda-vps.client';
 import { AgendaService } from './agenda.service';
-import { disponibilidadDeAgenda, fechaConsultable, medicoDeAgenda, paginaAgenda, especialidadDeAgenda } from './agenda.contrato';
-import { precioDelVps } from './agenda.sql';
+import { disponibilidadDeAgenda, fechaConsultable, medicoDeAgenda, paginaAgenda, especialidadDeAgenda, todosLosMedicosDeAgenda } from './agenda.contrato';
+import { consultarAgendaSql, precioDelVps } from './agenda.sql';
 import { DirectorioService } from '../directorio/directorio.service';
 
 /** El directorio solo aporta fotos de fichas publicadas a la reserva web. */
@@ -63,6 +63,45 @@ describe('Agenda: límites, privacidad y fallos cerrados', () => {
     const servicio = new AgendaService(cliente, directorio());
     await expect(servicio.especialidades({})).rejects.toMatchObject({status:503});
     expect((await servicio.especialidades({})).datos).toEqual([]);
+  });
+  it('todos los médicos: una sola lectura (dos consultas), con su especialidad y en caché', async () => {
+    const E = 'e'.repeat(64);
+    const sql: string[] = [];
+    const db = {
+      execute: jest.fn(async (q: string) => {
+        sql.push(q);
+        return q.includes('FROM horarios')
+          ? [[{ medico_pk: 1, dia: 'Lunes', primera: '09:00', ultima: '12:00' }]]
+          : [[{ medico_pk: 1, nombre: 'Juan Carlos Montalvo', sigla: 'Dr.', foto: null, horario_publicado: 1, precio_con: '300.00', especialidad_id: E, especialidad_nombre: 'Ginecología' }]];
+      }),
+      query: jest.fn(),
+    };
+    const crudo = await consultarAgendaSql(db as never, 'todos', new URLSearchParams());
+    expect(sql).toHaveLength(2);
+    expect(sql[0]).toContain("WHERE m.estado = 'ACTIVO'");
+    expect(sql[0]).toContain('LIMIT 1000');
+    expect(todosLosMedicosDeAgenda(crudo)).toEqual([{
+      medico: { id: '1', especialidadId: E, nombre: 'Dr. Juan Carlos Montalvo', horarioInformativo: 'Lunes: entre 09:00 y 12:00', modalidad: 'ONLINE', precio: { importeCentavos: 30000, moneda: 'BOB' }, fotoUrl: null },
+      especialidad: { id: E, nombre: 'Ginecología' },
+    }]);
+
+    const cliente = new AgendaVpsClient(new ConfigService({AGENDA_VPS_LECTURA:'on'}));
+    const leer = jest.spyOn(cliente,'leer').mockResolvedValue(crudo);
+    const servicio = new AgendaService(cliente, directorio());
+    await Promise.all([servicio.todosLosMedicos(), servicio.todosLosMedicos()]);
+    await servicio.todosLosMedicos();
+    expect(leer).toHaveBeenCalledTimes(1);
+    expect(leer).toHaveBeenCalledWith('todos', expect.any(URLSearchParams));
+  });
+  it('todos los médicos: lo malformado o duplicado no pasa, y una caída es 503', async () => {
+    const E = 'e'.repeat(64);
+    const fila = (id: string, esp = E) => ({ medico: {id,especialidadId:E,nombre:'P',horarioInformativo:null,modalidad:'ONLINE',precio:null}, especialidad: {id:esp,nombre:'G'} });
+    expect(() => todosLosMedicosDeAgenda({version:1,datos:[fila('1'),fila('1')]})).toThrow();
+    expect(() => todosLosMedicosDeAgenda({version:1,datos:[fila('1','f'.repeat(64))]})).toThrow();
+    expect(() => todosLosMedicosDeAgenda({version:2,datos:[]})).toThrow();
+    const cliente = new AgendaVpsClient(new ConfigService({AGENDA_VPS_LECTURA:'on'}));
+    jest.spyOn(cliente,'leer').mockResolvedValue({version:1,datos:'no'});
+    await expect(new AgendaService(cliente, directorio()).todosLosMedicos()).rejects.toMatchObject({status:503});
   });
   it('la foto de la ficha web publicada gana a la de ScriptCase; si el directorio falla, queda la de ScriptCase', async () => {
     const cliente = new AgendaVpsClient(new ConfigService({AGENDA_VPS_LECTURA:'on'}));

@@ -94,6 +94,21 @@ export function medicoConEspecialidadDeAgenda(valor: unknown): { medico: MedicoA
   return { medico, especialidad };
 }
 
+/** Todos los médicos activos con su especialidad (recurso `todos`). */
+export function todosLosMedicosDeAgenda(valor: unknown): { medico: MedicoAgenda; especialidad: EspecialidadAgenda }[] {
+  const v = objeto(valor);
+  if (v.version !== 1 || !Array.isArray(v.datos) || v.datos.length > 1000) invalido();
+  const datos = (v.datos as unknown[]).map(d => {
+    const fila = objeto(d);
+    const medico = medicoDeAgenda(fila.medico);
+    const especialidad = especialidadDeAgenda(fila.especialidad);
+    if (medico.especialidadId !== especialidad.id) invalido();
+    return { medico, especialidad };
+  });
+  if (new Set(datos.map(d => d.medico.id)).size !== datos.length) invalido();
+  return datos;
+}
+
 export function paginaAgenda<T extends { id: string }>(valor: unknown, pagina: number, limite: number, leer: (v: unknown) => T) {
   const v = objeto(valor);
   if (v.version !== 1 || v.pagina !== pagina || v.limite !== limite) invalido();

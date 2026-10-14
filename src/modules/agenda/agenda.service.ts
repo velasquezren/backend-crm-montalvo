@@ -3,7 +3,7 @@ import { CacheMemoria } from '../../common/cache/cache-memoria';
 import { calcularPaginacion, PaginationDto, RespuestaPaginada } from '../../common/dto/pagination.dto';
 import { DirectorioService } from '../directorio/directorio.service';
 import { AgendaVpsClient } from './agenda-vps.client';
-import { diasDeAgenda, disponibilidadDeAgenda, EspecialidadAgenda, especialidadDeAgenda, fechaConsultable, MedicoAgenda, medicoConEspecialidadDeAgenda, medicoDeAgenda, paginaAgenda } from './agenda.contrato';
+import { diasDeAgenda, disponibilidadDeAgenda, EspecialidadAgenda, especialidadDeAgenda, fechaConsultable, MedicoAgenda, medicoConEspecialidadDeAgenda, medicoDeAgenda, paginaAgenda, todosLosMedicosDeAgenda } from './agenda.contrato';
 import { QueryDiasAgendaDto, QueryDisponibilidadAgendaDto, QueryMedicosAgendaDto } from './dto/query-agenda.dto';
 
 @Injectable()
@@ -11,6 +11,7 @@ export class AgendaService {
   private readonly especialidadesCache = new CacheMemoria<RespuestaPaginada<EspecialidadAgenda>>({ ttlMs: 30_000, maxEntradas: 30 });
   private readonly medicosCache = new CacheMemoria<RespuestaPaginada<MedicoAgenda>>({ ttlMs: 30_000, maxEntradas: 100 });
   private readonly medicoCache = new CacheMemoria<{ medico: MedicoAgenda; especialidad: EspecialidadAgenda } | null>({ ttlMs: 30_000, maxEntradas: 200 });
+  private readonly todosCache = new CacheMemoria<{ medico: MedicoAgenda; especialidad: EspecialidadAgenda }[]>({ ttlMs: 60_000, maxEntradas: 1 });
   constructor(
     private readonly vps: AgendaVpsClient,
     private readonly directorio: DirectorioService,
@@ -43,6 +44,20 @@ export class AgendaService {
         if (pagina.datos.some(m => m.especialidadId !== query.especialidadId)) throw new Error('Especialidad diferente');
       } catch { throw this.vps.noDisponible(); }
       return { ...pagina, datos: await this.conFotosDelDirectorio(pagina.datos) };
+    });
+  }
+
+  /**
+   * Todos los médicos activos con su especialidad, en UNA lectura de la agenda
+   * (el asistente busca por nombre aquí). Sin fotos: quien busca solo necesita
+   * nombre, especialidad, precio y horario.
+   */
+  todosLosMedicos() {
+    if (!this.vps.habilitada()) throw this.vps.noDisponible();
+    return this.todosCache.resolver('todos', async () => {
+      const crudo = await this.vps.leer('todos', new URLSearchParams());
+      try { return todosLosMedicosDeAgenda(crudo); }
+      catch { throw this.vps.noDisponible(); }
     });
   }
 

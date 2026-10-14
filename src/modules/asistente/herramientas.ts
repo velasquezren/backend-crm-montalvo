@@ -566,15 +566,11 @@ export class HerramientasAsistenteService {
       case 'buscar_medico': {
         const buscadas = palabrasDeNombre(a.nombre);
         if (!buscadas.length) return { ok: false, motivo: 'Pásame el nombre o el apellido del médico, sin «Dr.».' };
-        /* Una vuelta en vez de una por especialidad: con cinco vueltas de tope, recorrerlas
-           una a una dejaba a la paciente sin respuesta (13/10). Las lecturas van en paralelo
-           y por la caché de la agenda. */
-        const especialidades = (await this.agenda.especialidades({ pagina: 1, limite: 50 })).datos;
-        const porEspecialidad = await Promise.all(especialidades.map(async e => {
-          const r = await this.agenda.medicos({ especialidadId: e.id, pagina: 1, limite: 50 });
-          return r.datos.map(m => ({ m, especialidad: e.nombre }));
-        }));
-        const encontrados = porEspecialidad.flat().filter(({ m }) => {
+        /* UNA lectura de la agenda con todos los médicos. Ni una vuelta del modelo por
+           especialidad (se agotaban las cinco) ni una lectura por especialidad en paralelo:
+           eso desbordaba el pool de la agenda y la búsqueda fallaba siempre (13/10). */
+        const todos = (await this.agenda.todosLosMedicos()).map(({ medico, especialidad }) => ({ m: medico, especialidad: especialidad.nombre }));
+        const encontrados = todos.filter(({ m }) => {
           const delMedico = palabrasDeNombre(m.nombre);
           return buscadas.every(b => delMedico.some(p => p.startsWith(b)));
         });

@@ -318,13 +318,17 @@ describe('buscar_medico: un médico por su nombre, en una sola vuelta', () => {
   const med = (id: string, nombre: string, especialidadId: string) =>
     ({ id, nombre, especialidadId, modalidad: 'ONLINE', precio: { importeCentavos: 30000, moneda: 'BOB' }, horarioInformativo: 'Lunes 9:00', fotoUrl: null });
   function agendaDeLaClinica() {
-    const porEspecialidad: Record<string, ReturnType<typeof med>[]> = {
-      g: [med('1', 'Dr. Juan Carlos Montalvo Doria Medina', 'g'), med('2', 'Dra. Claudia Azogue', 'g')],
-      d: [med('3', 'Dr. Luis Montaño', 'd')],
-    };
+    const g = { id: 'g', nombre: 'Ginecología' };
+    const d = { id: 'd', nombre: 'Dermatología' };
     return {
-      especialidades: jest.fn().mockResolvedValue(pagina([{ id: 'g', nombre: 'Ginecología' }, { id: 'd', nombre: 'Dermatología' }])),
-      medicos: jest.fn(async ({ especialidadId }: { especialidadId: string }) => pagina(porEspecialidad[especialidadId] ?? [])),
+      todosLosMedicos: jest.fn().mockResolvedValue([
+        { medico: med('1', 'Dr. Juan Carlos Montalvo Doria Medina', 'g'), especialidad: g },
+        { medico: med('2', 'Dra. Claudia Azogue', 'g'), especialidad: g },
+        { medico: med('3', 'Dr. Luis Montaño', 'd'), especialidad: d },
+      ]),
+      /* Lo que NO debe usar: una lectura por especialidad desbordaba el pool de la agenda (13/10). */
+      especialidades: jest.fn().mockResolvedValue(pagina([g, d])),
+      medicos: jest.fn().mockResolvedValue(pagina([])),
     };
   }
   const buscar = (agenda: ReturnType<typeof agendaDeLaClinica>, nombre: string) =>
@@ -337,7 +341,16 @@ describe('buscar_medico: un médico por su nombre, en una sola vuelta', () => {
       ok: true,
       datos: [{ id: '1', nombre: 'Dr. Juan Carlos Montalvo Doria Medina', especialidad: 'Ginecología', modalidad: 'ONLINE', precioConsulta: 'Bs 300.00', atiende: 'Lunes 9:00' }],
     });
-    expect(agenda.medicos).toHaveBeenCalledTimes(2);
+    /* UNA lectura de la agenda, sin importar cuántas especialidades haya. */
+    expect(agenda.todosLosMedicos).toHaveBeenCalledTimes(1);
+    expect(agenda.especialidades).not.toHaveBeenCalled();
+    expect(agenda.medicos).not.toHaveBeenCalled();
+  });
+
+  it('si la agenda no responde, falla la herramienta (no inventa «no existe»)', async () => {
+    const agenda = agendaDeLaClinica();
+    agenda.todosLosMedicos.mockRejectedValue(new Error('agenda caída'));
+    await expect(buscar(agenda, 'montalvo')).rejects.toThrow('agenda caída');
   });
 
   it('sin tildes ni mayúsculas, y por el principio de cada palabra («azog», «MONTAÑO»)', async () => {
@@ -357,7 +370,7 @@ describe('buscar_medico: un médico por su nombre, en una sola vuelta', () => {
   it('solo un título («doctor») no es un nombre: no recorre la agenda', async () => {
     const agenda = agendaDeLaClinica();
     expect((await buscar(agenda, 'Dr.')).ok).toBe(false);
-    expect(agenda.especialidades).not.toHaveBeenCalled();
+    expect(agenda.todosLosMedicos).not.toHaveBeenCalled();
   });
 
   it('las palabras de un nombre: sin tildes, sin títulos, sin signos', () => {

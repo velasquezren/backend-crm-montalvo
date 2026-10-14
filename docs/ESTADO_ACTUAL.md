@@ -2,6 +2,23 @@
 
 > **Revisión del 10/10/2026, módulo por módulo (sin Comisiones ni Finanzas):** [REVISION_2026-10-10.md](REVISION_2026-10-10.md). La API está sana; la lista de mejoras por impacto está ahí.
 
+## 14 de octubre de 2026 · Caso del 13/10: la búsqueda de médicos fallaba y el aviso callaba
+
+Conversación revisada a pedido de René (Recepción, número del Dr. Montalvo probando
+como paciente nuevo, 13/10 17:07–17:31). Tres fallos, todos anteriores a los cambios
+del 14/10:
+
+- **`buscar_medico` fallaba siempre** («Lectura de agenda no disponible»): leía los
+  médicos de TODAS las especialidades en paralelo y el pool de la agenda tiene
+  3 conexiones y fila de 9. Ahora es UNA lectura (`AgendaService.todosLosMedicos`,
+  recurso SQL `todos`: dos consultas, caché 60 s). Lo había introducido `252ee7e`; las
+  pruebas no lo vieron porque la agenda es falsa en ellas.
+- **El aviso «Le paso tu consulta a una persona…» salía una vez cada 30 min** aunque
+  la solicitud anterior se hubiera resuelto: tras «Resolver», las derivaciones
+  siguientes (y la del médico) quedaron mudas. Ahora, si la derivación abre una
+  solicitud NUEVA, el aviso sale siempre; con la solicitud abierta sigue sin repetirse.
+- Por lo mismo, cuando Gemini tardó (504) la paciente no recibió nada.
+
 ## 14 de octubre de 2026 · Recepción: IA solo para médicos, menú encendido y «Listo»
 
 Pedido de René: «que la IA de atención en recepción se pause, pero no los números
