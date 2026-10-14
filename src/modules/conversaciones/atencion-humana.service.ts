@@ -102,9 +102,11 @@ export class AtencionHumanaService {
 
   /**
    * Intervención completada: sale de «Atención». La conversación sigue abierta
-   * (cerrarla es otra decisión) y la automatización sigue pausada.
+   * (cerrarla es otra decisión). La automatización sigue pausada, salvo con
+   * `reanudar`: el botón «Listo» del chat hace las dos cosas en un paso, en la
+   * misma transacción y con las dos constancias.
    */
-  async resolver(id: string, usuarioId: string, soloAgenteId?: string): Promise<EstadoDeAtencion> {
+  async resolver(id: string, usuarioId: string, soloAgenteId?: string, { reanudar = false } = {}): Promise<EstadoDeAtencion> {
     await obtenerConversacionPropia(this.prisma, id, soloAgenteId);
     const resuelta = await this.prisma.$transaction(async tx => {
       const viva = await bloquearSolicitudViva(tx, id);
@@ -114,6 +116,11 @@ export class AtencionHumanaService {
           "atencionTomadaEn" = NULL, "atencionTomadaPorId" = NULL
         WHERE id = ${id}`;
       await auditarResolucion(tx, id, usuarioId, viva, 'RESOLVER', new Date());
+      if (reanudar) {
+        const pausada = await tx.$executeRaw`
+          UPDATE "Conversacion" SET "automatizacionPausadaEn" = NULL WHERE id = ${id} AND "automatizacionPausadaEn" IS NOT NULL`;
+        if (pausada) await tx.auditLog.create({ data: { entidad: 'Conversacion', entidadId: id, accion: 'AUTOMATIZACION_REANUDADA', usuarioId } });
+      }
       return true;
     });
     if (!resuelta) throw new ConflictException('Esta solicitud ya estaba resuelta.');
@@ -122,8 +129,8 @@ export class AtencionHumanaService {
   }
 
   /**
-   * La única puerta para que la automatización vuelva a escribir en este chat.
-   * Explícita, auditada y nunca con una solicitud viva: mientras alguien espera
+   * Una de las dos puertas para que la automatización vuelva a escribir en este
+   * chat (la otra es «Listo», `resolver` con `reanudar`). Explícita, auditada y nunca con una solicitud viva: mientras alguien espera
    * a una persona, no le contesta una máquina.
    */
   async reanudarAutomatizacion(id: string, usuarioId: string, soloAgenteId?: string): Promise<EstadoDeAtencion> {

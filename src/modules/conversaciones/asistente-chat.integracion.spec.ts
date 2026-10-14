@@ -270,7 +270,7 @@ const pide = (nombre: string, argumentos: Record<string, unknown> = {}): Respues
   tipo: 'herramientas', llamadas: [{ nombre, argumentos }], crudo: { role: 'model', parts: [{ functionCall: { name: nombre, args: argumentos }, thoughtSignature: 'firma' }] }, uso: USO,
 });
 
-async function configurarAsistente(modo: 'SUGERIR' | 'RESPONDER', leerComprobantes = false) {
+async function configurarAsistente(modo: 'SUGERIR' | 'RESPONDER' | 'SOLO_MEDICOS', leerComprobantes = false) {
   const r = await http(`/asistente/lineas/${ventas}`, 'PUT', usuarios.admin.token, { modo, conocimiento: 'La consulta incluye ecografía.', criterioDerivacion: CRITERIO, leerComprobantes });
   expect(r.status).toBe(200);
 }
@@ -372,6 +372,17 @@ describe('la configuración por línea', () => {
     } finally {
       lector.datos = datosAntes;
     }
+  });
+
+  it('«Solo médicos», para una paciente la línea es como APAGADO: acuse y ningún turno', async () => {
+    await configurarAsistente('SOLO_MEDICOS');
+    expect((await webhook([texto('hola, precio del control')])).status).toBe(200);
+    const c = await chat();
+    await esperar(async () => (await salientes(c.id)).some(m => m.contenido === ACUSE));
+    await reposo();
+    expect(await turnos(c.id)).toHaveLength(0);
+    expect(modelo.vistas).toHaveLength(0);
+    expect(clasificador.llamadas).toBe(0);
   });
 
   it('APAGADO, la línea se comporta como siempre: acuse y ningún turno', async () => {
@@ -970,6 +981,35 @@ describe('la agenda del médico por WhatsApp', () => {
       expect(JSON.stringify(modelo.vistas[0].historial)).toContain('dime qué pacientes tengo mañana');
       expect(citasMedico.delDia).toHaveBeenCalledWith(7, FECHA);
       expect((await salientes(c.id)).filter(m => m.tipo === 'IMAGEN')).toHaveLength(1);
+    });
+
+    it('en «Solo médicos» el médico sigue recibiendo su agenda, sin el acuse de las pacientes', async () => {
+      await configurarAsistente('SOLO_MEDICOS');
+      modelo.guion = [pideAgenda(), dice('ok')];
+      const id = await medicoEscribe('mis citas de hoy');
+      expect(citasMedico.delDia).toHaveBeenCalledWith(7, FECHA);
+      const respuestas = await salientes(id);
+      expect(respuestas.filter(m => m.tipo === 'IMAGEN')).toHaveLength(1);
+      expect(respuestas.some(m => m.contenido === ACUSE)).toBe(false);
+      expect(await turnos(id)).toMatchObject([{ resultado: 'RESPONDIO', categoria: 'MEDICO_AGENDA' }]);
+    });
+
+    it('con el menú encendido, al médico no le sale el menú (viene por su agenda); a la paciente sí, y sin turno', async () => {
+      await configurarAsistente('SOLO_MEDICOS');
+      await app.get(MenuAtencionService).guardar(ventas, {
+        activo: true, saludo: 'Hola, ¿en qué te ayudamos?',
+        opciones: [{ tipo: 'PERSONA', titulo: 'Hablar con una persona' }, { tipo: 'UBICACION', titulo: 'Cómo llegar' }],
+      } as never, usuarios.admin.id);
+      modelo.guion = [pideAgenda(), dice('ok')];
+      const id = await medicoEscribe('mis citas de hoy');
+      expect(await prisma.mensaje.count({ where: { conversacionId: id, direccion: 'SALIENTE', interaccion: { isNot: null } } })).toBe(0);
+      expect((await salientes(id)).filter(m => m.tipo === 'IMAGEN')).toHaveLength(1);
+
+      expect((await webhook([texto('hola')])).status).toBe(200);
+      const paciente = await chat();
+      await esperar(async () => (await prisma.mensaje.count({ where: { conversacionId: paciente.id, direccion: 'SALIENTE', interaccion: { isNot: null } } })) === 1);
+      await reposo();
+      expect(await turnos(paciente.id)).toHaveLength(0);
     });
 
     it('un médico en «Sugerir»: ni su nota de voz se manda a transcribir', async () => {

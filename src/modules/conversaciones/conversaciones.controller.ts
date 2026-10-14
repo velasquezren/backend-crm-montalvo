@@ -6,6 +6,7 @@ import { ConversacionesService } from './conversaciones.service';
 import { EnvioPlantillasService } from './envio-plantillas.service';
 import { AtencionHumanaService } from './atencion-humana.service';
 import { PromocionesChatService } from './promociones-chat.service';
+import { ResolverAtencionDto } from './dto/resolver-atencion.dto';
 import { PedirOtroComprobanteDto } from './dto/pedir-otro-comprobante.dto';
 import { AsignarAgenteDto } from './dto/asignar-agente.dto';
 import { EnviarMensajeDto } from './dto/enviar-mensaje.dto';
@@ -200,8 +201,8 @@ export class ConversacionesController {
   }
 
   @Post(':id/atencion/resolver')
-  resolverAtencion(@Param('id') id: string, @CurrentUser() usuario: UsuarioJwt) {
-    return this.atencion.resolver(id, usuario.sub, alcanceAgente(usuario));
+  resolverAtencion(@Param('id') id: string, @Body() dto: ResolverAtencionDto, @CurrentUser() usuario: UsuarioJwt) {
+    return this.atencion.resolver(id, usuario.sub, alcanceAgente(usuario), { reanudar: dto.reanudar === true });
   }
 
   /**

@@ -2015,6 +2015,10 @@ enum ModoAsistente {
   /// Contesta solo lo comercial e informativo. Lo médico, las quejas y lo
   /// dudoso pasan a una persona. Exige `criterioDerivacion`.
   RESPONDER
+  /// A las pacientes no les contesta: para ellas la línea funciona como con el
+  /// asistente apagado (menú, acuse, personas). Solo atiende a los médicos con
+  /// número autorizado que piden su agenda.
+  SOLO_MEDICOS
 }
 
 enum EstadoSugerencia {

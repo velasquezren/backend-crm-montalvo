@@ -45,13 +45,14 @@ documentación de Google**; están corregidas aquí y en el código:
 
 ## Qué hace
 
-**En Ventas (y en cualquier línea donde se encienda), con tres modos:**
+**En Ventas (y en cualquier línea donde se encienda), con cuatro modos:**
 
 | Modo | Qué pasa | Para qué |
 |---|---|---|
 | Apagado | Nada. La línea como siempre. | — |
 | **Sugerir** | Prepara una respuesta encima de la caja de texto del chat. La agente la lleva a su caja («Usar y revisar»), la corrige y la manda ella. Puede proponer además la tarjeta de una promoción o la imagen del horario de un médico, que salen con un toque. **No le escribe a nadie ni cambia nada del chat.** | Empezar. Es lo que exige «Antes de activar la IA» ([atención humana](atencion-humana.md)) mientras la clínica no apruebe su criterio. |
 | **Responder solo** | Contesta lo comercial e informativo: precios, promociones, médicos, horarios, cupos, estado de su pago. Manda la tarjeta de la promoción (con «Pagar ahora») y la imagen del horario. Lo médico, las quejas, las posibles urgencias y lo dudoso los pasa a una persona en «Atención». | Fuera de horario y en picos. **No se puede encender sin el criterio de la clínica** (ver abajo). |
+| **Solo médicos** (14/10/2026) | A las pacientes no les contesta: para ellas la línea funciona como Apagado (menú, acuse, personas), sin turno ni llamada al modelo. Un médico con número autorizado recibe su agenda como en «Responder solo», y a él no le sale el menú. No exige criterio. | Recepción, cuando la clínica quiere personas con las pacientes pero la agenda de los médicos por WhatsApp. |
 
 **La lectura del comprobante** (se enciende aparte, por línea): cuando la paciente
 manda la foto o el PDF de su pago, el asistente lee monto, fecha, número de

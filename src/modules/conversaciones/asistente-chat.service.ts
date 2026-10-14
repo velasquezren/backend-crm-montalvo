@@ -63,6 +63,8 @@ export interface EntranteParaAsistente {
 /** Lo que la ingesta necesita del asistente; se registra al arrancar (`usarAsistente`). */
 export interface ProgramadorAsistente {
   activoEn(lineaId: string): Promise<AsistenteDeLinea | null>;
+  /** ¿Escribe un médico con el número autorizado? A él no le sale el menú: viene por su agenda. */
+  esMedico(telefono: string): Promise<boolean>;
   programar(e: EntranteParaAsistente): void;
 }
 
@@ -183,6 +185,10 @@ export class AsistenteChatService implements ProgramadorAsistente, OnModuleInit,
     return this.lineas.activoEn(lineaId);
   }
 
+  async esMedico(telefono: string): Promise<boolean> {
+    return !!(await this.accesoMedicos.porTelefono(telefono));
+  }
+
   /* ── El turno ───────────────────────────────────────────────────────── */
 
   /** Espera a que termine de escribir y entonces atiende. Sin `await`: la ingesta no espera. */
@@ -233,7 +239,8 @@ export class AsistenteChatService implements ProgramadorAsistente, OnModuleInit,
   async atender(e: EntranteParaAsistente): Promise<ResultadoTurnoAsistente> {
     const inicio = Date.now();
     const registrar = (r: Registro) => this.registrar(e, r, inicio).then(() => r.resultado);
-    const responde = e.asistente.modo === 'RESPONDER';
+    /* «Solo médicos» contesta como «Responder solo», pero únicamente a un médico (abajo). */
+    const responde = e.asistente.modo === 'RESPONDER' || e.asistente.modo === 'SOLO_MEDICOS';
 
     const conversacion = await this.prisma.conversacion.findUnique({
       where: { id: e.conversacionId },
@@ -257,6 +264,8 @@ export class AsistenteChatService implements ProgramadorAsistente, OnModuleInit,
     if (personas.some(m => m.createdAt > ultimoEntrante.createdAt)) return registrar({ resultado: 'OMITIDO', motivo: 'Una persona ya contestó.' });
     /* ¿Quien escribe es un médico con el número autorizado? Es otra conversación, con otras reglas. */
     const medico = await this.accesoMedicos.porTelefono(e.telefono);
+    /* La ingesta ya no programa a una paciente en «Solo médicos»; esto es la red por si cambió entre medio. */
+    if (e.asistente.modo === 'SOLO_MEDICOS' && !medico) return registrar({ resultado: 'OMITIDO', motivo: 'En esta línea el asistente solo atiende a médicos autorizados.' });
     /* La pausa protege a una PACIENTE que pidió una persona; a un médico solo lo dejaría
        sin su agenda. Lo que sí vale para los dos: si una persona está escribiendo, no se interrumpe. */
     if (responde && !medico && conversacion.automatizacionPausadaEn) return registrar({ resultado: 'OMITIDO', motivo: 'La automatización está pausada: espera a una persona.' });

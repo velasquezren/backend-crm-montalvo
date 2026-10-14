@@ -615,6 +615,23 @@ describe('Resolver, cerrar y reanudar', () => {
     expect(await prisma.auditLog.count({ where: { entidadId: chat, accion: { in: ['ATENCION_RESUELTA', 'AUTOMATIZACION_REANUDADA'] } } })).toBe(2);
   });
 
+  it('«Listo» (resolver con reanudar) la saca de «Atención» y devuelve la automatización en un paso', async () => {
+    const oferta = await ofrecerBotones();
+    await webhook([toque(oferta.whatsappMsgId!)]);
+    expect((await conversacion()).automatizacionPausadaEn).not.toBeNull();
+
+    const r = await http(`/conversaciones/${chat}/atencion/resolver`, 'POST', undefined, { reanudar: true });
+    expect(r.body).toMatchObject({ estado: null, automatizacionPausadaEn: null });
+    expect(await prisma.auditLog.count({ where: { entidadId: chat, accion: { in: ['ATENCION_RESUELTA', 'AUTOMATIZACION_REANUDADA'] } } })).toBe(2);
+    expect((await http(`/conversaciones/${chat}/atencion/resolver`, 'POST', undefined, { reanudar: true })).status).toBe(409);
+  });
+
+  it('«Listo» rechaza un reanudar que no es booleano', async () => {
+    const oferta = await ofrecerBotones();
+    await webhook([toque(oferta.whatsappMsgId!)]);
+    expect((await http(`/conversaciones/${chat}/atencion/resolver`, 'POST', undefined, { reanudar: 'si' })).status).toBe(400);
+  });
+
   it('resolver deja constancia con quién, cuándo y cuánto esperó, en la misma transacción', async () => {
     const oferta = await ofrecerBotones();
     await webhook([toque(oferta.whatsappMsgId!)]);

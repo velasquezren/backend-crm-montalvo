@@ -2,6 +2,24 @@
 
 > **Revisión del 10/10/2026, módulo por módulo (sin Comisiones ni Finanzas):** [REVISION_2026-10-10.md](REVISION_2026-10-10.md). La API está sana; la lista de mejoras por impacto está ahí.
 
+## 14 de octubre de 2026 · Recepción: IA solo para médicos, menú encendido y «Listo»
+
+Pedido de René: «que la IA de atención en recepción se pause, pero no los números
+de los doctores… y habilita el menú en recepción»; y que la atención en la bandeja
+sea más fácil.
+
+- Modo nuevo del asistente **«Solo médicos»** (`SOLO_MEDICOS`, migración
+  `20261014120000_asistente_solo_medicos`, `ADD VALUE` aditivo). A una paciente
+  no le contesta (ni turno ni modelo: la ingesta no la programa). Un médico
+  autorizado recibe su agenda igual que en «Responder solo». En «Responder solo» y en
+  «Solo médicos», al médico ya no le sale el menú: antes, el primer mensaje del
+  día recibía el menú y el asistente callaba.
+- Bandeja: el bloque de atención queda en una línea con un botón, **«Listo»**,
+  que resuelve y reanuda en un paso (`POST …/atencion/resolver` con
+  `{ "reanudar": true }`, dos constancias en una transacción). «La atiendo yo»
+  y liberar pasan a «Detalles». Contestar ya tomaba la solicitud. La emergencia
+  sigue mostrando qué hacer sin abrir nada.
+
 ## 13 de octubre de 2026 · IA contextual y motivos de atención · DESPLEGADO
 
 - El clasificador separa el tema de la petición actual (`solicitud`). Preguntar

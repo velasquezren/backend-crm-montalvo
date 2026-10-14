@@ -49,7 +49,8 @@ asignación comercial.
   botón «Es una emergencia» o una frase entera de `esAvisoDeEmergencia`. No se
   usa un clasificador.
 - La pausa de la automatización es independiente: resolver no la levanta.
-  Solo `POST …/automatizacion/reanudar`, explícito y auditado.
+  La levantan `POST …/automatizacion/reanudar` o «Listo» (`resolver` con
+  `{ "reanudar": true }`, 14/10/2026), ambos explícitos y auditados.
 
 ## Reglas deterministas
 
@@ -85,7 +86,7 @@ de inicio no se toca. Si estaba tomada, sigue tomada.
 |---|---|---|
 | `POST /conversaciones/:id/atencion/tomar` | quien puede ver el chat | solicitada y sin tomar; idempotente si ya es suya; 409 si es de otra persona o ya no está |
 | `POST …/atencion/liberar` | quien la tomó, o alcance global | tomada |
-| `POST …/atencion/resolver` | quien puede ver el chat | solicitada |
+| `POST …/atencion/resolver` | quien puede ver el chat | solicitada; con `{ "reanudar": true }` («Listo» en el chat) también reanuda, en la misma transacción |
 | `POST …/automatizacion/reanudar` | quien puede ver el chat | pausada y sin solicitud viva |
 
 - **Resolver deja constancia.** La conversación solo guarda la solicitud viva: al

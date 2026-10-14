@@ -461,21 +461,28 @@ export class IngestaWhatsappService {
           return null;
         })
         : null;
+      /* Un médico con el número autorizado viene por su agenda: ni menú ni acuse,
+         le contesta el asistente (en «Responder solo» y en «Solo médicos»). */
+      const medico = asistente && asistente.modo !== 'SUGERIR'
+        ? await this.asistente!.esMedico(cliente.telefono).catch(() => false)
+        : false;
+      /* En «Solo médicos», para una paciente la línea es como con el asistente apagado. */
+      const atiende = asistente && (asistente.modo !== 'SOLO_MEDICOS' || medico) ? asistente : null;
       /* Quien acaba de pedir algo ya tiene una persona en camino. */
       /* Escribió «menú»: se le muestra aunque la conversación esté en curso. */
-      const ofrecido = !tarjeta && menu && !pedido && !esRespuestaBoton
+      const ofrecido = !tarjeta && menu && !pedido && !esRespuestaBoton && !medico
         ? await this.ofrecerMenu(conversacion.id, cliente.telefono, menu, { aPedido: !media && pideMenu(contenido) })
         : false;
       /* Si el asistente va a contestar, el acuse «no hay nadie» sobra: hay alguien. */
-      const contesta = asistente?.modo === 'RESPONDER' && !ofrecido;
+      const contesta = atiende !== null && atiende.modo !== 'SUGERIR' && !ofrecido;
       /* Cuando el menú sale, ES el acuse: dos automáticos al mismo mensaje se
          leen como un sistema roto. Cuando no sale (la conversación está en curso),
          el acuse fuera de horario funciona como siempre. */
       if (linea.comercial && !ofrecido && !tarjeta && !contesta) await this.responderFueraDeHorario(conversacion.id, cliente.telefono);
       const ubicacion = !media && await this.compartirUbicacionSiLaPiden(conversacion.id, cliente.telefono, contenido);
       /* El menú o el mapa ya contestaron este mensaje: el asistente no repite. */
-      if (asistente && !ofrecido && !ubicacion) {
-        this.asistente?.programar({ conversacionId: conversacion.id, mensajeId: mensaje.id, lineaId, telefono: cliente.telefono, asistente });
+      if (atiende && !ofrecido && !ubicacion) {
+        this.asistente?.programar({ conversacionId: conversacion.id, mensajeId: mensaje.id, lineaId, telefono: cliente.telefono, asistente: atiende });
       }
     });
 

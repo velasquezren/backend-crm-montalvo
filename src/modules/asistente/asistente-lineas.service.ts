@@ -10,7 +10,7 @@ import { ClasificadorMensajes, LectorComprobantes, ModeloConversacional, Transcr
 import { probarProveedor, ResultadoPrueba, RUTA_AUDIO_DE_PRUEBA } from './prueba-conexion';
 import { ConfiguracionIA, EstadoProveedorIA } from './vertex/proveedor-vertex';
 
-export const MODOS_ASISTENTE: readonly ModoAsistente[] = ['APAGADO', 'SUGERIR', 'RESPONDER'];
+export const MODOS_ASISTENTE: readonly ModoAsistente[] = ['APAGADO', 'SUGERIR', 'RESPONDER', 'SOLO_MEDICOS'];
 
 export const LIMITES_ASISTENTE = {
   conocimiento: 8000,
