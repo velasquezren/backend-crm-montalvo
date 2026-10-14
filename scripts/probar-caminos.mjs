@@ -59,6 +59,8 @@ const MEDICOS = [
   { id: '8', especialidadId: '2', nombre: 'Dr. Luis Prueba', modalidad: 'A_SOLICITUD', precio: null, horarioInformativo: null, fotoUrl: null },
 ];
 const agenda = {
+  /* Como la de verdad: TODOS los médicos en una lectura (buscar_medico). */
+  todosLosMedicos: async () => MEDICOS.map(m => ({ medico: m, especialidad: ESPECIALIDADES.find(e => e.id === m.especialidadId) })),
   especialidades: async () => ({ datos: ESPECIALIDADES, total: ESPECIALIDADES.length }),
   medicos: async ({ especialidadId }) => ({ datos: MEDICOS.filter(m => m.especialidadId === especialidadId) }),
   medico: async id => {
@@ -146,7 +148,9 @@ const usa = (r, nombre) => r.llamadas.some(l => l.nombre === nombre);
 const usoAlgo = r => r.llamadas.length > 0;
 const derivado = r => !!r.derivo;
 const NO = (cond, motivo) => (cond ? motivo : null);
-const CUENTA_BANCARIA = /\b\d{6,}\b|cuenta (bancaria|n[°º]|número)|n[úu]mero de cuenta/i;
+/* Dar datos bancarios es escribir un número de cuenta; DECIR que no los da («no damos números
+   de cuenta por aquí») no lo es. Antes la sola frase contaba como falla (falso positivo). */
+const CUENTA_BANCARIA = /\b\d{6,}\b|(?:cuenta|cta\.?)[^.\d\n]{0,25}\d{3,}/i;
 const invitaAComprar = r => /(?:quieres|gustar[ií]a|deseas|puedo ayudarte a|te ayudo a).{0,35}(?:agendar|reservar|pagar|promoci[oó]n)|(?:agendamos|reservamos)\s*\?/i.test(r.texto ?? '');
 const comercialNoPedido = r => usa(r, 'enviar_promocion') || usa(r, 'enviar_horario') || invitaAComprar(r);
 // «Dime sobre qué es tu consulta» también aclara: no exigir un signo de interrogación.
@@ -172,6 +176,9 @@ const CASOS = [
     espera: r => NO(derivado(r), 'derivó un precio') ?? NO(!usa(r, 'listar_promociones') && !usa(r, 'ver_promocion'), 'no consultó las promociones') ?? NO(!/280/.test(r.texto), 'no dio el precio de la herramienta (Bs 280)') },
   { nombre: 'paciente · qué especialidades hay', turno: { texto: 'qué especialidades tienen?' },
     espera: r => NO(derivado(r), 'derivó una pregunta informativa') ?? NO(!usa(r, 'listar_especialidades'), 'no listó las especialidades') ?? NO(!/ginecolog/i.test(r.texto), 'no nombró las que existen') },
+  /* El caso real del 13/10: «quiero una consulta con el doctor X» se busca por apellido y no se deriva. */
+  { nombre: 'paciente · consulta con un médico por apellido', turno: { texto: 'Con la doctora Sintética', anteriores: [{ rol: 'paciente', texto: 'Hola, soy nueva, necesito una consulta' }, { rol: 'clinica', texto: '¿Para qué especialidad o con qué médico buscas la cita?' }] },
+    espera: r => NO(derivado(r), 'derivó un pedido de consulta (la búsqueda del médico tiene que funcionar)') ?? NO(!usa(r, 'buscar_medico') && !usa(r, 'listar_medicos') && !usa(r, 'ver_medico'), 'no buscó a la médica') ?? NO(!/sint[eé]tica/i.test(r.texto ?? ''), 'no nombró a la médica que encontró') },
   { nombre: 'paciente · cuándo atiende una médica', turno: { texto: 'qué días atiende la doctora Ana Sintética?' },
     espera: r => NO(derivado(r), 'derivó un horario') ?? NO(!usoAlgo(r), 'contestó sin consultar') },
   { nombre: 'paciente · quiere pagar la promoción', turno: { texto: 'quiero pagar la promo del control prenatal, cómo hago?' },
