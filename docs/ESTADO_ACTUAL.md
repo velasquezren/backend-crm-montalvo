@@ -22,6 +22,12 @@ la misma llamada tardó 1,7 s y luego 12 s.
   Priority PayGo (la cabecera no cambió `trafficType`, siguió `ON_DEMAND`);
   meter el directorio de médicos en el prompt (el modelo igual llamó a la herramienta).
 
+**Saludos y despedidas sin herramientas:** nueva `solicitud` SALUDAR. SALUDAR y CERRAR
+no declaran herramientas: antes ACLARAR/CERRAR dejaban solo `pasar_a_persona`, y un
+«hola» tras resolver una atención se derivaba porque el historial traía el tema anterior.
+Clasificador real (3.5 Flash-Lite, 22 casos sintéticos ×2): saludos → SALUDAR,
+despedidas → CERRAR, «hola, cuánto cuesta…» → CONSULTAR, «hola, me duele…» → URGENCIA.
+
 **`buscar_medico`** (`coincidenciaDeNombre`): un apellido compuesto se encuentra junto
 o separado («sanroman» → «San Roman»), y si nadie coincide exacto devuelve los
 parecidos por sonido (b/v, c/k/qu, s/z, h muda, letras dobles) o a una letra, con un

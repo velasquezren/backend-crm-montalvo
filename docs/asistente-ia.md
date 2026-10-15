@@ -2,12 +2,15 @@
 
 ## Contexto y atención sin presión comercial (13/10/2026)
 
-La clasificación incluye `solicitud`: CONSULTAR, ACLARAR, CERRAR, AGENDAR,
+La clasificación incluye `solicitud`: CONSULTAR, ACLARAR, SALUDAR, CERRAR, AGENDAR,
 PROMOCION, PAGAR u HORARIO. La categoría médica y su prioridad se evalúan
 primero; no las rebaja una intención comercial. Solo una petición clara permite
 `enviar_promocion` o `enviar_horario`; el despachador vuelve a comprobarla aunque
 el modelo intente una herramienta no declarada. Sin el campo, se permite
-CONSULTAR, nunca cobros. ACLARAR y CERRAR solo conservan `pasar_a_persona`.
+CONSULTAR, nunca cobros. ACLARAR solo conserva `pasar_a_persona`. SALUDAR y CERRAR no
+declaran ninguna herramienta (14/10): un saludo o un adiós se contestan con texto; con
+`pasar_a_persona` como única opción, el modelo derivaba un «hola» si el historial traía
+un tema anterior ya atendido.
 
 La redacción usa el historial y la última corrección, sin pedir otra vez lo que
 ya se sabe ni ofrecer agendar al final de cada respuesta. Una petición ambigua

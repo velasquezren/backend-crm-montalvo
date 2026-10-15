@@ -71,10 +71,16 @@ describe('catálogo de herramientas del asistente', () => {
     expect(puerto.promocion).not.toHaveBeenCalled();
   });
 
-  it.each(['ACLARAR', 'CERRAR'] as const)('%s solo permite pasar a una persona; no catálogos ni agenda', async solicitud => {
-    const contexto: ContextoAsistente = { ...CONTEXTO, ventas: ventas(), solicitud, informes: true };
+  it('ACLARAR solo permite pasar a una persona; no catálogos ni agenda', async () => {
+    const contexto: ContextoAsistente = { ...CONTEXTO, ventas: ventas(), solicitud: 'ACLARAR', informes: true };
     expect(herramientasDisponibles(contexto, { permitirEscritura: false }).map(h => h.nombre)).toEqual(['pasar_a_persona']);
     expect(await montar().ejecutar('horas_libres', { medicoId: '7', fecha: '2026-10-14' }, contexto, { permitirEscritura: false })).toMatchObject({ ok: false });
+  });
+
+  it.each(['SALUDAR', 'CERRAR'] as const)('%s no declara ninguna herramienta: un saludo o un adiós se contestan con texto, sin derivar', async solicitud => {
+    const contexto: ContextoAsistente = { ...CONTEXTO, ventas: ventas(), solicitud, informes: true };
+    expect(herramientasDisponibles(contexto, { permitirEscritura: false })).toEqual([]);
+    expect(await montar().ejecutar('pasar_a_persona', { motivo: 'OTRO', resumen: 'Saluda.' }, contexto, { permitirEscritura: false })).toMatchObject({ ok: false });
   });
 
   it('una petición de pago sí habilita la tarjeta y nunca habilita reservar', () => {

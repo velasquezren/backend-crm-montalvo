@@ -43,11 +43,19 @@ export function decidirTriaje(c: Pick<Clasificacion, 'categoria' | 'confianza'>)
 /** Si el clasificador falla, se trata como «no sé»: lo ve una persona. */
 export const CLASIFICACION_FALLIDA = { categoria: 'OTRO', confianza: 'BAJA' } as const satisfies { categoria: Categoria; confianza: Confianza };
 
-/** Sin una intención clara, no convertir el turno en una oferta comercial. */
+/**
+ * Sin una intención clara, no convertir el turno en una oferta comercial. Un saludo
+ * o una despedida se contestan con texto y nada más (`SALUDAR`, `CERRAR`): con
+ * «pasar a una persona» como única herramienta, el modelo derivaba un «hola»
+ * porque el historial traía un tema anterior ya atendido.
+ */
 export function solicitudDelTurno(c: Pick<Clasificacion, 'categoria' | 'confianza' | 'solicitud'>): SolicitudPaciente {
   if (c.confianza !== 'ALTA') return 'ACLARAR';
   if (c.solicitud === 'CERRAR') return 'CERRAR';
-  if (c.categoria === 'OTRO' || c.categoria === 'SALUDO') return 'ACLARAR';
+  if (c.categoria === 'SALUDO') return 'SALUDAR';
+  if (c.categoria === 'OTRO') return 'ACLARAR';
+  /* «Saludar» con un tema comercial o informativo es una pregunta con saludo: se consulta. */
+  if (c.solicitud === 'SALUDAR') return 'CONSULTAR';
   return c.solicitud ?? 'CONSULTAR';
 }
 
@@ -77,6 +85,7 @@ export function instruccionClasificador(criterio: string): string {
     'Solicitud actual (independiente de la categoría):',
     '- CONSULTAR: quiere información. Preguntar precios NO significa querer comprar ni reservar.',
     '- ACLARAR: no se entiende qué pide, falta un referente o hay varias interpretaciones no médicas. No adivines ventas.',
+    '- SALUDAR: solo saluda («hola», «buenas tardes»), sin otra petición en el mismo mensaje.',
     '- CERRAR: agradece, se despide o rechaza continuar, sin otra petición pendiente.',
     '- AGENDAR: pide explícitamente una NUEVA cita. Consultar, cambiar o cancelar una cita existente no autoriza otra reserva.',
     '- PROMOCION: pide ver o recibir una promoción, no solo saber un precio.',

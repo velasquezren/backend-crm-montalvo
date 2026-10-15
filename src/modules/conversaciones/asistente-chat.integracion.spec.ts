@@ -506,6 +506,19 @@ describe('RESPONDER: lo que no le toca, pasa a una persona', () => {
     expect(avisos).toHaveLength(2);
   });
 
+  it('tras «Listo», un «hola» se contesta con un saludo: sin herramientas, el modelo no puede volver a derivarla', async () => {
+    clasificador.siguiente = { categoria: 'MEDICO', confianza: 'ALTA' };
+    const id = await escribir('puedo tomar ibuprofeno después del peeling?');
+    expect((await http(`/conversaciones/${id}/atencion/resolver`, 'POST', usuarios.admin.token, { reanudar: true })).status).toBe(201);
+    clasificador.siguiente = { categoria: 'SALUDO', confianza: 'ALTA', solicitud: 'SALUDAR' };
+    modelo.guion = [dice('¡Hola! ¿En qué te puedo ayudar?')];
+    await escribir('hola', 2);
+    expect(modelo.vistas.at(-1)!.herramientas).toEqual([]);
+    expect((await turnos(id)).at(-1)).toMatchObject({ resultado: 'RESPONDIO', categoria: 'SALUDO' });
+    expect((await salientes(id)).at(-1)!.contenido).toContain('¡Hola! ¿En qué te puedo ayudar?');
+    expect((await prisma.conversacion.findUniqueOrThrow({ where: { id } })).atencionMotivo).toBeNull();
+  });
+
   it('con la solicitud abierta, una segunda derivación no repite el aviso', async () => {
     clasificador.siguiente = { categoria: 'MEDICO', confianza: 'ALTA' };
     const id = await escribir('puedo tomar ibuprofeno después del peeling?');

@@ -412,11 +412,15 @@ export function herramientasDisponibles(contexto: ContextoAsistente, { permitirE
     && (medico ? h.soloMedico === true || h.informativa === true || h.efecto === 'derivar' : !h.soloMedico));
 }
 
-/** Una pregunta informativa no autoriza tarjetas de cobro. La ambigüedad no abre catálogos. */
+/**
+ * Una pregunta informativa no autoriza tarjetas de cobro. La ambigüedad no abre catálogos.
+ * Un saludo o una despedida no necesitan ninguna: se contestan con texto.
+ */
 function permitidaPorSolicitud(h: Herramienta, contexto: ContextoAsistente): boolean {
   if (contexto.medico) return true;
   const solicitud = contexto.solicitud ?? 'CONSULTAR';
-  if (solicitud === 'ACLARAR' || solicitud === 'CERRAR') return h.efecto === 'derivar';
+  if (solicitud === 'SALUDAR' || solicitud === 'CERRAR') return false;
+  if (solicitud === 'ACLARAR') return h.efecto === 'derivar';
   if (h.nombre === 'enviar_promocion') return solicitud === 'PROMOCION' || solicitud === 'PAGAR';
   if (h.nombre === 'enviar_horario') return solicitud === 'HORARIO';
   return true;

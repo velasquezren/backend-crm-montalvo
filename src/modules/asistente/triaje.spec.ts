@@ -10,7 +10,10 @@ import { CLASIFICACION_FALLIDA, contextoParaClasificar, decidirTriaje, instrucci
 describe('decidirTriaje', () => {
   it('una intención incompleta o contradictoria nunca habilita una promoción', () => {
     expect(solicitudDelTurno({ categoria: 'VENTAS', confianza: 'MEDIA', solicitud: 'PROMOCION' })).toBe('ACLARAR');
-    expect(solicitudDelTurno({ categoria: 'SALUDO', confianza: 'ALTA', solicitud: 'PROMOCION' })).toBe('ACLARAR');
+    expect(solicitudDelTurno({ categoria: 'SALUDO', confianza: 'ALTA', solicitud: 'PROMOCION' })).toBe('SALUDAR');
+    expect(solicitudDelTurno({ categoria: 'SALUDO', confianza: 'ALTA', solicitud: 'SALUDAR' })).toBe('SALUDAR');
+    expect(solicitudDelTurno({ categoria: 'SALUDO', confianza: 'MEDIA', solicitud: 'SALUDAR' })).toBe('ACLARAR');
+    expect(solicitudDelTurno({ categoria: 'VENTAS', confianza: 'ALTA', solicitud: 'SALUDAR' })).toBe('CONSULTAR');
     expect(solicitudDelTurno({ categoria: 'OTRO', confianza: 'ALTA' })).toBe('ACLARAR');
     expect(solicitudDelTurno({ categoria: 'VENTAS', confianza: 'ALTA' })).toBe('CONSULTAR');
     expect(solicitudDelTurno({ categoria: 'VENTAS', confianza: 'ALTA', solicitud: 'PAGAR' })).toBe('PAGAR');
