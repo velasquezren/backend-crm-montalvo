@@ -1,5 +1,32 @@
 # Estado actual
 
+## 15 de octubre de 2026 · Horarios de consulta desde FileMaker · PREPARADO LOCALMENTE
+
+Por decisión de René, consultas de 30 minutos, sin reconsultas ni traslado de
+reservas pagadas. FileMaker será el editor del horario semanal: su hora final es
+el inicio de la última consulta (12:30 termina a las 13:00). Nuevo endpoint con
+credencial exclusiva, revisiones persistentes, rechazo de envíos antiguos y
+reintentos de la última instantánea. Actualiza los cupos de la agenda existente
+y su ficha web; conserva las citas. Con la bandera activa, el CRM muestra el
+origen, impide editar horarios y refresca la ficha por el socket existente.
+
+**Despliegue autorizado y en preparación.** René creó los cinco campos y el guion;
+la lectura local del registro `hm4`/`DR1110` quedó comprobada por captura. Falta
+configurar la credencial y hacer la aceptación del envío con un médico. Guion,
+cálculo, activador, credencial y secuencia de activación en
+[filemaker-horarios.md](filemaker-horarios.md). `FILEMAKER_HORARIOS_ACTIVO` queda
+apagado por defecto. Migración PostgreSQL aditiva `20261015190000_horarios_filemaker`;
+no requiere alterar tablas ni permisos MySQL.
+
+Verificación local: 1.242 pruebas unitarias backend y 990 de integración aprobadas
+(45 pruebas de MySQL real omitidas por falta de entorno); las nueve nuevas de
+integración usan PostgreSQL real y dobles para MySQL y directorio. Frontend: 790
+pruebas aprobadas. Compilaciones y comprobaciones de tipos backend/frontend
+aprobadas. Revisión UI desde código: aviso de origen en flujo vertical, texto
+ajustable al ancho móvil y grilla existente deshabilitada; sin prueba de navegador.
+La ejecución del guion dentro de FileMaker y el
+recorrido contra la agenda real siguen pendientes; no se certifican con esos tests.
+
 > **Revisión del 10/10/2026, módulo por módulo (sin Comisiones ni Finanzas):** [REVISION_2026-10-10.md](REVISION_2026-10-10.md). La API está sana; la lista de mejoras por impacto está ahí.
 
 ## 15 de octubre de 2026 (tarde, 2) · La IA y los mensajes automáticos tratan de usted

@@ -67,6 +67,11 @@ export function horarioHtml(casillas: readonly CasillaActiva[]): string {
   if (casillas.length === 0) return '';
   const turno = (dia: DiaAgenda, tarde: boolean) =>
     rango(casillas.filter(c => c.dia === dia && (c.hora >= INICIO_TARDE) === tarde).map(c => c.hora));
+  return horarioHtmlPorTurnos(DIAS_AGENDA.map(dia => ({ dia, manana: turno(dia, false), tarde: turno(dia, true) })));
+}
+
+/** FileMaker define mañana/tarde explícitamente: no deducirlos por la hora. */
+export function horarioHtmlPorTurnos(turnos: readonly { dia: DiaAgenda; manana: string; tarde: string }[]): string {
   return [
     '<div style="width: 6cm; height: 2cm; border: 1px solid #2d8c85; background-color: #39ada3; display: flex; align-items: center; justify-content: center; font-family: sans-serif; box-sizing: border-box; overflow: hidden; margin: 0 auto; color: #ffffff;">',
     '  <table style="width: 100%; border-collapse: collapse; table-layout: fixed;">',
@@ -77,8 +82,8 @@ export function horarioHtml(casillas: readonly CasillaActiva[]): string {
     '      </tr>',
     '    </thead>',
     '    <tbody>',
-    fila('MAÑANA', DIAS_AGENDA.map(d => turno(d, false))),
-    fila('TARDE', DIAS_AGENDA.map(d => turno(d, true))),
+    fila('MAÑANA', DIAS_AGENDA.map(d => turnos.find(t => t.dia === d)?.manana ?? '')),
+    fila('TARDE', DIAS_AGENDA.map(d => turnos.find(t => t.dia === d)?.tarde ?? '')),
     '    </tbody>',
     '  </table>',
     '</div>',

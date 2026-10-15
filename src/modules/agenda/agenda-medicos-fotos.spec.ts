@@ -7,6 +7,7 @@ import { AgendaAdminClient } from './agenda-admin.client';
 import { MedicoPorCodigo } from './agenda-admin.sql';
 import { AgendaMedicosCrmService, fotoDelMedico } from './agenda-medicos-crm.service';
 import { AgendaReservasService } from './agenda-reservas.service';
+import { HorarioFilemakerService } from './horario-filemaker.service';
 
 /*
  * La cara de cada médico en el CRM. La agenda (MySQL) y el directorio son
@@ -33,6 +34,7 @@ function armar(todos: MedicoPorCodigo[] = []) {
   const servicio = new AgendaMedicosCrmService(
     { consultar } as unknown as AgendaAdminClient, {} as PrismaService,
     directorio as unknown as DirectorioService, reservas as unknown as AgendaReservasService,
+    { activo: () => false, detalle: async () => ({ origen: 'CRM', pendiente: false, sincronizadoEn: null }) } as unknown as HorarioFilemakerService,
   );
   return { servicio, consultar, directorio, reservas };
 }

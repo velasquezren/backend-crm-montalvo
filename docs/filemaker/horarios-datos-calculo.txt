@@ -1,0 +1,31 @@
+Let ( [
+  tabla = Get ( LayoutTableName ) ;
+  bases = "lunes¶martes¶miercoles¶jueves¶viernes¶sabado" ;
+  dias = "Lunes¶Martes¶Miercoles¶Jueves¶Viernes¶Sabado" ;
+  sufijos = "_hi¶_hf¶_hi.t¶_hf.t" ;
+  propiedades = "mananaInicio¶mananaUltima¶tardeInicio¶tardeUltima" ;
+  inicial = JSONSetElement ( "{}" ;
+    [ "registroId" ; Trim ( GetAsText ( GetField ( tabla & "::pk.hm" ) ) ) ; JSONString ] ;
+    [ "medicoCodigo" ; Upper ( Trim ( GetAsText ( GetField ( tabla & "::medico.pk" ) ) ) ) ; JSONString ] ;
+    [ "estado" ; Upper ( Trim ( GetAsText ( GetField ( tabla & "::estado" ) ) ) ) ; JSONString ] ;
+    [ "sucursal" ; Trim ( GetAsText ( GetField ( tabla & "::sucursal" ) ) ) ; JSONString ] ;
+    [ "minutosConsulta" ; 30 ; JSONNumber ]
+  )
+] ;
+  While ( [ i = 0 ; json = inicial ] ; i < 24 ; [
+    diaIndice = Int ( i / 4 ) ;
+    campoIndice = Mod ( i ; 4 ) + 1 ;
+    base = GetValue ( bases ; diaIndice + 1 ) ;
+    valor = GetField ( tabla & "::" & base & GetValue ( sufijos ; campoIndice ) ) ;
+    hora = Case (
+      IsEmpty ( valor ) ; "" ;
+      Seconds ( valor ) ≠ 0 ; "HORA_INVALIDA" ;
+      Right ( "0" & Hour ( valor ) ; 2 ) & ":" & Right ( "0" & Minute ( valor ) ; 2 )
+    ) ;
+    json = JSONSetElement ( json ;
+      [ "dias[" & diaIndice & "].dia" ; GetValue ( dias ; diaIndice + 1 ) ; JSONString ] ;
+      [ "dias[" & diaIndice & "]." & GetValue ( propiedades ; campoIndice ) ; hora ; JSONString ]
+    ) ;
+    i = i + 1
+  ] ; json )
+)

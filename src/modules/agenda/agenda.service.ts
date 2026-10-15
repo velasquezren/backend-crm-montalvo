@@ -8,6 +8,7 @@ import { QueryDiasAgendaDto, QueryDisponibilidadAgendaDto, QueryMedicosAgendaDto
 
 @Injectable()
 export class AgendaService {
+  private revisionCatalogo = 0;
   private readonly especialidadesCache = new CacheMemoria<RespuestaPaginada<EspecialidadAgenda>>({ ttlMs: 30_000, maxEntradas: 30 });
   private readonly medicosCache = new CacheMemoria<RespuestaPaginada<MedicoAgenda>>({ ttlMs: 30_000, maxEntradas: 100 });
   private readonly medicoCache = new CacheMemoria<{ medico: MedicoAgenda; especialidad: EspecialidadAgenda } | null>({ ttlMs: 30_000, maxEntradas: 200 });
@@ -17,6 +18,12 @@ export class AgendaService {
     private readonly directorio: DirectorioService,
   ) {}
 
+  /** La generación separa las lecturas anteriores que todavía estén en vuelo. */
+  invalidarCatalogo(): void {
+    this.revisionCatalogo++;
+    this.especialidadesCache.invalidar(); this.medicosCache.invalidar(); this.medicoCache.invalidar(); this.todosCache.invalidar();
+  }
+
   private parametros(query: PaginationDto): URLSearchParams {
     const { take } = calcularPaginacion(query);
     return new URLSearchParams({ pagina: String(query.pagina ?? 1), limite: String(take) });
@@ -25,7 +32,7 @@ export class AgendaService {
   especialidades(query: PaginationDto) {
     if (!this.vps.habilitada()) throw this.vps.noDisponible();
     const parametros = this.parametros(query);
-    return this.especialidadesCache.resolver(parametros.toString(), async () => {
+    return this.especialidadesCache.resolver(`${this.revisionCatalogo}:${parametros}`, async () => {
       const crudo = await this.vps.leer('especialidades', parametros);
       try { return paginaAgenda(crudo, query.pagina ?? 1, calcularPaginacion(query).take, especialidadDeAgenda); }
       catch { throw this.vps.noDisponible(); }
@@ -36,7 +43,7 @@ export class AgendaService {
     if (!this.vps.habilitada()) throw this.vps.noDisponible();
     const parametros = this.parametros(query);
     parametros.set('especialidadId', query.especialidadId);
-    return this.medicosCache.resolver(parametros.toString(), async () => {
+    return this.medicosCache.resolver(`${this.revisionCatalogo}:${parametros}`, async () => {
       const crudo = await this.vps.leer('medicos', parametros);
       let pagina: RespuestaPaginada<MedicoAgenda>;
       try {
@@ -54,7 +61,7 @@ export class AgendaService {
    */
   todosLosMedicos() {
     if (!this.vps.habilitada()) throw this.vps.noDisponible();
-    return this.todosCache.resolver('todos', async () => {
+    return this.todosCache.resolver(`${this.revisionCatalogo}:todos`, async () => {
       const crudo = await this.vps.leer('todos', new URLSearchParams());
       try { return todosLosMedicosDeAgenda(crudo); }
       catch { throw this.vps.noDisponible(); }
@@ -67,7 +74,7 @@ export class AgendaService {
    */
   async medico(medicoId: number) {
     if (!this.vps.habilitada()) throw this.vps.noDisponible();
-    const r = await this.medicoCache.resolver(String(medicoId), async () => {
+    const r = await this.medicoCache.resolver(`${this.revisionCatalogo}:${medicoId}`, async () => {
       const crudo = await this.vps.leer('medico', new URLSearchParams({ medicoId: String(medicoId) }));
       let leido: { medico: MedicoAgenda; especialidad: EspecialidadAgenda } | null;
       try { leido = medicoConEspecialidadDeAgenda(crudo); }

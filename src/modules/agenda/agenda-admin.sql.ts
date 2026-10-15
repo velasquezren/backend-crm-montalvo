@@ -291,6 +291,7 @@ export async function guardarHorarioAgenda(
   id: number,
   version: string,
   activas: readonly CasillaActiva[],
+  htmlDelOrigen?: string,
 ): Promise<ResultadoAdminAgenda<CambiosHorario>> {
   const vigente = await fichaVigente(db, id, version);
   if (!vigente.ok) return vigente;
@@ -330,7 +331,7 @@ export async function guardarHorarioAgenda(
     );
   }
 
-  const html = horarioHtml([...pedidas.values()].map(c => ({ dia: c.dia as DiaAgenda, hora: c.hora })));
+  const html = htmlDelOrigen ?? horarioHtml([...pedidas.values()].map(c => ({ dia: c.dia as DiaAgenda, hora: c.hora })));
   await db.execute<ResultSetHeader>(`UPDATE medicos SET horario_html = ? WHERE medico_pk = ?`, [html, id]);
   return { ok: true, valor: { encendidas, apagadas, creadas: nuevas.length, horarioHtml: html } };
 }

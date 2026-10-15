@@ -18,15 +18,19 @@ import { AgendaReservasService } from './agenda-reservas.service';
 import { AgendaTelegramService } from './agenda-telegram.service';
 import { AgendaService } from './agenda.service';
 import { AgendaVpsClient } from './agenda-vps.client';
+import { HorarioFilemakerController } from './horario-filemaker.controller';
+import { HorarioFilemakerGuard } from './horario-filemaker.guard';
+import { HorarioFilemakerService } from './horario-filemaker.service';
 
 @Module({
   imports: [DirectorioModule, StorageModule],
-  controllers: [AgendaPublicaController, AgendaReservasCrmController, AgendaMedicosCrmController, AccesoMedicoAgendaController, AgendaFlowController],
+  controllers: [AgendaPublicaController, AgendaReservasCrmController, AgendaMedicosCrmController, AccesoMedicoAgendaController, AgendaFlowController, HorarioFilemakerController],
   providers: [
     AgendaService, AgendaVpsClient, AgendaReservaClient, AgendaReservasService, AgendaTelegramService,
     AgendaConsultaClient, AgendaReservasCrmService, AgendaAdminClient, AgendaMedicosCrmService, AgendaFlowService,
     AccesoMedicoAgendaService, AgendaMedicoCitasService,
+    HorarioFilemakerGuard, HorarioFilemakerService,
   ],
-  exports: [AgendaService, AgendaReservasService, AgendaConsultaClient, AgendaMedicosCrmService, AccesoMedicoAgendaService, AgendaMedicoCitasService],
+  exports: [AgendaService, AgendaReservasService, AgendaConsultaClient, AgendaMedicosCrmService, AccesoMedicoAgendaService, AgendaMedicoCitasService, HorarioFilemakerService],
 })
 export class AgendaModule {}

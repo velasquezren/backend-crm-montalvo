@@ -11,6 +11,8 @@ import { CuentaEscritura, EscritorAgenda } from './agenda-escritor';
  *
  * Decisión del propietario (7/10/2026): los médicos y horarios se editan solo
  * desde el CRM; el panel de ScriptCase queda como respaldo.
+ * Desde el 15/10, FILEMAKER_HORARIOS_ACTIVO=on reserva la edición de horarios
+ * a FileMaker mediante esta misma cuenta; los demás datos siguen en el CRM.
  */
 @Injectable()
 export class AgendaAdminClient extends EscritorAgenda {

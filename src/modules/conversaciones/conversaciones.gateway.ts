@@ -1,5 +1,7 @@
 import { LineasWhatsappService } from '../lineas-whatsapp/lineas-whatsapp.service';
-import { Logger, UnauthorizedException } from '@nestjs/common';
+import { Logger, OnModuleDestroy, Optional, UnauthorizedException } from '@nestjs/common';
+import { Subscription } from 'rxjs';
+import { HorarioFilemakerService } from '../agenda/horario-filemaker.service';
 import {
   OnGatewayConnection,
   OnGatewayDisconnect,
@@ -21,20 +23,27 @@ const ORIGENES_PERMITIDOS = (process.env.CORS_ORIGINS ?? 'http://localhost:4200'
   namespace: '/realtime',
   cors: { origin: ORIGENES_PERMITIDOS, credentials: true },
 })
-export class ConversacionesGateway implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect {
+export class ConversacionesGateway implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect, OnModuleDestroy {
   @WebSocketServer()
   private server!: Namespace;
   private readonly logger = new Logger(ConversacionesGateway.name);
+  private horariosSuscripcion?: Subscription;
   private readonly sesiones = new Map<string, { acceso: AccesoAutenticado; timer?: NodeJS.Timeout }>();
 
   constructor(
     private readonly authService: AuthService,
     private readonly pushService: PushService,
     private readonly lineas: LineasWhatsappService,
+    @Optional() private readonly horarios?: HorarioFilemakerService,
   ) {}
 
   /** Middleware: la conexión no se acepta mientras se consulta la sesión. */
   afterInit(server: Namespace): void {
+    this.horariosSuscripcion = this.horarios?.cambios.subscribe(medicoAgendaId => {
+      // Cualquier sesión puede consultar el horario. Solo viaja el id, sin datos clínicos.
+      void this.emitirAutenticados('agenda:horario', () => true, () => ({ medicoAgendaId }))
+        .catch(() => this.logger.warn('No se pudo avisar del cambio de horario.'));
+    });
     server.use((client, next) => {
       const token: unknown = client.handshake.auth?.['token'];
       void this.authService.validarAcceso(typeof token === 'string' ? token : '').then(acceso => {
@@ -61,6 +70,8 @@ export class ConversacionesGateway implements OnGatewayInit, OnGatewayConnection
     clearTimeout(this.sesiones.get(client.id)?.timer);
     this.sesiones.delete(client.id);
   }
+
+  onModuleDestroy(): void { this.horariosSuscripcion?.unsubscribe(); }
 
   /**
    * Emite a cada socket con sesión vigente que pase `aQuien`, con el payload

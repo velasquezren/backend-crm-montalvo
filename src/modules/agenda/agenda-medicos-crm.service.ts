@@ -28,6 +28,8 @@ import {
 } from './agenda-admin.sql';
 import { bloquesDeCasillas, DiaAgenda } from './horario-html';
 import { nombreLimpio } from '../../common/texto/espacios';
+import { HorarioFilemakerService } from './horario-filemaker.service';
+import { bloquesContiguos } from './horario-filemaker';
 import {
   ActualizarMedicoAgendaDto,
   ActualizarPresentacionAgendaDto,
@@ -138,6 +140,7 @@ export class AgendaMedicosCrmService {
     private readonly prisma: PrismaService,
     private readonly directorio: DirectorioService,
     private readonly reservas: AgendaReservasService,
+    private readonly horariosFilemaker: HorarioFilemakerService,
   ) {}
 
   /**
@@ -209,7 +212,8 @@ export class AgendaMedicosCrmService {
   async ficha(id: number, usuario: UsuarioJwt) {
     const ficha = await this.leerFicha(id);
     const presentacion = await this.directorio.fichaDeAgenda(id);
-    return { ...ficha, medico: this.paraQuienVe(ficha.medico, usuario), presentacion, ...fotoDelMedico(ficha.medico, presentacion?.fotoUrl) };
+    const sincronizacionHorario = await this.horariosFilemaker.detalle(id);
+    return { ...ficha, medico: this.paraQuienVe(ficha.medico, usuario), presentacion, sincronizacionHorario, ...fotoDelMedico(ficha.medico, presentacion?.fotoUrl) };
   }
 
   /**
@@ -265,6 +269,12 @@ export class AgendaMedicosCrmService {
     return ficha;
   }
 
+  private bloquesWeb(ficha: FichaMedicoAgenda) {
+    return this.horariosFilemaker.activo()
+      ? bloquesContiguos(ficha.casillas.filter(c => c.activa && (ficha.grilla.dias as readonly string[]).includes(c.dia)).map(c => ({ dia: c.dia as DiaAgenda, hora: c.hora })))
+      : bloquesDeFicha(ficha);
+  }
+
   /**
    * Tras guardar en la agenda: la ficha web (si hay) recibe el precio y el
    * horario nuevos. La agenda ya quedó guardada; si esto falla, se registra y
@@ -273,7 +283,8 @@ export class AgendaMedicosCrmService {
   private async sincronizarWeb(id: number, usuario: UsuarioJwt) {
     const ficha = await this.leerFicha(id);
     try {
-      await this.directorio.sincronizarConAgenda(id, { precioConsulta: precioWeb(ficha.medico.precio), orden: ficha.medico.orden, bloques: bloquesDeFicha(ficha) });
+      const bloques = this.bloquesWeb(ficha);
+      await this.directorio.sincronizarConAgenda(id, { precioConsulta: precioWeb(ficha.medico.precio), orden: ficha.medico.orden, bloques });
     } catch (error) {
       this.logger.warn(`Ficha web del médico ${id} sin sincronizar: ${error instanceof Error ? error.message : 'error'}`);
     }
@@ -302,6 +313,7 @@ export class AgendaMedicosCrmService {
 
   async guardarHorario(id: number, dto: GuardarHorarioAgendaDto, usuario: UsuarioJwt) {
     this.exigirEditar(usuario);
+    this.horariosFilemaker.exigirEdicionCrm();
     const r = await this.agenda.enTransaccion(async db => {
       const resultado = await guardarHorarioAgenda(db, id, dto.version, dto.activas);
       if (resultado.ok) {
@@ -364,7 +376,7 @@ export class AgendaMedicosCrmService {
       nombre: nombreLimpio([f.medico.sigla, f.medico.nombre].filter(Boolean).join(' ')).slice(0, 120),
       especialidad: f.medico.especialidad,
       precioBs: precioWeb(f.medico.precio),
-      bloques: bloquesDeFicha(f),
+      bloques: this.bloquesWeb(f),
     };
   }
 
@@ -379,7 +391,7 @@ export class AgendaMedicosCrmService {
       especialidad: f.medico.especialidad,
       precioConsulta: precioWeb(f.medico.precio),
       orden: f.medico.orden,
-      bloques: bloquesDeFicha(f),
+      bloques: this.bloquesWeb(f),
     }, usuario.sub);
     return this.ficha(id, usuario);
   }
