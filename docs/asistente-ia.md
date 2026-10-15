@@ -123,6 +123,17 @@ Ventas un precio equivocado cuesta más que unos segundos. Los picos son de la c
 compartida de Vertex (pago por uso); quitarlos de raíz es capacidad reservada
 (Provisioned Throughput), que es una decisión de costo de la clínica.
 
+## Trato de usted (15/10/2026)
+
+René: la IA no tutea ni vosea; trata de usted. Va en los dos prompts (`TRATO_DE_USTED`, en
+`prompt-sistema.ts`) y en todos los textos fijos que el CRM le manda a una paciente: la
+derivación, la nota de voz no entendida, la reserva y su QR, los comprobantes, la constancia,
+la ubicación, el menú, las tarjetas y el QR de promociones, los informes y la baja de
+promociones. Quedan con tú, porque no son código del CRM: las plantillas de Meta (no se tocan
+sin OK), el Flow de reserva ya publicado (su JSON y sus avisos van juntos; cambiarlo es
+publicar otra versión), el acuse `AUTORESPUESTA_TEXTO` del `.env` y lo que la clínica escribió
+en el menú y en el conocimiento de cada línea (se edita en Líneas WhatsApp).
+
 ## Contexto y atención sin presión comercial (13/10/2026)
 
 La clasificación incluye `solicitud`: CONSULTAR, ACLARAR, SALUDAR, CERRAR, AGENDAR,

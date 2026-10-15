@@ -33,15 +33,15 @@ export function textoBs(centavos: number): string {
 
 /** `resumen` («con Dr. …, lunes 19 de octubre a las 12:00»): el Flow ya lo mostró en su pantalla; el asistente lo dice aquí. */
 export function textoPagoDeReserva(reserva: number, centavos: number, resumen?: string): string {
-  return `Tu reserva N.º ${reserva}${resumen ? ` ${resumen}` : ''} quedó registrada. Para asegurarla, paga ${textoBs(centavos)} con este QR y mándanos por aquí la foto o captura del comprobante. Recepción confirmará tu cita por este chat.`;
+  return `Su reserva N.º ${reserva}${resumen ? ` ${resumen}` : ''} quedó registrada. Para asegurarla, pague ${textoBs(centavos)} con este QR y envíenos por aquí la foto o captura del comprobante. Recepción confirmará su cita por este chat.`;
 }
 
 /** La reserva del asistente cuando el médico no cobra por el chat (sin precio o sin QR vigente). */
 export function textoReservaSinPago(reserva: number, resumen: string): string {
-  return `Tu reserva N.º ${reserva} ${resumen} quedó registrada. Recepción te confirmará la cita y cómo pagarla por este chat.`;
+  return `Su reserva N.º ${reserva} ${resumen} quedó registrada. Recepción le confirmará la cita y cómo pagarla por este chat.`;
 }
 
-export const TEXTO_COMPROBANTE_RESERVA = '✅ Recibimos tu comprobante. Recepción lo verificará y te confirmará la cita por aquí.';
+export const TEXTO_COMPROBANTE_RESERVA = '✅ Recibimos su comprobante. Recepción lo verificará y le confirmará la cita por aquí.';
 
 /**
  * Dentro de la transacción de la ingesta, al llegar el cierre del Flow ya

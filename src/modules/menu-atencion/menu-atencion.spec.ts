@@ -19,7 +19,7 @@ const ORIENTACION = 'Si corre peligro tu vida, acude a la emergencia más cercan
 function recepcion(): MenuAtencion {
   return {
     activo: true,
-    saludo: 'Hola, gracias por escribir a la Clínica. ¿En qué te ayudamos?',
+    saludo: 'Hola, gracias por escribir a la Clínica. ¿En qué le ayudamos?',
     opciones: [
       { tipo: 'PERSONA', titulo: 'Hablar con una persona', respuesta: 'Listo. Una persona del equipo te responderá por aquí.' },
       { tipo: 'EMERGENCIA', titulo: 'Es una emergencia', respuesta: ORIENTACION },

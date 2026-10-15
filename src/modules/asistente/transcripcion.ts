@@ -31,4 +31,4 @@ export function limpiarTranscripcion(crudo: string | null | undefined): string |
 }
 
 /** Lo que se le dice a quien mandó un audio que no se pudo escuchar. No lo escribe el modelo. */
-export const TEXTO_AUDIO_NO_ENTENDIDO = 'No alcancé a escuchar bien tu audio. ¿Me lo puedes escribir, por favor?';
+export const TEXTO_AUDIO_NO_ENTENDIDO = 'No alcancé a escuchar bien su audio. ¿Me lo puede escribir, por favor?';

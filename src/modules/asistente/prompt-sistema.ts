@@ -25,6 +25,14 @@ export interface DatosPrompt {
 
 export const NOMBRE_CLINICA = 'Clínica Montalvo';
 
+/**
+ * La clínica trata de usted a quien le escribe (René, 15/10): nunca tú ni vos, aunque
+ * ella tutee. Los textos fijos que manda el código también van de usted.
+ */
+export const TRATO_DE_USTED =
+  '- Trata SIEMPRE de usted: usted, su, le («¿En qué le puedo ayudar?», «¿Qué día le queda mejor?», «Escríbanos»). ' +
+  'Nunca tú ni vos (ni «te», «tu», «puedes», «quieres», «podés»), aunque te escriban así.';
+
 export function promptDelSistema(d: DatosPrompt): string {
   const conocimiento = d.conocimiento.trim();
   return [
@@ -33,6 +41,7 @@ export function promptDelSistema(d: DatosPrompt): string {
     '',
     'CÓMO HABLAS',
     '- Español de Bolivia, cálido y breve: como mucho tres párrafos cortos. Una pregunta a la vez.',
+    TRATO_DE_USTED,
     '- Formato de WhatsApp: *negrita* con un asterisco. Sin títulos, sin tablas, sin enlaces inventados.',
     '- Si te preguntan, dices que eres un asistente virtual y que una persona del equipo puede seguir la conversación.',
     '',
@@ -144,6 +153,7 @@ export function promptDelMedico(d: DatosPromptMedico): string {
   return [
     `Eres el asistente virtual de ${NOMBRE_CLINICA} (Bolivia) en WhatsApp. Ahora es ${d.ahora}, hora de Bolivia.`,
     `Te escribe ${d.medico}, médico de la clínica: su número está autorizado para consultar SU agenda. Trátalo con respeto y brevedad.`,
+    TRATO_DE_USTED,
     '',
     'LO QUE HACES',
     '- Consultar su agenda con mi_agenda: un día por llamada. «Hoy» y «mañana» los calculas con la fecha de hoy de arriba.',

@@ -2,6 +2,12 @@
 
 > **Revisión del 10/10/2026, módulo por módulo (sin Comisiones ni Finanzas):** [REVISION_2026-10-10.md](REVISION_2026-10-10.md). La API está sana; la lista de mejoras por impacto está ahí.
 
+## 15 de octubre de 2026 (tarde, 2) · La IA y los mensajes automáticos tratan de usted
+
+Regla `TRATO_DE_USTED` en los prompts de paciente y de médico, y los textos fijos del chat
+pasados a usted. Lo que sigue con tú y por qué, en
+[asistente-ia](asistente-ia.md#trato-de-usted-15102026).
+
 ## 15 de octubre de 2026 (tarde) · El asistente sigue la cita hasta el QR, y más rápido
 
 La primera prueba en Ventas derivó con «sara Bueno / 6376378»: el filtro lo leyó como «no sé» y

@@ -135,7 +135,7 @@ describe('la tarjeta de la promoción', () => {
 
 describe('textos del pago', () => {
   it('no prometen plazos ni dan por pagado lo que no se verificó', () => {
-    expect(textoPagoConfirmado('Control prenatal', 280)).toContain('Confirmamos tu pago de Bs 280');
-    expect(textoOtroComprobante('el monto no coincide')).toBe('No pudimos verificar el comprobante: el monto no coincide. Por favor, envíanos otro por aquí.');
+    expect(textoPagoConfirmado('Control prenatal', 280)).toContain('Confirmamos su pago de Bs 280');
+    expect(textoOtroComprobante('el monto no coincide')).toBe('No pudimos verificar el comprobante: el monto no coincide. Por favor, envíenos otro por aquí.');
   });
 });

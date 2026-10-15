@@ -76,7 +76,7 @@ export interface ProgramadorAsistente {
 }
 
 /** Lo que se le dice a la paciente cuando el asistente la pasa a una persona. No lo escribe el modelo. */
-export const TEXTO_DERIVACION = 'Gracias por escribirnos. Le paso tu consulta a una persona del equipo, que te responderá por aquí.';
+export const TEXTO_DERIVACION = 'Gracias por escribirnos. Le paso su consulta a una persona del equipo, que le responderá por aquí.';
 
 /**
  * Cuánto se espera a que termine de escribir. Cada mensaje nuevo reinicia la espera…

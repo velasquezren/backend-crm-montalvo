@@ -19,8 +19,8 @@ export const UBICACION_CLINICA = {
 
 /** Lo que precede al pin. No promete tiempos: puede ser domingo. */
 export const TEXTO_UBICACION =
-  '¡Con gusto! 📍 Te compartimos la ubicación de Clínica Montalvo. ' +
-  'En un momento una persona de nuestro equipo continúa con tu consulta.';
+  '¡Con gusto! 📍 Le compartimos la ubicación de Clínica Montalvo. ' +
+  'En un momento una persona de nuestro equipo continúa con su consulta.';
 
 /**
  * Cómo queda el pin en el historial del CRM, y lo que recibe la paciente si

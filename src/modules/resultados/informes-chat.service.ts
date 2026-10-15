@@ -9,7 +9,7 @@ export const PREFIJO_INFORME_CHAT = 'informe-chat/';
 export class IdentificacionInformePendiente extends NotFoundException {
   constructor() { super('Recepción debe verificar la identidad para consultar informes.'); }
 }
-export const PEDIR_CARNET_INFORME = 'Para que recepción pueda verificar tu solicitud, escribe el número de carnet del paciente, solo el número; no envíes una foto del documento. Recepción revisará la identidad y el teléfono antes de entregar el informe.';
+export const PEDIR_CARNET_INFORME = 'Para que recepción pueda verificar su solicitud, escriba el número de carnet del paciente, solo el número; no envíe una foto del documento. Recepción revisará la identidad y el teléfono antes de entregar el informe.';
 export interface ContextoInformes {
   clienteId: string; lineaId: string; identidad: IdentidadInformeChat;
   informes: InformeParaChat[]; pagina: number;
@@ -60,7 +60,7 @@ export class InformesChatService {
     if (pagina > 1) opciones.push({ id: `INFORMES_PAGINA_${pagina - 1}`, titulo: 'Anteriores', descripcion: 'Volver a la página anterior' });
     if (pagina * datos.limite < datos.total) opciones.push({ id: `INFORMES_PAGINA_${pagina + 1}`, titulo: 'Más informes', descripcion: 'Ver la siguiente página' });
     opciones.push({ id: 'TALK_TO_HUMAN', titulo: 'Hablar con recepción', descripcion: 'Necesito ayuda con mis informes' });
-    return { ...prepararOferta({ tipo: 'lista', cuerpo: 'Estos son tus informes disponibles. Elige uno para recibir su PDF por este WhatsApp. El archivo quedará en el chat. Si el teléfono es compartido, pide ayuda a recepción.', boton: 'Ver mis informes', secciones: [{ titulo: 'Informes disponibles', opciones }] }, telefono, ficha.lineaId),
+    return { ...prepararOferta({ tipo: 'lista', cuerpo: 'Estos son sus informes disponibles. Elija uno para recibir su PDF por este WhatsApp. El archivo quedará en el chat. Si el teléfono es compartido, pida ayuda a recepción.', boton: 'Ver mis informes', secciones: [{ titulo: 'Informes disponibles', opciones }] }, telefono, ficha.lineaId),
       origen: 'INFORMES', informes: { clienteId: ficha.clienteId, lineaId: ficha.lineaId, identidad: ficha.identidad, informes: datos.datos, pagina } };
   }
 

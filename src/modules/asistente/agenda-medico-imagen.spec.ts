@@ -43,8 +43,8 @@ describe('el texto de la agenda', () => {
   });
 
   it('un día vacío se dice sin rodeos y sin nota de pendientes', () => {
-    expect(textoResumen(MEDICO, VACIA)).toContain('No tienes citas registradas para este día.');
-    expect(textoListado(MEDICO, VACIA)).toContain('No tienes citas registradas para este día.');
+    expect(textoResumen(MEDICO, VACIA)).toContain('No tiene citas registradas para este día.');
+    expect(textoListado(MEDICO, VACIA)).toContain('No tiene citas registradas para este día.');
     expect(textoResumen(MEDICO, VACIA)).not.toContain('recepción todavía');
   });
 

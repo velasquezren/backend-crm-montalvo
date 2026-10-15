@@ -186,7 +186,7 @@ it('si falla el portal no pide carnet de nuevo ni atribuye el fallo a la identid
   portal.informesDelPaciente.mockRejectedValueOnce(new Error('Fallo sintético de disponibilidad'));
   expect(await ingesta.ofrecerInformes(chat, telefono)).toBe(false);
   const mensajes = await prisma.mensaje.findMany({ where: { conversacionId: chat, direccion: 'SALIENTE' }, select: { contenido: true } });
-  expect(mensajes).toEqual([{ contenido: 'No pudimos consultar tus informes en este momento. Recepción revisará tu solicitud. No necesitas enviar documentos personales por aquí.' }]);
+  expect(mensajes).toEqual([{ contenido: 'No pudimos consultar sus informes en este momento. Recepción revisará su solicitud. No necesita enviar documentos personales por aquí.' }]);
   expect(portal.pdfDelPaciente).not.toHaveBeenCalled();
 });
 

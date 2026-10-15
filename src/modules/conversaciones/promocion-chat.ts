@@ -135,7 +135,7 @@ const TITULO_FILA = 24;
 export function listaDeServicios(p: PromocionChat): MensajePreparado {
   return {
     tipo: 'lista',
-    cuerpo: `¿Qué servicio de *${p.titulo}* quieres pagar? Te mandamos el QR con ese monto.`,
+    cuerpo: `¿Qué servicio de *${p.titulo}* desea pagar? Le enviamos el QR con ese monto.`,
     boton: 'Elegir servicio',
     pie: `Código ${p.codigo}`,
     secciones: [{
@@ -150,17 +150,17 @@ export function listaDeServicios(p: PromocionChat): MensajePreparado {
 }
 
 /** «Hablar con alguien» en la tarjeta, si el menú de la línea no tiene su propia confirmación. */
-export const TEXTO_PERSONA_TARJETA = 'Listo. Una persona del equipo te escribirá por aquí para ayudarte con esta promoción.';
+export const TEXTO_PERSONA_TARJETA = 'Listo. Una persona del equipo le escribirá por aquí para ayudarle con esta promoción.';
 
 /** Lo que recibe al mandar el comprobante. No promete plazos: lo verifica una persona. */
-export const TEXTO_COMPROBANTE_RECIBIDO = '✅ Recibimos tu comprobante. Una persona del equipo lo verificará y te confirmará el pago por aquí.';
+export const TEXTO_COMPROBANTE_RECIBIDO = '✅ Recibimos su comprobante. Una persona del equipo lo verificará y le confirmará el pago por aquí.';
 
 /** Lo que recibe cuando una persona confirma el pago (sale como mensaje de esa persona). */
 export function textoPagoConfirmado(titulo: string, monto: number): string {
-  return `✅ Confirmamos tu pago de ${bolivianos(monto)} por «${titulo}». ¡Gracias! Si necesitas coordinar una fecha, escríbenos por aquí.`;
+  return `✅ Confirmamos su pago de ${bolivianos(monto)} por «${titulo}». ¡Gracias! Si necesita coordinar una fecha, escríbanos por aquí.`;
 }
 
 /** Lo que recibe cuando hay que mandar otro comprobante. El motivo lo escribe la persona que lo revisó. */
 export function textoOtroComprobante(motivo: string): string {
-  return `No pudimos verificar el comprobante: ${motivo}. Por favor, envíanos otro por aquí.`;
+  return `No pudimos verificar el comprobante: ${motivo}. Por favor, envíenos otro por aquí.`;
 }

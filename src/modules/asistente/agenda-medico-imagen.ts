@@ -72,7 +72,7 @@ const NOTA_PENDIENTES = '_«Por confirmar» y «Pago por verificar» son reserva
 
 /** Solo las cantidades (la pregunta «¿cuántas citas tengo?»). */
 export function textoResumen(medico: string, a: AgendaDelDia): string {
-  if (a.total === 0) return `${encabezado(medico, a)}\n\nNo tienes citas registradas para este día.`;
+  if (a.total === 0) return `${encabezado(medico, a)}\n\nNo tiene citas registradas para este día.`;
   return [encabezado(medico, a), '', resumenEnPalabras(a), desglose(a), ...(a.pendientes > 0 ? ['', NOTA_PENDIENTES] : [])].join('\n');
 }
 

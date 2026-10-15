@@ -869,8 +869,8 @@ export class IngestaWhatsappService {
          de la agenda. El de solicitud solo pregunta y una persona propone la hora. */
       const reserva = flow.proposito === 'RESERVA_CITA';
       const cuerpo = confirmacion ?? (reserva
-        ? 'Elige especialidad, médico, día y hora entre las horas libres de la agenda. Recepción te confirmará la reserva por este chat.'
-        : 'Cuéntanos para qué es la cita y cuándo te queda mejor. Una persona del equipo te escribirá para confirmarla.');
+        ? 'Elija especialidad, médico, día y hora entre las horas libres de la agenda. Recepción le confirmará la reserva por este chat.'
+        : 'Cuéntenos para qué es la cita y cuándo le queda mejor. Una persona del equipo le escribirá para confirmarla.');
       const oferta = prepararOferta(
         reserva
           ? { tipo: 'flow', cuerpo, cta: 'Reservar cita', flowId: flow.id, modo: 'published', inicio: { accion: 'data_exchange' } }
@@ -953,7 +953,7 @@ export class IngestaWhatsappService {
     } catch (error: unknown) {
       await this.responderTexto(conversacionId, telefono,
         error instanceof IdentificacionInformePendiente ? PEDIR_CARNET_INFORME
-          : 'No pudimos consultar tus informes en este momento. Recepción revisará tu solicitud. No necesitas enviar documentos personales por aquí.',
+          : 'No pudimos consultar sus informes en este momento. Recepción revisará su solicitud. No necesita enviar documentos personales por aquí.',
         { respetaPausa: true, noRepetir: true });
       const origen = mensajeId ?? (await this.prisma.mensaje.findFirst({ where: { conversacionId, direccion: 'ENTRANTE' },
         orderBy: { createdAt: 'desc' }, select: { id: true } }))?.id;

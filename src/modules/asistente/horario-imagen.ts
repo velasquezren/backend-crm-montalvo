@@ -126,7 +126,7 @@ export function svgDelHorario(d: DatosHorario): string {
     ...[['Día', MARGEN], ['Mañana', COLUMNA_MANANA + 4], ['Tarde', COLUMNA_TARDE + 4]].map(([t, x]) =>
       `<text x="${x}" y="${CABECERA + 48}" font-size="22" font-weight="600" fill="${COLOR.apagado}" letter-spacing="2">${String(t).toUpperCase()}</text>`),
     cuerpo,
-    pie(alto, PIE, 'Reserva tu cita por este chat', 'Horario de referencia: el cupo se confirma al reservar.'),
+    pie(alto, PIE, 'Reserve su cita por este chat', 'Horario de referencia: el cupo se confirma al reservar.'),
     '</svg>',
   ].join('');
 }

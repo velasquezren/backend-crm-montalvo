@@ -294,7 +294,7 @@ describe('una promoción con varios servicios (uno por pago)', () => {
     const venta = await prisma.venta.findFirstOrThrow({ where: { pagoPromocion: { id: pago.id } } });
     expect(venta.producto).toBe('Promoción: Control prenatal · Ecografía Mamaria');
     expect(venta.monto.toNumber()).toBe(268);
-    expect(await prisma.mensaje.findFirst({ where: { conversacionId: id, contenido: { startsWith: '✅ Confirmamos tu pago de Bs 268 por «Control prenatal · Ecografía Mamaria»' } } })).not.toBeNull();
+    expect(await prisma.mensaje.findFirst({ where: { conversacionId: id, contenido: { startsWith: '✅ Confirmamos su pago de Bs 268 por «Control prenatal · Ecografía Mamaria»' } } })).not.toBeNull();
   });
 
   it('pagado uno, el siguiente servicio es OTRO pago con su monto; elegir otro antes de pagar anula el pendiente', async () => {
@@ -496,7 +496,7 @@ describe('de la landing al pago confirmado', () => {
     const { chat: id, tarjeta } = await llegarPorLaLanding();
     expect((await webhook([toque(tarjeta, 'TALK_TO_HUMAN')])).status).toBe(200);
     await esperar(async () => (await prisma.conversacion.findUniqueOrThrow({ where: { id } })).atencionMotivo === 'SOLICITUD_EXPLICITA');
-    await esperar(async () => (await textosAutomaticos(id)).some(t => t.startsWith('Listo. Una persona del equipo te escribirá')));
+    await esperar(async () => (await textosAutomaticos(id)).some(t => t.startsWith('Listo. Una persona del equipo le escribirá')));
   });
 
   it('«Pagar ahora» → QR con monto; la foto → comprobante por verificar; confirmar → venta ligada y aviso a la paciente', async () => {
@@ -513,7 +513,7 @@ describe('de la landing al pago confirmado', () => {
     const pago = await pagoAbierto(id);
     expect(pago).toMatchObject({ estado: 'COMPROBANTE_ENVIADO', comprobanteMensajeId: comprobanteId });
     expect((await prisma.conversacion.findUniqueOrThrow({ where: { id } })).atencionMotivo).toBe('COMPROBANTE_PAGO');
-    await esperar(async () => (await textosAutomaticos(id)).some(t => t.startsWith('✅ Recibimos tu comprobante')));
+    await esperar(async () => (await textosAutomaticos(id)).some(t => t.startsWith('✅ Recibimos su comprobante')));
 
     const confirmado = await http(`/conversaciones/${id}/pagos/${pago.id}/confirmar`, 'POST');
     expect(confirmado.status).toBe(201);
@@ -525,12 +525,12 @@ describe('de la landing al pago confirmado', () => {
     expect(venta.comprobanteKey).toMatch(new RegExp(`^comprobantes/${usuarios.agente.id}/pago-${pago.id}`));
     expect(almacen.has(venta.comprobanteKey!)).toBe(true);
     expect((await prisma.conversacion.findUniqueOrThrow({ where: { id } })).atencionSolicitadaEn).toBeNull();
-    expect(await prisma.mensaje.findFirst({ where: { conversacionId: id, automatico: false, contenido: { startsWith: '✅ Confirmamos tu pago de Bs 280' } } })).not.toBeNull();
+    expect(await prisma.mensaje.findFirst({ where: { conversacionId: id, automatico: false, contenido: { startsWith: '✅ Confirmamos su pago de Bs 280' } } })).not.toBeNull();
 
     /* Doble clic: ni otra venta ni otro mensaje. */
     expect((await http(`/conversaciones/${id}/pagos/${pago.id}/confirmar`, 'POST')).status).toBe(201);
     expect(await prisma.venta.count({ where: { pagoPromocion: { id: pago.id } } })).toBe(1);
-    expect(await prisma.mensaje.count({ where: { conversacionId: id, contenido: { startsWith: '✅ Confirmamos tu pago' } } })).toBe(1);
+    expect(await prisma.mensaje.count({ where: { conversacionId: id, contenido: { startsWith: '✅ Confirmamos su pago' } } })).toBe(1);
   });
 
   it('pedir otro comprobante vuelve a esperar uno, con el motivo; la foto siguiente lo reemplaza', async () => {
@@ -546,7 +546,7 @@ describe('de la landing al pago confirmado', () => {
     const nuevo = await mandarComprobante(id);
     expect(await pagoAbierto(id)).toMatchObject({ estado: 'COMPROBANTE_ENVIADO', comprobanteMensajeId: nuevo });
     /* El segundo comprobante también recibe su acuse. */
-    await esperar(async () => (await textosAutomaticos(id)).filter(t => t.startsWith('✅ Recibimos tu comprobante')).length === 2);
+    await esperar(async () => (await textosAutomaticos(id)).filter(t => t.startsWith('✅ Recibimos su comprobante')).length === 2);
   });
 
   it('volver a tocar «Pagar ahora» mantiene el monto congelado; con el comprobante en revisión no se manda otro QR', async () => {
@@ -615,7 +615,7 @@ describe('de la landing al pago confirmado', () => {
     expect(r.status).toBe(201);
     expect(r.body).toMatchObject({ estado: 'CONFIRMADO', avisoPaciente: 'NO_ENVIADO', ventaId: expect.any(String) });
     expect(await prisma.venta.count({ where: { cliente: { telefono } } })).toBe(1);
-    expect(await prisma.mensaje.count({ where: { conversacionId: id, contenido: { startsWith: '✅ Confirmamos tu pago' } } })).toBe(0);
+    expect(await prisma.mensaje.count({ where: { conversacionId: id, contenido: { startsWith: '✅ Confirmamos su pago' } } })).toBe(0);
   });
 
   it('una confirmación interrumpida sigue visible y no admite otro QR; quien la inició puede completarla', async () => {

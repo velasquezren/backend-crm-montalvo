@@ -21,7 +21,7 @@ export function esPedidoDeBaja(textoDelBoton: string): boolean {
 /**
  * Lo que se le contesta. Confirmar no es un extra: sin respuesta, quien tocó
  * el botón no sabe si funcionó y lo que le queda es bloquear el número.
- * Mismo voseo que las plantillas de Ventas.
+ * De usted, como todo lo que se le escribe a una paciente.
  */
 export const CONFIRMACION_BAJA =
-  'Listo, no te enviaremos más promociones. Si necesitas algo de la clínica, escríbenos por aquí cuando quieras.';
+  'Listo, no le enviaremos más promociones. Si necesita algo de la clínica, escríbanos por aquí cuando quiera.';

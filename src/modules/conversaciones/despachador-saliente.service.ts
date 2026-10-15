@@ -355,7 +355,7 @@ export class DespachadorSalienteService {
       return;
     }
     await this.registrarResultadoEnvio(destino, await this.whatsapp.enviar(destino.telefono,
-      { type: 'document', document: { id: mediaId, filename: 'informe.pdf', caption: 'Este es el informe que elegiste. Para consultas sobre su contenido, habla con tu médico.' } },
+      { type: 'document', document: { id: mediaId, filename: 'informe.pdf', caption: 'Este es el informe que eligió. Para consultas sobre su contenido, hable con su médico.' } },
       destino.mensajeId, cuenta), false);
   }
 

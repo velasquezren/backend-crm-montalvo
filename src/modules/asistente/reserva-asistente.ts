@@ -110,6 +110,6 @@ export function resumenDeReserva(r: { readonly medico: string; readonly fecha: s
 /** Se ocupó la hora entre que la vio libre y la reservó: las que quedan, o que ese día ya no hay. */
 export function textoHoraOcupada(r: { readonly fecha: string; readonly hora: string }, libres: readonly string[]): string {
   return libres.length
-    ? `Las ${r.hora} del ${dia(r.fecha)} se acaban de ocupar 😕. Ese día todavía quedan:\n${libres.slice(0, 12).map(h => `• ${h}`).join('\n')}\n\n¿Cuál prefieres?`
-    : `Las ${r.hora} del ${dia(r.fecha)} se acaban de ocupar 😕 y ese día ya no quedan horas libres. ¿Te busco otro día?`;
+    ? `Las ${r.hora} del ${dia(r.fecha)} se acaban de ocupar 😕. Ese día todavía quedan:\n${libres.slice(0, 12).map(h => `• ${h}`).join('\n')}\n\n¿Cuál prefiere?`
+    : `Las ${r.hora} del ${dia(r.fecha)} se acaban de ocupar 😕 y ese día ya no quedan horas libres. ¿Le busco otro día?`;
 }

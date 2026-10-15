@@ -634,7 +634,7 @@ describe('RESPONDER: reserva la cita y le manda el QR del médico (15/10)', () =
     expect(enviados.map(m => m.contenido).join('\n')).not.toContain('confirmada');
     const qr = enviados.find(m => m.mediaKey === QR);
     expect(qr).toMatchObject({ tipo: 'IMAGEN', asistente: true, automatico: true, id: reserva.qrMensajeId });
-    expect(qr?.contenido).toContain('Tu reserva N.º 7001 con Dra. Sintética el martes 20 de octubre a las 12:00 quedó registrada');
+    expect(qr?.contenido).toContain('Su reserva N.º 7001 con Dra. Sintética el martes 20 de octubre a las 12:00 quedó registrada');
     expect(qr?.contenido).toContain('Bs 250');
     expect(await turnos(id)).toMatchObject([{ resultado: 'RESPONDIO', motivo: expect.stringContaining('N.º 7001'), herramientas: [{ nombre: 'reservar', ok: true }] }]);
 
@@ -675,7 +675,7 @@ describe('RESPONDER: reserva la cita y le manda el QR del médico (15/10)', () =
 
   /** Los turnos de antes del 15/10: la Dra. Sintética, el martes, y la hora elegida. Deja el clasificador en «agendar». */
   async function venimosAgendando() {
-    modelo.guion = [pide('horas_libres', { medicoId: '7', fecha: FECHA }), dice('El martes 20 hay a las 12:00 y 12:30. ¿Cuál prefieres?')];
+    modelo.guion = [pide('horas_libres', { medicoId: '7', fecha: FECHA }), dice('El martes 20 hay a las 12:00 y 12:30. ¿Cuál prefiere?')];
     await escribir('el martes por la mañana');
     modelo.guion = [dice('Perfecto, las 12:00. Pásame tu nombre completo y tu carnet.')];
     return escribir('a las 12', 2);
@@ -1092,7 +1092,7 @@ describe('la agenda del médico por WhatsApp', () => {
       const id = await medicoEscribe('mis citas de hoy');
       const [respuesta] = await salientes(id);
       expect(respuesta).toMatchObject({ tipo: 'TEXTO' });
-      expect(respuesta.contenido).toContain('No tienes citas registradas para este día.');
+      expect(respuesta.contenido).toContain('No tiene citas registradas para este día.');
       expect(imagenes.dibujar).not.toHaveBeenCalled();
     });
 

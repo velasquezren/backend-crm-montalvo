@@ -29,8 +29,8 @@ export function textoDelQr(p: { titulo: string; monto: number; banco: string; ti
   return [
     `Para pagar «${p.titulo}»: *${bolivianos(p.monto)}*`,
     '',
-    `1️⃣ Escanea este QR con la app de tu banco (${p.banco}, a nombre de ${p.titular}).`,
-    '2️⃣ Envíanos aquí la foto o el PDF del comprobante.',
+    `1️⃣ Escanee este QR con la app de su banco (${p.banco}, a nombre de ${p.titular}).`,
+    '2️⃣ Envíenos aquí la foto o el PDF del comprobante.',
     ...(p.instrucciones ? ['', p.instrucciones] : []),
   ].join('\n');
 }

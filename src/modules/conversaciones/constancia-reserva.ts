@@ -36,7 +36,7 @@ export interface DatosConstancia {
 export const VERSION_DISENO_CONSTANCIA = 1;
 
 export const ESTADO_CONSTANCIA = 'Pago recibido: en verificación';
-const AVISO_CONSTANCIA = 'Recepción verificará tu pago y te confirmará la cita por este chat.';
+const AVISO_CONSTANCIA = 'Recepción verificará su pago y le confirmará la cita por este chat.';
 
 const CABECERA = 360;
 const ALTO = 1170;
@@ -47,7 +47,7 @@ const mayuscula = (t: string) => t.charAt(0).toUpperCase() + t.slice(1);
 /** El pie de la imagen, y el mensaje entero cuando no hay imagen. */
 export function textoConstancia(d: DatosConstancia): string {
   return [
-    `🧾 *Constancia de tu reserva N.º ${d.reserva}*`,
+    `🧾 *Constancia de su reserva N.º ${d.reserva}*`,
     '',
     `📅 ${mayuscula(fechaLarga(d.fecha))}, ${d.hora}`,
     `🩺 ${[d.medico, d.especialidad].filter(Boolean).join(' · ')}`,
@@ -113,12 +113,12 @@ export function svgDeConstancia(d: DatosConstancia): string {
     abrirSvg(ALTO),
     cabecera(CABECERA),
     antetitulo('Constancia de reserva', ALTO_MARCA + 62),
-    `<text x="${MARGEN}" y="${ALTO_MARCA + 128}" font-size="52" font-weight="600" fill="#FFFFFF">Tu reserva está registrada</text>`,
+    `<text x="${MARGEN}" y="${ALTO_MARCA + 128}" font-size="52" font-weight="600" fill="#FFFFFF">Su reserva está registrada</text>`,
     `<text x="${MARGEN}" y="${ALTO_MARCA + 180}" font-size="30" fill="#FFFFFF" fill-opacity="0.9">Reserva N.º ${d.reserva}</text>`,
     estado,
     cita,
     datos,
-    pie(ALTO, PIE, UBICACION_CLINICA.direccion, 'Guarda esta imagen: tiene el número de tu reserva.'),
+    pie(ALTO, PIE, UBICACION_CLINICA.direccion, 'Guarde esta imagen: tiene el número de su reserva.'),
     '</svg>',
   ].join('');
 }
