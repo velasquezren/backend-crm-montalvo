@@ -45,11 +45,15 @@ export interface UsoModelo {
 }
 
 /** Lo que el modelo contesta a una vuelta: o pide herramientas, o habla, o se niega. */
-export type RespuestaModelo =
+export type RespuestaModelo = (
   | { readonly tipo: 'herramientas'; readonly llamadas: readonly LlamadaHerramienta[]; readonly crudo: unknown; readonly uso: UsoModelo }
   | { readonly tipo: 'texto'; readonly texto: string; readonly uso: UsoModelo }
   /** El proveedor cortó la respuesta (seguridad, recitación…). No hay texto que publicar. */
-  | { readonly tipo: 'bloqueada'; readonly motivo: string; readonly uso: UsoModelo };
+  | { readonly tipo: 'bloqueada'; readonly motivo: string; readonly uso: UsoModelo }
+) & {
+  /** Qué modelo contestó: el principal o, si tardó, el de respaldo. Falta en los dobles de prueba. */
+  readonly modelo?: string;
+};
 
 export abstract class ModeloConversacional {
   /** El nombre del modelo, para el registro de turnos. */
@@ -64,6 +68,11 @@ export abstract class ModeloConversacional {
     readonly sistema: string;
     readonly historial: readonly TurnoModelo[];
     readonly herramientas: readonly DeclaracionHerramienta[];
+    /**
+     * Desde la segunda vuelta, el modelo que contestó la primera: el turno sigue con
+     * él porque la firma de su razonamiento (`crudo`) solo vale para ese modelo.
+     */
+    readonly modelo?: string;
   }): Promise<RespuestaModelo>;
 }
 

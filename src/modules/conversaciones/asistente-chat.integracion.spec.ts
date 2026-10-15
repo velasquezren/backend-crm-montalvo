@@ -435,6 +435,9 @@ describe('RESPONDER: contesta lo comercial', () => {
     expect(JSON.stringify(modelo.vistas[1].historial)).toContain('"precioBs":280');
     expect((await prisma.conversacion.findUniqueOrThrow({ where: { id } })).esperandoRespuesta).toBe(true);
     expect(await turnos(id)).toMatchObject([{ resultado: 'RESPONDIO', categoria: 'VENTAS', herramientas: [{ nombre: 'listar_promociones', ok: true }], tokensEntrada: 205 }]);
+    /* La pantalla de la línea dice cuánto tarda en contestar (mediana y p90 de los últimos 7 días). */
+    const config = await http(`/asistente/lineas/${ventas}`, 'GET', usuarios.admin.token);
+    expect(config.body['actividad']).toMatchObject({ latencia: { turnos: expect.any(Number), medianaMs: expect.any(Number), p90Ms: expect.any(Number) } });
   });
 
   it('mientras prepara la respuesta, ella ve «escribiendo…» sobre SU mensaje; el CRM lo sigue mostrando sin leer', async () => {

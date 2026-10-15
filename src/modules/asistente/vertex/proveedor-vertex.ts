@@ -14,6 +14,9 @@
  *                                           los productos de Google: NO con pacientes reales.
  *   ASISTENTE_MODELO=gemini-3.5-flash       estable, sin retiro antes de mayo de 2027
  *   ASISTENTE_MODELO_CLASIFICADOR=gemini-3.5-flash-lite
+ *   ASISTENTE_MODELO_RESPALDO=gemini-3.7-flash     si el principal tarda, la copia de la PRIMERA vuelta
+ *                                           va a este otro modelo (`off` = copia al mismo). Ver `RESPALDO_*`.
+ *   ASISTENTE_MODELO_TRANSCRIPCION=gemini-3.5-flash   las notas de voz; su copia va al clasificador
  *
  * El modelo va por variable y con nombre EXACTO: los alias `-latest` cambian de
  * modelo sin avisar, y Google retira versiones (los 2.5 dejan Vertex el
@@ -38,6 +41,15 @@ import { aContenidos, deRespuesta, jsonDe, textoDe, usoDe } from './traduccion';
 
 export const MODELO_POR_DEFECTO = 'gemini-3.5-flash';
 export const CLASIFICADOR_POR_DEFECTO = 'gemini-3.5-flash-lite';
+/*
+ * Elegidos con datos del 14/10/2026 (recorrido `asistente:caminos` en el servidor y
+ * 16 notas de voz sintéticas). Conversar: 3.7 Flash pasó los mismos caminos que
+ * 3.8 Flash (26/27, la otra era un falso positivo de la prueba); 3.5 Flash dio un
+ * precio equivocado y no pidió aclaración, así que no sirve de respaldo. Notas de
+ * voz: 3.5 Flash p50 2,9 s y sin errores de nombres; 3.8 Flash tuvo 429 y 32 s de p90.
+ */
+export const RESPALDO_POR_DEFECTO = 'gemini-3.7-flash';
+export const TRANSCRIPCION_POR_DEFECTO = 'gemini-3.5-flash';
 
 export interface EstadoProveedorIA {
   readonly encendido: boolean;
@@ -48,6 +60,9 @@ export interface EstadoProveedorIA {
   readonly ubicacion: string;
   readonly modelo: string;
   readonly modeloClasificador: string;
+  /** Adónde va la copia de la primera vuelta si el principal tarda; `null` = al mismo modelo. */
+  readonly modeloRespaldo: string | null;
+  readonly modeloTranscripcion: string;
   /** Todo lo necesario para llamar está puesto. No prueba que Google acepte las credenciales. */
   readonly listo: boolean;
 }
@@ -66,6 +81,11 @@ export class ConfiguracionIA {
   get ubicacion(): string { return this.valor('GOOGLE_CLOUD_LOCATION') || 'global'; }
   get modelo(): string { return this.valor('ASISTENTE_MODELO') || MODELO_POR_DEFECTO; }
   get modeloClasificador(): string { return this.valor('ASISTENTE_MODELO_CLASIFICADOR') || CLASIFICADOR_POR_DEFECTO; }
+  get modeloRespaldo(): string | null {
+    const v = this.valor('ASISTENTE_MODELO_RESPALDO') || RESPALDO_POR_DEFECTO;
+    return v === 'off' || v === this.modelo ? null : v;
+  }
+  get modeloTranscripcion(): string { return this.valor('ASISTENTE_MODELO_TRANSCRIPCION') || TRANSCRIPCION_POR_DEFECTO; }
 
   estado(): EstadoProveedorIA {
     const archivo = this.valor('GOOGLE_APPLICATION_CREDENTIALS');
@@ -80,6 +100,8 @@ export class ConfiguracionIA {
       ubicacion: this.ubicacion,
       modelo: this.modelo,
       modeloClasificador: this.modeloClasificador,
+      modeloRespaldo: this.modeloRespaldo,
+      modeloTranscripcion: this.modeloTranscripcion,
       listo: this.encendida && (!!this.claveApi || (!!this.proyecto && credenciales !== 'ARCHIVO_INEXISTENTE')),
     };
   }
@@ -89,16 +111,36 @@ export class ConfiguracionIA {
 const ESPERA_CONVERSAR_MS = 30_000;
 const ESPERA_CLASIFICAR_MS = 10_000;
 const ESPERA_LEER_MS = 45_000;
+/** Una nota de voz de WhatsApp dura segundos: si no se transcribe en esto, se le pide que lo escriba. */
+const ESPERA_TRANSCRIBIR_MS = 20_000;
 
 /*
- * Cuándo se lanza la copia de una llamada lenta (`conRespaldo`): cerca del p90 de
- * cada modelo, medido en Cloud Monitoring del proyecto (7 días al 14/10/2026).
- * Conversar (gemini-3.8-flash): p50 1,8 s, p90 4,4 s, p99 47 s. Clasificar
- * (gemini-3.5-flash-lite): p50 0,9 s, p90 1,5 s, p99 3 s. Así se duplica en torno
- * al 10 % de las llamadas, las que de otro modo dejaban a la paciente esperando.
+ * Cuándo se lanza la copia de una llamada lenta (`conRespaldo`), medido en Cloud
+ * Monitoring del proyecto (14/10/2026). 3.8 Flash: p50 1,8 s y p99 67 s en 7 días;
+ * en una noche mala, p50 7,6 s y p90 39 s. Cuando un modelo entero se pone lento,
+ * su copia también tarda: por eso la primera vuelta copia a OTRO modelo
+ * (`modeloRespaldo`), pronto. Desde la segunda vuelta el turno sigue con el modelo
+ * que ganó (la firma de su razonamiento solo vale para él) y la copia es a ese mismo.
+ * Clasificar (3.5 Flash-Lite): p50 0,9 s, p90 1,5 s. Notas de voz: p90 4,2 s con
+ * 3.5 Flash; la copia va al clasificador, 1,7 s.
  */
-const RESPALDO_CONVERSAR_MS = 5_000;
+const RESPALDO_PRIMERA_VUELTA_MS = 2_500;
+const RESPALDO_MISMO_MODELO_MS = 4_000;
 const RESPALDO_CLASIFICAR_MS = 2_500;
+const RESPALDO_TRANSCRIBIR_MS = 3_000;
+const RESPALDO_LEER_MS = 8_000;
+
+/** Lo que devolvió Gemini y QUÉ modelo lo hizo (el principal o el de la copia). */
+export interface Generada {
+  readonly respuesta: GenerateContentResponse;
+  readonly modelo: string;
+}
+
+/** La copia de una llamada lenta: cuándo sale y, si se quiere, a qué otro modelo. */
+export interface Respaldo {
+  readonly trasMs: number;
+  readonly modelo?: string | null;
+}
 
 @Injectable()
 export class ClienteVertex {
@@ -109,9 +151,10 @@ export class ClienteVertex {
 
   /**
    * Una llamada, con su tiempo máximo y sus etiquetas de facturación. Con
-   * `respaldoTrasMs`, si tarda más que eso se lanza una copia (ver `conRespaldo`).
+   * `respaldo`, si tarda más que `trasMs` se lanza una copia —al mismo modelo o a
+   * `respaldo.modelo`— y gana la primera (ver `conRespaldo`).
    */
-  async generar(params: GenerateContentParameters, esperaMs: number, respaldoTrasMs?: number): Promise<GenerateContentResponse> {
+  async generar(params: GenerateContentParameters, esperaMs: number, respaldo?: Respaldo): Promise<Generada> {
     if (!this.cfg.estado().listo) throw new ServiceUnavailableException('El asistente de IA no está configurado en el servidor.');
     if (!this.cliente) {
       this.cliente = this.cfg.claveApi
@@ -123,19 +166,25 @@ export class ClienteVertex {
     const { labels, ...config } = params.config ?? {};
     const uso = labels?.['uso'] ?? 'asistente';
     const cliente = this.cliente;
-    return conRespaldo((abortSignal, espera) => cliente.models.generateContent({
-      ...params,
-      config: {
-        ...config,
-        abortSignal,
-        httpOptions: { timeout: espera },
-        /* Aparecen en la factura de Google Cloud: cuánto cuesta cada uso. */
-        ...(this.cfg.claveApi ? {} : { labels: { aplicacion: 'crm-montalvo', uso } }),
-      },
-    }), {
+    const modeloDe = (intento: number) => (intento > 0 && respaldo?.modelo) || params.model;
+    return conRespaldo(async (abortSignal, espera, intento) => {
+      const modelo = modeloDe(intento);
+      const respuesta = await cliente.models.generateContent({
+        ...params,
+        model: modelo,
+        config: {
+          ...config,
+          abortSignal,
+          httpOptions: { timeout: espera },
+          /* Aparecen en la factura de Google Cloud: cuánto cuesta cada uso. */
+          ...(this.cfg.claveApi ? {} : { labels: { aplicacion: 'crm-montalvo', uso } }),
+        },
+      });
+      return { respuesta, modelo };
+    }, {
       esperaMs,
-      respaldoTrasMs,
-      alLanzarRespaldo: () => this.logger.log(`Gemini tarda más de ${respaldoTrasMs} ms (${uso}): se lanza una copia y se usa la primera que llegue.`),
+      respaldoTrasMs: respaldo?.trasMs,
+      alLanzarRespaldo: () => this.logger.log(`${params.model} tarda más de ${respaldo?.trasMs} ms (${uso}): se lanza una copia a ${modeloDe(1)} y se usa la primera que llegue.`),
     });
   }
 }
@@ -146,9 +195,13 @@ export class ModeloVertex extends ModeloConversacional {
 
   get nombre(): string { return this.cfg.modelo; }
 
-  async responder(entrada: { sistema: string; historial: readonly TurnoModelo[]; herramientas: readonly DeclaracionHerramienta[] }): Promise<RespuestaModelo> {
-    const r = await this.cliente.generar({
-      model: this.cfg.modelo,
+  /**
+   * Sin `modelo` es la primera vuelta del turno: el principal, y si tarda, una copia
+   * al de respaldo. Con `modelo`, el turno sigue con el que contestó la primera.
+   */
+  async responder(entrada: { sistema: string; historial: readonly TurnoModelo[]; herramientas: readonly DeclaracionHerramienta[]; modelo?: string }): Promise<RespuestaModelo> {
+    const { respuesta, modelo } = await this.cliente.generar({
+      model: entrada.modelo ?? this.cfg.modelo,
       contents: aContenidos(entrada.historial),
       config: {
         systemInstruction: entrada.sistema,
@@ -166,8 +219,10 @@ export class ModeloVertex extends ModeloConversacional {
         maxOutputTokens: 2048,
         labels: { uso: 'conversar' },
       },
-    }, ESPERA_CONVERSAR_MS, RESPALDO_CONVERSAR_MS);
-    return deRespuesta(r);
+    }, ESPERA_CONVERSAR_MS, entrada.modelo
+      ? { trasMs: RESPALDO_MISMO_MODELO_MS }
+      : { trasMs: RESPALDO_PRIMERA_VUELTA_MS, modelo: this.cfg.modeloRespaldo });
+    return { ...deRespuesta(respuesta), modelo };
   }
 }
 
@@ -179,7 +234,7 @@ export class ClasificadorVertex extends ClasificadorMensajes {
 
   async clasificar(entrada: { mensaje: string; contexto: readonly TurnoModelo[]; criterio: string }): Promise<Clasificacion> {
     const contexto = contextoParaClasificar(entrada.contexto);
-    const r = await this.cliente.generar({
+    const { respuesta: r } = await this.cliente.generar({
       model: this.cfg.modeloClasificador,
       contents: [{ role: 'user', parts: [{ text: `${contexto ? `Mensajes anteriores:\n${contexto}\n\n` : ''}Mensaje a clasificar:\n${entrada.mensaje.slice(0, 2000)}` }] }],
       config: {
@@ -194,7 +249,7 @@ export class ClasificadorVertex extends ClasificadorMensajes {
         maxOutputTokens: 256,
         labels: { uso: 'clasificar' },
       },
-    }, ESPERA_CLASIFICAR_MS, RESPALDO_CLASIFICAR_MS);
+    }, ESPERA_CLASIFICAR_MS, { trasMs: RESPALDO_CLASIFICAR_MS });
     return { ...clasificacionDe(jsonDe(r)), uso: usoDe(r) };
   }
 }
@@ -216,7 +271,7 @@ export class LectorVertex extends LectorComprobantes {
   get nombre(): string { return this.cfg.modelo; }
 
   async leer(archivo: { bytes: Uint8Array; mime: string }): Promise<{ datos: DatosComprobante; uso: UsoModelo }> {
-    const r = await this.cliente.generar({
+    const { respuesta: r } = await this.cliente.generar({
       model: this.cfg.modelo,
       contents: [{
         role: 'user',
@@ -232,21 +287,26 @@ export class LectorVertex extends LectorComprobantes {
         maxOutputTokens: 1024,
         labels: { uso: 'leer-comprobante' },
       },
-    }, ESPERA_LEER_MS);
+    }, ESPERA_LEER_MS, { trasMs: RESPALDO_LEER_MS, modelo: this.cfg.modeloRespaldo });
     return { datos: datosComprobanteDe(jsonDe(r)), uso: usoDe(r) };
   }
 }
 
-/** Las notas de voz a texto. Mismo modelo que conversa: oír mal a la paciente cuesta más que medio segundo. */
+/**
+ * Las notas de voz a texto, con su propio modelo (`modeloTranscripcion`): oír mal a
+ * la paciente cuesta más que medio segundo, así que se eligió por precisión con
+ * nombres de médicos y, entre los precisos, el estable. Si tarda, la copia va al
+ * clasificador, que transcribe casi igual y en 1,7 s.
+ */
 @Injectable()
 export class TranscriptorVertex extends TranscriptorAudio {
   constructor(private readonly cliente: ClienteVertex, private readonly cfg: ConfiguracionIA) { super(); }
 
-  get nombre(): string { return this.cfg.modelo; }
+  get nombre(): string { return this.cfg.modeloTranscripcion; }
 
   async transcribir(audio: { bytes: Uint8Array; mime: string }): Promise<{ texto: string | null; uso: UsoModelo }> {
-    const r = await this.cliente.generar({
-      model: this.cfg.modelo,
+    const { respuesta: r } = await this.cliente.generar({
+      model: this.cfg.modeloTranscripcion,
       contents: [{
         role: 'user',
         parts: [
@@ -259,7 +319,7 @@ export class TranscriptorVertex extends TranscriptorAudio {
         maxOutputTokens: 1024,
         labels: { uso: 'transcribir-audio' },
       },
-    }, ESPERA_LEER_MS);
+    }, ESPERA_TRANSCRIBIR_MS, { trasMs: RESPALDO_TRANSCRIBIR_MS, modelo: this.cfg.modeloClasificador });
     return { texto: limpiarTranscripcion(textoDe(r)), uso: usoDe(r) };
   }
 }

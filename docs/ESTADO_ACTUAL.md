@@ -2,7 +2,19 @@
 
 > **Revisión del 10/10/2026, módulo por módulo (sin Comisiones ni Finanzas):** [REVISION_2026-10-10.md](REVISION_2026-10-10.md). La API está sana; la lista de mejoras por impacto está ahí.
 
-## 14 de octubre de 2026 · Asistente más rápido y búsqueda de médicos tolerante · SIN DESPLEGAR
+## 14 de octubre de 2026 · Velocidad del asistente, segunda vuelta: modelo de respaldo y notas de voz · SIN DESPLEGAR
+
+En una noche mala `gemini-3.8-flash` tuvo p50 7,6 s y p90 39 s, y su copia también
+tardaba: una nota de voz tardó 95 s en contestarse (1 min transcribiendo). Ahora la
+primera vuelta copia a OTRO modelo (`ASISTENTE_MODELO_RESPALDO`, 3.7 Flash) a los
+2,5 s y el turno sigue con el que ganó; las notas de voz tienen su propio modelo
+(`ASISTENTE_MODELO_TRANSCRIPCION`, 3.5 Flash) con copia al clasificador a los 3 s;
+el «escribiendo…» se renueva cada 20 s; y la pantalla de la línea muestra la mediana
+y el p90 del tiempo de respuesta. Elección con datos y tabla en
+[asistente-ia](asistente-ia.md#velocidad-medida-no-supuesta-14102026). El recorrido
+`asistente:caminos` dejó de marcar como falla «en cuanto sea confirmado».
+
+## 14 de octubre de 2026 · Asistente más rápido y búsqueda de médicos tolerante · DESPLEGADO (def712f, f426b5d)
 
 **Latencia, medida antes de tocar nada** (Cloud Monitoring de `crm-clinica-montalvo`,
 7 días): `gemini-3.8-flash` p50 1,8 s, p90 4,4 s, **p99 47 s**; `gemini-3.5-flash-lite`

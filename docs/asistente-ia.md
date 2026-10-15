@@ -1,5 +1,42 @@
 # El asistente de IA (Gemini en Vertex)
 
+## Velocidad: medida, no supuesta (14/10/2026)
+
+Lo lento de Vertex no es la llamada típica sino su cola: `gemini-3.8-flash` tuvo p50
+1,8 s y p99 67 s en 7 días, y en una noche mala p50 7,6 s y p90 39 s (Cloud Monitoring
+del proyecto, `model_invocation_latencies`). Cuando un modelo entero se pone lento, una
+copia al MISMO modelo también tarda. Por eso:
+
+| Paso | Modelo | Si tarda… |
+|---|---|---|
+| Notas de voz | `ASISTENTE_MODELO_TRANSCRIPCION` (3.5 Flash) | a los 3 s, copia al clasificador (3.5 Flash-Lite, 1,7 s) |
+| Filtro de entrada | `ASISTENTE_MODELO_CLASIFICADOR` (3.5 Flash-Lite) | a los 2,5 s, copia al mismo |
+| Conversar, 1.ª vuelta | `ASISTENTE_MODELO` (3.8 Flash) | a los 2,5 s, copia a `ASISTENTE_MODELO_RESPALDO` (3.7 Flash) |
+| Conversar, vueltas siguientes | el que ganó la 1.ª | a los 4 s, copia al mismo |
+| Comprobantes | `ASISTENTE_MODELO` | a los 8 s, copia al de respaldo |
+
+Gana la primera respuesta y la otra se cancela (`vertex/con-respaldo.ts`). La copia es
+segura porque `generateContent` no cambia nada: las herramientas las ejecuta el
+despachador con la respuesta ganadora. Desde la 2.ª vuelta el turno no cambia de
+modelo porque la firma del razonamiento de Gemini 3 (`crudo`) solo vale para el que la
+escribió; Google desaconseja saltarla (`skip_thought_signature_validator`). El modelo
+que llevó el turno queda en `TurnoAsistente.modelo`.
+
+Cómo se eligió (datos sintéticos, en el servidor): el recorrido `asistente:caminos`
+con 3.7 Flash pasó lo mismo que 3.8 Flash; 3.5 Flash dio un precio equivocado y no
+pidió aclaración, así que no sirve para conversar. Con 16 notas de voz generadas por
+voz sintética: 3.5 Flash p50 2,9 s y ningún nombre mal; 3.5 Flash-Lite 1,7 s pero
+«Villar, que» por «Via Reque»; 3.8 Flash tuvo 429 y p90 32 s.
+
+Descartado, con datos: caché implícita (cada llamada usa ~1.900 tokens; 3.8 Flash la
+aplica desde 6.144), `thinkingLevel` MINIMAL en el clasificador (ya razona 0 tokens),
+Priority PayGo (la cabecera no cambió `trafficType`), el directorio de médicos en el
+prompt (el modelo igual llamó a la herramienta).
+
+La paciente ve «escribiendo…» desde que el asistente toma su mensaje, renovado cada
+20 s (Meta lo quita a los 25). La pantalla de la línea muestra la mediana y el p90 del
+tiempo de respuesta de los últimos 7 días (`actividad.latencia`).
+
 ## Contexto y atención sin presión comercial (13/10/2026)
 
 La clasificación incluye `solicitud`: CONSULTAR, ACLARAR, SALUDAR, CERRAR, AGENDAR,
@@ -368,8 +405,13 @@ GOOGLE_APPLICATION_CREDENTIALS=/opt/crm-backend/secretos/google-asistente.json
 # Opcionales (estos son los valores por defecto):
 # ASISTENTE_MODELO=gemini-3.5-flash
 # ASISTENTE_MODELO_CLASIFICADOR=gemini-3.5-flash-lite
+# ASISTENTE_MODELO_RESPALDO=gemini-3.7-flash      (off = copia al mismo modelo)
+# ASISTENTE_MODELO_TRANSCRIPCION=gemini-3.5-flash
 # ASISTENTE_ESPERA_MS=3000
 ```
+
+En producción (14/10/2026): `ASISTENTE_MODELO=gemini-3.8-flash`, respaldo
+`gemini-3.7-flash`, transcripción `gemini-3.5-flash`.
 
 Comprobar con `sudo -u crmapp npm run asistente:probar` (cinco ✓: configuración, filtro,
 conversación con herramienta, comprobante y nota de voz) y reiniciar

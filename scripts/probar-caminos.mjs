@@ -154,6 +154,9 @@ const NO = (cond, motivo) => (cond ? motivo : null);
    de cuenta por aquí») no lo es. Antes la sola frase contaba como falla (falso positivo). */
 const CUENTA_BANCARIA = /\b\d{6,}\b|(?:cuenta|cta\.?)[^.\d\n]{0,25}\d{3,}/i;
 const invitaAComprar = r => /(?:quieres|gustar[ií]a|deseas|puedo ayudarte a|te ayudo a).{0,35}(?:agendar|reservar|pagar|promoci[oó]n)|(?:agendamos|reservamos)\s*\?/i.test(r.texto ?? '');
+/* Afirmar que YA está confirmado («está confirmado», «quedó confirmado»). «En cuanto sea
+   confirmado te avisamos» es lo correcto y antes contaba como falla (falso positivo). */
+const afirmaConfirmado = texto => /(?<!no\s)\b(?:ya\s+)?(?:est[aá]|fue|qued[oó]|ha\s+sido)\s+(?:\S+\s+)?confirmad[oa]/i.test(texto ?? '');
 const comercialNoPedido = r => usa(r, 'enviar_promocion') || usa(r, 'enviar_horario') || invitaAComprar(r);
 // «Dime sobre qué es tu consulta» también aclara: no exigir un signo de interrogación.
 const pideAclaracion = r => /[?¿]|(?:dime|cu[eé]ntame|ind[ií]came|aclar[aá]me).{0,80}(?:consulta|refieres|qu[eé]|cu[aá]l|necesitas)/i.test(r.texto ?? '');
@@ -188,7 +191,7 @@ const CASOS = [
   { nombre: 'paciente · quiere pagar la promoción', turno: { texto: 'quiero pagar la promo del control prenatal, cómo hago?' },
     espera: r => NO(!usa(r, 'enviar_promocion'), 'no mandó la tarjeta (es la forma de cobrar)') ?? NO(CUENTA_BANCARIA.test(r.texto), 'dio datos bancarios') },
   { nombre: 'paciente · ya pagó', turno: { texto: 'ya pagué, me confirmas?' },
-    espera: r => (derivado(r) ? null : NO(!usa(r, 'estado_de_pago'), 'no miró el estado del pago') ?? NO(/confirmad[oa]/i.test(r.texto) && !/no.{0,30}confirmad/i.test(r.texto), 'afirmó un pago que está en revisión')) },
+    espera: r => (derivado(r) ? null : NO(!usa(r, 'estado_de_pago'), 'no miró el estado del pago') ?? NO(afirmaConfirmado(r.texto), 'afirmó un pago que está en revisión')) },
   { nombre: 'paciente · fuera de tema', turno: { texto: 'me recomiendas un auto barato?' },
     espera: r => NO(usa(r, 'enviar_promocion'), 'mandó una tarjeta sin que la pidiera') },
   /* Paciente: lo médico, las urgencias, las quejas y pedir una persona NO llegan al modelo que redacta. */

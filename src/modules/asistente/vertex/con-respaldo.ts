@@ -12,8 +12,9 @@
  * a cambio de duplicar solo las llamadas lentas.
  *
  * Es seguro porque `generateContent` no cambia nada: las herramientas las ejecuta
- * nuestro despachador después, con la respuesta que ganó. La copia va al MISMO
- * modelo: la firma del razonamiento de Gemini 3 (`crudo`) vale para ese modelo.
+ * nuestro despachador después, con la respuesta que ganó. Si la llamada lleva
+ * razonamiento firmado de una vuelta anterior (`crudo` de Gemini 3), la copia va
+ * al MISMO modelo: esa firma solo vale para él.
  */
 
 export interface OpcionesRespaldo {
@@ -26,13 +27,14 @@ export interface OpcionesRespaldo {
 }
 
 /**
- * `intento` recibe la señal para cancelarlo y el tiempo que le queda. La primera
+ * `intento` recibe la señal para cancelarlo, el tiempo que le queda y su número
+ * (0 el primero, 1 la copia: así la copia puede ir a otro modelo). La primera
  * respuesta gana. Si una falla mientras la otra sigue en curso, se espera a la
  * otra; si falla sin nada más en curso, se propaga en el acto (un 400 no mejora
  * repitiéndolo).
  */
 export function conRespaldo<T>(
-  intento: (senal: AbortSignal, esperaMs: number) => Promise<T>,
+  intento: (senal: AbortSignal, esperaMs: number, numero: number) => Promise<T>,
   { esperaMs, respaldoTrasMs, alLanzarRespaldo }: OpcionesRespaldo,
 ): Promise<T> {
   return new Promise<T>((resolver, rechazar) => {
@@ -47,9 +49,10 @@ export function conRespaldo<T>(
     };
     const lanzar = (espera: number) => {
       const control = new AbortController();
+      const numero = controles.length;
       controles.push(control);
       enCurso++;
-      intento(control.signal, espera).then(
+      intento(control.signal, espera, numero).then(
         valor => {
           if (terminado) return;
           terminar();

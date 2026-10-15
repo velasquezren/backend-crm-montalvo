@@ -89,6 +89,8 @@ const TURNOS_POR_HORA = 15;
 /** Lo que se le muestra del historial al modelo. */
 const MENSAJES_DE_CONTEXTO = 30;
 const VENTANA_MS = 24 * 3_600_000;
+/** Meta quita el «escribiendo…» a los 25 s; se renueva antes. */
+const RENOVAR_ESCRIBIENDO_MS = 20_000;
 
 const SELECT_MENSAJE = {
   id: true, direccion: true, tipo: true, contenido: true, mediaNombre: true, transcripcion: true, automatico: true, createdAt: true,
@@ -151,6 +153,8 @@ export class AsistenteChatService implements ProgramadorAsistente, OnModuleInit,
   private readonly logger = new Logger(AsistenteChatService.name);
   private readonly esperas = new Map<string, { temporizador: NodeJS.Timeout; desde: number }>();
   private readonly enCurso = new Set<string>();
+  /** El «escribiendo…» de cada turno en curso, que se renueva hasta que termina. */
+  private readonly escribiendo = new Map<string, NodeJS.Timeout>();
   private turnosActivos = 0;
 
   constructor(
@@ -179,6 +183,8 @@ export class AsistenteChatService implements ProgramadorAsistente, OnModuleInit,
   onModuleDestroy(): void {
     for (const { temporizador } of this.esperas.values()) clearTimeout(temporizador);
     this.esperas.clear();
+    for (const latido of this.escribiendo.values()) clearInterval(latido);
+    this.escribiendo.clear();
   }
 
   activoEn(lineaId: string): Promise<AsistenteDeLinea | null> {
@@ -237,6 +243,31 @@ export class AsistenteChatService implements ProgramadorAsistente, OnModuleInit,
    * Devuelve lo que hizo, que es también lo que queda registrado.
    */
   async atender(e: EntranteParaAsistente): Promise<ResultadoTurnoAsistente> {
+    try {
+      return await this.atenderTurno(e);
+    } finally {
+      this.dejarDeEscribir(e.conversacionId);
+    }
+  }
+
+  /**
+   * «escribiendo…» sobre su mensaje mientras dure el turno. Meta lo quita a los 25 s:
+   * en un turno largo (una nota de voz, Google lento) se renueva antes de que caiga.
+   */
+  private mantenerEscribiendo(conversacionId: string, mensajeId: string): void {
+    this.dejarDeEscribir(conversacionId);
+    this.ingesta.escribiendo(conversacionId, mensajeId);
+    const latido = setInterval(() => this.ingesta.escribiendo(conversacionId, mensajeId), RENOVAR_ESCRIBIENDO_MS);
+    latido.unref();
+    this.escribiendo.set(conversacionId, latido);
+  }
+
+  private dejarDeEscribir(conversacionId: string): void {
+    clearInterval(this.escribiendo.get(conversacionId));
+    this.escribiendo.delete(conversacionId);
+  }
+
+  private async atenderTurno(e: EntranteParaAsistente): Promise<ResultadoTurnoAsistente> {
     const inicio = Date.now();
     const registrar = (r: Registro) => this.registrar(e, r, inicio).then(() => r.resultado);
     /* «Solo médicos» contesta como «Responder solo», pero únicamente a un médico (abajo). */
@@ -285,7 +316,7 @@ export class AsistenteChatService implements ProgramadorAsistente, OnModuleInit,
       return registrar({ resultado: 'OMITIDO', motivo: 'Es un médico autorizado: su agenda solo se contesta en «Responder solo».' });
     }
     /* Desde aquí va a contestar: que vea «escribiendo…» mientras se escucha, clasifica y redacta. */
-    if (responde) this.ingesta.escribiendo(e.conversacionId, ultimoEntrante.id);
+    if (responde) this.mantenerEscribiendo(e.conversacionId, ultimoEntrante.id);
 
     /* Las notas de voz de la ráfaga, a texto. Desde aquí son mensajes como cualquier otro. */
     const escucha = await this.escuchas.escuchar(mensajes);
@@ -642,7 +673,7 @@ export class AsistenteChatService implements ProgramadorAsistente, OnModuleInit,
           conversacionId: e.conversacionId, lineaId: e.lineaId, mensajeId: e.mensajeId, modo: e.asistente.modo,
           resultado: r.resultado, motivo: r.motivo?.slice(0, 300) ?? null, categoria: r.categoria ?? null,
           herramientas: (r.traza?.herramientas ?? []) as unknown as Prisma.InputJsonValue,
-          modelo: r.resultado === 'OMITIDO' ? null : this.modelo.nombre.slice(0, 60),
+          modelo: r.resultado === 'OMITIDO' ? null : (r.traza?.modelo ?? this.modelo.nombre).slice(0, 60),
           tokensEntrada: (r.traza?.tokensEntrada ?? 0) + (r.tokensExtra?.tokensEntrada ?? 0),
           tokensSalida: (r.traza?.tokensSalida ?? 0) + (r.tokensExtra?.tokensSalida ?? 0),
           latenciaMs: Date.now() - inicio,

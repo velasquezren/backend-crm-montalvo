@@ -35,6 +35,8 @@ export interface TrazaTurno {
   readonly herramientas: readonly { readonly nombre: string; readonly ok: boolean }[];
   readonly tokensEntrada: number;
   readonly tokensSalida: number;
+  /** El modelo que llevó el turno (el principal o el de respaldo). */
+  readonly modelo?: string;
 }
 
 export type SalidaAsistente =
@@ -69,15 +71,18 @@ export class ConversacionAsistente {
     const usadas: { nombre: string; ok: boolean }[] = [];
     let tokensEntrada = 0;
     let tokensSalida = 0;
-    const traza = (vueltas: number): TrazaTurno => ({ vueltas, herramientas: usadas, tokensEntrada, tokensSalida });
+    /* El modelo que contestó la primera vuelta lleva el turno entero (ver `ModeloConversacional`). */
+    let modelo: string | undefined;
+    const traza = (vueltas: number): TrazaTurno => ({ vueltas, herramientas: usadas, tokensEntrada, tokensSalida, ...(modelo ? { modelo } : {}) });
 
     for (let vuelta = 1; vuelta <= TOPE_DE_VUELTAS; vuelta++) {
       let r;
       try {
-        r = await this.modelo.responder({ sistema: p.sistema, historial, herramientas: declaradas });
+        r = await this.modelo.responder({ sistema: p.sistema, historial, herramientas: declaradas, ...(modelo ? { modelo } : {}) });
       } catch (error: unknown) {
         return { tipo: 'sin-respuesta', motivo: `El modelo no respondió: ${mensajeDe(error)}`, acciones, traza: traza(vuelta) };
       }
+      modelo ??= r.modelo;
       tokensEntrada += r.uso.tokensEntrada;
       tokensSalida += r.uso.tokensSalida;
 

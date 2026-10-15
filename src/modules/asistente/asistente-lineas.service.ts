@@ -156,9 +156,21 @@ export class AsistenteLineasService {
       _sum: { tokensEntrada: true, tokensSalida: true },
     });
     const porResultado = Object.fromEntries(grupos.map(g => [g.resultado, g._count._all])) as Partial<Record<ResultadoTurnoAsistente, number>>;
+    /* Cuánto tarda en contestar, de los turnos que contestaron o derivaron (los omitidos
+       no esperan a Google). Mediana y p90: el promedio lo arrastra una sola noche mala. */
+    const [tiempos] = await this.prisma.$queryRaw<{ turnos: bigint; mediana: number | null; p90: number | null }[]>`
+      SELECT COUNT(*) AS turnos,
+        percentile_cont(0.5) WITHIN GROUP (ORDER BY "latenciaMs") AS mediana,
+        percentile_cont(0.9) WITHIN GROUP (ORDER BY "latenciaMs") AS p90
+      FROM "TurnoAsistente"
+      WHERE "lineaId" = ${lineaId} AND "createdAt" >= ${desde} AND resultado IN ('RESPONDIO', 'DERIVO')`;
+    const turnos = Number(tiempos?.turnos ?? 0);
     return {
       dias: 7,
       porResultado,
+      latencia: turnos && tiempos.mediana !== null && tiempos.p90 !== null
+        ? { turnos, medianaMs: Math.round(tiempos.mediana), p90Ms: Math.round(tiempos.p90) }
+        : null,
       tokensEntrada: grupos.reduce((s, g) => s + (g._sum.tokensEntrada ?? 0), 0),
       tokensSalida: grupos.reduce((s, g) => s + (g._sum.tokensSalida ?? 0), 0),
     };

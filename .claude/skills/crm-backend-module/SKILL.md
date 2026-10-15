@@ -223,9 +223,11 @@ Diseño en [asistente-ia](../../../docs/asistente-ia.md). Lo que no se puede olv
   herramientas permitidas: `allowedFunctionNames` solo vale en modo `ANY`.
 - **Si el modelo falla con una paciente: `respaldoSinAsistente` y además se deriva** (`DERIVADA_ASISTENTE`).
   El acuse solo sale fuera de horario; en horario no salía nada y la paciente quedaba en silencio (13/10).
-- **Una llamada lenta a Gemini se duplica** (`conRespaldo` en `vertex/con-respaldo.ts`, umbral cerca del p90
-  medido): vale porque `generateContent` no cambia nada y la copia va al mismo modelo. Nunca envuelvas así
-  algo con efectos (enviar, reservar, escribir en la base): se haría dos veces.
+- **Una llamada lenta a Gemini se duplica** (`conRespaldo` en `vertex/con-respaldo.ts`): vale porque
+  `generateContent` no cambia nada. Nunca envuelvas así algo con efectos (enviar, reservar, escribir en
+  la base): se haría dos veces. La copia puede ir a OTRO modelo solo si no hay razonamiento firmado de por
+  medio (1.ª vuelta, transcribir, comprobantes); desde la 2.ª vuelta el turno sigue con el modelo que ganó
+  (`responder({ modelo })`): la firma de Gemini 3 solo vale para él.
 - **Un médico autorizado es otra conversación** (`AsistenteChatService.atenderMedico`): su número
   sale de `AccesoMedicoAgenda` (lo escribe SOLO `AccesoMedicoAgendaService`, ADMIN+, auditado en la
   misma transacción) y el médico del que se habla sale de ese número, **nunca de un parámetro de la
