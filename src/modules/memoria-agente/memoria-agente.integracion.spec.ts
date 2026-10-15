@@ -14,7 +14,7 @@ import { MemoriaAgenteService } from './memoria-agente.service';
  * quedó rechazando el audio que graba el composer. La grabadora se desplegó sin
  * poder enviar nada.
  *
- * La cuota se comprueba con SQL de verdad (`aggregate`) porque es justamente lo
+ * La cuota se comprueba con SQL de verdad (`$queryRaw`) porque es justamente lo
  * que una base falsa daría por bueno sin ejecutar.
  */
 
@@ -154,6 +154,18 @@ describe('MemoriaAgenteService.subirBinario contra Postgres real', () => {
       ).rejects.toThrow(BadRequestException);
     });
 
+    /* Los informes de ecografía pasan de 10 MB: el PDF va hasta 15 y lo demás
+       se queda en 5 (la prueba de arriba). */
+    it('un PDF de 15 MB entra; con un byte más, no', async () => {
+      const MB15 = 15 * 1024 * 1024;
+      await expect(
+        service.subirBinario(usuarioId, { titulo: 'informe' }, archivo('application/pdf', 'informe.pdf', MB15)),
+      ).resolves.toBeDefined();
+      await expect(
+        service.subirBinario(usuarioId, { titulo: 'enorme' }, archivo('application/pdf', 'enorme.pdf', MB15 + 1)),
+      ).rejects.toThrow('El PDF pesa más de 15 MB.');
+    });
+
     it('la cuota de 30 MB se mide sumando lo ya guardado, no el archivo suelto', async () => {
       for (let i = 0; i < 6; i++) {
         await service.subirBinario(
@@ -277,6 +289,27 @@ describe('MemoriaAgenteService.remove protege la media ya enviada', () => {
        para gestionarlo. */
     expect(await prisma.recursoMemoriaAgente.count({ where: { id: recurso.id } })).toBe(1);
     expect(r2.eliminados).toHaveLength(0);
+  });
+
+  /* Lo enviado no se puede borrar (la prueba de arriba), así que si contara
+     en la cuota, dos informes de 15 MB dejarían a la agente sin poder
+     adjuntar nada nunca más. */
+  it('lo ya enviado no cuenta en la cuota', async () => {
+    const MB15 = 15 * 1024 * 1024;
+    for (const n of [1, 2]) {
+      const informe = await service.subirBinario(
+        usuarioId, { titulo: `informe-${n}` }, archivo('application/pdf', `informe-${n}.pdf`, MB15),
+      );
+      await conversacionConAdjunto(informe.mediaKey!);
+      await new Promise(r => setTimeout(r, 5)); // teléfonos y tokens salen de Date.now()
+    }
+    const borrador = await service.subirBinario(usuarioId, { titulo: 'borrador' }, archivo('image/jpeg', 'b.jpg', 1000));
+
+    expect((await service.consultarCuota(usuarioId)).bytesUsados).toBe(1000);
+    await expect(
+      service.subirBinario(usuarioId, { titulo: 'tercero' }, archivo('application/pdf', 'tercero.pdf', MB15)),
+    ).resolves.toBeDefined();
+    expect(borrador.mediaKey).toBeTruthy();
   });
 
   it('un recurso NUNCA enviado sigue borrándose con normalidad', async () => {

@@ -1,4 +1,5 @@
 import { ConflictException, Injectable, Logger, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
+import { BYTES_MAXIMOS_PDF } from '../../common/archivos/pdf';
 
 /** Una fila de la cola del portal de resultados. Contrato de su API, no nuestro. */
 /** Filtros de `GET /v1/integraciones/crm/informes`. Ver `docs/api.md` del portal. */
@@ -91,7 +92,7 @@ export class PortalResultadosClient {
         const p = await lector.read();
         if (p.done) break;
         bytes += p.value.byteLength;
-        if (bytes > 10 * 1024 * 1024) throw new ServiceUnavailableException('Informe demasiado grande.');
+        if (bytes > BYTES_MAXIMOS_PDF) throw new ServiceUnavailableException('Informe demasiado grande.');
         partes.push(p.value);
       }
       const pdf = Buffer.concat(partes);

@@ -48,12 +48,12 @@ export class MemoriaAgenteController {
    * 1,7 GB y un núcleo, compartidos con el webhook de WhatsApp. Con `limits`,
    * multer corta el flujo al pasarse y nunca llega a reservar esa memoria.
    *
-   * El tope de aquí es deliberadamente mayor que el del service (5 MB): este
-   * corta la sangría, y el service sigue siendo el que define la regla de
-   * negocio y devuelve el mensaje que lee la agente.
+   * El tope de aquí es deliberadamente mayor que el del service (15 MB un
+   * PDF, 5 MB lo demás): este corta la sangría, y el service sigue siendo el
+   * que define la regla de negocio y devuelve el mensaje que lee la agente.
    */
   @Post('upload')
-  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 8 * 1024 * 1024, files: 1 } }))
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 20 * 1024 * 1024, files: 1 } }))
   subirBinario(
     @Body() dto: CreateRecursoMemoriaDto,
     @UploadedFile() file: ArchivoSubido,

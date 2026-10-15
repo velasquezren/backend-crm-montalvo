@@ -716,6 +716,9 @@ model Mensaje {
   /// vencido. Es un índice sobre una columna casi siempre nula, así que apenas
   /// pesa y evita recorrer la tabla de mensajes entera cada minuto.
   @@index([proximoIntento])
+  /// La cuota de Mi Memoria descuenta lo ya enviado y el borrado de un recurso
+  /// comprueba que no esté en un chat: los dos preguntan por `mediaKey`.
+  @@index([mediaKey])
 }
 
 /// Una recuperación por mensaje. CHECK en SQL: estados internos, fuera de la API.

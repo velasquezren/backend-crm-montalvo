@@ -176,7 +176,7 @@ describe('PDF privado solicitado', () => {
   it('archivo inválido o demasiado grande no sale; error de Meta no revela su respuesta', async () => {
     const f = jest.spyOn(global, 'fetch').mockReset().mockResolvedValue(new Response('error sintético', { status: 500 }));
     expect(await servicio().subirPdf(Buffer.from('no pdf'), CUENTA)).toBeNull();
-    expect(await servicio().subirPdf(Buffer.alloc(10 * 1024 * 1024 + 1), CUENTA)).toBeNull();
+    expect(await servicio().subirPdf(Buffer.alloc(15 * 1024 * 1024 + 1), CUENTA)).toBeNull();
     expect(f).not.toHaveBeenCalled();
     expect(await servicio().subirPdf(Buffer.from('%PDF-sintetico'), CUENTA)).toBeNull();
     expect(f).toHaveBeenCalledTimes(1);

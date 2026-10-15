@@ -1,5 +1,6 @@
 import { dimensionesImagen } from '../../common/storage/dimensiones-imagen';
 import { ArchivoSubido } from '../../common/archivos/archivo-subido';
+import { AVISO_PDF_GRANDE, BYTES_MAXIMOS_PDF } from '../../common/archivos/pdf';
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma, TipoRecursoMemoria } from '../../prisma/prisma-client';
 import { terminoBusqueda } from '../../common/dto/busqueda';
@@ -11,7 +12,7 @@ import { QueryRecursoMemoriaDto } from './dto/query-recurso-memoria.dto';
 import { UpdateRecursoMemoriaDto } from './dto/update-recurso-memoria.dto';
 
 const CUOTA_MAXIMA_BYTES = 30 * 1024 * 1024; // 30 MB por agente
-const TAMANO_MAXIMO_ARCHIVO = 5 * 1024 * 1024; // 5 MB por archivo individual
+const TAMANO_MAXIMO_ARCHIVO = 5 * 1024 * 1024; // 5 MB por archivo individual (fotos, Word, audio)
 
 const MIME_WHITELIST = [
   'image/jpeg',
@@ -65,15 +66,20 @@ export class MemoriaAgenteService {
    * Consulta el uso de espacio actual del agente autenticado (0 a 30 MB).
    */
   async consultarCuota(usuarioId: string) {
-    const [agregado, count] = await this.prisma.$transaction([
-      this.prisma.recursoMemoriaAgente.aggregate({
-        where: { usuarioId },
-        _sum: { pesoBytes: true },
-      }),
+    /* Lo ya enviado a una paciente NO cuenta. Ese archivo es historial del
+       chat: `remove` no deja borrarlo (rompería la conversación), así que si
+       contara, la agente llenaría los 30 MB con dos informes de 15 MB y no
+       tendría forma de liberarlos. La cuota es para su biblioteca. */
+    const [[{ bytes }], count] = await Promise.all([
+      this.prisma.$queryRaw<Array<{ bytes: bigint | null }>>`
+        SELECT SUM(r."pesoBytes")::bigint AS bytes
+        FROM "RecursoMemoriaAgente" r
+        WHERE r."usuarioId" = ${usuarioId}
+          AND NOT EXISTS (SELECT 1 FROM "Mensaje" m WHERE m."mediaKey" = r."mediaKey")`,
       this.prisma.recursoMemoriaAgente.count({ where: { usuarioId } }),
     ]);
 
-    const bytesUsados = agregado._sum.pesoBytes ?? 0;
+    const bytesUsados = Number(bytes ?? 0);
     const porcentajeUsado = Math.min(100, Number(((bytesUsados / CUOTA_MAXIMA_BYTES) * 100).toFixed(2)));
     const megabytesUsados = Number((bytesUsados / (1024 * 1024)).toFixed(2));
     const megabytesMaximos = 30;
@@ -165,7 +171,11 @@ export class MemoriaAgenteService {
       throw new BadRequestException('Se requiere adjuntar un archivo para recursos multimedia');
     }
 
-    if (file.size > TAMANO_MAXIMO_ARCHIVO) {
+    /* Los PDF van hasta 15 MB: son los informes, y los de ecografía pesan.
+       Lo demás sigue en 5 MB, que además es el tope de Meta para una imagen. */
+    if (tipoBase(file.mimetype) === 'application/pdf') {
+      if (file.size > BYTES_MAXIMOS_PDF) throw new BadRequestException(AVISO_PDF_GRANDE);
+    } else if (file.size > TAMANO_MAXIMO_ARCHIVO) {
       throw new BadRequestException('El archivo excede el tamaño máximo permitido por recurso (5 MB).');
     }
 

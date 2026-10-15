@@ -1,6 +1,7 @@
 import { ErrorMedia, errorHttpMedia, sanitizarErrorMedia } from '../fiabilidad/error-media';
 import { Injectable, Logger } from '@nestjs/common';
 import { codigoErrorWhatsapp } from './error-envio';
+import { BYTES_MAXIMOS_PDF } from '../archivos/pdf';
 
 /**
  * Único punto del CRM que habla con la Cloud API de Meta.
@@ -74,7 +75,7 @@ export class WhatsappCloudService {
 
   /** PDF solicitado expresamente: se sube a Meta, sin URL pública ni copia en R2. */
   async subirPdf(bytes: Buffer, cuenta: CredencialesWhatsapp | null): Promise<string | null> {
-    if (!cuenta || bytes.length > 10 * 1024 * 1024 || bytes.subarray(0, 5).toString() !== '%PDF-') return null;
+    if (!cuenta || bytes.length > BYTES_MAXIMOS_PDF || bytes.subarray(0, 5).toString() !== '%PDF-') return null;
     try {
       const form = new FormData();
       form.set('messaging_product', 'whatsapp');
