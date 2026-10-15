@@ -107,6 +107,22 @@ modelo volvía a buscar al médico en cada mensaje, porque del turno anterior so
 El turno de los datos pasa de filtro (1-3 s) + buscar médico + reservar + texto (tres
 vueltas, 12-18 s) a filtro y una vuelta en paralelo (4-6 s), más la agenda y el QR.
 
+**La causa real, confirmada después en `TurnoAsistente`:** el turno de «sara Bueno /
+6376378» sí llamó a `reservar`, y salió bien; en la vuelta siguiente el modelo obedeció
+«no escribas nada más», contestó vacío, y el bucle tomó ese vacío como fallo (`FALLO`, «El
+modelo contestó vacío»): la reserva no se registró y la derivó. Lo cubren dos cosas: tras
+una reserva ya no hay vuelta, y un texto vacío con algo que mandarle ya no es un fallo.
+
+**Gemini medido desde el servidor (15/10, mediodía).** Primera vuelta, 8 llamadas cada uno:
+3.8 Flash p50 1,6 s y máx. 12 s; 3.7 Flash p50 2,1 s, máx. 12,7 s y un 429 («Resource
+exhausted»); 3.5 Flash p50 1,1 s y máx. 1,6 s; 3.5 Flash-Lite p50 0,8 s. `MINIMAL` no existe
+en estos modelos (400) y 3.8 no está en `us-central1` (404). En `asistente:caminos`, 3.5
+Flash fue más rápido (26-27/27), pero con los precios dio el de la consulta en vez del de
+la promoción 3 de 12 veces; 3.8 Flash, 12 de 12 bien en 8-27 s. **Se queda 3.8 Flash**: en
+Ventas un precio equivocado cuesta más que unos segundos. Los picos son de la capacidad
+compartida de Vertex (pago por uso); quitarlos de raíz es capacidad reservada
+(Provisioned Throughput), que es una decisión de costo de la clínica.
+
 ## Contexto y atención sin presión comercial (13/10/2026)
 
 La clasificación incluye `solicitud`: CONSULTAR, ACLARAR, SALUDAR, CERRAR, AGENDAR,

@@ -105,9 +105,11 @@ export class ConversacionAsistente {
 
       if (r.tipo === 'texto') {
         const texto = r.texto.trim();
-        /* Un texto vacío no es una respuesta; salvo que ya la haya pasado a una
-           persona: entonces no hay nada más que decir. */
-        if (!texto && !acciones.some(a => a.tipo === 'DERIVAR')) {
+        /* Un texto vacío no es una respuesta; salvo que ya haya algo que mandarle (un
+           horario, una tarjeta, la agenda) o la haya pasado a una persona. El 15/10
+           el modelo calló tras un `reservar` correcto («no escribas nada más») y el
+           turno se dio por fallido: la reserva no se registró y la derivó. */
+        if (!texto && acciones.length === 0) {
           return { tipo: 'sin-respuesta', motivo: 'El modelo contestó vacío.', acciones, traza: traza(vuelta) };
         }
         return { tipo: 'terminado', texto: texto || null, acciones, traza: traza(vuelta) };

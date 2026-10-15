@@ -196,6 +196,14 @@ describe('el bucle del asistente', () => {
     expect(r.tipo).toBe('sin-respuesta');
   });
 
+  it('un texto vacío DESPUÉS de una acción no es un fallo: la acción sale igual (15/10)', async () => {
+    const horario = { tipo: 'HORARIO', medicoId: 49, nombre: 'Dr. Montalvo', horario: 'Lunes 9:00' };
+    const { bucle } = montar([pide({ nombre: 'enviar_horario', argumentos: { medicoId: '49' } }), dice('')],
+      jest.fn().mockResolvedValue({ ok: true, datos: 'Se le enviará.', accion: horario }));
+    expect(await bucle.responder({ ...PETICION, contexto: { ...CONTEXTO, solicitud: 'HORARIO' } }))
+      .toMatchObject({ tipo: 'terminado', texto: null, acciones: [horario] });
+  });
+
   it('pedir herramientas y no pedir ninguna tampoco es una respuesta', async () => {
     const { bucle } = montar([{ tipo: 'herramientas', llamadas: [], crudo: {}, uso: USO }]);
     expect((await bucle.responder(PETICION)).tipo).toBe('sin-respuesta');

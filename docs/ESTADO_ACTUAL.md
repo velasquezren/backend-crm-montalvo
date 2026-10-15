@@ -9,7 +9,9 @@ sin `AGENDAR` el modelo no tiene `reservar`. Ahora la cita en curso se lee de la
 los turnos anteriores (médico y día consultados) y, con ella, la duda del filtro ya no deriva (lo
 médico, urgencias, quejas y pedir una persona sí). El filtro y el modelo corren a la vez; el modelo
 no vuelve a buscar al médico; tras `reservar` no hay otra vuelta; `buscar_medico` trae los días con
-cupo. Cada turno deja una línea en el log. Detalle en
+cupo. Cada turno deja una línea en el log. **Causa confirmada en la base:** `reservar` salió bien, el
+modelo contestó vacío y el bucle lo tomó como fallo; ahora un vacío con algo que mandar no es fallo.
+Gemini medido: se queda 3.8 Flash (3.5 es más rápido pero erró el precio de promoción 3/12). Detalle en
 [asistente-ia](asistente-ia.md#la-cita-en-curso-seguirla-hasta-el-qr-y-más-rápido-15102026-tarde).
 
 ## 15 de octubre de 2026 · El asistente reserva la cita y manda el QR del médico
