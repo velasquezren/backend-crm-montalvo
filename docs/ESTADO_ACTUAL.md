@@ -1,6 +1,6 @@
 # Estado actual
 
-## 15 de octubre de 2026 · Horarios de consulta desde FileMaker · PREPARADO LOCALMENTE
+## 15 de octubre de 2026 · Horarios de consulta desde FileMaker · DESPLEGADO
 
 Por decisión de René, consultas de 30 minutos, sin reconsultas ni traslado de
 reservas pagadas. FileMaker será el editor del horario semanal: su hora final es
@@ -10,12 +10,12 @@ reintentos de la última instantánea. Actualiza los cupos de la agenda existent
 y su ficha web; conserva las citas. Con la bandera activa, el CRM muestra el
 origen, impide editar horarios y refresca la ficha por el socket existente.
 
-**Despliegue autorizado y en preparación.** René creó los cinco campos y el guion;
+**Backend `06a0ac0` y frontend `9b31bb7` publicados, integración activa.** René creó los cinco campos y el guion;
 la lectura local del registro `hm4`/`DR1110` quedó comprobada por captura. Falta
-configurar la credencial y hacer la aceptación del envío con un médico. Guion,
+pegar en FileMaker la credencial exclusiva ya configurada y hacer la aceptación del envío con un médico. Guion,
 cálculo, activador, credencial y secuencia de activación en
 [filemaker-horarios.md](filemaker-horarios.md). `FILEMAKER_HORARIOS_ACTIVO` queda
-apagado por defecto. Migración PostgreSQL aditiva `20261015190000_horarios_filemaker`;
+apagado por defecto en instalaciones nuevas; en producción está `on`. Migración PostgreSQL aditiva `20261015190000_horarios_filemaker` aplicada;
 no requiere alterar tablas ni permisos MySQL.
 
 Verificación local: 1.242 pruebas unitarias backend y 990 de integración aprobadas
@@ -26,6 +26,23 @@ aprobadas. Revisión UI desde código: aviso de origen en flujo vertical, texto
 ajustable al ancho móvil y grilla existente deshabilitada; sin prueba de navegador.
 La ejecución del guion dentro de FileMaker y el
 recorrido contra la agenda real siguen pendientes; no se certifican con esos tests.
+
+Despliegue del 15/10 a las 15:32 (La Paz): respaldo PostgreSQL verificado de
+5.541.941 bytes, binario/configuración anteriores y copia de los campos afectados
+de agenda (90 médicos, 3.269 casillas) en `/root/backup-horarios-20261015` del VPS.
+Sin ampliar permisos MySQL: la copia usa las columnas permitidas por la cuenta de
+administración. `DR1110` resuelve únicamente al médico de agenda 9. Credencial
+generada en servidor, no versionada ni publicada en el chat; preparada para copiar
+a FileMaker por archivo privado local temporal.
+
+Verificado artefacto compilado antes del reinicio, servicio sin reinicios de fallo,
+salud/base 200, login vacío 400 y ruta privada 401. El endpoint de horarios por
+loopback y HTTPS devuelve 401 sin token y 400 por JSON incompleto con token válido:
+se verificó autenticación/validación sin escribir horarios reales. Vercel confirmó
+la publicación; HTTP del sitio sirve sello `9b31bb7` y el aviso de origen FileMaker.
+Revalidación con los últimos cambios: 1.242 unitarias aprobadas; integración
+completa con 991 aprobadas, 45 omitidas y un timeout en clientes; esa suite pasó
+18/18 al repetirla aislada. Arranque real local con red externa bloqueada: 200/400/401.
 
 > **Revisión del 10/10/2026, módulo por módulo (sin Comisiones ni Finanzas):** [REVISION_2026-10-10.md](REVISION_2026-10-10.md). La API está sana; la lista de mejoras por impacto está ahí.
 

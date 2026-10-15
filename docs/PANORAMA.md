@@ -74,9 +74,9 @@ Tamaños de referencia: `planilla-comisiones` ≈ 13.800 líneas y
 
 `modules/agenda` es dueño de `HorarioFilemaker`: conserva la última revisión y
 su estado pendiente para aplicar horarios de consulta a MySQL y, mediante
-`DirectorioService`, a la ficha web. La integración está preparada localmente,
-apagada por defecto (15/10); al activarla FileMaker pasa a ser el editor y el CRM
-solo consulta los horarios. No escribe citas ni pagos. Contrato, límites y
+`DirectorioService`, a la ficha web. La integración está desplegada y activa en
+producción (15/10); FileMaker es el editor y el CRM solo consulta los horarios.
+Falta completar el primer envío desde el archivo local. No escribe citas ni pagos. Contrato, límites y
 activación en [filemaker-horarios.md](filemaker-horarios.md).
 
 La regla es que **cada tabla la escribe su módulo dueño**, y los demás le

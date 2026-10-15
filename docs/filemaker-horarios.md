@@ -5,8 +5,11 @@ semanal de CONSULTAS. Son de 30 minutos. La hora final es el inicio de la últim
 cita: 12:30 significa una consulta de 12:30 a 13:00. Reconsultas de 15 minutos,
 otras actividades, reservas pagadas y su pase a agenda quedan fuera de este cambio.
 
-Estado: implementación local y guía preparadas; NO activada en producción ni
-instalada en el archivo FileMaker. La aceptación final exige la prueba de §5.
+Estado al 15/10/2026 15:32 (La Paz): backend `06a0ac0` y frontend `9b31bb7`
+desplegados; integración activa y credencial propia configurada en el servidor.
+René confirmó que creó los cinco campos y el guion; la captura comprobó la lectura
+de `hm4`/`DR1110`. Falta pegar la credencial en FileMaker y ejecutar la prueba de §5.
+El activador automático se conecta después de esa prueba manual.
 
 ## 1. Preparar FileMaker
 
@@ -127,8 +130,9 @@ verificar salud/autenticación. Requiere `AGENDA_VPS_ADMIN=on` y su cuenta exist
 No requiere cambios de tablas o permisos MySQL. Preparar un respaldo de
 `clinica.medicos` y `clinica.horarios` antes de la primera sincronización real.
 
-Mantener `FILEMAKER_HORARIOS_ACTIVO=off` hasta instalar el guion y coordinar la
-prueba. Al ponerlo en `on`, los horarios dejan de ser editables desde el CRM;
+En instalaciones nuevas, mantener `FILEMAKER_HORARIOS_ACTIVO=off` hasta instalar
+el guion y coordinar la prueba. En producción ya está `on` por autorización del
+15/10. Al ponerlo en `on`, los horarios dejan de ser editables desde el CRM;
 los demás datos del médico siguen con sus permisos habituales. El frontend muestra
 el origen y si falta sincronizar; recibe avisos por el socket existente y refresca
 la ficha abierta sin pisar cambios pendientes de otros datos.
