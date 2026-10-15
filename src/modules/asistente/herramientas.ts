@@ -44,6 +44,7 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 
 import type { AgendaDelDia } from '../agenda/agenda-medico-citas';
+import type { MedicoAgenda } from '../agenda/agenda.contrato';
 import { AgendaService } from '../agenda/agenda.service';
 import type { DeclaracionHerramienta, SolicitudPaciente } from './modelo.port';
 import { datosNoDichos } from './reserva-asistente';
@@ -178,7 +179,8 @@ export interface ContextoAsistente {
 
 /* ── Lo que el turno deja hecho ─────────────────────────────────────── */
 
-export const MOTIVOS_DERIVACION = ['MEDICO', 'URGENCIA', 'QUEJA', 'PAGO', 'PERSONA', 'OTRO'] as const;
+/** `CITA`: quiere una cita que la coordina recepción (médico «a solicitud»); llega a «Por atender» como solicitud de cita. */
+export const MOTIVOS_DERIVACION = ['MEDICO', 'URGENCIA', 'QUEJA', 'PAGO', 'PERSONA', 'CITA', 'OTRO'] as const;
 export type MotivoDerivacion = (typeof MOTIVOS_DERIVACION)[number];
 
 /** Una acción que el turno propone (SUGERIR) o hace al terminar (RESPONDER). */
@@ -420,7 +422,8 @@ export const HERRAMIENTAS: readonly Herramienta[] = [
       'Pasa la conversación a una persona del equipo. Úsala SIEMPRE que pregunte algo médico (síntomas, ' +
       'diagnósticos, tratamientos, medicamentos, interpretación de resultados, cuidados después de un procedimiento), si se queja, ' +
       'si pide hablar con alguien, si algo de un pago no cuadra, o si no estás segura de la respuesta. ' +
-      'Ante la duda, pásala: es lo correcto.',
+      'Ante la duda, pásala: es lo correcto. Con motivo CITA cuando quiere una cita que coordina recepción (un médico «a solicitud»): ' +
+      'antes, confirma con quién o para qué estudio y qué días u horario le acomodan, y ponlo en el resumen.',
     parametros: {
       type: 'object',
       properties: {
@@ -554,6 +557,17 @@ export function coincidenciaDeNombre(buscadas: readonly string[], nombreMedico: 
   return parecida ? 'parecida' : null;
 }
 
+/**
+ * Cómo se agenda con un médico «a solicitud»: no tiene cupos en línea ni, casi nunca,
+ * precio cargado. Dicho en el dato, el modelo no lo deduce de `modalidad` ni deriva
+ * con un aviso genérico (15/10: «una ecografía con la Dra. Nadia» se pasó sin más).
+ */
+function comoSeAgenda(m: Pick<MedicoAgenda, 'modalidad'>): { comoSeAgenda?: string } {
+  return m.modalidad === 'A_SOLICITUD'
+    ? { comoSeAgenda: 'A solicitud: no tiene cupos en línea. Recepción coordina el día y la hora. Pregúntale qué días u horario le acomodan y deja la solicitud con pasar_a_persona, motivo CITA. Sin precio cargado: no lo inventes, lo confirma recepción.' }
+    : {};
+}
+
 /** Bs con dos decimales, como lo lee una paciente. */
 function bolivianos(centavos: number): string {
   return `Bs ${(centavos / 100).toFixed(2)}`;
@@ -645,6 +659,7 @@ export class HerramientasAsistenteService {
           datos: r.datos.map(m => ({
             id: m.id, nombre: m.nombre, modalidad: m.modalidad,
             precioConsulta: m.precio ? bolivianos(m.precio.importeCentavos) : null, atiende: m.horarioInformativo,
+            ...comoSeAgenda(m),
           })),
         };
       }
@@ -660,12 +675,13 @@ export class HerramientasAsistenteService {
         const ficha = ({ m, especialidad }: (typeof todos)[number]) => ({
           id: m.id, nombre: m.nombre, especialidad, modalidad: m.modalidad,
           precioConsulta: m.precio ? bolivianos(m.precio.importeCentavos) : null, atiende: m.horarioInformativo,
+          ...comoSeAgenda(m),
         });
         /* Si alguien se llama así, solo esos: lo parecido es para cuando no hay nadie. */
         const exactos = todos.filter(t => t.coincide === 'exacta');
         /* Uno solo y quiere agendar: sus días con cupo van con él. Es la consulta que el
            modelo haría justo después, y cada vuelta del modelo son segundos (15/10). */
-        if (exactos.length === 1 && contexto.solicitud === 'AGENDAR') {
+        if (exactos.length === 1 && contexto.solicitud === 'AGENDAR' && exactos[0].m.modalidad === 'ONLINE') {
           const dias = await this.agenda.dias({ medicoId: exactos[0].m.id }).catch(() => null);
           return { ok: true, datos: [{ ...ficha(exactos[0]), ...(dias ? { diasConCupo: dias } : {}) }] };
         }
@@ -692,6 +708,7 @@ export class HerramientasAsistenteService {
           datos: {
             id: medico.id, nombre: medico.nombre, especialidad: especialidad.nombre, modalidad: medico.modalidad,
             precioConsulta: medico.precio ? bolivianos(medico.precio.importeCentavos) : null, atiende: medico.horarioInformativo,
+            ...comoSeAgenda(medico),
           },
         };
       }

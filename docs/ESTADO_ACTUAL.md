@@ -1,5 +1,14 @@
 # Estado actual
 
+## 15 de octubre de 2026 (noche) · Ventas: una cita con un médico «a solicitud» se coordina, no se deriva · SIN DESPLEGAR
+
+«Quiero agendar una ecografía / Con la dra. Nadia» se pasó a una persona con el aviso genérico:
+el filtro acertó (VENTAS/AGENDAR) y el modelo no supo qué hacer con una ecografista sin cupos
+en línea. Ahora el dato del médico dice cómo se agenda, el asistente pregunta qué días le
+acomodan y deja una solicitud de cita (`SOLICITUD_CITA`, «Pidió una cita») con texto fijo.
+Detalle en [asistente-ia](asistente-ia.md#médicos-a-solicitud-una-solicitud-de-cita-no-una-duda-15102026).
+El recorrido `asistente:caminos` reconoce también la aclaración de usted («dígame…»).
+
 ## 15 de octubre de 2026 · Horarios de consulta desde FileMaker · DESPLEGADO
 
 Por decisión de René, consultas de 30 minutos, sin reconsultas ni traslado de

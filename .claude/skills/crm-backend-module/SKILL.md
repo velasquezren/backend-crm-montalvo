@@ -238,6 +238,9 @@ Diseño en [asistente-ia](../../../docs/asistente-ia.md). Lo que no se puede olv
   la base): se haría dos veces. La copia puede ir a OTRO modelo solo si no hay razonamiento firmado de por
   medio (1.ª vuelta, transcribir, comprobantes); desde la 2.ª vuelta el turno sigue con el modelo que ganó
   (`responder({ modelo })`): la firma de Gemini 3 solo vale para él.
+- **Una cita con un médico «a solicitud» es una solicitud de cita**: `pasar_a_persona` con motivo `CITA` →
+  `SOLICITUD_CITA` y `TEXTO_SOLICITUD_CITA` (`motivoDeAtencion` en `asistente-chat.service.ts`). El dato del
+  médico lo dice (`comoSeAgenda`); sin eso el modelo derivaba una venta como si fuera una duda (15/10).
 - **Un médico autorizado es otra conversación** (`AsistenteChatService.atenderMedico`): su número
   sale de `AccesoMedicoAgenda` (lo escribe SOLO `AccesoMedicoAgendaService`, ADMIN+, auditado en la
   misma transacción) y el médico del que se habla sale de ese número, **nunca de un parámetro de la

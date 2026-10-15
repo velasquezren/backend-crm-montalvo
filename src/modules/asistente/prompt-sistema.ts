@@ -88,6 +88,12 @@ export function promptDelSistema(d: DatosPrompt): string {
     'SI QUIERE RESERVAR UNA CITA',
     '- Primero el médico, después el día (dias_con_cupo) y después la hora (horas_libres). Una cosa a la vez.',
     '- Si buscar_medico ya te trae los días con cupo (diasConCupo), ofréceselos directamente, sin otra consulta.',
+    '- Si pide un estudio o un servicio (una ecografía, por ejemplo) sin nombrar a nadie, busca quién lo hace: la especialidad',
+    '  que corresponde (listar_especialidades) y sus médicos (listar_medicos). Si nombra a alguien, buscar_medico.',
+    '- Un médico con comoSeAgenda («a solicitud») no tiene cupos en línea: no busques días ni horas, no inventes precio.',
+    '  Dile que atiende a solicitud y que recepción le coordina el día y la hora. Si todavía no lo dijo, pregúntale en UNA',
+    '  pregunta qué días u horario le acomodan; con su respuesta, usa pasar_a_persona con motivo CITA y en el resumen el',
+    '  médico, el estudio o servicio y lo que prefiere. Es una venta en curso, no una duda: no la pases sin intentarlo.',
     ...(d.enCurso
       ? [
           `- YA VIENEN AGENDANDO: el médico es el medicoId «${d.enCurso.medicoId}»` +

@@ -15,7 +15,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { pieDeLaImagen, textoListado, textoResumen } from '../asistente/agenda-medico-imagen';
 import { AsistenteDeLinea, AsistenteLineasService } from '../asistente/asistente-lineas.service';
 import { ConversacionAsistente, TrazaTurno } from '../asistente/conversacion-asistente';
-import { AccionAsistente, EstadoPagoParaAsistente, HERRAMIENTAS, PuertoMedico, PuertoReservas, PuertoVentas } from '../asistente/herramientas';
+import { AccionAsistente, EstadoPagoParaAsistente, HERRAMIENTAS, MotivoDerivacion, PuertoMedico, PuertoReservas, PuertoVentas } from '../asistente/herramientas';
 import { ImagenAgendaMedicoService } from '../asistente/imagen-agenda-medico.service';
 import { ImagenHorarioService } from '../asistente/imagen-horario.service';
 import { Clasificacion, ClasificadorMensajes, ModeloConversacional, SolicitudPaciente, TurnoModelo, UsoModelo } from '../asistente/modelo.port';
@@ -77,6 +77,13 @@ export interface ProgramadorAsistente {
 
 /** Lo que se le dice a la paciente cuando el asistente la pasa a una persona. No lo escribe el modelo. */
 export const TEXTO_DERIVACION = 'Gracias por escribirnos. Le paso su consulta a una persona del equipo, que le responderá por aquí.';
+/** Lo que se le dice al dejar una solicitud de cita (médico «a solicitud»). Tampoco lo escribe el modelo. */
+export const TEXTO_SOLICITUD_CITA = 'Listo, registré su solicitud de cita. Recepción le confirma por aquí el día y la hora.';
+
+/** El motivo de «Atención» de lo que el modelo pasó a una persona. Una cita a coordinar es una solicitud de cita, no una duda. */
+function motivoDeAtencion(motivo: MotivoDerivacion): Extract<MotivoAtencion, 'POSIBLE_URGENCIA' | 'DERIVADA_ASISTENTE' | 'SOLICITUD_CITA'> {
+  return motivo === 'URGENCIA' ? 'POSIBLE_URGENCIA' : motivo === 'CITA' ? 'SOLICITUD_CITA' : 'DERIVADA_ASISTENTE';
+}
 
 /**
  * Cuánto se espera a que termine de escribir. Cada mensaje nuevo reinicia la espera…
@@ -412,7 +419,7 @@ export class AsistenteChatService implements ProgramadorAsistente, OnModuleInit,
       return registrar({ resultado: 'OMITIDO', motivo: 'Llegó otro mensaje mientras pensaba: lo contesta el turno siguiente.', ...base });
     }
     if (derivacion?.tipo === 'DERIVAR') {
-      await this.derivar(e, derivacion.motivo === 'URGENCIA' ? 'POSIBLE_URGENCIA' : 'DERIVADA_ASISTENTE');
+      await this.derivar(e, motivoDeAtencion(derivacion.motivo));
       return registrar({ resultado: 'DERIVO', motivo: derivacion.resumen, ...base });
     }
     if (reserva) {
@@ -478,7 +485,7 @@ export class AsistenteChatService implements ProgramadorAsistente, OnModuleInit,
     }
     const derivacion = salida.acciones.find(a => a.tipo === 'DERIVAR');
     if (derivacion?.tipo === 'DERIVAR') {
-      await this.derivar(e, derivacion.motivo === 'URGENCIA' ? 'POSIBLE_URGENCIA' : 'DERIVADA_ASISTENTE', { medico: true });
+      await this.derivar(e, motivoDeAtencion(derivacion.motivo), { medico: true });
       return registrar({ resultado: 'DERIVO', motivo: derivacion.resumen, ...base });
     }
     const agendas = salida.acciones.filter((a): a is Extract<AccionAsistente, { tipo: 'AGENDA_MEDICO' }> => a.tipo === 'AGENDA_MEDICO');
@@ -674,11 +681,12 @@ export class AsistenteChatService implements ProgramadorAsistente, OnModuleInit,
    * Con un médico (`medico`), la solicitud queda pero lo automático NO se pausa: su
    * próxima pregunta por la agenda se sigue contestando.
    */
-  private async derivar(e: EntranteParaAsistente, motivo: Extract<MotivoAtencion, 'POSIBLE_URGENCIA' | 'DERIVADA_ASISTENTE'>, { medico = false } = {}): Promise<void> {
+  private async derivar(e: EntranteParaAsistente, motivo: Extract<MotivoAtencion, 'POSIBLE_URGENCIA' | 'DERIVADA_ASISTENTE' | 'SOLICITUD_CITA'>, { medico = false } = {}): Promise<void> {
     const nueva = await this.ingesta.derivarDesdeAsistente(e.conversacionId, e.mensajeId, motivo, { pausar: !medico });
     /* Ante una posible urgencia, la orientación que aprobó la clínica, si la escribió. */
     const orientacion = motivo === 'POSIBLE_URGENCIA' ? orientacionDeEmergencia(await this.menus.activoDe(e.lineaId)) : null;
-    await this.ingesta.avisoDelAsistente(e.conversacionId, e.telefono, orientacion ?? TEXTO_DERIVACION, { nueva });
+    const aviso = orientacion ?? (motivo === 'SOLICITUD_CITA' ? TEXTO_SOLICITUD_CITA : TEXTO_DERIVACION);
+    await this.ingesta.avisoDelAsistente(e.conversacionId, e.telefono, aviso, { nueva });
   }
 
   /** Lo que el turno mandó hacer (RESPONDER) o lo que una agente aprobó de una sugerencia. */

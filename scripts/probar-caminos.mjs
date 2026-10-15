@@ -53,10 +53,12 @@ const clasificador = new ClasificadorVertex(cliente, cfg);
 const transcriptor = new TranscriptorVertex(cliente, cfg);
 
 /* ── La clínica inventada ─────────────────────────────────────────────── */
-const ESPECIALIDADES = [{ id: '1', nombre: 'Ginecología' }, { id: '2', nombre: 'Dermatología' }];
+const ESPECIALIDADES = [{ id: '1', nombre: 'Ginecología' }, { id: '2', nombre: 'Dermatología' }, { id: '3', nombre: 'Ecografista' }];
 const MEDICOS = [
   { id: '7', especialidadId: '1', nombre: 'Dra. Ana Sintética', modalidad: 'ONLINE', precio: { importeCentavos: 25000, moneda: 'BOB' }, horarioInformativo: 'Martes y jueves: 10:00 a 12:00', fotoUrl: null },
   { id: '8', especialidadId: '2', nombre: 'Dr. Luis Prueba', modalidad: 'A_SOLICITUD', precio: null, horarioInformativo: null, fotoUrl: null },
+  /* «A solicitud», como las ecografistas reales: sin precio, sin horario, sin cupos en línea. */
+  { id: '10', especialidadId: '3', nombre: 'Dra. Nadia Sintética', modalidad: 'A_SOLICITUD', precio: null, horarioInformativo: null, fotoUrl: null },
   /* Apellido compuesto que la agenda escribe en dos palabras: la paciente puede escribirlo junto. */
   { id: '9', especialidadId: '2', nombre: 'Dr. San Roman Pedro', modalidad: 'ONLINE', precio: { importeCentavos: 30000, moneda: 'BOB' }, horarioInformativo: 'Lunes: 15:00 a 18:00', fotoUrl: null },
 ];
@@ -149,6 +151,7 @@ async function turno({ texto, audio, medico = false, anteriores = [] }) {
 const usa = (r, nombre) => r.llamadas.some(l => l.nombre === nombre);
 const usoAlgo = r => r.llamadas.length > 0;
 const derivado = r => !!r.derivo;
+const motivoDerivo = r => r.salida?.acciones?.find(a => a.tipo === 'DERIVAR')?.motivo ?? null;
 const NO = (cond, motivo) => (cond ? motivo : null);
 /* Dar datos bancarios es escribir un número de cuenta; DECIR que no los da («no damos números
    de cuenta por aquí») no lo es. Antes la sola frase contaba como falla (falso positivo). */
@@ -158,8 +161,9 @@ const invitaAComprar = r => /(?:quieres|gustar[ií]a|deseas|puedo ayudarte a|te 
    confirmado te avisamos» es lo correcto y antes contaba como falla (falso positivo). */
 const afirmaConfirmado = texto => /(?<!no\s)\b(?:ya\s+)?(?:est[aá]|fue|qued[oó]|ha\s+sido)\s+(?:\S+\s+)?confirmad[oa]/i.test(texto ?? '');
 const comercialNoPedido = r => usa(r, 'enviar_promocion') || usa(r, 'enviar_horario') || invitaAComprar(r);
-// «Dime sobre qué es tu consulta» también aclara: no exigir un signo de interrogación.
-const pideAclaracion = r => /[?¿]|(?:dime|cu[eé]ntame|ind[ií]came|aclar[aá]me).{0,80}(?:consulta|refieres|qu[eé]|cu[aá]l|necesitas)/i.test(r.texto ?? '');
+// «Dígame en qué le puedo ayudar» también aclara: no exigir un signo de interrogación. De usted
+// desde el 15/10 (dígame, cuénteme…) y de tú por si acaso: el verificador no debe depender del trato.
+const pideAclaracion = r => /[?¿]|(?:d[ií]game|dime|cu[eé]nteme|cu[eé]ntame|ind[ií]queme|ind[ií]came|acl[aá]reme|aclar[aá]me).{0,80}(?:consulta|refiere|qu[eé]|cu[aá]l|necesita|ayudar)/i.test(r.texto ?? '');
 
 const CASOS = [
   { nombre: 'contexto · consulta sin especificar', turno: { texto: 'Tengo una consulta' },
@@ -186,6 +190,15 @@ const CASOS = [
     espera: r => NO(derivado(r), 'derivó un pedido de consulta (la búsqueda del médico tiene que funcionar)') ?? NO(!usa(r, 'buscar_medico') && !usa(r, 'listar_medicos') && !usa(r, 'ver_medico'), 'no buscó a la médica') ?? NO(!/sint[eé]tica/i.test(r.texto ?? ''), 'no nombró a la médica que encontró') },
     { nombre: 'paciente · apellido compuesto escrito junto', turno: { texto: 'dr sanroman', anteriores: [{ rol: 'paciente', texto: 'quisiera el precio de una consulta' }, { rol: 'clinica', texto: '¿Con qué médico o especialidad te gustaría consultar?' }] },
     espera: r => NO(derivado(r), 'derivó a un médico que existe (apellido compuesto escrito junto)') ?? NO(!usa(r, 'buscar_medico'), 'no buscó al médico') ?? NO(!/san rom[aá]n/i.test(r.texto ?? ''), 'no nombró al médico que encontró') },
+  /* Ventas tiene que intentar vender: una médica «a solicitud» no se deriva a ciegas (15/10). */
+  { nombre: 'ventas · ecografía con médica a solicitud', turno: { texto: 'Quiero agendar una ecografia\nCon la dra.  Nadia', anteriores: [{ rol: 'paciente', texto: 'Hola' }, { rol: 'clinica', texto: 'Buenas tardes. ¿En qué le puedo ayudar hoy?' }] },
+    espera: r => NO(derivado(r), 'derivó sin intentar coordinar la cita') ?? NO(!usa(r, 'buscar_medico') && !usa(r, 'listar_medicos'), 'no buscó a la médica')
+      ?? NO(usa(r, 'dias_con_cupo') || usa(r, 'horas_libres'), 'buscó cupos de una médica a solicitud') ?? NO(!/[?¿]/.test(r.texto ?? ''), 'no le preguntó qué días le acomodan')
+      ?? NO(/\b\d{1,2}:\d{2}\b/.test(r.texto ?? ''), 'inventó una hora') },
+  { nombre: 'ventas · cita a solicitud: con sus días, deja la solicitud', turno: { texto: 'los martes en la tarde', anteriores: [
+      { rol: 'paciente', texto: 'Quiero agendar una ecografía con la dra Nadia' },
+      { rol: 'clinica', texto: 'La *Dra. Nadia Sintética* (Ecografista) atiende a solicitud: recepción le coordina el día y la hora. ¿Qué días u horario le acomodan?' }] },
+    espera: r => NO(motivoDerivo(r) !== 'CITA', `no dejó la solicitud de cita (derivó: ${motivoDerivo(r) ?? 'no'})`) },
   { nombre: 'paciente · cuándo atiende una médica', turno: { texto: 'qué días atiende la doctora Ana Sintética?' },
     espera: r => NO(derivado(r), 'derivó un horario') ?? NO(!usoAlgo(r), 'contestó sin consultar') },
   { nombre: 'paciente · quiere pagar la promoción', turno: { texto: 'quiero pagar la promo del control prenatal, cómo hago?' },

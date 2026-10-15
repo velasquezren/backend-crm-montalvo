@@ -62,7 +62,7 @@ import { ReintentoSalienteService } from './reintento-saliente.service';
 import { CierreInactividadService } from './cierre-inactividad.service';
 import { PromocionesChatService } from './promociones-chat.service';
 import { AsistenteChatController } from './asistente-chat.controller';
-import { AsistenteChatService, TEXTO_DERIVACION } from './asistente-chat.service';
+import { AsistenteChatService, TEXTO_DERIVACION, TEXTO_SOLICITUD_CITA } from './asistente-chat.service';
 import { LecturaComprobantesService } from './lectura-comprobantes.service';
 import { WhatsappWebhookController } from './webhooks/whatsapp-webhook.controller';
 
@@ -552,6 +552,18 @@ describe('RESPONDER: lo que no le toca, pasa a una persona', () => {
     const id = await escribir('nadie me contesta hace dos días');
     expect((await salientes(id)).map(m => m.contenido)).toEqual([TEXTO_DERIVACION]);
     expect((await prisma.conversacion.findUniqueOrThrow({ where: { id } })).atencionMotivo).toBe('DERIVADA_ASISTENTE');
+  });
+
+  it('una cita con un médico «a solicitud» queda como SOLICITUD de cita, con su texto fijo: no como una duda', async () => {
+    clasificador.siguiente = { categoria: 'VENTAS', confianza: 'ALTA', solicitud: 'AGENDAR' };
+    modelo.guion = [pide('pasar_a_persona', { motivo: 'CITA', resumen: 'Ecografía con la Dra. Nadia, martes por la tarde.' }), dice('Listo.')];
+    const id = await escribir('los martes por la tarde me acomoda');
+    expect((await salientes(id)).map(m => m.contenido)).toEqual([TEXTO_SOLICITUD_CITA]);
+    const c = await prisma.conversacion.findUniqueOrThrow({ where: { id } });
+    expect(c.atencionMotivo).toBe('SOLICITUD_CITA');
+    /* Espera a recepción como cualquier solicitud: lo automático se pausa hasta «Listo». */
+    expect(c.automatizacionPausadaEn).not.toBeNull();
+    expect(await turnos(id)).toMatchObject([{ resultado: 'DERIVO', motivo: 'Ecografía con la Dra. Nadia, martes por la tarde.' }]);
   });
 
   it('si Gemini no responde, sale el acuse de siempre Y la atiende una persona: nunca queda en silencio', async () => {

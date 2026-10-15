@@ -1,5 +1,22 @@
 # El asistente de IA (Gemini en Vertex)
 
+## Médicos «a solicitud»: una solicitud de cita, no una duda (15/10/2026)
+
+Las ecografistas y otros médicos con modalidad `A_SOLICITUD` no tienen cupos en línea
+ni, casi nunca, precio cargado: recepción coordina el día y la hora. Antes el modelo no
+sabía qué hacer y derivaba con «Le paso su consulta…» (Ventas, «Quiero agendar una
+ecografía / Con la dra. Nadia»: el filtro dijo VENTAS/AGENDAR; derivó el modelo).
+
+- `buscar_medico`, `listar_medicos` y `ver_medico` traen `comoSeAgenda` en esos médicos:
+  la indicación, dicha en el dato. Con `AGENDAR` no se leen días que no tienen.
+- El prompt: si pide un estudio sin nombrar a nadie, buscar quién lo hace; con un médico
+  a solicitud, decir cómo funciona, preguntar UNA vez qué días u horario le acomodan y,
+  con eso, `pasar_a_persona` con motivo `CITA`.
+- `CITA` llega a «Por atender» como `SOLICITUD_CITA` («Pidió una cita»), igual que el Flow
+  de solicitud, con un texto fijo (`TEXTO_SOLICITUD_CITA`) y la automatización en pausa.
+- Recorrido real en el servidor (`asistente:caminos`, dos casos nuevos): pregunta los días
+  sin inventar horas ni buscar cupos, y con la respuesta deja la solicitud.
+
 ## Velocidad: medida, no supuesta (14/10/2026)
 
 Lo lento de Vertex no es la llamada típica sino su cola: `gemini-3.8-flash` tuvo p50
