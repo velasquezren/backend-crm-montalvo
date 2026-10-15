@@ -560,7 +560,7 @@ export function coincidenciaDeNombre(buscadas: readonly string[], nombreMedico: 
 /**
  * Cómo se agenda con un médico «a solicitud»: no tiene cupos en línea ni, casi nunca,
  * precio cargado. Dicho en el dato, el modelo no lo deduce de `modalidad` ni deriva
- * con un aviso genérico (15/10: «una ecografía con la Dra. Nadia» se pasó sin más).
+ * la cita con el aviso genérico, como si fuera una duda.
  */
 function comoSeAgenda(m: Pick<MedicoAgenda, 'modalidad'>): { comoSeAgenda?: string } {
   return m.modalidad === 'A_SOLICITUD'

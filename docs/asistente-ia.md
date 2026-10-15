@@ -4,8 +4,8 @@
 
 Las ecografistas y otros médicos con modalidad `A_SOLICITUD` no tienen cupos en línea
 ni, casi nunca, precio cargado: recepción coordina el día y la hora. Antes el modelo no
-sabía qué hacer y derivaba con «Le paso su consulta…» (Ventas, «Quiero agendar una
-ecografía / Con la dra. Nadia»: el filtro dijo VENTAS/AGENDAR; derivó el modelo).
+sabía qué hacer con una cita así y la derivaba con el aviso genérico, aunque el filtro
+la hubiera leído bien como VENTAS/AGENDAR.
 
 - `buscar_medico`, `listar_medicos` y `ver_medico` traen `comoSeAgenda` en esos médicos:
   la indicación, dicha en el dato. Con `AGENDAR` no se leen días que no tienen.

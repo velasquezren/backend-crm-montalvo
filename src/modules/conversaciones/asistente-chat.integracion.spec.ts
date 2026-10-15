@@ -556,14 +556,14 @@ describe('RESPONDER: lo que no le toca, pasa a una persona', () => {
 
   it('una cita con un médico «a solicitud» queda como SOLICITUD de cita, con su texto fijo: no como una duda', async () => {
     clasificador.siguiente = { categoria: 'VENTAS', confianza: 'ALTA', solicitud: 'AGENDAR' };
-    modelo.guion = [pide('pasar_a_persona', { motivo: 'CITA', resumen: 'Ecografía con la Dra. Nadia, martes por la tarde.' }), dice('Listo.')];
+    modelo.guion = [pide('pasar_a_persona', { motivo: 'CITA', resumen: 'Ecografía con la Dra. Paola Sintética, martes por la tarde.' }), dice('Listo.')];
     const id = await escribir('los martes por la tarde me acomoda');
     expect((await salientes(id)).map(m => m.contenido)).toEqual([TEXTO_SOLICITUD_CITA]);
     const c = await prisma.conversacion.findUniqueOrThrow({ where: { id } });
     expect(c.atencionMotivo).toBe('SOLICITUD_CITA');
     /* Espera a recepción como cualquier solicitud: lo automático se pausa hasta «Listo». */
     expect(c.automatizacionPausadaEn).not.toBeNull();
-    expect(await turnos(id)).toMatchObject([{ resultado: 'DERIVO', motivo: 'Ecografía con la Dra. Nadia, martes por la tarde.' }]);
+    expect(await turnos(id)).toMatchObject([{ resultado: 'DERIVO', motivo: 'Ecografía con la Dra. Paola Sintética, martes por la tarde.' }]);
   });
 
   it('si Gemini no responde, sale el acuse de siempre Y la atiende una persona: nunca queda en silencio', async () => {

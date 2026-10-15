@@ -409,10 +409,10 @@ describe('buscar_medico: un médico por su nombre, en una sola vuelta', () => {
       dias: jest.fn(),
     };
     agenda.todosLosMedicos.mockResolvedValue([
-      { medico: { ...med('9', 'Dra. Nadia Prueba Sintética', 'e'), modalidad: 'A_SOLICITUD', precio: null, horarioInformativo: null }, especialidad: e },
+      { medico: { ...med('9', 'Dra. Paola Prueba Sintética', 'e'), modalidad: 'A_SOLICITUD', precio: null, horarioInformativo: null }, especialidad: e },
     ]);
     const r = await montar(agenda as unknown as Partial<AgendaService>)
-      .ejecutar('buscar_medico', { nombre: 'dra nadia' }, { ...CONTEXTO, solicitud: 'AGENDAR' }, { permitirEscritura: false });
+      .ejecutar('buscar_medico', { nombre: 'dra paola' }, { ...CONTEXTO, solicitud: 'AGENDAR' }, { permitirEscritura: false });
     expect(r).toMatchObject({ ok: true, datos: [{ id: '9', especialidad: 'Ecografista', modalidad: 'A_SOLICITUD', precioConsulta: null, comoSeAgenda: expect.stringContaining('motivo CITA') }] });
     expect(agenda.dias).not.toHaveBeenCalled();
     /* Uno en línea no lleva esa indicación. */

@@ -58,7 +58,7 @@ const MEDICOS = [
   { id: '7', especialidadId: '1', nombre: 'Dra. Ana Sintética', modalidad: 'ONLINE', precio: { importeCentavos: 25000, moneda: 'BOB' }, horarioInformativo: 'Martes y jueves: 10:00 a 12:00', fotoUrl: null },
   { id: '8', especialidadId: '2', nombre: 'Dr. Luis Prueba', modalidad: 'A_SOLICITUD', precio: null, horarioInformativo: null, fotoUrl: null },
   /* «A solicitud», como las ecografistas reales: sin precio, sin horario, sin cupos en línea. */
-  { id: '10', especialidadId: '3', nombre: 'Dra. Nadia Sintética', modalidad: 'A_SOLICITUD', precio: null, horarioInformativo: null, fotoUrl: null },
+  { id: '10', especialidadId: '3', nombre: 'Dra. Paola Sintética', modalidad: 'A_SOLICITUD', precio: null, horarioInformativo: null, fotoUrl: null },
   /* Apellido compuesto que la agenda escribe en dos palabras: la paciente puede escribirlo junto. */
   { id: '9', especialidadId: '2', nombre: 'Dr. San Roman Pedro', modalidad: 'ONLINE', precio: { importeCentavos: 30000, moneda: 'BOB' }, horarioInformativo: 'Lunes: 15:00 a 18:00', fotoUrl: null },
 ];
@@ -190,14 +190,14 @@ const CASOS = [
     espera: r => NO(derivado(r), 'derivó un pedido de consulta (la búsqueda del médico tiene que funcionar)') ?? NO(!usa(r, 'buscar_medico') && !usa(r, 'listar_medicos') && !usa(r, 'ver_medico'), 'no buscó a la médica') ?? NO(!/sint[eé]tica/i.test(r.texto ?? ''), 'no nombró a la médica que encontró') },
     { nombre: 'paciente · apellido compuesto escrito junto', turno: { texto: 'dr sanroman', anteriores: [{ rol: 'paciente', texto: 'quisiera el precio de una consulta' }, { rol: 'clinica', texto: '¿Con qué médico o especialidad te gustaría consultar?' }] },
     espera: r => NO(derivado(r), 'derivó a un médico que existe (apellido compuesto escrito junto)') ?? NO(!usa(r, 'buscar_medico'), 'no buscó al médico') ?? NO(!/san rom[aá]n/i.test(r.texto ?? ''), 'no nombró al médico que encontró') },
-  /* Ventas tiene que intentar vender: una médica «a solicitud» no se deriva a ciegas (15/10). */
-  { nombre: 'ventas · ecografía con médica a solicitud', turno: { texto: 'Quiero agendar una ecografia\nCon la dra.  Nadia', anteriores: [{ rol: 'paciente', texto: 'Hola' }, { rol: 'clinica', texto: 'Buenas tardes. ¿En qué le puedo ayudar hoy?' }] },
+  /* Ventas tiene que intentar vender: una médica «a solicitud» no se deriva a ciegas. */
+  { nombre: 'ventas · ecografía con médica a solicitud', turno: { texto: 'Quiero agendar una ecografía\nCon la dra. Paola', anteriores: [{ rol: 'paciente', texto: 'Hola' }, { rol: 'clinica', texto: 'Buenas tardes. ¿En qué le puedo ayudar hoy?' }] },
     espera: r => NO(derivado(r), 'derivó sin intentar coordinar la cita') ?? NO(!usa(r, 'buscar_medico') && !usa(r, 'listar_medicos'), 'no buscó a la médica')
       ?? NO(usa(r, 'dias_con_cupo') || usa(r, 'horas_libres'), 'buscó cupos de una médica a solicitud') ?? NO(!/[?¿]/.test(r.texto ?? ''), 'no le preguntó qué días le acomodan')
       ?? NO(/\b\d{1,2}:\d{2}\b/.test(r.texto ?? ''), 'inventó una hora') },
   { nombre: 'ventas · cita a solicitud: con sus días, deja la solicitud', turno: { texto: 'los martes en la tarde', anteriores: [
-      { rol: 'paciente', texto: 'Quiero agendar una ecografía con la dra Nadia' },
-      { rol: 'clinica', texto: 'La *Dra. Nadia Sintética* (Ecografista) atiende a solicitud: recepción le coordina el día y la hora. ¿Qué días u horario le acomodan?' }] },
+      { rol: 'paciente', texto: 'Quiero agendar una ecografía con la dra Paola' },
+      { rol: 'clinica', texto: 'La *Dra. Paola Sintética* (Ecografista) atiende a solicitud: recepción le coordina el día y la hora. ¿Qué días u horario le acomodan?' }] },
     espera: r => NO(motivoDerivo(r) !== 'CITA', `no dejó la solicitud de cita (derivó: ${motivoDerivo(r) ?? 'no'})`) },
   { nombre: 'paciente · cuándo atiende una médica', turno: { texto: 'qué días atiende la doctora Ana Sintética?' },
     espera: r => NO(derivado(r), 'derivó un horario') ?? NO(!usoAlgo(r), 'contestó sin consultar') },
