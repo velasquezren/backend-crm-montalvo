@@ -50,7 +50,7 @@ export interface PeticionAsistente {
   readonly contexto: ContextoAsistente;
   /** El historial de la conversación, ya recortado por quien llama. */
   readonly historial: readonly TurnoModelo[];
-  /** Lo decide quien llama; el modelo no puede abrirlo. Hoy, siempre `false`. */
+  /** Lo decide quien llama; el modelo no puede abrirlo. Solo `reservar`, y solo en las líneas que reservan. */
   readonly permitirEscritura: boolean;
 }
 
@@ -128,6 +128,10 @@ export class ConversacionAsistente {
     if (acciones.length >= TOPE_DE_ACCIONES && esAccion(llamada.nombre)) {
       return { ok: false, motivo: 'Ya hay suficientes envíos en esta respuesta. Contesta con texto.' };
     }
+    /* Una reserva por respuesta: una segunda sería otra cita a su nombre. */
+    if (llamada.nombre === 'reservar' && acciones.some(a => a.tipo === 'RESERVA')) {
+      return { ok: false, motivo: 'La reserva de esta respuesta ya está lista: no hagas otra.' };
+    }
     try {
       return await this.herramientas.ejecutar(llamada.nombre, llamada.argumentos, p.contexto, { permitirEscritura: p.permitirEscritura });
     } catch (error: unknown) {
@@ -137,7 +141,8 @@ export class ConversacionAsistente {
   }
 }
 
-const esAccion = (nombre: string) => nombre === 'enviar_promocion' || nombre === 'enviar_horario' || nombre === 'mi_agenda' || nombre === 'abrir_mis_informes';
+const esAccion = (nombre: string) =>
+  nombre === 'enviar_promocion' || nombre === 'enviar_horario' || nombre === 'mi_agenda' || nombre === 'abrir_mis_informes' || nombre === 'reservar';
 
 /** La misma tarjeta o el mismo horario dos veces en una respuesta es uno. Derivar, una vez. */
 function agregarAccion(acciones: AccionAsistente[], nueva: AccionAsistente): void {

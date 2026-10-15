@@ -23,16 +23,20 @@
  *   persona no le hace daño a nadie.
  * - `escritura`: cambia el mundo. El despachador la rechaza salvo que QUIEN
  *   LLAMA pase `permitirEscritura`. **El modelo nunca decide una escritura.**
- *   Hoy nadie la permite: las reservas las hace el Flow, que es determinista.
+ *   La única es `reservar` (15/10, solo en las líneas de `ASISTENTE_RESERVAS_LINEAS`):
+ *   el modelo la PROPONE, aquí se comprueba (nombre y CI que ella escribió, hora
+ *   libre, ninguna otra reserva esperando pago) y la registra el CRM al terminar
+ *   el turno, con el mensaje y el QR que arma el código (`reserva-asistente.ts`).
  *
  * Y con el SDK de Vertex, **`automaticFunctionCalling` va DESACTIVADO**: con el
  * automático, el SDK ejecuta la función que el modelo pide sin pasar por aquí.
  *
  * ## Lo que NO está aquí, a propósito
  *
- * - Mandar el QR o datos bancarios. El QR sale SOLO cuando la paciente toca
- *   «Pagar ahora» en la tarjeta de la promoción: el monto se congela ahí y el
- *   pago queda registrado (`PromocionesChatService.iniciar`).
+ * - Mandar el QR o datos bancarios. El de una promoción sale SOLO cuando la
+ *   paciente toca «Pagar ahora» en su tarjeta: el monto se congela ahí y el pago
+ *   queda registrado (`PromocionesChatService.iniciar`). El del médico sale con
+ *   la reserva, como en el Flow (`registrarReservaDeChat`), nunca por el modelo.
  * - Confirmar un pago. Lo hace una persona; `PAGADO` no es «verificado».
  * - Decidir que algo es una emergencia. La declarada la reconoce la ingesta; la
  *   posible la marca el filtro de entrada (`triaje.ts`), no el modelo que habla.
@@ -40,9 +44,9 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 
 import type { AgendaDelDia } from '../agenda/agenda-medico-citas';
-import { AgendaReservasService } from '../agenda/agenda-reservas.service';
 import { AgendaService } from '../agenda/agenda.service';
 import type { DeclaracionHerramienta, SolicitudPaciente } from './modelo.port';
+import { datosNoDichos } from './reserva-asistente';
 
 /** Una propiedad del esquema de parámetros (JSON Schema). */
 interface PropiedadEsquema {
@@ -142,6 +146,18 @@ export interface PuertoMedico {
 }
 
 /**
+ * Reservar en ESTA conversación, atado a ella por quien llama. Existe solo si la
+ * línea reserva por el asistente y quien escribe es una paciente con celular de
+ * Bolivia (la agenda solo reserva a esos números, como el Flow).
+ */
+export interface PuertoReservas {
+  /** Todo lo que ella escribió (y dijo en notas de voz) en el chat reciente: de aquí salen nombre y CI. */
+  readonly textoDeLaPaciente: string;
+  /** La reserva de este chat que ya espera su pago, si hay una: no se le hace otra encima. */
+  reservaPendiente(): Promise<number | null>;
+}
+
+/**
  * Lo que sabe el CRM de la conversación, y que el modelo NO rellena.
  *
  * El teléfono es el de la conversación de WhatsApp: autoritativo. Pedírselo al
@@ -156,6 +172,8 @@ export interface ContextoAsistente {
   readonly ventas: PuertoVentas | null;
   /** El médico autorizado que escribe, o ausente/`null` si es una paciente. */
   readonly medico?: PuertoMedico | null;
+  /** Ausente o `null`: en esta conversación no se reserva (se pasa a una persona). */
+  readonly reservas?: PuertoReservas | null;
 }
 
 /* ── Lo que el turno deja hecho ─────────────────────────────────────── */
@@ -169,6 +187,19 @@ export type AccionAsistente =
   | { readonly tipo: 'PROMOCION'; readonly promocionId: string; readonly titulo: string; readonly servicioId?: string }
   | { readonly tipo: 'HORARIO'; readonly medicoId: number; readonly nombre: string; readonly horario: string | null }
   | { readonly tipo: 'DERIVAR'; readonly motivo: MotivoDerivacion; readonly resumen: string }
+  /**
+   * Una reserva ya comprobada, que el CRM registra al terminar el turno (solo en
+   * «Responder solo»). El mensaje con el número, el monto y el QR lo arma el código.
+   */
+  | {
+      readonly tipo: 'RESERVA';
+      readonly medicoId: string;
+      readonly medico: string;
+      readonly fecha: string;
+      readonly hora: string;
+      readonly nombre: string;
+      readonly ci: string;
+    }
   /**
    * La agenda de un médico para mandársela a él: la imagen y el texto los arma
    * el CÓDIGO con estos datos (`agenda-medico-imagen.ts`). El modelo solo
@@ -340,10 +371,11 @@ export const HERRAMIENTAS: readonly Herramienta[] = [
   {
     nombre: 'reservar',
     descripcion:
-      'Registra la reserva. Pide antes el nombre y el CI a la paciente: no los deduzcas ni los inventes. ' +
-      'Puede responder que la hora ya no está disponible porque alguien la tomó mientras conversaban; ' +
-      'en ese caso ofrece otra, no digas que quedó hecha. Una reserva queda PENDIENTE de pago y de ' +
-      'recepción: nunca la llames «cita confirmada».',
+      'Reserva la hora elegida con un médico. Antes pídele el nombre completo y el carnet (CI) de quien viene a la ' +
+      'consulta: usa EXACTAMENTE lo que ella escribió, no los deduzcas ni los completes. No le pidas el teléfono: es el ' +
+      'de este chat. Si la hora ya no está libre o falta un dato, te lo dice: corrígelo con ella. Si sale bien, el sistema ' +
+      'registra la reserva y le manda el número y, si el médico cobra por adelantado, el monto y el QR para pagar: tú no ' +
+      'escribes montos ni datos de pago. La reserva queda PENDIENTE de pago y de recepción: nunca la llames «cita confirmada».',
     parametros: {
       type: 'object',
       properties: {
@@ -404,7 +436,7 @@ export const HERRAMIENTAS: readonly Herramienta[] = [
 export function herramientasDisponibles(contexto: ContextoAsistente, { permitirEscritura }: { permitirEscritura: boolean }): readonly Herramienta[] {
   const medico = !!contexto.medico;
   return HERRAMIENTAS.filter(h =>
-    (h.efecto !== 'escritura' || permitirEscritura)
+    (h.efecto !== 'escritura' || (permitirEscritura && !!contexto.reservas))
     && (!h.soloVentas || contexto.ventas !== null)
     && (!h.soloInformes || contexto.informes === true)
     && permitidaPorSolicitud(h, contexto)
@@ -423,6 +455,9 @@ function permitidaPorSolicitud(h: Herramienta, contexto: ContextoAsistente): boo
   if (solicitud === 'ACLARAR') return h.efecto === 'derivar';
   if (h.nombre === 'enviar_promocion') return solicitud === 'PROMOCION' || solicitud === 'PAGAR';
   if (h.nombre === 'enviar_horario') return solicitud === 'HORARIO';
+  /* Dar el nombre y el carnet para la hora elegida es seguir agendando, aunque el
+     filtro lo lea como una consulta; un cobro o una promoción, no. */
+  if (h.nombre === 'reservar') return solicitud === 'AGENDAR' || solicitud === 'CONSULTAR';
   return true;
 }
 
@@ -525,10 +560,7 @@ function bolivianos(centavos: number): string {
 
 @Injectable()
 export class HerramientasAsistenteService {
-  constructor(
-    private readonly agenda: AgendaService,
-    private readonly reservas: AgendaReservasService,
-  ) {}
+  constructor(private readonly agenda: AgendaService) {}
 
   /**
    * Ejecuta una herramienta por su nombre.
@@ -669,17 +701,35 @@ export class HerramientasAsistenteService {
         return { ok: true, datos: await this.agenda.dias({ medicoId: a.medicoId }) };
       case 'horas_libres':
         return { ok: true, datos: await this.agenda.disponibilidad({ medicoId: a.medicoId, fecha: a.fecha }) };
-      case 'reservar':
-        /* `telefono` sale del CONTEXTO, no de `a`: es el de la conversación.
-           `observaciones` deja constancia de por dónde entró. */
+      case 'reservar': {
+        /* Aquí no se escribe nada: se comprueba y queda como acción del turno. La
+           registra el CRM al terminar, con el teléfono de la conversación. */
+        const reservas = contexto.reservas;
+        if (!reservas) return { ok: false, motivo: 'En este chat no se puede reservar: pásale la conversación a una persona.' };
+        if (!/^\d{1,10}$/.test(a.medicoId)) return { ok: false, motivo: '«medicoId» es el número del médico que devolvió buscar_medico o listar_medicos.' };
+        const falta = datosNoDichos(a.nombre, a.ci, reservas.textoDeLaPaciente);
+        if (falta) return { ok: false, motivo: falta };
+        const pendiente = await reservas.reservaPendiente();
+        if (pendiente !== null) {
+          return { ok: false, motivo: `Ya tiene la reserva N.º ${pendiente} esperando su pago: recuérdaselo. Si quiere otra o cambiarla, pásala a una persona.` };
+        }
+        const libres = (await this.agenda.disponibilidad({ medicoId: a.medicoId, fecha: a.fecha })).horarios.map(h => h.hora);
+        if (!libres.includes(a.hora)) {
+          return {
+            ok: false,
+            motivo: libres.length
+              ? `Las ${a.hora} no están libres ese día. Libres ahora: ${libres.join(', ')}. Pregúntale cuál prefiere.`
+              : 'Ese día ya no quedan horas libres con ese médico. Ofrécele otro día (dias_con_cupo).',
+          };
+        }
+        const { medico } = await this.agenda.medico(Number(a.medicoId));
         return {
           ok: true,
-          datos: await this.reservas.reservar({
-            medicoId: a.medicoId, fecha: a.fecha, hora: a.hora,
-            nombre: a.nombre, ci: a.ci, telefono: contexto.telefono,
-            observaciones: 'Reservada por el asistente desde WhatsApp',
-          }),
+          datos: 'Comprobado. Al terminar tu respuesta el sistema registra la reserva y le manda el número y, si corresponde, ' +
+            'el QR para pagar. Ese mensaje ya lo dice todo: no escribas nada más.',
+          accion: { tipo: 'RESERVA', medicoId: a.medicoId, medico: medico.nombre, fecha: a.fecha, hora: a.hora, nombre: a.nombre, ci: a.ci },
         };
+      }
       case 'mi_agenda': {
         const fecha = a.fecha;
         const detalle = a.detalle as DetalleAgendaMedico;

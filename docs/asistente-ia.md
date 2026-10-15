@@ -37,6 +37,44 @@ La paciente ve «escribiendo…» desde que el asistente toma su mensaje, renova
 20 s (Meta lo quita a los 25). La pantalla de la línea muestra la mediana y el p90 del
 tiempo de respuesta de los últimos 7 días (`actividad.latencia`).
 
+## Reservar una cita y mandar el QR del médico (15/10/2026)
+
+El 15/10 una prueba terminó así: eligió médico, día y hora, dio su nombre, carnet y
+teléfono, y el asistente la pasó a una persona sin QR. No era un fallo del modelo:
+`reservar` estaba en el catálogo pero nadie la habilitaba («las reservas las hace el
+Flow»), así que con los datos en la mano solo le quedaba derivar.
+
+Ahora, en las líneas de `ASISTENTE_RESERVAS_LINEAS`:
+
+1. Con la hora elegida, el asistente pide el nombre completo y el carnet de quien viene.
+   Nunca el teléfono: es el del chat.
+2. `reservar` **no escribe**. Comprueba en código: que el nombre (cada palabra, con al
+   menos nombre y apellido) y el CI (sus dígitos) estén en lo que ELLA escribió en el chat
+   (`datosNoDichos`); que la hora esté libre en la agenda en ese momento; y que el chat no
+   tenga ya una reserva esperando su pago. Si algo falla, se lo dice al modelo para que lo
+   corrija con ella. Si pasa, queda la acción `RESERVA`. Una por respuesta.
+3. Al terminar el turno (si nada llegó mientras pensaba), `AsistenteChatService` la
+   registra con `AgendaReservasService.reservar`, igual que la web y el Flow (con su aviso
+   por Telegram), con el **celular del chat**. El texto del modelo se descarta.
+4. Lo que le llega lo arma el código con `registrarReservaDeChat`, el mismo del Flow:
+   «Tu reserva N.º X con Dr. … el lunes 19 de octubre a las 12:00 quedó registrada. Para
+   asegurarla, paga Bs … con este QR…», con el QR del banco del médico. Su comprobante se
+   asocia a esa reserva y va a la agenda como «pago por verificar»
+   (`ComprobantesReservaChatService`). Si el médico no tiene precio o QR vigente, la
+   reserva sale igual y recepción le dirá cómo pagar.
+5. Si la hora se ocupó entre medio, le ofrece las que quedan. Si la agenda no la registra,
+   una persona (`DERIVADA_ASISTENTE`).
+
+Solo en «Responder solo» (en «Sugerir» reserva la agente), solo a pacientes con celular de
+Bolivia (la agenda solo reserva esos números) y solo si la línea también está en
+`WHATSAPP_INTERACCIONES_LINEAS`: el comprobante se asocia por ese camino. En las demás
+líneas, con la hora elegida pasa a una persona con médico, día y hora en el resumen, sin
+pedirle datos que después recepción vuelve a pedir.
+
+El filtro de entrada también cambió: contestar lo que la clínica le pidió para la cita (el
+día, la hora, su nombre o carnet) es VENTAS/AGENDAR, no OTRO. Antes un mensaje con solo
+«rene velasquez / 11340617» podía leerse como «no se entiende» y derivarse.
+
 ## Contexto y atención sin presión comercial (13/10/2026)
 
 La clasificación incluye `solicitud`: CONSULTAR, ACLARAR, SALUDAR, CERRAR, AGENDAR,
@@ -276,11 +314,12 @@ HubSpot, y los proveedores de WhatsApp para clínicas):
 
 Cada una tiene su prueba.
 
-1. **El modelo nunca decide una escritura.** `reservar` existe en el catálogo pero
-   nadie pasa `permitirEscritura`: las reservas las hace el Flow, que es determinista.
-2. **Nunca manda el QR ni datos bancarios.** Para cobrar manda la TARJETA: la paciente
-   toca «Pagar ahora» y el CRM le manda el QR con el monto congelado y registra el
-   pago (`PromocionesChatService.iniciar`). Prueba de punta a punta en
+1. **El modelo nunca decide una escritura.** La única es `reservar` (ver «Reservar una
+   cita», abajo): el modelo la propone, el código la comprueba y el CRM la registra.
+2. **El modelo nunca manda el QR ni datos bancarios.** Para cobrar una promoción manda la
+   TARJETA: la paciente toca «Pagar ahora» y el CRM le manda el QR con el monto congelado y
+   registra el pago (`PromocionesChatService.iniciar`). El QR del médico sale con la reserva,
+   armado por el código como en el Flow. Prueba de punta a punta en
    `asistente-chat.integracion.spec.ts`.
 3. **`automaticFunctionCalling` apagado** en el adaptador.
 4. **El teléfono, la conversación y la línea no son parámetros**: salen del contexto.
@@ -452,8 +491,8 @@ y `uso=conversar|clasificar|leer-comprobante|transcribir-audio` (solo en Vertex:
   (arriba), la orientación de emergencia del menú, y las fichas web de los médicos.
 - **Probar contra Google de verdad.** Todo lo de aquí está probado con un modelo
   guionado (sin red). La primera conexión real es en la línea de prueba.
-- **Reservar por el asistente.** El catálogo lo tiene; abrirlo es decidir que el
-  modelo pueda pedir una reserva con nombre y CI. Hoy reserva el Flow.
+- **Reservar por el asistente:** hecho el 15/10 (abajo). Falta decidir en qué líneas reales
+  se enciende (`ASISTENTE_RESERVAS_LINEAS`): hoy solo la de prueba.
 - **Comprobantes de reservas** (QR del médico): la lectura cubre por ahora los pagos de
   promociones.
 - **Notas de voz:** hechas el 12/10 (sección «Notas de voz»). Falta el paso de audio en

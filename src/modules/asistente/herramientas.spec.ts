@@ -1,7 +1,6 @@
 import { BadRequestException, ServiceUnavailableException } from '@nestjs/common';
 
 import { armarAgendaDelDia } from '../agenda/agenda-medico-citas';
-import { AgendaReservasService } from '../agenda/agenda-reservas.service';
 import { AgendaService } from '../agenda/agenda.service';
 import {
   ContextoAsistente,
@@ -13,6 +12,7 @@ import {
   sonidoDe,
   PromocionParaAsistente,
   PuertoMedico,
+  PuertoReservas,
   PuertoVentas,
   validarArgumentos,
 } from './herramientas';
@@ -52,11 +52,8 @@ function ventas(p: Partial<PuertoVentas> = {}): PuertoVentas {
 
 const CONTEXTO: ContextoAsistente = { telefono: '+59170012345', ventas: null };
 
-function montar(agenda: Partial<AgendaService> = {}, reservas: Partial<AgendaReservasService> = {}) {
-  return new HerramientasAsistenteService(
-    agenda as AgendaService,
-    reservas as AgendaReservasService,
-  );
+function montar(agenda: Partial<AgendaService> = {}) {
+  return new HerramientasAsistenteService(agenda as AgendaService);
 }
 
 describe('catálogo de herramientas del asistente', () => {
@@ -163,53 +160,104 @@ describe('el despachador', () => {
     if (!r.ok) expect(r.motivo).toContain('borrar_todo');
   });
 
-  it('una lectura llama al servicio de la agenda, no al de reservas', async () => {
+  it('una lectura llama al servicio de la agenda', async () => {
     const especialidades = jest.fn().mockResolvedValue({ datos: [] });
-    const reservar = jest.fn();
-    const r = await montar({ especialidades }, { reservar }).ejecutar('listar_especialidades', {}, CONTEXTO, { permitirEscritura: false });
+    const r = await montar({ especialidades }).ejecutar('listar_especialidades', {}, CONTEXTO, { permitirEscritura: false });
     expect(r.ok).toBe(true);
     expect(especialidades).toHaveBeenCalledTimes(1);
-    expect(reservar).not.toHaveBeenCalled();
   });
 
   /* La regla central: el modelo puede PEDIR una escritura y no se hace. */
-  it('sin permiso, `reservar` NO llega al servicio y lo dice en castellano', async () => {
-    const reservar = jest.fn();
-    const r = await montar({}, { reservar }).ejecutar(
+  it('sin permiso, `reservar` ni siquiera mira la agenda y lo dice en castellano', async () => {
+    const disponibilidad = jest.fn();
+    const r = await montar({ disponibilidad }).ejecutar(
       'reservar',
       { medicoId: '1', fecha: '2026-10-12', hora: '10:30', nombre: 'Ana Pérez', ci: '123456' },
-      CONTEXTO,
+      { ...CONTEXTO, reservas: reservas() },
       { permitirEscritura: false },
     );
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.motivo).toContain('una persona');
-    expect(reservar).not.toHaveBeenCalled();
-  });
-
-  it('con permiso, reserva con el teléfono DE LA CONVERSACIÓN y no uno del modelo', async () => {
-    const reservar = jest.fn().mockResolvedValue({ codigo: 9 });
-    const r = await montar({}, { reservar }).ejecutar(
-      'reservar',
-      { medicoId: '1', fecha: '2026-10-12', hora: '10:30', nombre: 'Ana Pérez', ci: '123456', telefono: '+59177777777' },
-      CONTEXTO,
-      { permitirEscritura: true },
-    );
-    expect(r.ok).toBe(true);
-    expect(reservar).toHaveBeenCalledTimes(1);
-    const dto = reservar.mock.calls[0][0];
-    expect(dto.telefono).toBe(CONTEXTO.telefono);
-    expect(dto.telefono).not.toBe('+59177777777');
-    expect(dto.observaciones).toContain('asistente');
+    expect(disponibilidad).not.toHaveBeenCalled();
   });
 
   it('una escritura con argumentos malos se rechaza por el permiso ANTES de validar', async () => {
     /* El orden importa: si validara primero, el mensaje de vuelta le diría al
        modelo qué corregir para una herramienta que de todas formas no puede usar. */
-    const reservar = jest.fn();
-    const r = await montar({}, { reservar }).ejecutar('reservar', {}, CONTEXTO, { permitirEscritura: false });
+    const r = await montar().ejecutar('reservar', {}, CONTEXTO, { permitirEscritura: false });
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.motivo).not.toContain('Falta');
-    expect(reservar).not.toHaveBeenCalled();
+  });
+});
+
+/* ── Reservar (15/10): el modelo propone, el código comprueba, el CRM registra ── */
+
+function reservas(p: Partial<PuertoReservas> = {}): PuertoReservas {
+  return { textoDeLaPaciente: 'Quiero agendar\nLunes 19\nreservar a las 12\nrene velasquez\n11340617\n73605150', reservaPendiente: jest.fn().mockResolvedValue(null), ...p };
+}
+const PEDIDO = { medicoId: '57', fecha: '2026-10-19', hora: '12:00', nombre: 'René Velásquez', ci: '11340617' };
+function agendaConLibres(horas: string[]) {
+  return {
+    disponibilidad: jest.fn().mockResolvedValue({ medicoId: '57', fecha: '2026-10-19', estado: horas.length ? 'DISPONIBLE' : 'SIN_CUPOS', horarios: horas.map((hora, i) => ({ id: String(i), hora })) }),
+    medico: jest.fn().mockResolvedValue({ medico: { id: '57', nombre: 'Dr. Juan Carlos Montalvo' }, especialidad: { id: 'e1', nombre: 'Ginecología' } }),
+  } as unknown as Partial<AgendaService>;
+}
+
+describe('reservar desde el asistente', () => {
+  it('solo se declara con permiso Y con el puerto de reservas de la conversación', () => {
+    const nombres = (contexto: ContextoAsistente, permitirEscritura: boolean) => herramientasDisponibles(contexto, { permitirEscritura }).map(h => h.nombre);
+    expect(nombres({ ...CONTEXTO, solicitud: 'AGENDAR' }, true)).not.toContain('reservar');
+    expect(nombres({ ...CONTEXTO, solicitud: 'AGENDAR', reservas: reservas() }, false)).not.toContain('reservar');
+    expect(nombres({ ...CONTEXTO, solicitud: 'AGENDAR', reservas: reservas() }, true)).toContain('reservar');
+    /* Dar sus datos para la hora elegida puede leerse como consulta: sigue siendo agendar. */
+    expect(nombres({ ...CONTEXTO, solicitud: 'CONSULTAR', reservas: reservas() }, true)).toContain('reservar');
+    for (const solicitud of ['ACLARAR', 'PAGAR', 'PROMOCION', 'SALUDAR', 'CERRAR'] as const) {
+      expect(nombres({ ...CONTEXTO, solicitud, reservas: reservas() }, true)).not.toContain('reservar');
+    }
+  });
+
+  it('con los datos que ella escribió y la hora libre, queda como ACCIÓN: aquí no se escribe nada', async () => {
+    const agenda = agendaConLibres(['12:00', '12:30']);
+    const r = await montar(agenda).ejecutar('reservar', { ...PEDIDO, telefono: '+59177777777' }, { ...CONTEXTO, solicitud: 'AGENDAR', reservas: reservas() }, { permitirEscritura: true });
+    expect(r).toMatchObject({ ok: true, accion: { tipo: 'RESERVA', ...PEDIDO, medico: 'Dr. Juan Carlos Montalvo' } });
+    /* El teléfono no viaja en la acción: lo pone quien la ejecuta, de la conversación. */
+    if (r.ok) expect(JSON.stringify(r.accion)).not.toContain('77777777');
+    expect(agenda.disponibilidad).toHaveBeenCalledWith({ medicoId: '57', fecha: '2026-10-19' });
+  });
+
+  it.each([
+    ['un nombre que no escribió', { nombre: 'René Vargas' }, 'no es el que ella escribió'],
+    ['solo el nombre de pila', { nombre: 'René' }, 'nombre completo'],
+    ['un carnet que no escribió', { ci: '11340618' }, 'no es el que ella escribió'],
+    ['un carnet corto', { ci: '123' }, 'carnet'],
+  ])('rechaza %s y no mira la agenda', async (_caso, cambio, motivo) => {
+    const agenda = agendaConLibres(['12:00']);
+    const r = await montar(agenda).ejecutar('reservar', { ...PEDIDO, ...cambio }, { ...CONTEXTO, solicitud: 'AGENDAR', reservas: reservas() }, { permitirEscritura: true });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.motivo).toContain(motivo);
+    expect(agenda.disponibilidad).not.toHaveBeenCalled();
+  });
+
+  it('una hora que no está libre devuelve las que sí, para que se las ofrezca', async () => {
+    const r = await montar(agendaConLibres(['12:30', '16:00'])).ejecutar('reservar', PEDIDO, { ...CONTEXTO, solicitud: 'AGENDAR', reservas: reservas() }, { permitirEscritura: true });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.motivo).toContain('12:30, 16:00');
+  });
+
+  it('con otra reserva esperando su pago no hace una nueva encima', async () => {
+    const agenda = agendaConLibres(['12:00']);
+    const r = await montar(agenda).ejecutar('reservar', PEDIDO, {
+      ...CONTEXTO, solicitud: 'AGENDAR', reservas: reservas({ reservaPendiente: jest.fn().mockResolvedValue(4321) }),
+    }, { permitirEscritura: true });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.motivo).toContain('N.º 4321');
+    expect(agenda.disponibilidad).not.toHaveBeenCalled();
+  });
+
+  it('sin el puerto de reservas (otra línea, otro país) la pasa a una persona', async () => {
+    const r = await montar(agendaConLibres(['12:00'])).ejecutar('reservar', PEDIDO, { ...CONTEXTO, solicitud: 'AGENDAR' }, { permitirEscritura: true });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.motivo).toContain('una persona');
   });
 });
 
@@ -467,13 +515,12 @@ describe('mi_agenda: la agenda del médico que escribe', () => {
     const { contexto } = conMedico();
     const conVentas = { ...contexto, ventas: ventas() };
     const agenda = { especialidades: jest.fn(), medicos: jest.fn(), disponibilidad: jest.fn() };
-    const reservas = { reservar: jest.fn() };
-    const servicio = montar(agenda as unknown as Partial<AgendaService>, reservas as unknown as Partial<AgendaReservasService>);
+    const servicio = montar(agenda as unknown as Partial<AgendaService>);
     for (const nombre of ['enviar_horario', 'enviar_promocion', 'estado_de_pago', 'reservar']) {
       const r = await servicio.ejecutar(nombre, { especialidadId: '1', medicoId: '7', fecha: '2026-10-12', hora: '09:00', nombre: 'x', ci: '1', promocionId: 'p1' }, conVentas, { permitirEscritura: true });
       expect(r.ok).toBe(false);
     }
-    expect(reservas.reservar).not.toHaveBeenCalled();
+    expect(agenda.disponibilidad).not.toHaveBeenCalled();
     /* Sin línea comercial, tampoco lee promociones. */
     expect((await servicio.ejecutar('listar_promociones', {}, contexto, NO)).ok).toBe(false);
   });

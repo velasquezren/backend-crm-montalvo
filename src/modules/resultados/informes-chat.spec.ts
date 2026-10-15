@@ -25,7 +25,7 @@ it('abrir_mis_informes solo está declarada en líneas autorizadas y no consulta
   const h = herramientasDisponibles({ telefono: '+59170000001', ventas: null, informes: true }, opciones).find(h => h.nombre === 'abrir_mis_informes');
   expect(h?.parametros.properties).toEqual({});
   // Ningún puerto de datos se necesita: la autorización y la consulta son del CRM.
-  const servicio = new HerramientasAsistenteService(undefined as never, undefined as never);
+  const servicio = new HerramientasAsistenteService(undefined as never);
   expect(await servicio.ejecutar('abrir_mis_informes', {}, { telefono: '+59170000001', ventas: null, informes: true }, opciones))
     .toMatchObject({ ok: true, accion: { tipo: 'INFORMES' } });
   expect(await servicio.ejecutar('abrir_mis_informes', {}, { telefono: '+59170000001', ventas: null }, opciones)).toMatchObject({ ok: false });

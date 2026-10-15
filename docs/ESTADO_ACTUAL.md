@@ -2,7 +2,18 @@
 
 > **Revisión del 10/10/2026, módulo por módulo (sin Comisiones ni Finanzas):** [REVISION_2026-10-10.md](REVISION_2026-10-10.md). La API está sana; la lista de mejoras por impacto está ahí.
 
-## 14 de octubre de 2026 · Velocidad del asistente, segunda vuelta: modelo de respaldo y notas de voz · SIN DESPLEGAR
+## 15 de octubre de 2026 · El asistente reserva la cita y manda el QR del médico
+
+En la línea de prueba, tras elegir médico, día y hora y dar nombre y carnet, el asistente
+la pasaba a una persona sin QR: `reservar` existía pero nadie la habilitaba. Ahora, en las
+líneas de `ASISTENTE_RESERVAS_LINEAS` (falla cerrado; exige también interacciones y
+«Responder solo»), el modelo propone la reserva, el código comprueba que nombre y CI los
+escribió ella y que la hora sigue libre, y el CRM la registra en la agenda y le manda el
+número, el monto y el QR del médico por el mismo camino que el Flow (`ReservaChat`). Sin la
+variable, nada cambia salvo que con la hora elegida deriva sin pedir datos. Detalle en
+[asistente-ia](asistente-ia.md#reservar-una-cita-y-mandar-el-qr-del-médico-15102026).
+
+## 14 de octubre de 2026 · Velocidad del asistente, segunda vuelta: modelo de respaldo y notas de voz · DESPLEGADO (6a244e9)
 
 En una noche mala `gemini-3.8-flash` tuvo p50 7,6 s y p90 39 s, y su copia también
 tardaba: una nota de voz tardó 95 s en contestarse (1 min transcribiendo). Ahora la

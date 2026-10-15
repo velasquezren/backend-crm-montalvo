@@ -1,4 +1,4 @@
-import { INestApplication, Module, NotFoundException, ServiceUnavailableException, ValidationPipe } from '@nestjs/common';
+import { ConflictException, INestApplication, Module, NotFoundException, ServiceUnavailableException, ValidationPipe } from '@nestjs/common';
 import { APP_GUARD, NestFactory } from '@nestjs/core';
 import { ConfigService } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
@@ -153,6 +153,7 @@ const clasificador = new ClasificadorGuionado();
 const lector = new LectorGuionado();
 const transcriptor = new TranscriptorGuionado();
 const agenda = {
+  disponibilidad: jest.fn(),
   todosLosMedicos: async () => [{
     medico: { id: '7', especialidadId: 'e1', nombre: 'Dra. Sintética', modalidad: 'ONLINE', precio: { importeCentavos: 25000, moneda: 'BOB' }, horarioInformativo: 'Martes: entre 10:00 y 12:00', fotoUrl: null },
     especialidad: { id: 'e1', nombre: 'Ginecología' },
@@ -163,6 +164,8 @@ const agenda = {
     especialidad: { id: 'e1', nombre: 'Ginecología' },
   }),
 };
+/** Reservar en la agenda ScriptCase y copiar el QR del médico: lo de fuera de esta máquina. */
+const reservasAgenda = { reservar: jest.fn(), prepararQr: jest.fn() };
 /** La agenda de la clínica y quién es cada médico: lo único falso de la parte del médico es MySQL. */
 const citasMedico = { delDia: jest.fn(), disponible: () => true };
 const medicosCrm = {
@@ -196,7 +199,7 @@ const imagenes = {
     { provide: AgendaMedicoCitasService, useValue: citasMedico },
     { provide: AgendaMedicosCrmService, useValue: medicosCrm },
     { provide: AgendaService, useValue: agenda },
-    { provide: AgendaReservasService, useValue: { reservar: jest.fn() } },
+    { provide: AgendaReservasService, useValue: reservasAgenda },
     { provide: WhatsappCloudService, useValue: transporte },
     { provide: R2Service, useValue: r2 },
     { provide: PushService, useValue: { enviarAUsuario: async () => undefined } },
@@ -590,6 +593,92 @@ describe('RESPONDER: lo que no le toca, pasa a una persona', () => {
     expect((await webhook([foto()])).status).toBe(200);
     await reposo();
     expect(await turnos((await chat()).id)).toHaveLength(0);
+  });
+});
+
+describe('RESPONDER: reserva la cita y le manda el QR del médico (15/10)', () => {
+  const FECHA = '2026-10-20';
+  const QR = 'agenda/qr/3-0123456789abcdef.png';
+  const PEDIDO = { medicoId: '7', fecha: FECHA, hora: '12:00', nombre: 'Ana Pérez', ci: '4567890' };
+  const libres = (...horas: string[]) => ({ medicoId: '7', fecha: FECHA, estado: horas.length ? 'DISPONIBLE' : 'SIN_CUPOS', horarios: horas.map((hora, i) => ({ id: String(i), hora })) });
+
+  beforeEach(async () => {
+    await configurarAsistente('RESPONDER');
+    config.set('ASISTENTE_RESERVAS_LINEAS', ventas);
+    clasificador.siguiente = { categoria: 'VENTAS', confianza: 'ALTA', solicitud: 'AGENDAR' };
+    agenda.disponibilidad.mockReset().mockResolvedValue(libres('12:00', '12:30'));
+    reservasAgenda.reservar.mockReset().mockResolvedValue({
+      codigo: 7001, referencia: 'ref', medico: 'SINTETICA', fecha: FECHA, hora: '12:00', estado: 'PENDIENTE',
+      pago: { precio: { importeCentavos: 25000, moneda: 'BOB' }, bancoId: 3 },
+    });
+    reservasAgenda.prepararQr.mockReset().mockResolvedValue(QR);
+  });
+  afterEach(() => config.set('ASISTENTE_RESERVAS_LINEAS', ''));
+
+  it('con su nombre y carnet: reserva con el celular del chat, manda el QR con el monto y su comprobante va a la reserva', async () => {
+    modelo.guion = [pide('reservar', PEDIDO), dice('¡Listo, ya quedó tu cita confirmada!')];
+    const id = await escribir('Para el martes a las 12, a nombre de Ana Pérez, carnet 4567890');
+
+    expect(modelo.vistas[0].herramientas.map(h => h.name)).toContain('reservar');
+    expect(reservasAgenda.reservar).toHaveBeenCalledTimes(1);
+    expect(reservasAgenda.reservar.mock.calls[0][0]).toMatchObject({
+      medicoId: '7', fecha: FECHA, hora: '12:00', nombre: 'Ana Pérez', ci: '4567890', telefono: telefono.slice(4),
+      observaciones: expect.stringContaining('asistente'),
+    });
+    expect(reservasAgenda.prepararQr).toHaveBeenCalledWith(3);
+    const reserva = await prisma.reservaChat.findUniqueOrThrow({ where: { reservaAgenda: 7001 } });
+    expect(reserva).toMatchObject({ conversacionId: id, estado: 'ESPERANDO_COMPROBANTE', qrClave: QR });
+    expect(Number(reserva.monto)).toBe(250);
+    /* Lo que le llega lo arma el código: el «cita confirmada» del modelo no sale. */
+    const enviados = await salientes(id);
+    expect(enviados.map(m => m.contenido).join('\n')).not.toContain('confirmada');
+    const qr = enviados.find(m => m.mediaKey === QR);
+    expect(qr).toMatchObject({ tipo: 'IMAGEN', asistente: true, automatico: true, id: reserva.qrMensajeId });
+    expect(qr?.contenido).toContain('Tu reserva N.º 7001 con Dra. Sintética el martes 20 de octubre a las 12:00 quedó registrada');
+    expect(qr?.contenido).toContain('Bs 250');
+    expect(await turnos(id)).toMatchObject([{ resultado: 'RESPONDIO', motivo: expect.stringContaining('N.º 7001'), herramientas: [{ nombre: 'reservar', ok: true }] }]);
+
+    /* Su comprobante: el mismo camino que el del Flow, a esa reserva. */
+    await esperar(async () => !!(await prisma.mensaje.findUniqueOrThrow({ where: { id: qr!.id } })).whatsappMsgId);
+    expect((await webhook([foto()])).status).toBe(200);
+    await esperar(async () => (await prisma.reservaChat.findUniqueOrThrow({ where: { reservaAgenda: 7001 } })).estado === 'COMPROBANTE_RECIBIDO');
+  });
+
+  it('un nombre que ella no escribió no reserva: el modelo tiene que pedírselo', async () => {
+    modelo.guion = [pide('reservar', { ...PEDIDO, nombre: 'Ana Pérez Rojas' }), dice('¿Me confirmas tu nombre completo?')];
+    const id = await escribir('Para el martes a las 12, a nombre de Ana Pérez, carnet 4567890');
+    expect(reservasAgenda.reservar).not.toHaveBeenCalled();
+    expect(await turnos(id)).toMatchObject([{ resultado: 'RESPONDIO', herramientas: [{ nombre: 'reservar', ok: false }] }]);
+    expect((await salientes(id)).map(m => m.contenido).join('\n')).toContain('¿Me confirmas tu nombre completo?');
+    expect(await prisma.reservaChat.count({ where: { conversacionId: id } })).toBe(0);
+  });
+
+  it('si la hora se ocupa justo antes de reservar, le ofrece las que quedan y no deja reserva', async () => {
+    agenda.disponibilidad.mockReset().mockResolvedValueOnce(libres('12:00', '12:30')).mockResolvedValueOnce(libres('12:30'));
+    reservasAgenda.reservar.mockReset().mockRejectedValue(new ConflictException({ codigo: 'HORA_NO_DISPONIBLE', message: 'Esa hora acaba de ocuparse.' }));
+    modelo.guion = [pide('reservar', PEDIDO), dice('Listo.')];
+    const id = await escribir('Para el martes a las 12, a nombre de Ana Pérez, carnet 4567890');
+    const textos = (await salientes(id)).map(m => m.contenido).join('\n');
+    expect(textos).toContain('se acaban de ocupar');
+    expect(textos).toContain('• 12:30');
+    expect(await prisma.reservaChat.count({ where: { conversacionId: id } })).toBe(0);
+    expect((await prisma.conversacion.findUniqueOrThrow({ where: { id } })).atencionMotivo).toBeNull();
+  });
+
+  it('si la agenda no la registra, la pasa a una persona con el aviso fijo', async () => {
+    reservasAgenda.reservar.mockReset().mockRejectedValue(new ServiceUnavailableException('agenda caída'));
+    modelo.guion = [pide('reservar', PEDIDO), dice('Listo.')];
+    const id = await escribir('Para el martes a las 12, a nombre de Ana Pérez, carnet 4567890');
+    expect((await salientes(id)).map(m => m.contenido)).toContain(TEXTO_DERIVACION);
+    expect((await prisma.conversacion.findUniqueOrThrow({ where: { id } })).atencionMotivo).toBe('DERIVADA_ASISTENTE');
+  });
+
+  it('en una línea sin reservas por el asistente, `reservar` ni se le declara', async () => {
+    config.set('ASISTENTE_RESERVAS_LINEAS', '');
+    modelo.guion = [dice('Te paso con recepción para registrarla.')];
+    await escribir('Para el martes a las 12, a nombre de Ana Pérez, carnet 4567890');
+    expect(modelo.vistas[0].herramientas.map(h => h.name)).not.toContain('reservar');
+    expect(reservasAgenda.reservar).not.toHaveBeenCalled();
   });
 });
 

@@ -16,6 +16,8 @@ export interface DatosPrompt {
   /** La base de conocimiento que escribió la clínica. */
   readonly conocimiento: string;
   readonly solicitud?: SolicitudPaciente;
+  /** En esta conversación se reserva (`reservar` declarada): si no, la reserva la registra una persona. */
+  readonly reservas?: boolean;
 }
 
 export const NOMBRE_CLINICA = 'Clínica Montalvo';
@@ -70,6 +72,22 @@ export function promptDelSistema(d: DatosPrompt): string {
     '  el conocimiento de la clínica de abajo. Responde lo que preguntó, sin añadir una invitación a reservar por defecto.',
     '- Si nombra a un médico («el doctor Montalvo», «la Dra. Azogue»), lo buscas con buscar_medico, en UNA llamada.',
     '  No recorras listar_medicos especialidad por especialidad.',
+    '',
+    'SI QUIERE RESERVAR UNA CITA',
+    '- Primero el médico, después el día (dias_con_cupo) y después la hora (horas_libres). Una cosa a la vez.',
+    ...(d.reservas
+      ? [
+          '- Con la hora elegida, pídele en UN mensaje el nombre completo y el carnet (CI) de quien viene a la consulta.',
+          '  No le pidas el teléfono: es el de este chat.',
+          '- Cuando te los dé, usa reservar con lo que escribió, tal cual. Si te devuelve un problema (la hora se ocupó,',
+          '  falta un dato), resuélvelo con ella.',
+          '- Si reservar sale bien, no escribas nada más: el sistema le manda el número de reserva y, si corresponde, el monto',
+          '  y el QR del médico para pagar. Tú nunca escribes montos de pago ni datos bancarios.',
+        ]
+      : [
+          '- Con el médico, el día y la hora elegidos, usa pasar_a_persona con esos tres datos en el resumen: la reserva',
+          '  la registra recepción. No le pidas nombre, carnet ni teléfono: se los pide recepción si hacen falta.',
+        ]),
     '',
     'CUÁNDO PASAS A UNA PERSONA (pasar_a_persona)',
     '- Cualquier tema médico, una queja, si pide a alguien, si algo de un pago no cuadra, si no sabes la respuesta,',

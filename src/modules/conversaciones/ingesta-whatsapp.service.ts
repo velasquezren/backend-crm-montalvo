@@ -12,7 +12,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { ClientesService, nombreProvisional } from '../clientes/clientes.service';
 import { PrimerContactoService } from '../leads/primer-contacto.service';
 import { datosOferta, descifrarInteraccion, flowDeCita, FlowPublicado, guardarRespuesta, interaccionesEnLinea, OfertaInteraccion, prepararOferta } from './interacciones-integracion';
-import { abrirTokenFlow } from '../../common/whatsapp/flows/token-flow';
+import { abrirTokenFlow, CierreReserva } from '../../common/whatsapp/flows/token-flow';
 import { MenuAtencionService } from '../menu-atencion/menu-atencion.service';
 import { MensajePreparado } from '../../common/whatsapp/interacciones/mensaje-interactivo';
 import {
@@ -31,7 +31,7 @@ import { DespachadorSalienteService } from './despachador-saliente.service';
 import { MediaEntranteService, MediaEntrante } from './media-entrante.service';
 import { CONTENIDO_PIN, TEXTO_UBICACION, UBICACION_CLINICA } from './ubicacion-clinica';
 import { registrarComprobante, uuidEstable } from './pagos-chat';
-import { comprobanteAmbiguo, marcarComprobanteDeReserva, PagoDeReserva, registrarReservaDeChat, TEXTO_COMPROBANTE_RESERVA } from './reservas-chat';
+import { comprobanteAmbiguo, marcarComprobanteDeReserva, PagoDeReserva, registrarReservaDeChat, TEXTO_COMPROBANTE_RESERVA, textoReservaSinPago } from './reservas-chat';
 import { codigoEnTexto, ELEGIR_SERVICIO, HABLAR_CON_PERSONA, PAGAR_PROMOCION, servicioDeOpcion, TEXTO_COMPROBANTE_RECIBIDO, TEXTO_PERSONA_TARJETA } from './promocion-chat';
 import { PromocionesChatService } from './promociones-chat.service';
 import type { PromocionChat } from '../promociones/promociones.service';
@@ -1041,6 +1041,23 @@ export class IngestaWhatsappService {
       this.logger.error('No se pudo enviar la imagen del asistente', error);
       return false;
     }
+  }
+
+  /**
+   * La reserva que el asistente acaba de registrar en la agenda, en su chat: lo mismo
+   * que el cierre del Flow (`ReservaChat` y el QR del médico en la misma transacción,
+   * y el comprobante que mande después va a la agenda). Si el médico no cobra por el
+   * chat, la confirmación en texto. Sale aunque alguien haya pausado el chat entre
+   * medio: la reserva ya existe y es lo que ella pidió.
+   */
+  async reservaDesdeAsistente(conversacionId: string, telefono: string, cierre: CierreReserva, resumen: string): Promise<boolean> {
+    const pago = await this.prisma.$transaction(tx => registrarReservaDeChat(tx, conversacionId, cierre, { resumen }));
+    if (pago) {
+      await this.enviarPagoDeReserva(conversacionId, telefono, pago);
+      this.gateway.emitirActividad(conversacionId);
+      return true;
+    }
+    return this.responderTexto(conversacionId, telefono, textoReservaSinPago(cierre.reserva, resumen), { respetaPausa: false, noRepetir: false, asistente: true });
   }
 
   /** «Ubicación» del menú: una línea opcional y el mapa. Pedida, no detectada. */

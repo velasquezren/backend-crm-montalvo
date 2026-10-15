@@ -1,19 +1,26 @@
-import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import { BadRequestException, ConflictException, HttpException, Injectable, Logger, NotFoundException, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { plainToInstance } from 'class-transformer';
+import { validateSync } from 'class-validator';
 
 import { enSegundoPlano } from '../../common/fiabilidad/en-segundo-plano';
 import { AccesoMedicoAgendaService, MedicoAutorizado } from '../agenda/acceso-medico-agenda.service';
+import { celularBoliviano } from '../agenda/agenda-flow.service';
 import { AgendaMedicoCitasService } from '../agenda/agenda-medico-citas.service';
+import { AgendaReservasService } from '../agenda/agenda-reservas.service';
+import { AgendaService } from '../agenda/agenda.service';
+import { CrearReservaAgendaDto } from '../agenda/dto/reserva-agenda.dto';
 import { Mensaje, MotivoAtencion, Prisma, ResultadoTurnoAsistente } from '../../prisma/prisma-client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { pieDeLaImagen, textoListado, textoResumen } from '../asistente/agenda-medico-imagen';
 import { AsistenteDeLinea, AsistenteLineasService } from '../asistente/asistente-lineas.service';
 import { ConversacionAsistente, TrazaTurno } from '../asistente/conversacion-asistente';
-import { AccionAsistente, EstadoPagoParaAsistente, HERRAMIENTAS, PuertoMedico, PuertoVentas } from '../asistente/herramientas';
+import { AccionAsistente, EstadoPagoParaAsistente, HERRAMIENTAS, PuertoMedico, PuertoReservas, PuertoVentas } from '../asistente/herramientas';
 import { ImagenAgendaMedicoService } from '../asistente/imagen-agenda-medico.service';
 import { ImagenHorarioService } from '../asistente/imagen-horario.service';
 import { Clasificacion, ClasificadorMensajes, ModeloConversacional, TurnoModelo, UsoModelo } from '../asistente/modelo.port';
 import { ahoraEnLaPaz, promptDelMedico, promptDelSistema } from '../asistente/prompt-sistema';
+import { reservasDelAsistenteEn, resumenDeReserva, textoHoraOcupada } from '../asistente/reserva-asistente';
 import { conPresentacion, debePresentarse, paraWhatsapp } from '../asistente/texto-whatsapp';
 import { TEXTO_AUDIO_NO_ENTENDIDO } from '../asistente/transcripcion';
 import { CLASIFICACION_FALLIDA, decidirTriaje, solicitudDelTurno } from '../asistente/triaje';
@@ -26,7 +33,7 @@ import { EscuchaAudiosService } from './escucha-audios.service';
 import { IngestaWhatsappService } from './ingesta-whatsapp.service';
 import { interaccionesEnLinea } from './interacciones-integracion';
 import { informesEnLinea } from '../resultados/informes-chat.service';
-import { pagoDelChat } from './pagos-chat';
+import { HORAS_ESPERA_COMPROBANTE, pagoDelChat } from './pagos-chat';
 import { PromocionesChatService } from './promociones-chat.service';
 import type { PromocionChat } from '../promociones/promociones.service';
 import { AccionSugerida, accionesDe, accionesSugeridas } from './sugerencias-chat';
@@ -91,6 +98,10 @@ const MENSAJES_DE_CONTEXTO = 30;
 const VENTANA_MS = 24 * 3_600_000;
 /** Meta quita el «escribiendo…» a los 25 s; se renueva antes. */
 const RENOVAR_ESCRIBIENDO_MS = 20_000;
+/** Cuánto se espera el QR del médico al reservar; sin él, la reserva sale sin cobro por el chat. */
+const ESPERA_QR_MS = 8_000;
+
+type AccionReserva = Extract<AccionAsistente, { tipo: 'RESERVA' }>;
 
 const SELECT_MENSAJE = {
   id: true, direccion: true, tipo: true, contenido: true, mediaNombre: true, transcripcion: true, automatico: true, createdAt: true,
@@ -174,6 +185,8 @@ export class AsistenteChatService implements ProgramadorAsistente, OnModuleInit,
     private readonly cobros: CobrosService,
     private readonly menus: MenuAtencionService,
     private readonly config: ConfigService,
+    private readonly agenda: AgendaService,
+    private readonly reservasAgenda: AgendaReservasService,
   ) {}
 
   onModuleInit(): void {
@@ -348,6 +361,7 @@ export class AsistenteChatService implements ProgramadorAsistente, OnModuleInit,
 
     /* 2. La conversación. */
     const solicitud = solicitudDelTurno(clasificacion);
+    const reservas = this.puertoReservas(e, historial);
     const salida = await this.conversacion.responder({
       sistema: promptDelSistema({
         ahora: ahoraEnLaPaz(new Date(inicio)),
@@ -355,13 +369,15 @@ export class AsistenteChatService implements ProgramadorAsistente, OnModuleInit,
         ventas: e.asistente.comercial,
         conocimiento: e.asistente.conocimiento,
         solicitud,
+        reservas: !!reservas,
       }),
       contexto: {
         telefono: e.telefono, ventas: e.asistente.comercial ? this.puertoVentas(e) : null, informes: informesEnLinea(e.lineaId),
-        solicitud,
+        solicitud, reservas,
       },
       historial,
-      permitirEscritura: false,
+      /* Solo reservar, y solo donde hay puerto de reservas: lo decide el código, no el modelo. */
+      permitirEscritura: !!reservas,
     });
     const base = { categoria: clasificacion.categoria, traza: salida.traza, tokensExtra };
     if (salida.tipo === 'sin-respuesta') {
@@ -376,8 +392,9 @@ export class AsistenteChatService implements ProgramadorAsistente, OnModuleInit,
 
     const derivacion = salida.acciones.find(a => a.tipo === 'DERIVAR');
     const envios = salida.acciones.filter(a => a.tipo !== 'DERIVAR');
-    // La gestión de informes usa exclusivamente el texto determinista de la lista.
-    const texto = envios.some(a => a.tipo === 'INFORMES') ? '' : salida.texto ? paraWhatsapp(salida.texto) : '';
+    const reserva = envios.find((a): a is AccionReserva => a.tipo === 'RESERVA');
+    // Informes y reservas usan exclusivamente el texto determinista que arma el código.
+    const texto = reserva || envios.some(a => a.tipo === 'INFORMES') ? '' : salida.texto ? paraWhatsapp(salida.texto) : '';
 
     if (!responde) {
       /* Lo médico no se sugiere ni redactado: la agente lo escribe ella. */
@@ -394,6 +411,10 @@ export class AsistenteChatService implements ProgramadorAsistente, OnModuleInit,
     if (derivacion?.tipo === 'DERIVAR') {
       await this.derivar(e, derivacion.motivo === 'URGENCIA' ? 'POSIBLE_URGENCIA' : 'DERIVADA_ASISTENTE');
       return registrar({ resultado: 'DERIVO', motivo: derivacion.resumen, ...base });
+    }
+    if (reserva) {
+      const hecho = await this.reservarCita(e, reserva);
+      return registrar({ ...base, ...hecho });
     }
     if (texto) {
       const presentado = await this.prisma.mensaje.findFirst({
@@ -535,6 +556,79 @@ export class AsistenteChatService implements ProgramadorAsistente, OnModuleInit,
     }
     const enviado = await this.ingesta.responderComoAsistente(e.conversacionId, e.telefono, TEXTO_AUDIO_NO_ENTENDIDO, { medico });
     return registrar({ resultado: enviado ? 'RESPONDIO' : 'OMITIDO', motivo: `${motivo} Se le pidió que lo escriba.`, tokensExtra });
+  }
+
+  /* ── Reservar una cita ─────────────────────────────────────────────── */
+
+  /**
+   * Reservar en esta conversación, o `null` (entonces `reservar` ni se declara). Solo:
+   * - en «Responder solo»: en «Sugerir» reserva la agente, con sus pantallas;
+   * - en una línea de `ASISTENTE_RESERVAS_LINEAS` que además tiene interacciones: el
+   *   comprobante que mande después se asocia a la reserva por ese camino, como en el Flow;
+   * - con un celular de Bolivia, el único que la agenda acepta (igual que el Flow).
+   */
+  private puertoReservas(e: EntranteParaAsistente, historial: readonly TurnoModelo[]): PuertoReservas | null {
+    if (e.asistente.modo !== 'RESPONDER' || !interaccionesEnLinea(e.lineaId)) return null;
+    if (!reservasDelAsistenteEn(this.config.get<string>('ASISTENTE_RESERVAS_LINEAS'), e.lineaId)) return null;
+    if (!celularBoliviano(e.telefono.replace(/^\+/, ''))) return null;
+    return {
+      textoDeLaPaciente: historial.flatMap(t => (t.rol === 'paciente' ? [t.texto] : [])).join('\n'),
+      reservaPendiente: async () => (await this.prisma.reservaChat.findFirst({
+        where: {
+          conversacionId: e.conversacionId, estado: 'ESPERANDO_COMPROBANTE',
+          createdAt: { gte: new Date(Date.now() - HORAS_ESPERA_COMPROBANTE * 3_600_000) },
+        },
+        orderBy: { createdAt: 'desc' },
+        select: { reservaAgenda: true },
+      }))?.reservaAgenda ?? null,
+    };
+  }
+
+  /**
+   * La reserva que el turno dejó comprobada: a la agenda, igual que la web y el Flow (con
+   * su aviso a la clínica por Telegram), y a su chat con el número, el monto y el QR del
+   * médico, que arma el código. Si la hora se ocupó entre medio, las que quedan; si la
+   * agenda no la registra, una persona.
+   */
+  private async reservarCita(e: EntranteParaAsistente, a: AccionReserva): Promise<Pick<Registro, 'resultado' | 'motivo'>> {
+    const telefono = e.telefono.replace(/^\+/, '');
+    const dto = plainToInstance(CrearReservaAgendaDto, {
+      medicoId: a.medicoId, fecha: a.fecha, hora: a.hora, nombre: a.nombre, ci: a.ci,
+      telefono: celularBoliviano(telefono) ?? '', observaciones: 'Reservada por el asistente de IA desde WhatsApp',
+    });
+    if (validateSync(dto).length > 0) {
+      await this.derivar(e, 'DERIVADA_ASISTENTE');
+      return { resultado: 'DERIVO', motivo: 'Los datos de la reserva no pasan las reglas de la agenda: la sigue una persona.' };
+    }
+    let reserva: Awaited<ReturnType<AgendaReservasService['reservar']>>;
+    try {
+      reserva = await this.reservasAgenda.reservar(dto);
+    } catch (error: unknown) {
+      if (error instanceof HttpException && codigoDeError(error) === 'HORA_NO_DISPONIBLE') {
+        const libres = await this.agenda.disponibilidad({ medicoId: a.medicoId, fecha: a.fecha }).then(d => d.horarios.map(h => h.hora), () => null);
+        if (libres) {
+          const enviado = await this.ingesta.responderComoAsistente(e.conversacionId, e.telefono, textoHoraOcupada(a, libres));
+          return { resultado: enviado ? 'RESPONDIO' : 'OMITIDO', motivo: `Las ${a.hora} se ocuparon antes de reservar: se le ofrecieron las que quedan.` };
+        }
+      }
+      this.logger.warn(`Reserva del asistente no registrada: ${error instanceof Error ? error.message : 'falló'}`);
+      await this.derivar(e, 'DERIVADA_ASISTENTE');
+      return { resultado: 'DERIVO', motivo: 'La agenda no registró la reserva: la sigue una persona.' };
+    }
+    const { precio, bancoId } = reserva.pago;
+    const qrClave = precio && bancoId !== null ? await this.qrATiempo(bancoId) : null;
+    const resumen = resumenDeReserva(a);
+    await this.ingesta.reservaDesdeAsistente(e.conversacionId, e.telefono, {
+      telefono, reserva: reserva.codigo, montoCentavos: qrClave && precio ? precio.importeCentavos : null, qrClave,
+    }, resumen);
+    return { resultado: 'RESPONDIO', motivo: `Reservó la N.º ${reserva.codigo} ${resumen}${qrClave ? ' y le mandó el QR' : ', sin cobro por el chat'}.` };
+  }
+
+  /** El QR del médico copiado a R2, o `null` si tarda (la reserva sale igual, sin cobro por el chat). */
+  private qrATiempo(bancoId: number): Promise<string | null> {
+    let reloj: NodeJS.Timeout | undefined;
+    const limite = new Promise<null>(resolver => { reloj = setTimeout(() => resolver(null), ESPERA_QR_MS); reloj.unref(); });
+    return Promise.race([this.reservasAgenda.prepararQr(bancoId), limite]).finally(() => clearTimeout(reloj));
   }
 
   /** ¿Escribió ella o una persona después del mensaje que se está contestando? */
@@ -686,4 +780,10 @@ export class AsistenteChatService implements ProgramadorAsistente, OnModuleInit,
       this.logger.warn(`No se pudo registrar el turno: ${error instanceof Error ? error.message : 'falló'}`);
     }
   }
+}
+
+/** El `codigo` de un error de la agenda (`HORA_NO_DISPONIBLE`, `MEDICO_NO_DISPONIBLE`). */
+function codigoDeError(error: HttpException): string | undefined {
+  const cuerpo = error.getResponse();
+  return typeof cuerpo === 'object' && cuerpo !== null && 'codigo' in cuerpo && typeof cuerpo.codigo === 'string' ? cuerpo.codigo : undefined;
 }

@@ -31,8 +31,14 @@ export function textoBs(centavos: number): string {
   return `Bs ${bs.toLocaleString('es-BO', { minimumFractionDigits: Number.isInteger(bs) ? 0 : 2, maximumFractionDigits: 2 })}`;
 }
 
-export function textoPagoDeReserva(reserva: number, centavos: number): string {
-  return `Tu reserva N.º ${reserva} quedó registrada. Para asegurarla, paga ${textoBs(centavos)} con este QR y mándanos por aquí la foto o captura del comprobante. Recepción confirmará tu cita por este chat.`;
+/** `resumen` («con Dr. …, lunes 19 de octubre a las 12:00»): el Flow ya lo mostró en su pantalla; el asistente lo dice aquí. */
+export function textoPagoDeReserva(reserva: number, centavos: number, resumen?: string): string {
+  return `Tu reserva N.º ${reserva}${resumen ? ` ${resumen}` : ''} quedó registrada. Para asegurarla, paga ${textoBs(centavos)} con este QR y mándanos por aquí la foto o captura del comprobante. Recepción confirmará tu cita por este chat.`;
+}
+
+/** La reserva del asistente cuando el médico no cobra por el chat (sin precio o sin QR vigente). */
+export function textoReservaSinPago(reserva: number, resumen: string): string {
+  return `Tu reserva N.º ${reserva} ${resumen} quedó registrada. Recepción te confirmará la cita y cómo pagarla por este chat.`;
 }
 
 export const TEXTO_COMPROBANTE_RESERVA = '✅ Recibimos tu comprobante. Recepción lo verificará y te confirmará la cita por aquí.';
@@ -43,7 +49,11 @@ export const TEXTO_COMPROBANTE_RESERVA = '✅ Recibimos tu comprobante. Recepci�
  * cobra por el chat; `null` si no (el médico no tiene precio o QR vigente, o
  * este cierre ya se había registrado: Meta repite webhooks).
  */
-export async function registrarReservaDeChat(tx: Prisma.TransactionClient, conversacionId: string, cierre: CierreReserva): Promise<PagoDeReserva | null> {
+export async function registrarReservaDeChat(
+  tx: Prisma.TransactionClient, conversacionId: string, cierre: CierreReserva,
+  /** Reserva del asistente (`AsistenteChatService`): el QR lleva su marca y el texto, el resumen. */
+  delAsistente?: { readonly resumen: string },
+): Promise<PagoDeReserva | null> {
   const chat = await tx.conversacion.findUnique({ where: { id: conversacionId }, select: { lineaId: true, cliente: { select: { telefono: true } } } });
   if (!chat || !interaccionesEnLinea(chat.lineaId) || chat.cliente.telefono.replace(/^\+/, '') !== cierre.telefono) return null;
   await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${conversacionId}, ${CANDADO_AUTOMATICOS}))::text`;
@@ -62,11 +72,11 @@ export async function registrarReservaDeChat(tx: Prisma.TransactionClient, conve
   });
   if (count === 0 || !cobra) return null;
   const mime = MIME_QR[qrClave.slice(qrClave.lastIndexOf('.') + 1)] ?? 'image/png';
-  const texto = textoPagoDeReserva(cierre.reserva, montoCentavos);
+  const texto = textoPagoDeReserva(cierre.reserva, montoCentavos, delAsistente?.resumen);
   // Intención durable EN LA MISMA transacción que el webhook y ReservaChat.
   // El despachador existente reclama el envío; los inciertos nunca se repiten.
   const mensaje = await tx.mensaje.create({ data: {
-    conversacionId, direccion: 'SALIENTE', tipo: 'IMAGEN', automatico: true,
+    conversacionId, direccion: 'SALIENTE', tipo: 'IMAGEN', automatico: true, asistente: !!delAsistente,
     contenido: texto, mediaKey: qrClave, mediaMime: mime, mediaNombre: 'QR de pago',
     clientMessageId: uuidEstable(`reserva-qr:${cierre.reserva}`), estadoEnvio: 'FALLIDO',
     proximoIntento: new Date(),

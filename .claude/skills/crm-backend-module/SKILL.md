@@ -207,10 +207,16 @@ Diseño en [asistente-ia](../../../docs/asistente-ia.md). Lo que no se puede olv
 - **El modelo elige herramientas; los datos salen de ellas.** El catálogo
   (`modules/asistente/herramientas.ts`) es cerrado: una herramienta nueva es una función
   sobre un service que ya existe, con su prueba sin modelo. `escritura` exige
-  `permitirEscritura` del llamador (hoy nadie lo pasa); `mensaje` no se ejecuta en el
-  bucle: queda como acción y la manda `AsistenteChatService`.
-- **Nunca el QR ni datos bancarios desde el modelo**: cobrar es mandar la tarjeta; el QR
-  sale del toque a «Pagar ahora», como siempre.
+  `permitirEscritura` del llamador Y el `PuertoReservas` de la conversación; `mensaje` no se
+  ejecuta en el bucle: queda como acción y la manda `AsistenteChatService`.
+- **`reservar` (15/10) no escribe en el bucle**: comprueba (nombre y CI que ELLA escribió,
+  `datosNoDichos`; hora libre en la agenda; ninguna reserva esperando pago) y deja la acción
+  `RESERVA`. La registra `AsistenteChatService.reservarCita` al terminar el turno, con el
+  celular del chat, y el texto del modelo se descarta: el mensaje y el QR los arma
+  `registrarReservaDeChat`, el mismo del Flow. Solo en «Responder solo», en
+  `ASISTENTE_RESERVAS_LINEAS` (falla cerrado) con interacciones, y con celular de Bolivia.
+- **Nunca el QR ni datos bancarios desde el modelo**: cobrar una promoción es mandar la
+  tarjeta (el QR sale del toque a «Pagar ahora»); el QR del médico sale con la reserva.
 - **Lo médico no llega al modelo que redacta**: lo decide `decidirTriaje` sobre la
   clasificación, que es código y se prueba en la tabla entera. `POSIBLE_URGENCIA` es
   ALTA; CRÍTICA sigue siendo solo la que declara ella.

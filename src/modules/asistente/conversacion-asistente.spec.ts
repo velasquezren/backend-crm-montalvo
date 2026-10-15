@@ -96,11 +96,30 @@ describe('el bucle del asistente', () => {
     expect(declaradas).toContain('pasar_a_persona');
   });
 
-  it('con permiso, `reservar` sí se declara y la escritura llega habilitada', async () => {
+  it('con permiso y puerto de reservas, `reservar` sí se declara y la escritura llega habilitada', async () => {
+    const reservas = { textoDeLaPaciente: 'Ana Pérez 123456', reservaPendiente: async () => null };
     const { bucle, modelo, ejecutar } = montar([pide({ nombre: 'reservar', argumentos: { medicoId: '1' } }), dice('Queda pendiente de pago.')]);
-    await bucle.responder({ ...PETICION, permitirEscritura: true });
+    await bucle.responder({ ...PETICION, contexto: { ...CONTEXTO, solicitud: 'AGENDAR', reservas }, permitirEscritura: true });
     expect(nombres(modelo.entradas[0].herramientas)).toContain('reservar');
     expect(ejecutar.mock.calls[0][3]).toEqual({ permitirEscritura: true });
+  });
+
+  it('con permiso pero sin puerto de reservas (otra línea), `reservar` no se declara', async () => {
+    const { bucle, modelo } = montar([dice('listo')]);
+    await bucle.responder({ ...PETICION, permitirEscritura: true });
+    expect(nombres(modelo.entradas[0].herramientas)).not.toContain('reservar');
+  });
+
+  it('una sola reserva por respuesta: la segunda vuelve al modelo como error', async () => {
+    const accion = { tipo: 'RESERVA', medicoId: '1', medico: 'Dra. X', fecha: '2026-10-19', hora: '12:00', nombre: 'Ana Pérez', ci: '123456' };
+    const ejecutar = jest.fn().mockResolvedValue({ ok: true, datos: 'Comprobado.', accion });
+    const reservas = { textoDeLaPaciente: 'Ana Pérez 123456', reservaPendiente: async () => null };
+    const { bucle } = montar([
+      pide({ nombre: 'reservar', argumentos: { medicoId: '1' } }), pide({ nombre: 'reservar', argumentos: { medicoId: '1' } }), dice('ok'),
+    ], ejecutar);
+    const salida = await bucle.responder({ ...PETICION, contexto: { ...CONTEXTO, solicitud: 'AGENDAR', reservas }, permitirEscritura: true });
+    expect(ejecutar).toHaveBeenCalledTimes(1);
+    expect(salida.acciones.filter(a => a.tipo === 'RESERVA')).toHaveLength(1);
   });
 
   it('un resultado con `ok: false` vuelve al modelo tal cual, y el turno sigue', async () => {
