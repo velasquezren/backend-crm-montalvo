@@ -215,6 +215,10 @@ Diseño en [asistente-ia](../../../docs/asistente-ia.md). Lo que no se puede olv
   celular del chat, y el texto del modelo se descarta: el mensaje y el QR los arma
   `registrarReservaDeChat`, el mismo del Flow. Solo en «Responder solo», en
   `ASISTENTE_RESERVAS_LINEAS` (falla cerrado) con interacciones, y con celular de Bolivia.
+- **El estado de una cita en curso sale de la traza, no del texto del modelo**: la traza guarda
+  `medicoId`/`fecha` de las herramientas de la agenda y `reservaEnCurso` la lee. Con ella, la
+  duda del filtro no deriva (`decidirTriajeEnReserva`; lo médico sí) y el modelo puede empezar
+  a la vez que el filtro: solo vale si el filtro confirma. Nada adelantado puede escribir.
 - **Nunca el QR ni datos bancarios desde el modelo**: cobrar una promoción es mandar la
   tarjeta (el QR sale del toque a «Pagar ahora»); el QR del médico sale con la reserva.
 - **Lo médico no llega al modelo que redacta**: lo decide `decidirTriaje` sobre la

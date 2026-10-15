@@ -6,6 +6,7 @@
  * pasar por los automáticos. Esto es cómo habla y qué no inventa.
  */
 import type { SolicitudPaciente } from './modelo.port';
+import type { ReservaEnCurso } from './reserva-asistente';
 
 export interface DatosPrompt {
   /** «viernes 10 de octubre de 2026, 15:40» en La Paz. */
@@ -18,6 +19,8 @@ export interface DatosPrompt {
   readonly solicitud?: SolicitudPaciente;
   /** En esta conversación se reserva (`reservar` declarada): si no, la reserva la registra una persona. */
   readonly reservas?: boolean;
+  /** La cita de la que vienen hablando, sacada de las herramientas de los turnos anteriores. */
+  readonly enCurso?: ReservaEnCurso | null;
 }
 
 export const NOMBRE_CLINICA = 'Clínica Montalvo';
@@ -75,12 +78,21 @@ export function promptDelSistema(d: DatosPrompt): string {
     '',
     'SI QUIERE RESERVAR UNA CITA',
     '- Primero el médico, después el día (dias_con_cupo) y después la hora (horas_libres). Una cosa a la vez.',
+    '- Si buscar_medico ya te trae los días con cupo (diasConCupo), ofréceselos directamente, sin otra consulta.',
+    ...(d.enCurso
+      ? [
+          `- YA VIENEN AGENDANDO: el médico es el medicoId «${d.enCurso.medicoId}»` +
+            (d.enCurso.fecha ? ` y el día que miraron es ${d.enCurso.fecha}` : '') +
+            '. Usa esos datos tal cual: no vuelvas a buscar al médico. Si ella cambia de médico o de día, síguela.',
+        ]
+      : []),
     ...(d.reservas
       ? [
           '- Con la hora elegida, pídele en UN mensaje el nombre completo y el carnet (CI) de quien viene a la consulta.',
           '  No le pidas el teléfono: es el de este chat.',
-          '- Cuando te los dé, usa reservar con lo que escribió, tal cual. Si te devuelve un problema (la hora se ocupó,',
-          '  falta un dato), resuélvelo con ella.',
+          '- Cuando te los dé, usa reservar EN ESE MISMO MOMENTO con lo que escribió, tal cual (reservar ya comprueba que la',
+          '  hora siga libre: no hace falta mirar horas_libres antes). Si te devuelve un problema (la hora se ocupó, falta un',
+          '  dato), resuélvelo con ella. No la pases a una persona por tener que reservar: reservar es tu trabajo.',
           '- Si reservar sale bien, no escribas nada más: el sistema le manda el número de reserva y, si corresponde, el monto',
           '  y el QR del médico para pagar. Tú nunca escribes montos de pago ni datos bancarios.',
         ]

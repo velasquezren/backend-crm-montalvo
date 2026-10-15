@@ -59,6 +59,46 @@ export function datosNoDichos(nombre: string, ci: string, textoDeLaPaciente: str
   return null;
 }
 
+/** Lo que ya se consultó de la cita de la que vienen hablando: el médico y, si se miró, el día. */
+export interface ReservaEnCurso {
+  readonly medicoId: string;
+  readonly fecha: string | null;
+}
+
+/** Lo que `reservaEnCurso` necesita de cada turno anterior (`TurnoAsistente`). */
+export interface TurnoAnterior {
+  readonly resultado: string;
+  readonly herramientas: unknown;
+}
+
+/**
+ * ¿Vienen agendando una cita? Se lee de las herramientas de los turnos anteriores
+ * (en orden), no de lo que escribió el modelo:
+ *
+ * - un médico consultado en la agenda la abre (y un médico distinto la cambia);
+ * - el día que se miró con `horas_libres` queda como el día de la cita;
+ * - una reserva hecha, o un turno que pasó a una persona (o falló), la cierran.
+ *
+ * Con ella, «sara Bueno 6376378» se lee como lo que es —sus datos para la hora que
+ * eligió— aunque el filtro dude (15/10 lo derivó), y el modelo no vuelve a buscar
+ * al médico en cada mensaje.
+ */
+export function reservaEnCurso(turnos: readonly TurnoAnterior[]): ReservaEnCurso | null {
+  let actual = null as ReservaEnCurso | null;
+  for (const t of turnos) {
+    if (t.resultado === 'DERIVO' || t.resultado === 'FALLO') { actual = null; continue; }
+    if (!Array.isArray(t.herramientas)) continue;
+    for (const h of t.herramientas as { nombre?: unknown; ok?: unknown; medicoId?: unknown; fecha?: unknown }[]) {
+      if (!h || h.ok !== true) continue;
+      if (h.nombre === 'reservar') { actual = null; continue; }
+      if (typeof h.medicoId !== 'string' || !/^\d{1,10}$/.test(h.medicoId)) continue;
+      const fecha = typeof h.fecha === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(h.fecha) ? h.fecha : null;
+      actual = { medicoId: h.medicoId, fecha: fecha ?? (actual?.medicoId === h.medicoId ? actual.fecha : null) };
+    }
+  }
+  return actual;
+}
+
 /** «lunes 19 de octubre», sin la coma de `fechaLarga`: va en medio de una frase. */
 const dia = (fecha: string) => fechaLarga(fecha).replace(',', '');
 

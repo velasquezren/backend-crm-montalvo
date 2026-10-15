@@ -75,6 +75,38 @@ El filtro de entrada también cambió: contestar lo que la clínica le pidió pa
 día, la hora, su nombre o carnet) es VENTAS/AGENDAR, no OTRO. Antes un mensaje con solo
 «rene velasquez / 11340617» podía leerse como «no se entiende» y derivarse.
 
+### La cita en curso: seguirla hasta el QR, y más rápido (15/10/2026, tarde)
+
+La primera prueba en Ventas terminó igual que la de la mañana: médico, viernes, «5 pm», y
+con «sara Bueno / 6376378» la pasó a una persona. El filtro no ve el estado de la reserva;
+leyó ese mensaje como «no sé» (`ACLARAR`), y con `ACLARAR` el modelo solo tiene
+`pasar_a_persona`. Además cada turno tardaba 15-25 s: cada vuelta a Gemini eran 4-6 s y el
+modelo volvía a buscar al médico en cada mensaje, porque del turno anterior solo ve el texto.
+
+- **La cita en curso sale de las herramientas, no del texto.** La traza de cada turno
+  (`TurnoAsistente.herramientas`) guarda, de las herramientas de la agenda, el `medicoId` y
+  la `fecha` que consultó (nunca datos de ella). `reservaEnCurso` las recorre (dos horas):
+  un médico la abre, otro la cambia, la reserva hecha, una derivación o un fallo la cierran.
+- **Con una cita en curso, la duda no deriva** (`decidirTriajeEnReserva`): lo médico, una
+  urgencia, una queja o pedir a una persona se derivan igual; «no sé» sigue con la cita, y
+  la solicitud es `AGENDAR` salvo que el filtro vea con claridad un cierre, un saludo, una
+  promoción, un pago o un horario (`solicitudEnReserva`).
+- **El filtro y el modelo, a la vez.** Con una cita en curso el modelo empieza junto con
+  el filtro, ya con `AGENDAR`. Como nada se escribe ni se envía hasta el final del turno,
+  lo adelantado solo se usa si el filtro lo confirma; si deriva, se descarta; si pide otra
+  cosa, se vuelve a preguntar con eso.
+- **El prompt dice de qué cita se habla** («YA VIENEN AGENDANDO: el médico es el medicoId
+  «49» y el día que miraron es 2026-10-23»): no vuelve a buscarlo, y con nombre y carnet
+  llama a `reservar` directamente (ella ya comprueba que la hora siga libre).
+- **Sin vueltas que nadie lee.** Con la reserva comprobada (o los informes), el turno
+  termina: el texto del modelo se descartaba igual. Y `buscar_medico`, cuando quiere agendar
+  y hay uno solo, trae sus días con cupo (`diasConCupo`): la consulta que venía después.
+- **Cada turno deja una línea en el log** del servicio: resultado, segundos,
+  categoría/solicitud, vueltas, modelo y herramientas. Diagnosticar ya no necesita la base.
+
+El turno de los datos pasa de filtro (1-3 s) + buscar médico + reservar + texto (tres
+vueltas, 12-18 s) a filtro y una vuelta en paralelo (4-6 s), más la agenda y el QR.
+
 ## Contexto y atención sin presión comercial (13/10/2026)
 
 La clasificación incluye `solicitud`: CONSULTAR, ACLARAR, SALUDAR, CERRAR, AGENDAR,
@@ -491,8 +523,8 @@ y `uso=conversar|clasificar|leer-comprobante|transcribir-audio` (solo en Vertex:
   (arriba), la orientación de emergencia del menú, y las fichas web de los médicos.
 - **Probar contra Google de verdad.** Todo lo de aquí está probado con un modelo
   guionado (sin red). La primera conexión real es en la línea de prueba.
-- **Reservar por el asistente:** hecho el 15/10 (abajo). Falta decidir en qué líneas reales
-  se enciende (`ASISTENTE_RESERVAS_LINEAS`): hoy solo la de prueba.
+- **Reservar por el asistente:** hecho el 15/10 (arriba). Encendido en la línea de prueba
+  y en Ventas (`ASISTENTE_RESERVAS_LINEAS`); Recepción sigue en «Solo médicos».
 - **Comprobantes de reservas** (QR del médico): la lectura cubre por ahora los pagos de
   promociones.
 - **Notas de voz:** hechas el 12/10 (sección «Notas de voz»). Falta el paso de audio en

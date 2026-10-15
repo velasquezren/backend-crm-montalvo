@@ -402,6 +402,25 @@ describe('buscar_medico: un médico por su nombre, en una sola vuelta', () => {
     expect(agenda.medicos).not.toHaveBeenCalled();
   });
 
+  it('quiere agendar y es uno solo: sus días con cupo van con él, sin otra vuelta del modelo (15/10)', async () => {
+    const agenda = { ...agendaDeLaClinica(), dias: jest.fn().mockResolvedValue({ medicoId: '1', dias: ['2026-10-19', '2026-10-23'] }) };
+    const servicio = montar(agenda as unknown as Partial<AgendaService>);
+    const agendar = { ...CONTEXTO, solicitud: 'AGENDAR' as const };
+    expect(await servicio.ejecutar('buscar_medico', { nombre: 'montalvo' }, agendar, { permitirEscritura: false }))
+      .toMatchObject({ ok: true, datos: [{ id: '1', diasConCupo: { dias: ['2026-10-19', '2026-10-23'] } }] });
+    expect(agenda.dias).toHaveBeenCalledWith({ medicoId: '1' });
+    /* Con dos candidatos, o si solo pregunta, no se lee nada más. */
+    agenda.dias.mockClear();
+    await servicio.ejecutar('buscar_medico', { nombre: 'mont' }, agendar, { permitirEscritura: false });
+    await servicio.ejecutar('buscar_medico', { nombre: 'montalvo' }, CONTEXTO, { permitirEscritura: false });
+    expect(agenda.dias).not.toHaveBeenCalled();
+    /* Si los días no se pueden leer, el médico sale igual. */
+    agenda.dias.mockRejectedValue(new Error('agenda lenta'));
+    const r = await servicio.ejecutar('buscar_medico', { nombre: 'montalvo' }, agendar, { permitirEscritura: false });
+    expect(r).toMatchObject({ ok: true, datos: [{ id: '1' }] });
+    expect(JSON.stringify(r)).not.toContain('diasConCupo');
+  });
+
   it('si la agenda no responde, falla la herramienta (no inventa «no existe»)', async () => {
     const agenda = agendaDeLaClinica();
     agenda.todosLosMedicos.mockRejectedValue(new Error('agenda caída'));

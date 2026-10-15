@@ -2,6 +2,16 @@
 
 > **Revisión del 10/10/2026, módulo por módulo (sin Comisiones ni Finanzas):** [REVISION_2026-10-10.md](REVISION_2026-10-10.md). La API está sana; la lista de mejoras por impacto está ahí.
 
+## 15 de octubre de 2026 (tarde) · El asistente sigue la cita hasta el QR, y más rápido
+
+La primera prueba en Ventas derivó con «sara Bueno / 6376378»: el filtro lo leyó como «no sé» y
+sin `AGENDAR` el modelo no tiene `reservar`. Ahora la cita en curso se lee de las herramientas de
+los turnos anteriores (médico y día consultados) y, con ella, la duda del filtro ya no deriva (lo
+médico, urgencias, quejas y pedir una persona sí). El filtro y el modelo corren a la vez; el modelo
+no vuelve a buscar al médico; tras `reservar` no hay otra vuelta; `buscar_medico` trae los días con
+cupo. Cada turno deja una línea en el log. Detalle en
+[asistente-ia](asistente-ia.md#la-cita-en-curso-seguirla-hasta-el-qr-y-más-rápido-15102026-tarde).
+
 ## 15 de octubre de 2026 · El asistente reserva la cita y manda el QR del médico
 
 En la línea de prueba, tras elegir médico, día y hora y dar nombre y carnet, el asistente

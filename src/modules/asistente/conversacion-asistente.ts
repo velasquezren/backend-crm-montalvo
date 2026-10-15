@@ -19,6 +19,9 @@
  *    razonamiento y rechaza la vuelta siguiente sin esa firma.
  * 5. **Un fallo del modelo no rompe nada**: el turno termina «sin respuesta» y
  *    el chat sigue esperando a una persona, como si el asistente no existiera.
+ * 6. **Sin vuelta de más.** Una reserva comprobada o los informes se le mandan con
+ *    el texto que arma el código: el del modelo se descartaría, así que no se le
+ *    pide (15/10: era una llamada a Gemini de 4-6 s que nadie leía).
  */
 import { Injectable, Logger } from '@nestjs/common';
 
@@ -30,9 +33,21 @@ export const TOPE_DE_VUELTAS = 5;
 /** Una respuesta con más acciones que esto es un modelo descontrolado, no una venta. */
 export const TOPE_DE_ACCIONES = 3;
 
+/**
+ * Una herramienta que pidió el turno. Con las de la agenda, además, el médico y el
+ * día que consultó (nunca datos de la paciente): así el turno siguiente sabe de qué
+ * reserva se viene hablando sin volver a buscarlo (`reservaEnCurso`).
+ */
+export interface HerramientaUsada {
+  readonly nombre: string;
+  readonly ok: boolean;
+  readonly medicoId?: string;
+  readonly fecha?: string;
+}
+
 export interface TrazaTurno {
   readonly vueltas: number;
-  readonly herramientas: readonly { readonly nombre: string; readonly ok: boolean }[];
+  readonly herramientas: readonly HerramientaUsada[];
   readonly tokensEntrada: number;
   readonly tokensSalida: number;
   /** El modelo que llevó el turno (el principal o el de respaldo). */
@@ -68,7 +83,7 @@ export class ConversacionAsistente {
     const declaradas = declaraciones(disponibles);
     const historial: TurnoModelo[] = [...p.historial];
     const acciones: AccionAsistente[] = [];
-    const usadas: { nombre: string; ok: boolean }[] = [];
+    const usadas: HerramientaUsada[] = [];
     let tokensEntrada = 0;
     let tokensSalida = 0;
     /* El modelo que contestó la primera vuelta lleva el turno entero (ver `ModeloConversacional`). */
@@ -104,7 +119,7 @@ export class ConversacionAsistente {
       const resultados: (LlamadaHerramienta & { resultado: unknown })[] = [];
       for (const llamada of r.llamadas) {
         const resultado = await this.ejecutar(llamada, p, acciones);
-        usadas.push({ nombre: llamada.nombre, ok: resultado.ok });
+        usadas.push({ nombre: llamada.nombre, ok: resultado.ok, ...(resultado.ok ? deLaAgenda(llamada, resultado.datos) : {}) });
         if (resultado.ok && resultado.accion) agregarAccion(acciones, resultado.accion);
         if (resultado.ok && resultado.accion?.tipo === 'DERIVAR') {
           // La persona continúa. Ni otra vuelta del modelo ni tarjetas pendientes después del traspaso.
@@ -114,6 +129,9 @@ export class ConversacionAsistente {
         resultados.push({ ...llamada, resultado: resultado.ok ? { ok: true, datos: resultado.datos } : resultado });
       }
       historial.push({ rol: 'resultados', resultados });
+      if (acciones.some(a => a.tipo === 'RESERVA' || a.tipo === 'INFORMES')) {
+        return { tipo: 'terminado', texto: null, acciones, traza: traza(vuelta) };
+      }
     }
 
     return { tipo: 'sin-respuesta', motivo: `No cerró en ${TOPE_DE_VUELTAS} vueltas.`, acciones, traza: traza(TOPE_DE_VUELTAS) };
@@ -143,6 +161,25 @@ export class ConversacionAsistente {
 
 const esAccion = (nombre: string) =>
   nombre === 'enviar_promocion' || nombre === 'enviar_horario' || nombre === 'mi_agenda' || nombre === 'abrir_mis_informes' || nombre === 'reservar';
+
+/** Las herramientas cuyo `medicoId` y `fecha` dicen de qué cita se habla. */
+const DE_LA_AGENDA = new Set(['ver_medico', 'enviar_horario', 'dias_con_cupo', 'horas_libres', 'reservar']);
+
+/**
+ * El médico y el día que consultó una herramienta de la agenda. De `buscar_medico`,
+ * solo si encontró a uno: con varios todavía no se sabe cuál.
+ */
+function deLaAgenda(llamada: LlamadaHerramienta, datos: unknown): Pick<HerramientaUsada, 'medicoId' | 'fecha'> {
+  const valor = (v: unknown) => (typeof v === 'string' || typeof v === 'number') && String(v).trim() ? String(v).trim() : undefined;
+  if (llamada.nombre === 'buscar_medico') {
+    const id = Array.isArray(datos) && datos.length === 1 ? valor((datos[0] as { id?: unknown }).id) : undefined;
+    return id ? { medicoId: id } : {};
+  }
+  if (!DE_LA_AGENDA.has(llamada.nombre)) return {};
+  const medicoId = valor(llamada.argumentos['medicoId']);
+  const fecha = valor(llamada.argumentos['fecha']);
+  return { ...(medicoId ? { medicoId } : {}), ...(fecha ? { fecha } : {}) };
+}
 
 /** La misma tarjeta o el mismo horario dos veces en una respuesta es uno. Derivar, una vez. */
 function agregarAccion(acciones: AccionAsistente[], nueva: AccionAsistente): void {

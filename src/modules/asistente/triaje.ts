@@ -40,6 +40,24 @@ export function decidirTriaje(c: Pick<Clasificacion, 'categoria' | 'confianza'>)
   return { tipo: 'CONTESTAR' };
 }
 
+/**
+ * Lo mismo con una reserva en curso (`reservaEnCurso`): lo médico, una urgencia, una
+ * queja o pedir a una persona se derivan igual; la DUDA no. En medio de agendar, «sara
+ * Bueno 6376378» o «5 pm» no tienen otra lectura que seguir con la cita, y el filtro,
+ * que no ve el estado de la reserva, los daba como «no sé» (15/10). Si el filtro
+ * falla, también se sigue: el modelo conserva `pasar_a_persona`.
+ */
+export function decidirTriajeEnReserva(c: Pick<Clasificacion, 'categoria' | 'confianza'>): DecisionTriaje {
+  if (!SE_CONTESTA.has(c.categoria)) return decidirTriaje(c);
+  return { tipo: 'CONTESTAR' };
+}
+
+/** Lo que pide con una reserva en curso: seguir agendando, salvo que el filtro vea con claridad otra cosa. */
+export function solicitudEnReserva(c: Pick<Clasificacion, 'categoria' | 'confianza' | 'solicitud'>): SolicitudPaciente {
+  const otra = c.confianza === 'ALTA' ? solicitudDelTurno(c) : null;
+  return otra === 'CERRAR' || otra === 'SALUDAR' || otra === 'PROMOCION' || otra === 'PAGAR' || otra === 'HORARIO' ? otra : 'AGENDAR';
+}
+
 /** Si el clasificador falla, se trata como «no sé»: lo ve una persona. */
 export const CLASIFICACION_FALLIDA = { categoria: 'OTRO', confianza: 'BAJA' } as const satisfies { categoria: Categoria; confianza: Confianza };
 

@@ -18,12 +18,12 @@ import { ConversacionAsistente, TrazaTurno } from '../asistente/conversacion-asi
 import { AccionAsistente, EstadoPagoParaAsistente, HERRAMIENTAS, PuertoMedico, PuertoReservas, PuertoVentas } from '../asistente/herramientas';
 import { ImagenAgendaMedicoService } from '../asistente/imagen-agenda-medico.service';
 import { ImagenHorarioService } from '../asistente/imagen-horario.service';
-import { Clasificacion, ClasificadorMensajes, ModeloConversacional, TurnoModelo, UsoModelo } from '../asistente/modelo.port';
+import { Clasificacion, ClasificadorMensajes, ModeloConversacional, SolicitudPaciente, TurnoModelo, UsoModelo } from '../asistente/modelo.port';
 import { ahoraEnLaPaz, promptDelMedico, promptDelSistema } from '../asistente/prompt-sistema';
-import { reservasDelAsistenteEn, resumenDeReserva, textoHoraOcupada } from '../asistente/reserva-asistente';
+import { ReservaEnCurso, reservaEnCurso, reservasDelAsistenteEn, resumenDeReserva, textoHoraOcupada } from '../asistente/reserva-asistente';
 import { conPresentacion, debePresentarse, paraWhatsapp } from '../asistente/texto-whatsapp';
 import { TEXTO_AUDIO_NO_ENTENDIDO } from '../asistente/transcripcion';
-import { CLASIFICACION_FALLIDA, decidirTriaje, solicitudDelTurno } from '../asistente/triaje';
+import { CLASIFICACION_FALLIDA, decidirTriaje, decidirTriajeEnReserva, solicitudDelTurno, solicitudEnReserva } from '../asistente/triaje';
 import { CobrosService } from '../cobros/cobros.service';
 import { orientacionDeEmergencia } from '../menu-atencion/menu-atencion';
 import { MenuAtencionService } from '../menu-atencion/menu-atencion.service';
@@ -100,6 +100,8 @@ const VENTANA_MS = 24 * 3_600_000;
 const RENOVAR_ESCRIBIENDO_MS = 20_000;
 /** Cuánto se espera el QR del médico al reservar; sin él, la reserva sale sin cobro por el chat. */
 const ESPERA_QR_MS = 8_000;
+/** Hasta cuándo una cita de la que venían hablando sigue «en curso» (`reservaEnCurso`). */
+const RESERVA_EN_CURSO_MS = 2 * 3_600_000;
 
 type AccionReserva = Extract<AccionAsistente, { tipo: 'RESERVA' }>;
 
@@ -155,6 +157,8 @@ interface Registro {
   readonly resultado: ResultadoTurnoAsistente;
   readonly motivo?: string;
   readonly categoria?: string;
+  /** Solo para el log: no tiene columna. */
+  readonly solicitud?: SolicitudPaciente;
   readonly traza?: TrazaTurno;
   readonly tokensExtra?: UsoModelo;
 }
@@ -339,30 +343,11 @@ export class AsistenteChatService implements ProgramadorAsistente, OnModuleInit,
     const historial = mensajes.map(m => aTurno(m, escucha.transcripciones)).filter((t): t is TurnoModelo => t !== null);
     if (medico) return this.atenderMedico(e, medico, historial, ultimoEntrante, inicio, registrar, escucha.uso);
 
-    /* 1. El filtro de entrada, antes de que el modelo escriba nada. */
-    let clasificacion: Pick<Clasificacion, 'categoria' | 'confianza' | 'solicitud'>;
-    let tokensExtra: UsoModelo = { tokensEntrada: 0, tokensSalida: 0 };
-    try {
-      const c = await this.clasificador.clasificar({ mensaje: rafagaDeLaPaciente(historial), contexto: historial, criterio: e.asistente.criterioDerivacion });
-      clasificacion = c;
-      tokensExtra = sumarUso(c.uso, escucha.uso);
-    } catch (error: unknown) {
-      /* Si el filtro no responde, no se arriesga: se trata como duda. */
-      this.logger.warn(`Clasificador: ${error instanceof Error ? error.message : 'falló'}`);
-      clasificacion = CLASIFICACION_FALLIDA;
-      tokensExtra = escucha.uso;
-    }
-    const triaje = decidirTriaje(clasificacion);
-    if (triaje.tipo === 'DERIVAR') {
-      if (responde) await this.derivar(e, triaje.motivoAtencion);
-      else await this.sugerir(e, '', [], triaje.aviso);
-      return registrar({ resultado: 'DERIVO', motivo: triaje.aviso, categoria: clasificacion.categoria, tokensExtra });
-    }
-
-    /* 2. La conversación. */
-    const solicitud = solicitudDelTurno(clasificacion);
+    /* 1. El filtro de entrada. Nada sale hacia ella sin que haya contestado. */
     const reservas = this.puertoReservas(e, historial);
-    const salida = await this.conversacion.responder({
+    const enCurso = await this.reservaEnCurso(e.conversacionId, inicio);
+    const clasificando = this.clasificar(e, historial, escucha.uso);
+    const conversar = (solicitud: SolicitudPaciente) => this.conversacion.responder({
       sistema: promptDelSistema({
         ahora: ahoraEnLaPaz(new Date(inicio)),
         nombrePaciente: conversacion.cliente.nombre,
@@ -370,6 +355,7 @@ export class AsistenteChatService implements ProgramadorAsistente, OnModuleInit,
         conocimiento: e.asistente.conocimiento,
         solicitud,
         reservas: !!reservas,
+        enCurso,
       }),
       contexto: {
         telefono: e.telefono, ventas: e.asistente.comercial ? this.puertoVentas(e) : null, informes: informesEnLinea(e.lineaId),
@@ -379,7 +365,24 @@ export class AsistenteChatService implements ProgramadorAsistente, OnModuleInit,
       /* Solo reservar, y solo donde hay puerto de reservas: lo decide el código, no el modelo. */
       permitirEscritura: !!reservas,
     });
-    const base = { categoria: clasificacion.categoria, traza: salida.traza, tokensExtra };
+    /* Con una cita en curso lo más probable es seguir agendando: el modelo empieza a
+       la vez que el filtro, y lo que haga solo vale si el filtro lo confirma. Sin
+       escrituras hasta el final del turno, adelantarlo no cambia nada de lo que sale. */
+    const adelantada = enCurso ? conversar('AGENDAR') : null;
+    /* Si el filtro la descarta, nadie la espera: que un fallo suyo no quede sin atender. */
+    adelantada?.catch(() => undefined);
+    const { clasificacion, tokensExtra } = await clasificando;
+    const triaje = enCurso ? decidirTriajeEnReserva(clasificacion) : decidirTriaje(clasificacion);
+    const solicitud = enCurso ? solicitudEnReserva(clasificacion) : solicitudDelTurno(clasificacion);
+    if (triaje.tipo === 'DERIVAR') {
+      if (responde) await this.derivar(e, triaje.motivoAtencion);
+      else await this.sugerir(e, '', [], triaje.aviso);
+      return registrar({ resultado: 'DERIVO', motivo: triaje.aviso, categoria: clasificacion.categoria, solicitud, tokensExtra });
+    }
+
+    /* 2. La conversación: la adelantada si el filtro pidió lo mismo; si no, otra con lo que pidió. */
+    const salida = adelantada && solicitud === 'AGENDAR' ? await adelantada : await conversar(solicitud);
+    const base = { categoria: clasificacion.categoria, solicitud, traza: salida.traza, tokensExtra };
     if (salida.tipo === 'sin-respuesta') {
       /* El acuse de siempre (fuera de horario, con lo que escribió la clínica) y, además,
          una persona: en horario el acuse no sale y la dejaba sin nada (13/10). */
@@ -558,7 +561,31 @@ export class AsistenteChatService implements ProgramadorAsistente, OnModuleInit,
     return registrar({ resultado: enviado ? 'RESPONDIO' : 'OMITIDO', motivo: `${motivo} Se le pidió que lo escriba.`, tokensExtra });
   }
 
+  /** El filtro de entrada. Nunca lanza: si falla, es «no sé» (`CLASIFICACION_FALLIDA`). */
+  private async clasificar(
+    e: EntranteParaAsistente, historial: readonly TurnoModelo[], usoEscucha: UsoModelo,
+  ): Promise<{ clasificacion: Pick<Clasificacion, 'categoria' | 'confianza' | 'solicitud'>; tokensExtra: UsoModelo }> {
+    try {
+      const c = await this.clasificador.clasificar({ mensaje: rafagaDeLaPaciente(historial), contexto: historial, criterio: e.asistente.criterioDerivacion });
+      return { clasificacion: c, tokensExtra: sumarUso(c.uso, usoEscucha) };
+    } catch (error: unknown) {
+      /* Si el filtro no responde, no se arriesga: se trata como duda. */
+      this.logger.warn(`Clasificador: ${error instanceof Error ? error.message : 'falló'}`);
+      return { clasificacion: CLASIFICACION_FALLIDA, tokensExtra: usoEscucha };
+    }
+  }
+
   /* ── Reservar una cita ─────────────────────────────────────────────── */
+
+  /** La cita de la que vienen hablando en este chat (`reservaEnCurso`), de los turnos de las últimas horas. */
+  private async reservaEnCurso(conversacionId: string, inicio: number): Promise<ReservaEnCurso | null> {
+    const turnos = await this.prisma.turnoAsistente.findMany({
+      where: { conversacionId, createdAt: { gte: new Date(inicio - RESERVA_EN_CURSO_MS) } },
+      orderBy: { createdAt: 'asc' },
+      select: { resultado: true, herramientas: true },
+    });
+    return reservaEnCurso(turnos);
+  }
 
   /**
    * Reservar en esta conversación, o `null` (entonces `reservar` ni se declara). Solo:
@@ -773,6 +800,13 @@ export class AsistenteChatService implements ProgramadorAsistente, OnModuleInit,
           latenciaMs: Date.now() - inicio,
         },
       });
+      if (r.resultado !== 'OMITIDO' || r.traza) {
+        const herramientas = (r.traza?.herramientas ?? []).map(h => `${h.nombre}${h.ok ? '' : '✗'}`).join(',');
+        this.logger.log(
+          `Turno ${r.resultado} en ${((Date.now() - inicio) / 1000).toFixed(1)} s · ${r.categoria ?? '-'}/${r.solicitud ?? '-'}` +
+          ` · ${r.traza ? `${r.traza.vueltas} vuelta(s) ${r.traza.modelo ?? ''}` : 'sin modelo'} [${herramientas}]${r.motivo ? ` · ${r.motivo.slice(0, 160)}` : ''}`,
+        );
+      }
       // El detalle de la derivación ya existe: refrescar el contexto visible a recepción.
       if (r.resultado === 'DERIVO' || r.resultado === 'FALLO') this.gateway.emitirActividad(e.conversacionId);
     } catch (error: unknown) {

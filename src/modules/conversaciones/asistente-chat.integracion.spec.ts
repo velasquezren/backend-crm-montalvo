@@ -110,9 +110,9 @@ const USO = { tokensEntrada: 100, tokensSalida: 20 };
 class ModeloGuionado extends ModeloConversacional {
   readonly nombre = 'gemini-guionado';
   guion: (RespuestaModelo | Error)[] = [];
-  readonly vistas: { historial: readonly TurnoModelo[]; herramientas: readonly DeclaracionHerramienta[] }[] = [];
-  responder(e: { historial: readonly TurnoModelo[]; herramientas: readonly DeclaracionHerramienta[] }): Promise<RespuestaModelo> {
-    this.vistas.push({ historial: [...e.historial], herramientas: e.herramientas });
+  readonly vistas: { sistema: string; historial: readonly TurnoModelo[]; herramientas: readonly DeclaracionHerramienta[] }[] = [];
+  responder(e: { sistema: string; historial: readonly TurnoModelo[]; herramientas: readonly DeclaracionHerramienta[] }): Promise<RespuestaModelo> {
+    this.vistas.push({ sistema: e.sistema, historial: [...e.historial], herramientas: e.herramientas });
     const paso = this.guion.shift() ?? { tipo: 'texto', texto: 'Respuesta por defecto.', uso: USO };
     return paso instanceof Error ? Promise.reject(paso) : Promise.resolve(paso);
   }
@@ -671,6 +671,66 @@ describe('RESPONDER: reserva la cita y le manda el QR del médico (15/10)', () =
     const id = await escribir('Para el martes a las 12, a nombre de Ana Pérez, carnet 4567890');
     expect((await salientes(id)).map(m => m.contenido)).toContain(TEXTO_DERIVACION);
     expect((await prisma.conversacion.findUniqueOrThrow({ where: { id } })).atencionMotivo).toBe('DERIVADA_ASISTENTE');
+  });
+
+  /** Los turnos de antes del 15/10: la Dra. Sintética, el martes, y la hora elegida. Deja el clasificador en «agendar». */
+  async function venimosAgendando() {
+    modelo.guion = [pide('horas_libres', { medicoId: '7', fecha: FECHA }), dice('El martes 20 hay a las 12:00 y 12:30. ¿Cuál prefieres?')];
+    await escribir('el martes por la mañana');
+    modelo.guion = [dice('Perfecto, las 12:00. Pásame tu nombre completo y tu carnet.')];
+    return escribir('a las 12', 2);
+  }
+
+  it('el chat del 15/10: con la cita en curso, «Ana Pérez / 4567890» reserva aunque el filtro dude, en UNA vuelta', async () => {
+    await venimosAgendando();
+    /* Lo que hizo el filtro el 15/10 con «sara Bueno 6376378»: no supo qué era. */
+    clasificador.siguiente = { categoria: 'OTRO', confianza: 'BAJA', solicitud: 'ACLARAR' };
+    modelo.vistas.length = 0;
+    modelo.guion = [pide('reservar', PEDIDO), dice('¡Cita confirmada!')];
+    const id = await escribir('Ana Pérez\n4567890', 3);
+
+    expect(modelo.vistas).toHaveLength(1);
+    expect(modelo.vistas[0].herramientas.map(h => h.name)).toContain('reservar');
+    /* Sabe de qué cita se habla sin volver a buscar al médico. */
+    expect(modelo.vistas[0].sistema).toContain('YA VIENEN AGENDANDO: el médico es el medicoId «7» y el día que miraron es 2026-10-20');
+    expect(reservasAgenda.reservar).toHaveBeenCalledTimes(1);
+    expect(await prisma.reservaChat.findUniqueOrThrow({ where: { reservaAgenda: 7001 } })).toMatchObject({ conversacionId: id, qrClave: QR });
+    const ultimo = (await turnos(id)).at(-1);
+    expect(ultimo).toMatchObject({ resultado: 'RESPONDIO', categoria: 'OTRO', herramientas: [{ nombre: 'reservar', ok: true }] });
+    expect((await prisma.conversacion.findUniqueOrThrow({ where: { id } })).atencionMotivo).toBeNull();
+  });
+
+  it('con la cita en curso, algo médico se deriva igual: nada de lo que adelantó el modelo sale ni reserva', async () => {
+    await venimosAgendando();
+    clasificador.siguiente = { categoria: 'MEDICO', confianza: 'ALTA', solicitud: 'CONSULTAR' };
+    modelo.guion = [pide('reservar', PEDIDO), dice('Listo.')];
+    const id = await escribir('Ana Pérez 4567890, tengo sangrado desde ayer', 3);
+    expect(reservasAgenda.reservar).not.toHaveBeenCalled();
+    expect(await prisma.reservaChat.count({ where: { conversacionId: id } })).toBe(0);
+    expect((await salientes(id)).at(-1)?.contenido).toBe(TEXTO_DERIVACION);
+    expect((await prisma.conversacion.findUniqueOrThrow({ where: { id } })).atencionMotivo).toBe('DERIVADA_ASISTENTE');
+  });
+
+  it('con la cita en curso, un «gracias, lo pienso» claro se contesta como cierre: sin herramientas', async () => {
+    await venimosAgendando();
+    clasificador.siguiente = { categoria: 'SALUDO', confianza: 'ALTA', solicitud: 'CERRAR' };
+    modelo.vistas.length = 0;
+    modelo.guion = [dice('(adelantada)'), dice('¡Gracias a ti! Aquí estamos cuando quieras.')];
+    const id = await escribir('gracias, lo voy a pensar', 3);
+    expect(modelo.vistas).toHaveLength(2);
+    expect(modelo.vistas[1].herramientas).toEqual([]);
+    const textos = (await salientes(id)).map(m => m.contenido);
+    expect(textos.at(-1)).toBe('¡Gracias a ti! Aquí estamos cuando quieras.');
+    expect(textos.join('\n')).not.toContain('(adelantada)');
+  });
+
+  it('después de reservar, la cita ya no está en curso: un mensaje nuevo vuelve a pasar por el filtro como siempre', async () => {
+    await venimosAgendando();
+    modelo.guion = [pide('reservar', PEDIDO)];
+    await escribir('Ana Pérez 4567890', 3);
+    clasificador.siguiente = { categoria: 'OTRO', confianza: 'BAJA', solicitud: 'ACLARAR' };
+    const id = await escribir('y otra cosa', 4);
+    expect((await turnos(id)).at(-1)).toMatchObject({ resultado: 'DERIVO', motivo: 'El asistente no tuvo claro de qué se trata.' });
   });
 
   it('en una línea sin reservas por el asistente, `reservar` ni se le declara', async () => {

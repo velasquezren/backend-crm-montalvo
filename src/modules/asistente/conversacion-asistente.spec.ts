@@ -245,3 +245,42 @@ it('la IA pide la lista dos veces pero solo queda una acción de informes', asyn
   const r = await bucle.responder({ ...PETICION, contexto: { telefono: '+59170000001', ventas: null, informes: true } });
   expect(r.acciones).toEqual([{ tipo: 'INFORMES' }]);
 });
+
+describe('reservar y la cita en curso (15/10)', () => {
+  const RESERVA = { tipo: 'RESERVA', medicoId: '49', medico: 'Dr. Montalvo', fecha: '2026-10-23', hora: '17:00', nombre: 'Sara Bueno', ci: '6376378' };
+
+  it('con la reserva comprobada termina sin otra vuelta: el texto del modelo no se usaría', async () => {
+    const { bucle, modelo } = montar([pide({ nombre: 'reservar', argumentos: { medicoId: '49', fecha: '2026-10-23' } }), dice('¡Cita confirmada!')],
+      jest.fn().mockResolvedValue({ ok: true, datos: 'Comprobado.', accion: RESERVA }));
+    const r = await bucle.responder({ ...PETICION, permitirEscritura: true });
+    expect(r).toMatchObject({ tipo: 'terminado', texto: null, acciones: [RESERVA], traza: { vueltas: 1 } });
+    expect(modelo.entradas).toHaveLength(1);
+  });
+
+  it('un reservar rechazado sí vuelve al modelo, para que le pida lo que falta', async () => {
+    const { bucle, modelo } = montar([pide({ nombre: 'reservar' }), dice('¿Me pasas tu carnet?')],
+      jest.fn().mockResolvedValue({ ok: false, motivo: 'Falta el número de carnet.' }));
+    expect(await bucle.responder({ ...PETICION, permitirEscritura: true })).toMatchObject({ tipo: 'terminado', texto: '¿Me pasas tu carnet?' });
+    expect(modelo.entradas).toHaveLength(2);
+  });
+
+  it('la traza guarda el médico y el día que consultó la agenda; de buscar_medico, solo si encontró a uno', async () => {
+    const ejecutar = jest.fn()
+      .mockResolvedValueOnce({ ok: true, datos: [{ id: '49', nombre: 'Dr. Montalvo' }] })
+      .mockResolvedValueOnce({ ok: true, datos: [{ id: '49' }, { id: '50' }] })
+      .mockResolvedValueOnce({ ok: true, datos: { horarios: [] } })
+      .mockResolvedValueOnce({ ok: false, motivo: 'no' });
+    const { bucle } = montar([
+      pide({ nombre: 'buscar_medico', argumentos: { nombre: 'montalvo' } }, { nombre: 'buscar_medico', argumentos: { nombre: 'mont' } }),
+      pide({ nombre: 'horas_libres', argumentos: { medicoId: '49', fecha: '2026-10-23' } }, { nombre: 'dias_con_cupo', argumentos: { medicoId: '50' } }),
+      dice('Hay a las 17:00.'),
+    ], ejecutar);
+    const r = await bucle.responder(PETICION);
+    expect(r.traza.herramientas).toEqual([
+      { nombre: 'buscar_medico', ok: true, medicoId: '49' },
+      { nombre: 'buscar_medico', ok: true },
+      { nombre: 'horas_libres', ok: true, medicoId: '49', fecha: '2026-10-23' },
+      { nombre: 'dias_con_cupo', ok: false },
+    ]);
+  });
+});

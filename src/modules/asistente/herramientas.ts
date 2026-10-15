@@ -317,7 +317,7 @@ export const HERRAMIENTAS: readonly Herramienta[] = [
     descripcion:
       'Busca a un médico por su nombre o apellido en TODAS las especialidades a la vez («el doctor Montalvo», «la Dra. Azogue»). ' +
       'Úsala en vez de recorrer listar_medicos especialidad por especialidad. Devuelve los que coinciden, con su especialidad, ' +
-      'precio de consulta y modalidad; si no hay ninguno, no lo inventes.',
+      'precio de consulta y modalidad (y, si quiere agendar y es uno solo, sus días con cupo); si no hay ninguno, no lo inventes.',
     parametros: {
       type: 'object',
       properties: { nombre: { type: 'string', description: 'El nombre o apellido como lo escribió la paciente, sin «Dr.».' } },
@@ -373,7 +373,8 @@ export const HERRAMIENTAS: readonly Herramienta[] = [
     descripcion:
       'Reserva la hora elegida con un médico. Antes pídele el nombre completo y el carnet (CI) de quien viene a la ' +
       'consulta: usa EXACTAMENTE lo que ella escribió, no los deduzcas ni los completes. No le pidas el teléfono: es el ' +
-      'de este chat. Si la hora ya no está libre o falta un dato, te lo dice: corrígelo con ella. Si sale bien, el sistema ' +
+      'de este chat. Esta herramienta ya comprueba que la hora siga libre: no mires horas_libres antes. ' +
+      'Si la hora ya no está libre o falta un dato, te lo dice: corrígelo con ella. Si sale bien, el sistema ' +
       'registra la reserva y le manda el número y, si el médico cobra por adelantado, el monto y el QR para pagar: tú no ' +
       'escribes montos ni datos de pago. La reserva queda PENDIENTE de pago y de recepción: nunca la llames «cita confirmada».',
     parametros: {
@@ -662,6 +663,12 @@ export class HerramientasAsistenteService {
         });
         /* Si alguien se llama así, solo esos: lo parecido es para cuando no hay nadie. */
         const exactos = todos.filter(t => t.coincide === 'exacta');
+        /* Uno solo y quiere agendar: sus días con cupo van con él. Es la consulta que el
+           modelo haría justo después, y cada vuelta del modelo son segundos (15/10). */
+        if (exactos.length === 1 && contexto.solicitud === 'AGENDAR') {
+          const dias = await this.agenda.dias({ medicoId: exactos[0].m.id }).catch(() => null);
+          return { ok: true, datos: [{ ...ficha(exactos[0]), ...(dias ? { diasConCupo: dias } : {}) }] };
+        }
         if (exactos.length) return { ok: true, datos: exactos.slice(0, 10).map(ficha) };
         const parecidos = todos.filter(t => t.coincide === 'parecida');
         if (parecidos.length) {

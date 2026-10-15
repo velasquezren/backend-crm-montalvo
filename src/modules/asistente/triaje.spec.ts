@@ -1,5 +1,5 @@
 import { CATEGORIAS, CONFIANZAS } from './modelo.port';
-import { CLASIFICACION_FALLIDA, contextoParaClasificar, decidirTriaje, instruccionClasificador, solicitudDelTurno } from './triaje';
+import { CLASIFICACION_FALLIDA, contextoParaClasificar, decidirTriaje, decidirTriajeEnReserva, instruccionClasificador, solicitudDelTurno, solicitudEnReserva } from './triaje';
 
 /*
  * El filtro de entrada decide si el asistente puede escribir. Se prueba la
@@ -74,5 +74,33 @@ describe('lo que recibe el clasificador', () => {
       { rol: 'paciente', texto: '¿y eso arde?' },
     ]);
     expect(c).toBe('Paciente: me hice un peeling\nClínica: ¿cómo te fue?\nPaciente: ¿y eso arde?');
+  });
+});
+
+describe('con una reserva en curso (15/10: «sara Bueno 6376378» se derivó)', () => {
+  it('lo médico, una urgencia, una queja o pedir a una persona se derivan igual, con cualquier confianza', () => {
+    for (const confianza of CONFIANZAS) {
+      expect(decidirTriajeEnReserva({ categoria: 'URGENCIA', confianza })).toMatchObject({ tipo: 'DERIVAR', motivoAtencion: 'POSIBLE_URGENCIA' });
+      for (const categoria of ['MEDICO', 'QUEJA', 'PERSONA'] as const) {
+        expect(decidirTriajeEnReserva({ categoria, confianza })).toMatchObject({ tipo: 'DERIVAR', motivoAtencion: 'DERIVADA_ASISTENTE' });
+      }
+    }
+  });
+
+  it('la duda del filtro no la deriva: sus datos o «5 pm» siguen con la cita', () => {
+    expect(decidirTriajeEnReserva({ categoria: 'OTRO', confianza: 'BAJA' })).toEqual({ tipo: 'CONTESTAR' });
+    expect(decidirTriajeEnReserva(CLASIFICACION_FALLIDA)).toEqual({ tipo: 'CONTESTAR' });
+    expect(solicitudEnReserva({ categoria: 'OTRO', confianza: 'MEDIA', solicitud: 'ACLARAR' })).toBe('AGENDAR');
+    expect(solicitudEnReserva({ categoria: 'VENTAS', confianza: 'ALTA', solicitud: 'CONSULTAR' })).toBe('AGENDAR');
+    expect(solicitudEnReserva(CLASIFICACION_FALLIDA)).toBe('AGENDAR');
+  });
+
+  it('lo que el filtro ve con claridad como otra cosa, se respeta', () => {
+    expect(solicitudEnReserva({ categoria: 'SALUDO', confianza: 'ALTA', solicitud: 'CERRAR' })).toBe('CERRAR');
+    expect(solicitudEnReserva({ categoria: 'SALUDO', confianza: 'ALTA', solicitud: 'SALUDAR' })).toBe('SALUDAR');
+    expect(solicitudEnReserva({ categoria: 'VENTAS', confianza: 'ALTA', solicitud: 'PROMOCION' })).toBe('PROMOCION');
+    expect(solicitudEnReserva({ categoria: 'INFORMACION', confianza: 'ALTA', solicitud: 'HORARIO' })).toBe('HORARIO');
+    /* Sin certeza, no se cambia de tema por ella. */
+    expect(solicitudEnReserva({ categoria: 'VENTAS', confianza: 'MEDIA', solicitud: 'PROMOCION' })).toBe('AGENDAR');
   });
 });
