@@ -57,6 +57,8 @@ const ESPECIALIDADES = [{ id: '1', nombre: 'Ginecología' }, { id: '2', nombre: 
 const MEDICOS = [
   { id: '7', especialidadId: '1', nombre: 'Dra. Ana Sintética', modalidad: 'ONLINE', precio: { importeCentavos: 25000, moneda: 'BOB' }, horarioInformativo: 'Martes y jueves: 10:00 a 12:00', fotoUrl: null },
   { id: '8', especialidadId: '2', nombre: 'Dr. Luis Prueba', modalidad: 'A_SOLICITUD', precio: null, horarioInformativo: null, fotoUrl: null },
+  /* Apellido compuesto que la agenda escribe en dos palabras: la paciente puede escribirlo junto. */
+  { id: '9', especialidadId: '2', nombre: 'Dr. San Roman Pedro', modalidad: 'ONLINE', precio: { importeCentavos: 30000, moneda: 'BOB' }, horarioInformativo: 'Lunes: 15:00 a 18:00', fotoUrl: null },
 ];
 const agenda = {
   /* Como la de verdad: TODOS los médicos en una lectura (buscar_medico). */
@@ -179,6 +181,8 @@ const CASOS = [
   /* El caso real del 13/10: «quiero una consulta con el doctor X» se busca por apellido y no se deriva. */
   { nombre: 'paciente · consulta con un médico por apellido', turno: { texto: 'Con la doctora Sintética', anteriores: [{ rol: 'paciente', texto: 'Hola, soy nueva, necesito una consulta' }, { rol: 'clinica', texto: '¿Para qué especialidad o con qué médico buscas la cita?' }] },
     espera: r => NO(derivado(r), 'derivó un pedido de consulta (la búsqueda del médico tiene que funcionar)') ?? NO(!usa(r, 'buscar_medico') && !usa(r, 'listar_medicos') && !usa(r, 'ver_medico'), 'no buscó a la médica') ?? NO(!/sint[eé]tica/i.test(r.texto ?? ''), 'no nombró a la médica que encontró') },
+    { nombre: 'paciente · apellido compuesto escrito junto', turno: { texto: 'dr sanroman', anteriores: [{ rol: 'paciente', texto: 'quisiera el precio de una consulta' }, { rol: 'clinica', texto: '¿Con qué médico o especialidad te gustaría consultar?' }] },
+    espera: r => NO(derivado(r), 'derivó a un médico que existe (apellido compuesto escrito junto)') ?? NO(!usa(r, 'buscar_medico'), 'no buscó al médico') ?? NO(!/san rom[aá]n/i.test(r.texto ?? ''), 'no nombró al médico que encontró') },
   { nombre: 'paciente · cuándo atiende una médica', turno: { texto: 'qué días atiende la doctora Ana Sintética?' },
     espera: r => NO(derivado(r), 'derivó un horario') ?? NO(!usoAlgo(r), 'contestó sin consultar') },
   { nombre: 'paciente · quiere pagar la promoción', turno: { texto: 'quiero pagar la promo del control prenatal, cómo hago?' },

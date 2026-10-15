@@ -178,6 +178,20 @@ export class DespachadorSalienteService {
     );
   }
 
+  /**
+   * Tildes azules y «escribiendo…» sobre un mensaje de ella, mientras el asistente
+   * prepara la respuesta. Meta lo quita al llegar la respuesta o a los 25 s. Cosmético:
+   * `marcarLeido` ya se traga sus fallos, y no toca el «sin leer» del CRM.
+   */
+  async escribiendo(conversacionId: string, mensajeId: string): Promise<void> {
+    const fila = await this.prisma.mensaje.findFirst({
+      where: { id: mensajeId, conversacionId, direccion: 'ENTRANTE', whatsappMsgId: { not: null } },
+      select: { whatsappMsgId: true },
+    });
+    if (!fila?.whatsappMsgId) return;
+    await this.whatsapp.marcarLeido(fila.whatsappMsgId, true, await this.lineas.cuentaDeConversacion(conversacionId));
+  }
+
   /** Acuse con botonera de respuesta rápida. Degrada a texto plano si Meta lo rechaza. */
   async interaccion(destino: Destino): Promise<void> {
     if (!interaccionesHabilitadas()) return;

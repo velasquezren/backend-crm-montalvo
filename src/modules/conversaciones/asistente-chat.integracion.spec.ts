@@ -77,7 +77,7 @@ import { WhatsappWebhookController } from './webhooks/whatsapp-webhook.controlle
 // URL deliberadamente fija; nunca usar DATABASE_URL ni cargar .env en esta suite.
 const prisma = new PrismaService('postgresql://crm_app@127.0.0.1:5433/crm_test');
 const secretoSintetico = 'firma-webhook-sintetica-asistente';
-const transporte = { enviar: jest.fn<Promise<ResultadoEnvio>, unknown[]>(), listarPlantillas: jest.fn() };
+const transporte = { enviar: jest.fn<Promise<ResultadoEnvio>, unknown[]>(), listarPlantillas: jest.fn(), marcarLeido: jest.fn(async () => undefined) };
 const ACUSE = 'Acuse sintético fuera de horario.';
 const config = new ConfigService({
   META_APP_SECRET: secretoSintetico,
@@ -323,6 +323,7 @@ beforeEach(async () => {
   imagenes.de.mockClear();
   imagenes.dibujar.mockClear();
   transporte.enviar.mockReset().mockImplementation(async () => ({ estado: 'ENVIADO', metaMsgId: `wamid.out.${randomUUID()}` }));
+  transporte.marcarLeido.mockClear();
   ventas = (await prisma.lineaWhatsapp.create({ data: { nombre: 'ASIST-ventas', telefono: '+59170003191', phoneNumberId: PHONE_VENTAS, tokenEnv: 'TOKEN_INEXISTENTE_ASIST', comercial: true, activa: true } })).id;
   for (const [clave, rol, lineas] of [['admin', 'SUPER_ADMIN', []], ['agente', 'AGENTE', [ventas]]] as const) {
     const u = await prisma.usuario.create({ data: {
@@ -434,6 +435,15 @@ describe('RESPONDER: contesta lo comercial', () => {
     expect(JSON.stringify(modelo.vistas[1].historial)).toContain('"precioBs":280');
     expect((await prisma.conversacion.findUniqueOrThrow({ where: { id } })).esperandoRespuesta).toBe(true);
     expect(await turnos(id)).toMatchObject([{ resultado: 'RESPONDIO', categoria: 'VENTAS', herramientas: [{ nombre: 'listar_promociones', ok: true }], tokensEntrada: 205 }]);
+  });
+
+  it('mientras prepara la respuesta, ella ve «escribiendo…» sobre SU mensaje; el CRM lo sigue mostrando sin leer', async () => {
+    modelo.guion = [dice('¡Hola! ¿En qué te ayudo?')];
+    const id = await escribir('hola');
+    const entrante = await prisma.mensaje.findFirstOrThrow({ where: { conversacionId: id, direccion: 'ENTRANTE' } });
+    /* Una sola vez, con el «escribiendo…» (`true`). La cuenta es null: la línea sintética no tiene credenciales de Meta. */
+    expect(transporte.marcarLeido.mock.calls).toEqual([[entrante.whatsappMsgId, true, null]]);
+    expect(entrante.leidoEn).toBeNull();
   });
 
   it('se presenta una sola vez por día', async () => {
@@ -655,6 +665,12 @@ describe('notas de voz', () => {
 
 describe('SUGERIR: prepara, no escribe', () => {
   beforeEach(() => configurarAsistente('SUGERIR'));
+
+  it('en «Sugerir» no hay «escribiendo…»: quien contesta es una persona, cuando llegue', async () => {
+    modelo.guion = [dice('Hola, ¿en qué te ayudo?')];
+    await escribir('hola');
+    expect(transporte.marcarLeido).not.toHaveBeenCalled();
+  });
 
   it('queda una sugerencia en el detalle, con sus acciones; no sale nada del asistente', async () => {
     clasificador.siguiente = { categoria: 'VENTAS', confianza: 'ALTA', solicitud: 'PROMOCION' };

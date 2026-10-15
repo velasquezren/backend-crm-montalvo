@@ -2,6 +2,32 @@
 
 > **Revisión del 10/10/2026, módulo por módulo (sin Comisiones ni Finanzas):** [REVISION_2026-10-10.md](REVISION_2026-10-10.md). La API está sana; la lista de mejoras por impacto está ahí.
 
+## 14 de octubre de 2026 · Asistente más rápido y búsqueda de médicos tolerante · SIN DESPLEGAR
+
+**Latencia, medida antes de tocar nada** (Cloud Monitoring de `crm-clinica-montalvo`,
+7 días): `gemini-3.8-flash` p50 1,8 s, p90 4,4 s, **p99 47 s**; `gemini-3.5-flash-lite`
+(clasificador) p50 0,9 s, p90 1,5 s. Lo lento no es el modelo típico sino su cola:
+la misma llamada tardó 1,7 s y luego 12 s.
+
+- **Copia de las llamadas lentas** (`vertex/con-respaldo.ts`): si conversar tarda más
+  de 5 s (clasificar, 2,5 s), se lanza una copia idéntica al mismo modelo, gana la
+  primera y la otra se cancela (`abortSignal`). Duplica en torno al 10 % de las
+  llamadas; el tiempo total sigue acotado por `ESPERA_*_MS`.
+- **«escribiendo…» en WhatsApp** mientras el asistente prepara la respuesta
+  (`DespachadorSalienteService.escribiendo`): tildes azules + indicador de Meta,
+  sin tocar el «sin leer» del CRM. Solo cuando va a contestar (no en «Sugerir»).
+- **Descartado, con datos:** caché implícita (cada llamada usa ~1.900 tokens y
+  3.8 Flash la aplica desde 6.144); `thinkingLevel` MINIMAL en el clasificador
+  (ya razona 0 tokens en LOW: 1.390 ms vs 1.382 ms, mismas 16/16 respuestas);
+  Priority PayGo (la cabecera no cambió `trafficType`, siguió `ON_DEMAND`);
+  meter el directorio de médicos en el prompt (el modelo igual llamó a la herramienta).
+
+**`buscar_medico`** (`coincidenciaDeNombre`): un apellido compuesto se encuentra junto
+o separado («sanroman» → «San Roman»), y si nadie coincide exacto devuelve los
+parecidos por sonido (b/v, c/k/qu, s/z, h muda, letras dobles) o a una letra, con un
+`aviso` para confirmar con el nombre completo. Contrastado con los 53 nombres de la
+agenda pública: sin falsos positivos salvo «mario» → las dos «María», que pregunta.
+
 ## 14 de octubre de 2026 · Quién escribió cada mensaje (`Mensaje.autorId`)
 
 - Migración `20261014180000_autor_mensaje`: columna nullable `autorId` → `Usuario` (SET NULL),

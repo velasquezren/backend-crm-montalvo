@@ -466,6 +466,54 @@ export function palabrasDeNombre(nombre: string): string[] {
     .filter(p => p.length >= 2 && !TITULOS.has(p));
 }
 
+/**
+ * Cómo suena una palabra, para perdonar la ortografía: «sanrroman», «zanroman» y
+ * «sanroman» suenan igual. Solo lo que en español no se oye: b/v, c/k/qu, c/s/z,
+ * la h muda, ll/y y las letras dobles.
+ */
+export function sonidoDe(palabra: string): string {
+  return palabra
+    .replace(/ch/g, 'x').replace(/h/g, '')
+    .replace(/qu(?=[ei])/g, 'k').replace(/c(?=[ei])/g, 's').replace(/[cq]/g, 'k')
+    .replace(/z/g, 's').replace(/v/g, 'b').replace(/w/g, 'u').replace(/ll/g, 'y')
+    .replace(/(.)\1+/g, '$1');
+}
+
+/** Distancia de edición (Levenshtein), para una letra de más, de menos o cambiada. */
+function distancia(a: string, b: string): number {
+  let previa = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i++) {
+    const fila = [i];
+    for (let j = 1; j <= b.length; j++) {
+      fila[j] = Math.min(previa[j] + 1, fila[j - 1] + 1, previa[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    }
+    previa = fila;
+  }
+  return previa[b.length];
+}
+
+/**
+ * Cuánto se parece el nombre de un médico a lo que escribió la paciente.
+ *
+ * - `exacta`: cada palabra buscada es el principio de su nombre desde alguna palabra,
+ *   con las siguientes pegadas. Así «sanroman» encuentra a quien la agenda escribe
+ *   «San Roman»: un apellido compuesto se escribe junto o separado.
+ * - `parecida`: lo mismo por cómo suena, o con una letra de diferencia en palabras
+ *   de cinco letras o más. El asistente le pregunta si se refiere a ese.
+ */
+export function coincidenciaDeNombre(buscadas: readonly string[], nombreMedico: string): 'exacta' | 'parecida' | null {
+  const palabras = palabrasDeNombre(nombreMedico);
+  const colas = palabras.map((_, i) => palabras.slice(i).join(''));
+  if (buscadas.every(b => colas.some(c => c.startsWith(b)))) return 'exacta';
+  const sonidos = colas.map(sonidoDe);
+  const parecida = buscadas.every(b => {
+    const s = sonidoDe(b);
+    return sonidos.some(c => c.startsWith(s)
+      || (s.length >= 5 && [s.length - 1, s.length, s.length + 1].some(n => distancia(s, c.slice(0, n)) <= 1)));
+  });
+  return parecida ? 'parecida' : null;
+}
+
 /** Bs con dos decimales, como lo lee una paciente. */
 function bolivianos(centavos: number): string {
   return `Bs ${(centavos / 100).toFixed(2)}`;
@@ -569,19 +617,29 @@ export class HerramientasAsistenteService {
         /* UNA lectura de la agenda con todos los médicos. Ni una vuelta del modelo por
            especialidad (se agotaban las cinco) ni una lectura por especialidad en paralelo:
            eso desbordaba el pool de la agenda y la búsqueda fallaba siempre (13/10). */
-        const todos = (await this.agenda.todosLosMedicos()).map(({ medico, especialidad }) => ({ m: medico, especialidad: especialidad.nombre }));
-        const encontrados = todos.filter(({ m }) => {
-          const delMedico = palabrasDeNombre(m.nombre);
-          return buscadas.every(b => delMedico.some(p => p.startsWith(b)));
+        const todos = (await this.agenda.todosLosMedicos()).map(({ medico, especialidad }) => ({
+          m: medico, especialidad: especialidad.nombre, coincide: coincidenciaDeNombre(buscadas, medico.nombre),
+        }));
+        const ficha = ({ m, especialidad }: (typeof todos)[number]) => ({
+          id: m.id, nombre: m.nombre, especialidad, modalidad: m.modalidad,
+          precioConsulta: m.precio ? bolivianos(m.precio.importeCentavos) : null, atiende: m.horarioInformativo,
         });
+        /* Si alguien se llama así, solo esos: lo parecido es para cuando no hay nadie. */
+        const exactos = todos.filter(t => t.coincide === 'exacta');
+        if (exactos.length) return { ok: true, datos: exactos.slice(0, 10).map(ficha) };
+        const parecidos = todos.filter(t => t.coincide === 'parecida');
+        if (parecidos.length) {
+          return {
+            ok: true,
+            datos: {
+              aviso: `Nadie se llama exactamente «${a.nombre}», pero estos nombres se parecen. Si es uno solo, confírmale con su nombre completo; si son varios, pregúntale cuál.`,
+              parecidos: parecidos.slice(0, 5).map(ficha),
+            },
+          };
+        }
         return {
           ok: true,
-          datos: encontrados.length
-            ? encontrados.slice(0, 10).map(({ m, especialidad }) => ({
-                id: m.id, nombre: m.nombre, especialidad, modalidad: m.modalidad,
-                precioConsulta: m.precio ? bolivianos(m.precio.importeCentavos) : null, atiende: m.horarioInformativo,
-              }))
-            : `Ningún médico que atienda en línea se llama «${a.nombre}». No lo inventes: ofrécele las especialidades o pásala a una persona.`,
+          datos: `Ningún médico que atienda en línea se llama «${a.nombre}». No lo inventes: ofrécele las especialidades o pásala a una persona.`,
         };
       }
       case 'ver_medico': {

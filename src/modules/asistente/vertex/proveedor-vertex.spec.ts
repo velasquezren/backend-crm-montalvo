@@ -37,6 +37,27 @@ describe('ClienteVertex: etiquetas según la vía', () => {
   it('con Vertex se etiqueta el uso para la factura', async () => {
     expect(await llamar({ GOOGLE_CLOUD_PROJECT: 'p' })).toMatchObject({ labels: { aplicacion: 'crm-montalvo', uso: 'conversar' } });
   });
+  it('cada llamada lleva su señal de cancelación: es lo que corta la copia que pierde', async () => {
+    expect((await llamar({ GOOGLE_CLOUD_PROJECT: 'p' }))['abortSignal']).toBeInstanceOf(AbortSignal);
+  });
+  it('si tarda más que el respaldo, se lanza una copia idéntica y gana la primera respuesta', async () => {
+    jest.useFakeTimers();
+    try {
+      const cliente = new ClienteVertex(cfg({ ASISTENTE_IA: 'on', GOOGLE_CLOUD_PROJECT: 'p' }));
+      const lenta = new Promise(() => undefined);
+      const generateContent = jest.fn().mockReturnValueOnce(lenta).mockResolvedValueOnce({ copia: true });
+      (cliente as unknown as { cliente: unknown }).cliente = { models: { generateContent } };
+      const r = cliente.generar({ model: 'm', contents: [], config: { labels: { uso: 'conversar' } } }, 30_000, 5_000);
+      await jest.advanceTimersByTimeAsync(5_000);
+      await expect(r).resolves.toEqual({ copia: true });
+      const [primera, copia] = generateContent.mock.calls.map(c => c[0]);
+      expect(copia.model).toBe(primera.model);
+      expect(copia.config.httpOptions).toEqual({ timeout: 25_000 });
+      expect(primera.config.abortSignal.aborted).toBe(true);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
 });
 
 describe('TranscriptorVertex', () => {

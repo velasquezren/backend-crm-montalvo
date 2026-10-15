@@ -966,6 +966,11 @@ export class IngestaWhatsappService {
   /* Por aquí y no por su cuenta: así pasa por el candado, la pausa y la
      marca de automático como todo lo demás que no escribe una persona. */
 
+  /** «escribiendo…» mientras el asistente prepara la respuesta. Nunca demora el turno ni lo rompe. */
+  escribiendo(conversacionId: string, mensajeId: string): void {
+    void enSegundoPlano('«escribiendo…» del asistente', this.logger, () => this.despachador.escribiendo(conversacionId, mensajeId));
+  }
+
   /**
    * El asistente iba a contestar y no pudo (Gemini caído, sin cuota…): sale lo
    * que habría salido sin él, el acuse fuera de horario si corresponde. Sin

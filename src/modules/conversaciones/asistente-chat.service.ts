@@ -284,6 +284,8 @@ export class AsistenteChatService implements ProgramadorAsistente, OnModuleInit,
     if (medico && !responde) {
       return registrar({ resultado: 'OMITIDO', motivo: 'Es un médico autorizado: su agenda solo se contesta en «Responder solo».' });
     }
+    /* Desde aquí va a contestar: que vea «escribiendo…» mientras se escucha, clasifica y redacta. */
+    if (responde) this.ingesta.escribiendo(e.conversacionId, ultimoEntrante.id);
 
     /* Las notas de voz de la ráfaga, a texto. Desde aquí son mensajes como cualquier otro. */
     const escucha = await this.escuchas.escuchar(mensajes);

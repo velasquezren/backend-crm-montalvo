@@ -10,6 +10,7 @@ import {
   herramientasDisponibles,
   HerramientasAsistenteService,
   palabrasDeNombre,
+  sonidoDe,
   PromocionParaAsistente,
   PuertoMedico,
   PuertoVentas,
@@ -371,6 +372,54 @@ describe('buscar_medico: un médico por su nombre, en una sola vuelta', () => {
     const agenda = agendaDeLaClinica();
     expect((await buscar(agenda, 'Dr.')).ok).toBe(false);
     expect(agenda.todosLosMedicos).not.toHaveBeenCalled();
+  });
+
+  /* Un apellido compuesto, que la agenda escribe en dos palabras. */
+  function agendaConApellidoCompuesto() {
+    const agenda = agendaDeLaClinica();
+    const u = { id: 'u', nombre: 'Urología' };
+    agenda.todosLosMedicos.mockResolvedValue([
+      { medico: med('4', 'Dr. San Roman Pedro', 'u'), especialidad: u },
+      { medico: med('5', 'Dra. Lucía Roman Prueba', 'g'), especialidad: { id: 'g', nombre: 'Ginecología' } },
+      { medico: med('1', 'Dr. Juan Carlos Montalvo Doria Medina', 'g'), especialidad: { id: 'g', nombre: 'Ginecología' } },
+    ]);
+    return agenda;
+  }
+
+  it('un apellido que la agenda escribe en dos palabras se encuentra escrito junto («sanroman» → «San Roman»)', async () => {
+    expect(await buscar(agendaConApellidoCompuesto(), 'dr sanroman')).toMatchObject({ ok: true, datos: [{ id: '4', nombre: 'Dr. San Roman Pedro', especialidad: 'Urología' }] });
+    expect(await buscar(agendaConApellidoCompuesto(), 'juancarlos')).toMatchObject({ ok: true, datos: [{ id: '1' }] });
+    /* Separado sigue funcionando, y «roman» solo trae a los dos que lo llevan. */
+    expect(await buscar(agendaConApellidoCompuesto(), 'san roman')).toMatchObject({ ok: true, datos: [{ id: '4' }] });
+    expect(await buscar(agendaConApellidoCompuesto(), 'roman')).toMatchObject({ ok: true, datos: [{ id: '4' }, { id: '5' }] });
+  });
+
+  it('mal escrito, devuelve los parecidos con un aviso para que confirme con la paciente', async () => {
+    for (const escrito of ['sanrroman', 'zanroman', 'Dr. Sanromen', 'montalbo']) {
+      const r = await buscar(agendaConApellidoCompuesto(), escrito);
+      expect(r).toMatchObject({ ok: true, datos: { aviso: expect.stringContaining('se parecen'), parecidos: [expect.any(Object)] } });
+    }
+    const r = await buscar(agendaConApellidoCompuesto(), 'sanrroman');
+    expect(r).toMatchObject({ datos: { parecidos: [{ id: '4', nombre: 'Dr. San Roman Pedro' }] } });
+  });
+
+  it('lo parecido no se cuela si alguien se llama así, ni se inventa con palabras cortas', async () => {
+    /* «Montaño» se parece a «Montalvo» de lejos, pero hay un Montalvo exacto: solo él. */
+    expect(await buscar(agendaDeLaClinica(), 'montalvo')).toMatchObject({ ok: true, datos: [{ id: '1' }] });
+    /* «Luiz» suena a «Luis»; «Lucas» tiene más de una letra de diferencia y no es nadie. */
+    expect(await buscar(agendaDeLaClinica(), 'luiz')).toMatchObject({ ok: true, datos: { parecidos: [{ id: '3' }] } });
+    for (const escrito of ['lucas', 'lopez']) {
+      const nadie = await buscar(agendaDeLaClinica(), escrito);
+      expect(nadie.ok && typeof nadie.datos).toBe('string');
+    }
+  });
+
+  it('cómo suena: b/v, c/k/qu, s/z, h muda y letras dobles', () => {
+    expect(sonidoDe('sanrroman')).toBe(sonidoDe('zanroman'));
+    expect(sonidoDe('azogue')).toBe(sonidoDe('asogue'));
+    expect(sonidoDe('hernandez')).toBe(sonidoDe('ernandes'));
+    expect(sonidoDe('cecilia')).toBe(sonidoDe('sesilia'));
+    expect(sonidoDe('chavez')).not.toBe(sonidoDe('cabes'));
   });
 
   it('las palabras de un nombre: sin tildes, sin títulos, sin signos', () => {

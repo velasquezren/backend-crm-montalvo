@@ -25,6 +25,7 @@ import {
   FunctionCallingConfigMode, GenerateContentParameters, GenerateContentResponse, GoogleGenAI, ThinkingLevel,
 } from '@google/genai';
 import { existsSync } from 'node:fs';
+import { conRespaldo } from './con-respaldo';
 
 import { datosComprobanteDe, ESQUEMA_COMPROBANTE, INSTRUCCION_COMPROBANTE } from '../comprobante';
 import { INSTRUCCION_TRANSCRIPCION, limpiarTranscripcion, mimeDeAudio } from '../transcripcion';
@@ -89,6 +90,16 @@ const ESPERA_CONVERSAR_MS = 30_000;
 const ESPERA_CLASIFICAR_MS = 10_000;
 const ESPERA_LEER_MS = 45_000;
 
+/*
+ * Cuándo se lanza la copia de una llamada lenta (`conRespaldo`): cerca del p90 de
+ * cada modelo, medido en Cloud Monitoring del proyecto (7 días al 14/10/2026).
+ * Conversar (gemini-3.8-flash): p50 1,8 s, p90 4,4 s, p99 47 s. Clasificar
+ * (gemini-3.5-flash-lite): p50 0,9 s, p90 1,5 s, p99 3 s. Así se duplica en torno
+ * al 10 % de las llamadas, las que de otro modo dejaban a la paciente esperando.
+ */
+const RESPALDO_CONVERSAR_MS = 5_000;
+const RESPALDO_CLASIFICAR_MS = 2_500;
+
 @Injectable()
 export class ClienteVertex {
   private readonly logger = new Logger(ClienteVertex.name);
@@ -96,8 +107,11 @@ export class ClienteVertex {
 
   constructor(private readonly cfg: ConfiguracionIA) {}
 
-  /** Una llamada, con su tiempo máximo y sus etiquetas de facturación. */
-  async generar(params: GenerateContentParameters, esperaMs: number): Promise<GenerateContentResponse> {
+  /**
+   * Una llamada, con su tiempo máximo y sus etiquetas de facturación. Con
+   * `respaldoTrasMs`, si tarda más que eso se lanza una copia (ver `conRespaldo`).
+   */
+  async generar(params: GenerateContentParameters, esperaMs: number, respaldoTrasMs?: number): Promise<GenerateContentResponse> {
     if (!this.cfg.estado().listo) throw new ServiceUnavailableException('El asistente de IA no está configurado en el servidor.');
     if (!this.cliente) {
       this.cliente = this.cfg.claveApi
@@ -107,14 +121,21 @@ export class ClienteVertex {
     }
     /* Las etiquetas de facturación son de Vertex: la API con clave las rechaza (400), así que ni las de quien llama. */
     const { labels, ...config } = params.config ?? {};
-    return this.cliente.models.generateContent({
+    const uso = labels?.['uso'] ?? 'asistente';
+    const cliente = this.cliente;
+    return conRespaldo((abortSignal, espera) => cliente.models.generateContent({
       ...params,
       config: {
         ...config,
-        httpOptions: { timeout: esperaMs },
+        abortSignal,
+        httpOptions: { timeout: espera },
         /* Aparecen en la factura de Google Cloud: cuánto cuesta cada uso. */
-        ...(this.cfg.claveApi ? {} : { labels: { aplicacion: 'crm-montalvo', uso: labels?.['uso'] ?? 'asistente' } }),
+        ...(this.cfg.claveApi ? {} : { labels: { aplicacion: 'crm-montalvo', uso } }),
       },
+    }), {
+      esperaMs,
+      respaldoTrasMs,
+      alLanzarRespaldo: () => this.logger.log(`Gemini tarda más de ${respaldoTrasMs} ms (${uso}): se lanza una copia y se usa la primera que llegue.`),
     });
   }
 }
@@ -145,7 +166,7 @@ export class ModeloVertex extends ModeloConversacional {
         maxOutputTokens: 2048,
         labels: { uso: 'conversar' },
       },
-    }, ESPERA_CONVERSAR_MS);
+    }, ESPERA_CONVERSAR_MS, RESPALDO_CONVERSAR_MS);
     return deRespuesta(r);
   }
 }
@@ -173,7 +194,7 @@ export class ClasificadorVertex extends ClasificadorMensajes {
         maxOutputTokens: 256,
         labels: { uso: 'clasificar' },
       },
-    }, ESPERA_CLASIFICAR_MS);
+    }, ESPERA_CLASIFICAR_MS, RESPALDO_CLASIFICAR_MS);
     return { ...clasificacionDe(jsonDe(r)), uso: usoDe(r) };
   }
 }
