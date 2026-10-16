@@ -101,11 +101,12 @@ it('registrado el comprobante, sale UNA constancia en imagen con su resumen de p
     clientMessageId: uuidEstable(`reserva-constancia:${reserva}`), mediaMime: 'image/png',
   });
   expect(m.mediaKey).toMatch(new RegExp(`^reservas/constancias/${reserva}-[0-9a-f]{24}\\.png$`));
-  expect(m.contenido).toContain(`N.º ${reserva}`);
+  expect(m.contenido).toContain('Constancia de su reserva');
+  expect(m.contenido).not.toContain(String(reserva));
   expect(m.contenido).toContain('Pago enviado: Bs 150');
   expect(r2.subir).toHaveBeenCalledTimes(1);
   expect(despachador.texto).toHaveBeenCalledTimes(1);
-  expect(despachador.texto).toHaveBeenCalledWith({ mensajeId: m.id, conversacionId: chat, telefono }, m.contenido, { key: m.mediaKey, mime: 'image/png', nombre: `Reserva ${reserva}.png` });
+  expect(despachador.texto).toHaveBeenCalledWith({ mensajeId: m.id, conversacionId: chat, telefono }, m.contenido, { key: m.mediaKey, mime: 'image/png', nombre: 'Constancia de reserva.png' });
   expect(gateway.emitirActividad).toHaveBeenCalledWith(chat);
 });
 

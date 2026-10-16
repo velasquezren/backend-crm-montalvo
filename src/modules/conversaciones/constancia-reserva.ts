@@ -33,7 +33,7 @@ export interface DatosConstancia {
 }
 
 /** El diseño de la imagen: sube cuando cambia el dibujo, para no reusar un PNG viejo. */
-export const VERSION_DISENO_CONSTANCIA = 1;
+export const VERSION_DISENO_CONSTANCIA = 2;
 
 export const ESTADO_CONSTANCIA = 'Pago recibido: en verificación';
 const AVISO_CONSTANCIA = 'Recepción verificará su pago y le confirmará la cita por este chat.';
@@ -47,7 +47,7 @@ const mayuscula = (t: string) => t.charAt(0).toUpperCase() + t.slice(1);
 /** El pie de la imagen, y el mensaje entero cuando no hay imagen. */
 export function textoConstancia(d: DatosConstancia): string {
   return [
-    `🧾 *Constancia de su reserva N.º ${d.reserva}*`,
+    '🧾 *Constancia de su reserva*',
     '',
     `📅 ${mayuscula(fechaLarga(d.fecha))}, ${d.hora}`,
     `🩺 ${[d.medico, d.especialidad].filter(Boolean).join(' · ')}`,
@@ -109,16 +109,18 @@ export function svgDeConstancia(d: DatosConstancia): string {
     `<line x1="${MARGEN}" y1="${yDatos + 78}" x2="${derecha}" y2="${yDatos + 78}" stroke="${COLOR.borde}" stroke-width="2"/>`,
   ].join('');
 
+  const conMedico = ajustar(`Con ${d.medico}`, 30, 22, ANCHO_IMAGEN - 2 * MARGEN);
   return [
     abrirSvg(ALTO),
     cabecera(CABECERA),
     antetitulo('Constancia de reserva', ALTO_MARCA + 62),
     `<text x="${MARGEN}" y="${ALTO_MARCA + 128}" font-size="52" font-weight="600" fill="#FFFFFF">Su reserva está registrada</text>`,
-    `<text x="${MARGEN}" y="${ALTO_MARCA + 180}" font-size="30" fill="#FFFFFF" fill-opacity="0.9">Reserva N.º ${d.reserva}</text>`,
+    /* Sin número de reserva: no le sirve a la paciente y confundía (16/10/2026). */
+    `<text x="${MARGEN}" y="${ALTO_MARCA + 180}" font-size="${conMedico.tamano}" fill="#FFFFFF" fill-opacity="0.9">${escaparXml(conMedico.texto)}</text>`,
     estado,
     cita,
     datos,
-    pie(ALTO, PIE, UBICACION_CLINICA.direccion, 'Guarde esta imagen: tiene el número de su reserva.'),
+    pie(ALTO, PIE, UBICACION_CLINICA.direccion, 'Guarde esta imagen como constancia de su reserva.'),
     '</svg>',
   ].join('');
 }

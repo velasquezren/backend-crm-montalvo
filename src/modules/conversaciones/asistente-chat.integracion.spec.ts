@@ -658,7 +658,8 @@ describe('RESPONDER: reserva la cita y le manda el QR del médico (15/10)', () =
     expect(enviados.map(m => m.contenido).join('\n')).not.toContain('confirmada');
     const qr = enviados.find(m => m.mediaKey === QR);
     expect(qr).toMatchObject({ tipo: 'IMAGEN', asistente: true, automatico: true, id: reserva.qrMensajeId });
-    expect(qr?.contenido).toContain('Su reserva N.º 7001 con Dra. Sintética el martes 20 de octubre a las 12:00 quedó registrada');
+    expect(qr?.contenido).toContain('Su reserva con Dra. Sintética el martes 20 de octubre a las 12:00 quedó registrada');
+    expect(qr?.contenido).not.toContain('7001');
     expect(qr?.contenido).toContain('Bs 250');
     expect(await turnos(id)).toMatchObject([{ resultado: 'RESPONDIO', motivo: expect.stringContaining('N.º 7001'), herramientas: [{ nombre: 'reservar', ok: true }] }]);
 

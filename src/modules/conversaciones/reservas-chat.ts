@@ -31,14 +31,20 @@ export function textoBs(centavos: number): string {
   return `Bs ${bs.toLocaleString('es-BO', { minimumFractionDigits: Number.isInteger(bs) ? 0 : 2, maximumFractionDigits: 2 })}`;
 }
 
+/*
+ * Sin número de reserva en lo que lee la paciente (16/10/2026). El código de
+ * ScriptCase (58) no es el de FileMaker (16) ni le sirve de nada: confundía.
+ * Se identifica por médico, día y hora; el número queda para el equipo
+ * (Reservas, Actividades, la traza del asistente).
+ */
 /** `resumen` («con Dr. …, lunes 19 de octubre a las 12:00»): el Flow ya lo mostró en su pantalla; el asistente lo dice aquí. */
-export function textoPagoDeReserva(reserva: number, centavos: number, resumen?: string): string {
-  return `Su reserva N.º ${reserva}${resumen ? ` ${resumen}` : ''} quedó registrada. Para asegurarla, pague ${textoBs(centavos)} con este QR y envíenos por aquí la foto o captura del comprobante. Recepción confirmará su cita por este chat.`;
+export function textoPagoDeReserva(centavos: number, resumen?: string): string {
+  return `Su reserva${resumen ? ` ${resumen}` : ''} quedó registrada. Para asegurarla, pague ${textoBs(centavos)} con este QR y envíenos por aquí la foto o captura del comprobante. Recepción confirmará su cita por este chat.`;
 }
 
 /** La reserva del asistente cuando el médico no cobra por el chat (sin precio o sin QR vigente). */
-export function textoReservaSinPago(reserva: number, resumen: string): string {
-  return `Su reserva N.º ${reserva} ${resumen} quedó registrada. Recepción le confirmará la cita y cómo pagarla por este chat.`;
+export function textoReservaSinPago(resumen: string): string {
+  return `Su reserva ${resumen} quedó registrada. Recepción le confirmará la cita y cómo pagarla por este chat.`;
 }
 
 export const TEXTO_COMPROBANTE_RESERVA = '✅ Recibimos su comprobante. Recepción lo verificará y le confirmará la cita por aquí.';
@@ -72,7 +78,7 @@ export async function registrarReservaDeChat(
   });
   if (count === 0 || !cobra) return null;
   const mime = MIME_QR[qrClave.slice(qrClave.lastIndexOf('.') + 1)] ?? 'image/png';
-  const texto = textoPagoDeReserva(cierre.reserva, montoCentavos, delAsistente?.resumen);
+  const texto = textoPagoDeReserva(montoCentavos, delAsistente?.resumen);
   // Intención durable EN LA MISMA transacción que el webhook y ReservaChat.
   // El despachador existente reclama el envío; los inciertos nunca se repiten.
   const mensaje = await tx.mensaje.create({ data: {

@@ -735,7 +735,7 @@ export class HerramientasAsistenteService {
         if (falta) return { ok: false, motivo: falta };
         const pendiente = await reservas.reservaPendiente();
         if (pendiente !== null) {
-          return { ok: false, motivo: `Ya tiene la reserva N.º ${pendiente} esperando su pago: recuérdaselo. Si quiere otra o cambiarla, pásala a una persona.` };
+          return { ok: false, motivo: 'Ya tiene una reserva esperando su pago: recuérdaselo (sin números de reserva). Si quiere otra o cambiarla, pásala a una persona.' };
         }
         const libres = (await this.agenda.disponibilidad({ medicoId: a.medicoId, fecha: a.fecha })).horarios.map(h => h.hora);
         if (!libres.includes(a.hora)) {
@@ -749,7 +749,7 @@ export class HerramientasAsistenteService {
         const { medico } = await this.agenda.medico(Number(a.medicoId));
         return {
           ok: true,
-          datos: 'Comprobado. Al terminar tu respuesta el sistema registra la reserva y le manda el número y, si corresponde, ' +
+          datos: 'Comprobado. Al terminar tu respuesta el sistema registra la reserva y le manda la confirmación y, si corresponde, ' +
             'el QR para pagar. Ese mensaje ya lo dice todo: no escribas nada más.',
           accion: { tipo: 'RESERVA', medicoId: a.medicoId, medico: medico.nombre, fecha: a.fecha, hora: a.hora, nombre: a.nombre, ci: a.ci },
         };

@@ -108,8 +108,9 @@ export function promptDelSistema(d: DatosPrompt): string {
           '- Cuando te los dé, usa reservar EN ESE MISMO MOMENTO con lo que escribió, tal cual (reservar ya comprueba que la',
           '  hora siga libre: no hace falta mirar horas_libres antes). Si te devuelve un problema (la hora se ocupó, falta un',
           '  dato), resuélvelo con ella. No la pases a una persona por tener que reservar: reservar es tu trabajo.',
-          '- Si reservar sale bien, no escribas nada más: el sistema le manda el número de reserva y, si corresponde, el monto',
+          '- Si reservar sale bien, no escribas nada más: el sistema le manda la confirmación y, si corresponde, el monto',
           '  y el QR del médico para pagar. Tú nunca escribes montos de pago ni datos bancarios.',
+          '- Nunca le digas un número de reserva ni de ficha: la reserva se nombra por médico, día y hora.',
         ]
       : [
           '- Con el médico, el día y la hora elegidos, usa pasar_a_persona con esos tres datos en el resumen: la reserva',

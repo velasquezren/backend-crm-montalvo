@@ -11,7 +11,7 @@
  * - La hora está libre en la agenda en ese momento (lo mira la herramienta).
  * - El teléfono es el de la conversación, nunca un parámetro.
  *
- * Lo que se le manda después (número de reserva, monto y QR del médico) lo arma
+ * Lo que se le manda después (la confirmación, monto y QR del médico) lo arma
  * el código, como en el Flow de reserva: el modelo no escribe montos ni QR.
  */
 import { fechaLarga } from '../agenda/agenda-flow.service';

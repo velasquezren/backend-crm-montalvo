@@ -250,7 +250,8 @@ describe('reservar desde el asistente', () => {
       ...CONTEXTO, solicitud: 'AGENDAR', reservas: reservas({ reservaPendiente: jest.fn().mockResolvedValue(4321) }),
     }, { permitirEscritura: true });
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.motivo).toContain('N.º 4321');
+    /* El número no va al modelo: lo repetiría a la paciente. */
+    if (!r.ok) expect(r.motivo).not.toContain('4321');
     expect(agenda.disponibilidad).not.toHaveBeenCalled();
   });
 

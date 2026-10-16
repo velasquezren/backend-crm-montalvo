@@ -14,9 +14,8 @@ const DATOS: DatosConstancia = {
 };
 
 describe('la constancia de reserva', () => {
-  it('el texto dice número, día, hora, médico y lo pagado', () => {
+  it('el texto dice día, hora, médico y lo pagado', () => {
     const t = textoConstancia(DATOS);
-    expect(t).toContain('N.º 48213');
     expect(t).toContain('Jueves 15 de octubre de 2026, 09:30');
     expect(t).toContain('Dra. Claudia Azogue · Ginecología y Obstetricia');
     expect(t).toContain('Pago enviado: Bs 150');
@@ -32,8 +31,16 @@ describe('la constancia de reserva', () => {
 
   it('la imagen lleva lo mismo que el texto, el logo y la dirección de la clínica', () => {
     const svg = svgDeConstancia(DATOS);
-    for (const esperado of ['Reserva N.º 48213', '>OCT<', '>15<', '09:30', 'María Fernanda López Quispe', 'Dra. Claudia Azogue', 'Bs 150', 'Clínica Montalvo', 'Universo 641']) {
+    for (const esperado of ['Con Dra. Claudia Azogue', '>OCT<', '>15<', '09:30', 'María Fernanda López Quispe', 'Dra. Claudia Azogue', 'Bs 150', 'Clínica Montalvo', 'Universo 641']) {
       expect(svg).toContain(esperado);
+    }
+  });
+
+  /* El código de ScriptCase no es el de FileMaker ni le sirve a la paciente: confundía (16/10/2026). */
+  it('ni el texto ni la imagen muestran el número de reserva', () => {
+    for (const salida of [textoConstancia(DATOS), svgDeConstancia(DATOS)]) {
+      expect(salida).not.toContain('48213');
+      expect(salida).not.toMatch(/N\.º/);
     }
   });
 

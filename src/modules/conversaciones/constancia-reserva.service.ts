@@ -129,7 +129,7 @@ export class ConstanciaReservaService {
         const png = await this.motor.dibujar(svg);
         await this.r2.subir(key, png.buffer.slice(png.byteOffset, png.byteOffset + png.byteLength) as ArrayBuffer, 'image/png');
       }
-      return { key, mime: 'image/png', nombre: `Reserva ${d.reserva}.png` };
+      return { key, mime: 'image/png', nombre: 'Constancia de reserva.png' };
     } catch (error: unknown) {
       this.logger.warn(`Imagen de la constancia ${d.reserva}: ${error instanceof Error ? error.message : 'falló'}`);
       return null;
