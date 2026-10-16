@@ -24,12 +24,13 @@ del médico; no puede deducir consultas excepcionalmente más largas ni cambia c
 existentes. La vista propia de ScriptCase conserva su lógica histórica (no incorpora
 reservas web pendientes); las reservas del CRM y su web usan `horasLibres` compartida.
 
-Estado al 15/10/2026 15:32 (La Paz): backend `06a0ac0` y frontend `9b31bb7`
-desplegados; integración activa y credencial propia configurada en el servidor.
-René confirmó que creó los cinco campos y el guion, pegó la credencial y envió
-horarios. `hm4`/`DR1110` se verificó sincronizado en el servidor. Falta la
-aceptación del horario de 15 minutos después de desplegar esta ampliación.
-El activador automático se conecta después de esa prueba manual.
+Estado al **16/10/2026**: backend `1439106` y frontend `120400b` desplegados;
+integración activa, credencial conservada y permisos MySQL comprobados. René ya
+confirmó envíos individuales y `hm4`/`DR1110` quedó verificado en el servidor.
+`DR2435` (agenda 42) todavía no tiene una instantánea recibida: pulsar su botón
+FileMaker para enviar 08:30–11:45; el backend responderá duración efectiva 15.
+El activador automático y la carga colectiva siguen pendientes de aceptación
+local; no confundir el despliegue con haberlos probado dentro de FileMaker.
 
 ## 1. Preparar FileMaker
 
@@ -251,3 +252,24 @@ fija en 30 min. Ante un fallo, mantener cerrada la reserva hasta reparar.
   y 91 integraciones de FileMaker/IA más 139 unitarias pertinentes aprobadas.
 - El envío de la doctora desde FileMaker se confirma después de desplegar: una
   captura del horario o la prueba sintética no reemplaza ese envío real.
+
+### Despliegue y comprobación en vivo (16/10/2026)
+
+- GitHub: backend `1439106`, frontend `120400b`; conservan los commits de IA y
+  documentación de la otra máquina (`f62fcd1` / `5bc05e6`).
+- Respaldo PostgreSQL verificado: 5.560.033 bytes comprimidos, configuración y
+  artefacto previo en `/root/backup-horarios-15m-20261016` del VPS CRM.
+- Respaldo MySQL de `medicos`/`horarios`: 28.653 bytes comprimidos en
+  `/root/respaldos-agenda/horarios-15m-20261016/agenda.sql.gz` del VPS agenda.
+  Migración aditiva aplicada: 90 médicos conservan inicialmente 30 minutos.
+- Backend compilado y reiniciado: 16/10 12:22 La Paz, salud 200, login vacío 400,
+  endpoint protegido 401; artefacto anterior al arranque y cero reinicios automáticos.
+- Cuenta pública, reservas y administración leen la duración con TLS. Token de
+  horarios idéntico al respaldo. HTTPS sin token 401, contrato vacío 400; rango
+  :45 admitido y médico sintético inexistente 404 antes de cualquier escritura.
+  Disponibilidad pública del médico 42 devuelve 200.
+- Vercel exitoso; HTTP del sitio sirve sello `120400b` y la ficha contiene la
+  duración dinámica. Sin sesión de navegador ni envío de WhatsApp.
+- Lectura real final: `DR2435`, cero cupos activos y ninguna fila `HorarioFilemaker`.
+  El horario de la captura requiere su primer envío desde FileMaker; no se creó
+  un `registroId` inventado ni se dieron por publicados esos cupos.
