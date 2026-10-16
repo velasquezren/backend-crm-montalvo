@@ -1,6 +1,8 @@
 # Líneas de WhatsApp y acceso por recepción
 
-Implementado el 14 de septiembre de 2026. La migración registra estos canales:
+Modelo implementado el 14/09/2026; permisos actualizados con el código del
+15/10. La tabla siguiente describe el **estado inicial de la migración**, no
+la conectividad actual. Despliegues posteriores en el [historial](historial/estado-2026-10.md).
 
 | Canal | Número | Estado inicial |
 | --- | --- | --- |
@@ -13,7 +15,12 @@ Implementado el 14 de septiembre de 2026. La migración registra estos canales:
 
 `LineaWhatsapp` contiene identidad, nombre visible y referencia a una variable de entorno para su token. Los secretos nunca se guardan en el navegador ni salen en las respuestas de la API. `AccesoLineaWhatsapp` relaciona usuarios con líneas. `Conversacion` es única por `(clienteId, lineaId)`: un paciente puede escribir a varias líneas conservando conversaciones separadas. El historial previo queda en ventas, sin borrar ni duplicar mensajes. La migración concede acceso a ventas a los AGENTE existentes; los usuarios nuevos requieren asignación explícita.
 
-ADMIN y SUPER_ADMIN ven todos los canales. AGENTE y RECEPCION necesitan membresía de línea y acceso a la conversación (asignada a ellos o sin asignar; en ventas se conserva también el alcance del propietario comercial del paciente). Recepción no admite la línea comercial. Sus rutas se limitan a conversaciones, perfil y recursos personales. Las rutas comerciales requieren al menos AGENTE.
+ADMIN y SUPER_ADMIN ven todos los canales. AGENTE necesita membresía y alcance
+comercial del chat/paciente. RECEPCION y ASISTENTE ven todos los chats de sus
+líneas asignadas, aunque los atienda otra persona; no admiten líneas comerciales.
+También tienen Actividades y capacidades de agenda clínica; ASISTENTE puede
+entregar resultados con acceso a esa línea. Consultar `common/auth/roles.ts`,
+`acceso-conversacion.ts` y sus tests para cada operación.
 
 Listado, búsqueda, contadores, detalle, historial, lectura y envío aplican el mismo límite de línea. WebSocket y push consultan los permisos vigentes. Cambiar las líneas, el rol o el estado de una cuenta invalida sus sesiones anteriores; las conversaciones que queden fuera de su alcance se devuelven al pool. Reasignar un chat cambia solo ese chat, sin alterar la atribución comercial del paciente ni sus leads. Los envíos de recepción tampoco reclaman la propiedad comercial del paciente.
 
@@ -31,11 +38,16 @@ El frontend muestra nombre y número del canal en el hilo y permite filtrar la b
 
 La línea comercial conserva como compatibilidad `WHATSAPP_TOKEN`/`WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_PHONE_ID`/`WHATSAPP_PHONE_NUMBER_ID` y `WHATSAPP_WABA_ID`. Ninguna línea nueva hereda esas credenciales. Los envíos, reintentos, medios, lectura y plantillas resuelven la cuenta de la conversación. El identificador de una línea con historial no se puede reemplazar por otro número ya configurado; las credenciales sí pueden rotarse.
 
-El webhook identifica cada cambio por `metadata.phone_number_id`. Un identificador ausente o desconocido **se descarta con 200** y no se atribuye a ventas: es un fallo permanente, y el reintento que pide un 503 nunca podría entrar — Meta acabaría desactivando la suscripción de la app, que es la misma para las cuatro líneas. El aviso del journal lleva el `phone_number_id`, el número legible y los ids descartados, que es lo que hace falta para dar de alta la línea y recuperarlos a mano. Un fallo **transitorio** al resolver la línea (base caída) sí devuelve 503. El 200 se emite después de persistir; si falla un elemento, se procesan los demás y se devuelve 503. `whatsappMsgId` deduplica lo ya persistido en los reintentos. Las respuestas automáticas comerciales y la creación automática de leads solo se aplican a la línea comercial.
+El webhook identifica cada cambio por `metadata.phone_number_id`. Un identificador ausente o desconocido **se descarta con 200** y no se atribuye a ventas: es un fallo permanente, y el reintento que pide un 503 nunca podría entrar — Meta acabaría desactivando la suscripción de la app, que es la misma para las cuatro líneas. El aviso del journal lleva el `phone_number_id`, el número legible y los ids descartados, que es lo que hace falta para dar de alta la línea y recuperarlos a mano. Un fallo **transitorio** al resolver la línea (base caída) sí devuelve 503. El 200 se emite después de persistir; si falla un elemento, se procesan los demás y se devuelve 503. `whatsappMsgId` deduplica lo ya persistido en los reintentos. Las ofertas comerciales y el alta automática de leads se aplican a líneas
+comerciales. En atención también puede crearse ficha y conversación, sin
+crear por ello un lead comercial (`obtenerOCrearConversacion`,
+`PrimerContactoWhatsapp` y guardas `linea.comercial` en la ingesta).
 
 ## Números atendidos actualmente desde la app
 
-No se ha modificado ninguna cuenta real de WhatsApp ni se han recibido sus identificadores de Meta. Registrar los teléfonos en esta migración **no los conecta**. Antes del alta, confirmar si cada línea utiliza WhatsApp Business o WhatsApp personal y determinar el procedimiento admitido por Meta para esa cuenta. No eliminar la cuenta de la app como paso automático.
+El alta inicial del 14/09 no conectó las líneas nuevas. Hay activaciones
+posteriores registradas en el historial; la conectividad actual se verifica
+en el catálogo y Meta. Registrar teléfonos en una migración **no los conecta**. Antes del alta, confirmar si cada línea utiliza WhatsApp Business o WhatsApp personal y determinar el procedimiento admitido por Meta para esa cuenta. No eliminar la cuenta de la app como paso automático.
 
 Esta entrega cubre mensajería Cloud API y permisos del CRM. No implementa Embedded Signup, importación del historial de la app ni sincronización de mensajes enviados desde la app (`smb_message_echoes`). Por ello no debe anunciarse coexistencia app + CRM como operativa. Si se requiere conservar ambos canales de atención simultáneamente, completar primero ese flujo y sus pruebas con la cuenta real.
 

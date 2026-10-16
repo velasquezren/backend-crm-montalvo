@@ -1,47 +1,29 @@
 # Panorama del sistema
 
-El mapa de **qué hay hoy**, en una página. No es historia —eso vive en
-[ESTADO_ACTUAL](ESTADO_ACTUAL.md)— ni las reglas de código —eso vive en los
-skills—. Es lo que hace falta para ubicarse antes de tocar nada.
+Mapa de responsabilidades, conciliado con el código el **15/10/2026**.
+`check:skills` comprueba presencia de módulos, no toda la descripción ni el
+estado remoto. [Índice por tarea](README.md) · [Estado breve](ESTADO_ACTUAL.md).
 
-**Se mantiene solo con ayuda:** `npm run check:skills` falla si un módulo de
-`src/modules/` no aparece aquí o si aquí se cita uno que ya no existe. Las
-listas del manifiesto se pudrieron justo por no tener eso.
+## Productos y límites
 
-Actualizado el **2026-10-01**. Backend y frontend publicados y verificados;
-versiones y evidencias en [auditoria-2026-10-01](auditoria-2026-10-01.md).
+| Sistema | Responsabilidad | Integración |
+| --- | --- | --- |
+| CRM | Atención WhatsApp, ventas, seguimiento y liquidación | NestJS/PostgreSQL en VPS CRM; Angular en Vercel |
+| Resultados | Publicación y acceso a informes | Repo independiente; API/portal/worker en el VPS CRM, base propia; integración privada. Solo el CRM envía WhatsApp |
+| Agenda clínica | Cupos, reservas y citas | ScriptCase/MySQL en el VPS de agenda, conectado con FileMaker; [contrato](agenda.md). No es Actividades ni el antiguo FastAPI |
+| Landing | Presentación pública y reserva web | Repo `montalvo` (remoto `landing-montalvo`); consume API pública del CRM |
 
-## Los tres productos
-
-**Agenda de reservas (6/10/2026):** la agenda real es ScriptCase + MySQL `clinica` en
-`montalvo-vps` (`23.95.128.187:/var/www/html/clinicaw`), que alimenta FileMaker. El CRM
-la lee (médicos y horas libres) y, desde el 7/10, **registra reservas y comprobantes igual que
-el formulario público de ScriptCase** (`modules/agenda`), sin tocar `agenda_med` ni lo que
-consume FileMaker de otra forma. La fila «Agenda médica» de abajo (FastAPI) es otro sistema,
-histórico. Ver [auditoría VPS](auditoria-agenda-vps-2026-10-06.md) y
-[comprobación SQL](auditoria-agenda-sql-2026-10-06.md).
-
-| Producto | Qué es | Dónde corre | Cómo se despliega |
-| --- | --- | --- | --- |
-| **CRM Montalvo** | Atención por WhatsApp, leads, ventas, comisiones y finanzas de la clínica | API NestJS en `107.175.132.15` (`crm_backend`, `:3001`) · interfaz Angular en Vercel | Backend: a mano, receta en `crm-backend-arquitectura` §4 · Frontend: `git push` a `main` |
-| **Resultados Montalvo** | Portal donde los médicos publican informes y el paciente los abre desde un enlace | Mismo servidor: API `:3010`, portal Next `:3011`, worker de limpieza | Versiones en `/opt/montalvo-resultados/releases/`; ver `docs/operacion.md` de su repo |
-| **Agenda médica** | Horario clínico de los médicos. **Sin relación** con el CRM | VPS viejo `107.172.193.34` (FastAPI `:8001`) | Propio |
-
-Los dos primeros comparten servidor y Postgres (bases separadas) y se hablan
-**por loopback** con una credencial de solo lectura y renovación de enlaces.
-**El CRM es el único que envía WhatsApp**, también los avisos de resultados.
-
-**Preparación local, apagada (13/10):** «Mis informes» permite autoconsulta por
-WhatsApp usando la API privada de Resultados. La IA solo abre la lista; paciente,
-publicación y archivo se verifican fuera del modelo. No crea otra fuente clínica
-ni copia PDFs a R2 del CRM. Ver [alcance y activación](informes-por-whatsapp.md).
+Inventario operativo y receta de despliegue en
+[arquitectura](../.claude/skills/crm-backend-arquitectura/SKILL.md), solo para
+trabajos de infraestructura. IP, métricas y banderas documentadas no son una
+comprobación en vivo. No confundir el alias local del VPS de agenda con el CRM.
 
 ## Backend del CRM — módulos (`src/modules/`)
 
 | Módulo | Qué hace | Quién entra |
 | --- | --- | --- |
 | `modules/auth` | Login, sesiones revocables, refresco con cookie, perfil propio | Todos |
-| `modules/agenda` | La agenda ScriptCase para la landing. **Lee** especialidades, médicos y horas libres (`horasLibres`: citas CREADO y reservas web PENDIENTE/PAGADO) con un usuario MySQL de solo lectura, y **reserva** con otro usuario que solo puede hacer el INSERT y el UPDATE del formulario público de ScriptCase (`para_agendar`: PENDIENTE → comprobante → PAGADO), con candado contra la doble reserva y el mismo aviso de Telegram. Para el CRM, una tercera cuenta de **solo consulta** lee las reservas con los datos de la paciente: la pantalla Reservas, las próximas de una paciente en su chat y el comprobante (cada apertura queda en `AuditLog`). Una cuarta cuenta, de **administración**, es el Directorio del CRM sobre la agenda: edita médicos, enciende y apaga las casillas de horario de 30 min (regenerando `horario_html` con la plantilla de producción, `horario-html.ts`), da de alta médicos (id MAX+1, con su código de FileMaker) y unifica especialidades; sin DELETE y sin tocar el `codigo` de un médico existente. Edición optimista por `version` y cada cambio en `AuditLog` dentro de la transacción de MySQL. La **ficha web** de cada médico (foto, biografía, publicación) es un `PerfilMedico` enlazado por `agendaMedicoId`: la gestiona `/agenda/medicos/:id/presentacion`, la escribe `DirectorioService`, y al guardar datos u horario recibe el precio y el horario de la agenda. La reserva web usa su foto si está publicada. **La foto que muestra el CRM** (lista, ficha, historial de servicios) es la de la ficha web o, si no tiene, la de la agenda por su URL pública versionada (`fotoDelMedico`); «Usar la de la agenda» la copia a la ficha web. `GET /agenda/medicos/por-codigo` pone cara y ficha a los médicos que el historial de servicios nombra por su código de FileMaker (el mismo `medicos.codigo`). Las páginas de especialidad de la web (`Especialidad`) se crean y editan desde las especialidades de la agenda (`/agenda/medicos/especialidades/paginas`), reconocidas por nombre (`claveDeEspecialidad`) TLS verificado ([auditoría](auditoria-agenda-vps-2026-10-06.md)). **Reservar por WhatsApp**: el Flow `reserva-cita.v1` (especialidad → médico → día → hora y datos) pide cada pantalla a `POST /whatsapp/flows/agenda` (`AgendaFlowController`: firma de Meta, RSA-OAEP + AES-GCM, `flow_token` sellado con el teléfono del chat) y reserva con `AgendaReservasService.reservar`, igual que la web; al terminar, el chat muestra el resumen y nace una solicitud de cita para recepción. Las horas libres las calcula el CRM (`horasLibres`: ocupan solo citas `CREADO` de `agenda_med` y reservas web PENDIENTE/PAGADO; la vista de ScriptCase no se toca). Herramientas para una futura IA: [ia-herramientas](ia-herramientas.md). **Agenda del médico por WhatsApp** (10/10): `AccesoMedicoAgendaService` es el único dueño de `AccesoMedicoAgenda` (qué número de WhatsApp es de qué médico, lo autoriza un ADMIN en `/agenda/medicos/:id/whatsapp`) y `AgendaMedicoCitasService` arma, con la cuenta de consulta, la agenda de un médico en un día (`agenda_med` CREADO + reservas PENDIENTE/PAGADO sin cargar; solo hora y nombre) para el asistente ([asistente-ia](asistente-ia.md#agenda-del-médico-por-whatsapp-10102026)). Cada cuenta reparte sus conexiones con `CuposAgenda` (fila corta, una conexión de margen bajo su `MAX_USER_CONNECTIONS`); las lecturas de una cuenta que escribe van por `consultar()`, sin candado | Público: `/publico/agenda/*` (GET, y POST de reserva y pago con límite propio); CORS solo para la landing, sin cookies. Con sesión: `/agenda/reservas` y su comprobante (recepción, asistencia y ADMIN+: `puedeVerAgendaClinica`), `/agenda/reservas/conversacion/:id` (quien ve ese chat), `/agenda/medicos/*` (ve cualquier sesión, el teléfono del médico solo `puedeVerAgendaClinica`; editan recepción y ADMIN+: `puedeEditarAgendaClinica`) |
+| `modules/agenda` | Catálogo/cupos MySQL; reserva compartida por web, Flow e IA; consulta clínica y administración; horarios FileMaker y acceso de médicos por WhatsApp. [Dueños, cuentas y contratos](agenda.md) | Público según endpoint; consulta/edición clínica según capacidades en `roles.ts` |
 | `modules/usuarios` | Cuentas, roles y líneas de cada usuario | SUPER_ADMIN |
 | `modules/lineas-whatsapp` | Las cuatro líneas de WhatsApp y quién atiende cada una | Lectura: cada uno las suyas · edición: SUPER_ADMIN |
 | `modules/menu-atencion` | El menú con el que cada línea recibe a la paciente: qué opciones ofrece (persona, emergencia, cita, información, ubicación, promociones) y sus textos. Lo lee la ingesta; solo él escribe `MenuAtencion` ([diseño](menu-atencion.md)) | Edición: SUPER_ADMIN |
@@ -49,16 +31,16 @@ ni copia PDFs a R2 del CRM. Ver [alcance y activación](informes-por-whatsapp.md
 | `modules/conversaciones` | Inbox: webhook de Meta, envío, media en R2, plantillas, reintentos, acuse fuera de horario, abierta/cerrada con cierre por inactividad, bajas de marketing de Meta, alertas de plataforma y tiempo real; la promoción dentro del chat: su código `PRM-…`, la tarjeta y el pago con QR y comprobante hasta la venta ([diseño](pagos-promocion.md)); dueño de `ReservaChat`, cola durable, QR de reservas hechas por Flow y la constancia en imagen cuando el comprobante queda registrado (`ConstanciaReservaService`), sin duplicar la agenda ni confirmar pagos ([operación](reservas-pago-chat.md)) | Todos, por línea |
 | `modules/plantillas-agente` | Respuestas rápidas personales (atajos con «/») | Todos |
 | `modules/memoria-agente` | Biblioteca personal de textos y archivos (30 MB) para el chat | Todos |
-| `modules/asistente` | **El asistente de IA (Gemini en Vertex), apagado hasta conectar Google.** Proveedor por puertos (`ModeloConversacional`, `ClasificadorMensajes`, `LectorComprobantes`) cableados a Vertex en `asistente.module.ts`; catálogo de herramientas (ventas: promociones, tarjeta, estado del pago; agenda: médicos, horario en imagen, cupos; **médico autorizado: su agenda del día en imagen**; pasar a una persona), las **notas de voz** escuchadas y guardadas en `Mensaje.transcripcion` (`EscuchaAudiosService`, solo en líneas con asistente), el bucle, el filtro de entrada (`triaje.ts`), la imagen del horario y la configuración por línea (`AsistenteLinea`, SUPER_ADMIN, `/asistente/lineas/:id`). **El modelo nunca decide una escritura ni manda el QR.** Todo en [asistente-ia.md](asistente-ia.md) | `AsistenteChatService` y `LecturaComprobantesService` (Conversaciones) |
+| `modules/asistente` | Proveedor Gemini, clasificación, herramientas, bucle, imágenes y configuración por línea. Conversaciones orquesta los efectos; el código valida y registra reservas y entrega QR. [Asistente](asistente-ia.md) | Configura SUPER_ADMIN; ejecutan los servicios de Conversaciones según modo y banderas |
 | `modules/actividades` | Recordatorios y calendario de seguimiento, con push. [Seguimiento automático de reservas](reservas-actividades.md), detrás de `RESERVAS_ACTIVIDADES`: tarea única por reserva, reconciliación del QR y campanita | Manuales: propias (ADMIN+ global). Reservas: acceso al chat; externas: roles de agenda clínica. Operativos sin leads |
 | `modules/clientes` | Fichas de pacientes (≈16.000, importadas de FileMaker), PAC, y su categoría por valor —calculada con FileMaker + CRM, o fijada a mano por SUPER_ADMIN—; reconoce pacientes de otros sistemas | AGENTE+ |
 | `modules/campanas` | Campañas de Marketing de punta a punta. **Audiencia** (`GET /campanas/audiencia`, solo lee): a quién mandarle hoy, cruzando la categoría por valor con si conviene escribirle (sin baja, con celular, sin campaña reciente, si ya conversó). **Envío**: una plantilla de Marketing a esa audiencia congelada, a ritmo (80/min) y de 9:00 a 20:00 en La Paz, con sus métricas (entregó, leyó, respondió, compró, costo) | Ver: ADMIN+ · lanzar y controlar: SUPER_ADMIN |
 | `modules/promociones` | Promociones de la clínica: la agente las redacta con banners por formato, precio en Bs (o varios **servicios**, cada uno con su precio: `PromocionServicio`, uno por pago por WhatsApp), vigencia y condiciones; un ADMIN las publica. Cada una sabe qué anuncios de Meta la publicitan, así que el CRM atribuye leads y ventas a la promoción. API pública de solo lectura para la landing (`/publico/promociones`) ([diseño](promociones-y-directorio.md)) | Ver: todos · redactar: AGENTE+ · publicar: ADMIN+ |
-| `modules/directorio` | Directorio médico: especialidades, la ficha pública de cada médico (enlazada a su código de FileMaker) y su horario semanal INFORMATIVO, más sus ausencias. Las citas reales siguen en el sistema de agenda de la clínica. API pública para la landing (`/publico/directorio`) ([diseño](promociones-y-directorio.md)) | Ver: todos · editar: ADMIN+ |
+| `modules/directorio` | Presentación pública: especialidades, `PerfilMedico`, fotos, publicación, horario informativo y ausencias. Para médicos enlazados recibe precio/horario de Agenda; no calcula cupos clínicos. [Guía](promociones-y-directorio.md) | Público solo publicado; edición de presentación vía servicios y capacidades correspondientes |
 | `modules/leads` | Embudo comercial, Lead Ads de Meta (`/webhooks/meta`) y alta presencial | AGENTE+ |
 | `modules/ventas` | Registro de ventas, catálogo, atribución al lead de origen | AGENTE+ (estado: ADMIN) |
 | `modules/kpis` | Números del dashboard, medidos sobre los mensajes. `GET /kpis/resumen` (lo que pide acción, tarjetas, embudo, serie, canales, equipo; caché 15 s) y `GET /kpis/detalle` (primera respuesta por tramos, leads por día y hora de La Paz, chats por línea, pacientes por categoría y el asistente —este solo sin alcance de agente—; caché 60 s), que el Dashboard pide al llegar a esa zona | AGENTE+ |
-| `modules/resultados` | Cola de informes del portal y envío del enlace al paciente | ASISTENTE y ADMIN+, con la línea de resultados |
+| `modules/resultados` | Cola de informes, enlace al paciente y autoconsulta por WhatsApp. [Contrato de entrega](informes-por-whatsapp.md) | Operación: ASISTENTE y ADMIN+ con línea; autoconsulta: identidad revalidada por el portal |
 | `modules/servicios` | Historial clínico importado, médicos y demografía | ADMIN+ |
 | `modules/planilla-comisiones` | Importar el Excel de FileMaker, calcular, revisar, aprobar y exportar comisiones | ADMIN+ (aprobar/pagar: SUPER_ADMIN) |
 | `modules/tipo-cambio` | Tipo de cambio Bs/USD, sincronizado a diario | Lectura AGENTE+ · corrección ADMIN+ |
@@ -66,9 +48,6 @@ ni copia PDFs a R2 del CRM. Ver [alcance y activación](informes-por-whatsapp.md
 Transversal en `src/common/`: auditoría, roles y guards, caché en memoria,
 fechas en la zona de La Paz, `enSegundoPlano`, logging con `requestId`, push
 web, almacenamiento R2 y el cliente de WhatsApp Cloud.
-
-Tamaños de referencia: `planilla-comisiones` ≈ 13.800 líneas y
-`conversaciones` ≈ 7.200 son los dos grandes; el resto, menos de 2.000.
 
 ### Quién escribe cada tabla
 
@@ -108,7 +87,7 @@ si añades otra, añádela aquí con su motivo.
 | Leads y Prospectos | `/leads` | AGENTE+ |
 | Campañas (pestañas «Campañas» y «Audiencia») | `/campanas` | ADMIN+ (crear, pausar, reanudar, cancelar: SUPER_ADMIN) |
 | Promociones (pestañas «Promociones» y «Anuncios de Meta») | `/promociones` | Todos (redactar y anuncios: AGENTE+ · publicar: ADMIN+) |
-| Directorio médico (pestañas «Médicos» y «Especialidades») | `/directorio` | Todos (editar: ADMIN+) |
+| Directorio médico | `/directorio` | Todos; edición de agenda: RECEPCION y ADMIN+. Presentación pública según su endpoint |
 | Ventas | `/ventas` | AGENTE+ |
 | Finanzas & Comisiones | `/finanzas` (liquidación, desempeño, analítica, anual) | ADMIN+ |
 | Historial de Servicios | `/servicios` | ADMIN+ |
@@ -122,7 +101,7 @@ el guard de la ruta y el backend dicen lo mismo; el backend es la autoridad.
 ## Roles
 
 `RECEPCION` y `ASISTENTE` (0) < `AGENTE` (1) < `ADMIN` (2) < `SUPER_ADMIN` (3),
-más dos capacidades que el rango no expresa, definidas en `common/auth/roles.ts`
+más capacidades que el rango no expresa, definidas en `common/auth/roles.ts`
 y su espejo del frontend:
 
 - **Operativos** (recepción y asistente): atienden **todos** los chats de sus
@@ -130,13 +109,15 @@ y su espejo del frontend:
 - **Entregar resultados**: asistente y administración, y además con acceso a la
   línea de resultados.
 
-Verificado por HTTP el 2026-09-22 con una cuenta de cada caso.
+Para permisos actuales consultar `common/auth/roles.ts`, guards y tests HTTP;
+los roles de agenda distinguen consulta clínica de edición.
 
 ## Integraciones externas
 
 | Servicio | Para qué | Dónde se configura |
 | --- | --- | --- |
-| WhatsApp Cloud API (Meta) | Cuatro líneas; una app y un `META_APP_SECRET` para todas | `.env` del servidor + pantalla Líneas WhatsApp |
+| WhatsApp Cloud API (Meta) | Líneas configurables; una app y un `META_APP_SECRET` para todas | `.env` del servidor + pantalla Líneas WhatsApp |
+| Gemini | Clasificación, conversación, audio y lectura de comprobantes de promociones | `.env.example` + configuración del asistente por línea |
 | Meta Lead Ads | Leads de formularios de anuncios | `/webhooks/meta` |
 | Cloudflare R2 | Media de los chats y de Mi Memoria (URLs firmadas); banners de promociones y fotos del directorio, servidos por la API con URL pública inmutable solo si están publicados | `.env` (`R2_*`) |
 | Web Push (VAPID) | Avisos al teléfono: mensaje entrante y recordatorios | `.env` (`VAPID_*`); **no regenerar las llaves** |
@@ -153,10 +134,9 @@ Lo que se sabe y se decidió no cambiar todavía, con su motivo:
    backend nunca la emite. Palanca de emergencia sin usar.
 3. **`Lead.estado` no se reconcilia** al corregir `Venta.leadId`. La atribución
    se lee de `Venta.leadId`; el estado del lead casi nunca se mueve a mano.
-4. **Dependencias heredadas:** `npm audit --omit=dev` reporta 21 entradas
-   (10 altas, 10 moderadas y 1 baja; ninguna crítica). No equivale a 21 fallos
-   explotables comprobados, pero requiere remediación y verificación propias;
-   varios cambios propuestos son mayores y `xlsx` no tiene solución en npm.
+4. **Dependencias heredadas:** hallazgos fechados en la
+   [auditoría del 1/10](auditoria-2026-10-01.md). Revalidar contra el lockfile y
+   el aviso vigente antes de remediar; sus conteos no son cifras actuales.
 
 Resuelto y desplegado el 2026-10-01: el último mensaje del inbox se limita en
 PostgreSQL con `LATERAL … LIMIT 1`, para los IDs ya autorizados de la página.
@@ -177,16 +157,6 @@ mensajes cargados (ahora busca en todo el historial); y un índice duplicado en
 
 ## Dónde está cada cosa
 
-| Necesito… | Leer |
-| --- | --- |
-| Cómo se escribe un módulo del backend | skill `crm-backend-module` |
-| Servidor, despliegue, escala, rendimiento | skill `crm-backend-arquitectura` |
-| Cómo se escribe una pantalla | skill `crm-feature-page` (frontend) |
-| Colores, átomos, geometría | skill `crm-design-system` (frontend) |
-| El inbox de WhatsApp | skill `crm-conversaciones` (frontend) |
-| Comisiones y finanzas | skill `crm-finanzas` (frontend) |
-| Plantillas de WhatsApp preparadas y cómo activarlas | [plantillas-whatsapp](plantillas-whatsapp.md) |
-| Promociones, directorio médico y la API pública de la landing | [promociones-y-directorio](promociones-y-directorio.md) |
-| Cobrar una promoción por WhatsApp (QR, comprobante, venta) | [pagos-promocion](pagos-promocion.md) |
-| Qué cambió y cuándo | [ESTADO_ACTUAL](ESTADO_ACTUAL.md) |
-| Auditorías cerradas F01–F10, rendimiento R3, campañas | `docs/auditoria-*.md`, `docs/rendimiento-r3-2026-09.md`, `docs/CAMP-*.md` |
+El [índice único por responsabilidad](README.md) reúne guías, código y pruebas.
+Estado pendiente en [ESTADO_ACTUAL](ESTADO_ACTUAL.md); entregas pasadas en el
+historial enlazado desde allí. No mantener otra lista de fases en este mapa.

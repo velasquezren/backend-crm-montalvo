@@ -1,5 +1,11 @@
 # Flows de Montalvo: de local a la validación oficial de Meta
 
+> Los estados de preparación corresponden a la fecha de cada sección.
+> Existen integración, endpoint dinámico y Flows publicados posteriores. Antes
+> de crear o publicar otro, revisar los manifiestos locales y
+> [agenda vigente](../../agenda.md). Los pasos remotos requieren autorización.
+
+
 Revisión del 2026-10-05. Nada de esto se ejecutó: es el procedimiento, y cada paso
 remoto necesita una autorización con nombre (WABA, Flow, finalidad).
 

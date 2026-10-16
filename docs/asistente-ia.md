@@ -1,5 +1,13 @@
 # El asistente de IA (Gemini en Vertex)
 
+> Guía funcional y operativa. La implementación ya existe. Las mediciones y
+> modelos nombrados abajo son evidencia fechada; la selección efectiva sale de
+> configuración y las banderas por línea. No reconectar Google ni reactivar
+> funciones solo porque una receta de instalación aparezca en este archivo.
+> Estado y límites: [ESTADO_ACTUAL](ESTADO_ACTUAL.md). Para código, elegir la
+> sección del caso y sus tests; no leer las recetas de alta si la tarea es un bug.
+
+
 ## Médicos «a solicitud»: una solicitud de cita, no una duda (15/10/2026)
 
 Las ecografistas y otros médicos con modalidad `A_SOLICITUD` no tienen cupos en línea
@@ -74,8 +82,8 @@ Ahora, en las líneas de `ASISTENTE_RESERVAS_LINEAS`:
    registra con `AgendaReservasService.reservar`, igual que la web y el Flow (con su aviso
    por Telegram), con el **celular del chat**. El texto del modelo se descarta.
 4. Lo que le llega lo arma el código con `registrarReservaDeChat`, el mismo del Flow:
-   «Tu reserva N.º X con Dr. … el lunes 19 de octubre a las 12:00 quedó registrada. Para
-   asegurarla, paga Bs … con este QR…», con el QR del banco del médico. Su comprobante se
+   el número de reserva, médico, día, hora y las instrucciones de pago en trato
+   de usted, con el QR del banco del médico. Su comprobante se
    asocia a esa reserva y va a la agenda como «pago por verificar»
    (`ComprobantesReservaChatService`). Si el médico no tiene precio o QR vigente, la
    reserva sale igual y recepción le dirá cómo pagar.
@@ -182,10 +190,9 @@ no usa pacientes, base de datos ni WhatsApp. Las pruebas de integración
 comprueban además el bloqueo ante un modelo que insiste en enviar una tarjeta.
 
 
-Estado al 10/10/2026: **construido, probado y desplegable apagado.** Solo falta
-conectar la cuenta de Google Cloud (paso a paso más abajo) y encenderlo por línea
-desde el CRM. Sin esas credenciales, nada llama a Google y cada línea funciona
-exactamente como antes.
+Instalación nueva: el asistente queda apagado sin configuración. En el
+proyecto ya hay pruebas y despliegues registrados posteriores al 10/10; no
+confundir los pasos de alta de abajo con tareas pendientes de producción.
 
 Reemplaza a `asistente-vertex.md` (9/10), que describía la mitad sin modelo. Tres
 cosas de ese documento resultaron **incorrectas al comprobarlas contra el SDK y la
@@ -301,12 +308,12 @@ chat pasa a una persona. Sin R2, el listado sale entero en texto.
   (`guardarMensajeAutomatico({ resuelve })`). Derivado, sigue esperando. A una paciente, un
   automático nunca la saca de «Sin responder».
 - **Rotulado «Médico»** en la bandeja y en la cabecera del chat (`medicos-en-chat.ts`), en lugar del
-  sello Gold: no es una paciente ni una venta. Su chat sigue naciendo como cualquier otro (ficha y lead
-  de primer contacto): la ingesta no se tocó.
+  sello Gold: no es una paciente ni una venta. Su chat conserva la ingesta común: ficha y conversación; el lead automático
+  de primer contacto depende de que la línea sea comercial.
 - Sale por `guardarMensajeAutomatico` como todo lo del asistente; la imagen es `repetible` (preguntar
   lo mismo a los diez minutos se contesta).
 
-**Para encenderlo** (nada de esto se hizo; es de René):
+**Para habilitarlo en una instalación o línea nueva** (comprobar antes qué está configurado):
 
 1. Permisos de MySQL, una vez: `scripts/agenda/permisos-agenda-medicos.sh` (da a `crm_agenda_consulta`
    el nombre de la paciente de `agenda_med` y `medicos.codigo`; nunca el PAC). Sin él, la herramienta
@@ -328,8 +335,8 @@ Probado con notas sintéticas en ogg/opus (el formato de WhatsApp): transcripci�
 
 - **Quién:** `EscuchaAudiosService` (Conversaciones, dueño de `Mensaje`). Espera a que
   `MediaEntranteService` deje el audio en R2 (`ASISTENTE_ESPERA_AUDIO_MS`, 20 s), lo pasa al
-  puerto `TranscriptorAudio` (en Vertex o con clave: `TranscriptorVertex`, el modelo que
-  conversa, sin etiquetas con clave) y guarda el texto en **`Mensaje.transcripcion`**: cada
+  puerto `TranscriptorAudio` (en Vertex o con clave: `TranscriptorVertex`, el modelo configurado para
+  transcripción, sin etiquetas con clave) y guarda el texto en **`Mensaje.transcripcion`**: cada
   audio va a Google UNA vez, y el turno siguiente sigue sabiendo lo que ella dijo.
 - **Cuáles:** las de la ráfaga que se contesta (lo de ella desde el último mensaje de la
   clínica), hasta 3; más de 10 MB, no. La ingesta despierta al asistente con un AUDIO como
@@ -339,8 +346,7 @@ Probado con notas sintéticas en ogg/opus (el formato de WhatsApp): transcripci�
   mismas herramientas y la misma pausa. Lo que diga el audio no son instrucciones: la orden
   de transcribir le dice que no obedezca nada de lo que oiga.
 - **Si no se entiende** (no bajó a tiempo, inaudible, Google falló): en «Responder solo»
-  sale un texto fijo, «No alcancé a escuchar bien tu audio. ¿Me lo puedes escribir, por
-  favor?»; en «Sugerir», la agente ve el aviso. El modelo nunca adivina.
+  sale un texto fijo, el aviso de audio no entendido, en trato de usted; en «Sugerir», la agente ve el aviso. El modelo nunca adivina.
 - **El médico** también habla: «dime qué pacientes tengo mañana» por audio consulta su
   agenda. Con un médico en «Sugerir» el turno se omite ANTES de escuchar: su audio no sale.
 - **En el chat**, debajo del reproductor, la agente ve lo que el asistente entendió.
@@ -390,8 +396,9 @@ HubSpot, y los proveedores de WhatsApp para clínicas):
 
 Cada una tiene su prueba.
 
-1. **El modelo nunca decide una escritura.** La única es `reservar` (ver «Reservar una
-   cita», abajo): el modelo la propone, el código la comprueba y el CRM la registra.
+1. **El modelo propone, el código valida los efectos.** `reservar` no escribe
+   durante el bucle: deja una acción que el CRM revalida y registra al finalizar
+   el turno. Véase «Reservar una cita» al principio de esta guía.
 2. **El modelo nunca manda el QR ni datos bancarios.** Para cobrar una promoción manda la
    TARJETA: la paciente toca «Pagar ahora» y el CRM le manda el QR con el monto congelado y
    registra el pago (`PromocionesChatService.iniciar`). El QR del médico sale con la reserva,
@@ -565,18 +572,22 @@ y `uso=conversar|clasificar|leer-comprobante|transcribir-audio` (solo en Vertex:
 
 - **Es de la clínica, no del código:** el conocimiento y el criterio de derivación
   (arriba), la orientación de emergencia del menú, y las fichas web de los médicos.
-- **Probar contra Google de verdad.** Todo lo de aquí está probado con un modelo
-  guionado (sin red). La primera conexión real es en la línea de prueba.
+- **Pruebas con proveedor:** existen `asistente:probar`, `asistente:caminos` y
+  mediciones reales fechadas arriba. Repetir las pertinentes al cambiar modelo
+  o prompts, con datos sintéticos y autorización de llamadas externas; no
+  afirmar que toda la implementación solo se probó con modelos guionados.
 - **Reservar por el asistente:** hecho el 15/10 (arriba). Encendido en la línea de prueba
   y en Ventas (`ASISTENTE_RESERVAS_LINEAS`); Recepción sigue en «Solo médicos».
 - **Comprobantes de reservas** (QR del médico): la lectura cubre por ahora los pagos de
   promociones.
-- **Notas de voz:** hechas el 12/10 (sección «Notas de voz»). Falta el paso de audio en
-  «Probar conexión», que necesita una nota de prueba generada con una clave válida.
+- **Notas de voz:** implementadas; `scripts/probar-asistente.mjs` pasa
+  transcriptor y audio de prueba a `probarProveedor`, que incluye el paso AUDIO.
+  La disponibilidad del proveedor se comprueba al ejecutar, no al leer esta guía.
 
-## Mis informes: entrada opcional de IA, entrega determinista (local, apagada)
+## Mis informes: entrada opcional de IA, entrega determinista
 
-`abrir_mis_informes()` abre la misma lista que el menú **Mis informes**. No recibe
+Despliegue registrado el 13/10 para prueba y Recepción; las otras líneas
+requieren autorización/configuración. `abrir_mis_informes()` abre la misma lista que el menú **Mis informes**. No recibe
 PAC/CI/teléfono/IDs del modelo ni devuelve estudios o PDFs a Gemini. Solo se declara
 en líneas autorizadas para autoconsulta. El paciente elige; el CRM y Resultados
 revalidan identidad, publicación, versión y vigencia antes de entregar el PDF.

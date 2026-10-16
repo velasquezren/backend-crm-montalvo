@@ -1,5 +1,11 @@
 # Menú de atención: cómo recibe cada línea a la paciente
 
+> La separación comercial descrita está implementada. Las secciones fechadas
+> de preparación/validación conservan el alcance de aquella entrega. Para
+> reservas reales posteriores consultar [agenda](agenda.md); para activaciones
+> registradas, [historial de octubre](historial/estado-2026-10.md).
+
+
 Diseño del 2026-10-05. Se construye sobre la [atención humana](atencion-humana.md)
 y las [interacciones de Meta](whatsapp-interacciones/FASE-2.md): no hay bandeja nueva,
 ni asignador nuevo, ni otro canal de tiempo real.

@@ -1,11 +1,7 @@
 ---
-description: Guía del proyecto CRM Clínica Montalvo para backend NestJS y Prisma
+description: Reglas comunes del CRM Montalvo
 alwaysApply: true
 ---
 
-Lee `AI_GUIDE.md`, `AGENTS.md` y `CLAUDE.md` antes de cambiar código. Revisa
-`docs/PANORAMA.md`, `docs/ESTADO_ACTUAL.md`, el `CRM_MANIFESTO.md` del repo
-hermano y las skills `.claude/skills/` pertinentes. Las skills son Markdown y
-sus reglas aplican aunque Cursor no las cargue automáticamente. Respeta las
-reglas de privacidad, permisos, arquitectura, migraciones y despliegue. Ejecuta
-`npm run build` y las verificaciones indicadas en `CLAUDE.md` según el cambio.
+Lee [CLAUDE.md](../../CLAUDE.md), entrada operativa común del repositorio.
+Sigue su índice por tarea; no cargues todas las guías, skills o auditorías.

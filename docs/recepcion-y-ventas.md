@@ -1,5 +1,11 @@
 # Recepción y Ventas — preparación local del 2026-10-06
 
+> La separación comercial descrita está implementada. Las secciones fechadas
+> de preparación/validación conservan el alcance de aquella entrega. Para
+> reservas reales posteriores consultar [agenda](agenda.md); para activaciones
+> registradas, [historial de octubre](historial/estado-2026-10.md).
+
+
 ## Criterio funcional
 
 | Recorrido | Atención / Recepción | Ventas |
@@ -74,7 +80,8 @@ animaciones existentes con movimiento reducido. No se agregaron animaciones glob
   completamente manual, debe mantenerse apagado su menú; no se cambió producción.
 - La separación se aplica a capacidades conocidas e identificadores internos.
   No analiza semánticamente textos libres escritos por una persona.
-- El Flow autorizado sigue siendo una **solicitud**, no una reserva transaccional.
+- En esta entrega inicial el Flow era una solicitud. Después se añadió el
+  Flow dinámico de reserva con `AgendaReservasService`; ver [agenda](agenda.md).
 - Los enlaces públicos de promociones deben apuntar a un número comercial antes
   de habilitar el recorrido. No se eligió ni cambió un número real por inferencia.
 - Si existen menús de Recepción con promociones, al desplegar dejarán de enviarse

@@ -7,6 +7,15 @@ description: Patrón obligatorio de los módulos NestJS de este CRM — límites
 
 NestJS 10 + Prisma 7 + PostgreSQL. Reglas base: `CRM_MANIFESTO.md` (repo del frontend) §1.1.
 
+## Consulta por tarea
+
+Leer Reglas de oro y tipos de Prisma; después solo las secciones del cambio:
+DTO/listado → Paginación y validación; acceso → Visibilidad y Autenticación;
+mensajería → Atención humana, Estados de entrega, Webhooks y Líneas;
+persistencia → Migraciones y concurrencia; IA → Asistente. El mapa de módulos
+está en [PANORAMA](../../../docs/PANORAMA.md). No cargar finanzas o despliegue
+para cambiar un endpoint de otro dominio.
+
 ## Reglas de oro
 
 1. **Un módulo nunca escribe la base de otro dominio.** Si Ventas necesita recategorizar un cliente,
@@ -15,7 +24,9 @@ NestJS 10 + Prisma 7 + PostgreSQL. Reglas base: `CRM_MANIFESTO.md` (repo del fro
    motivo, están en PANORAMA («Quién escribe cada tabla»): una nueva se apunta ahí.
 2. **Toda entrada externa se valida con un DTO** antes de llegar a la lógica de negocio.
    Nunca `@Body('campo') x: any` — eso salta el `ValidationPipe` por completo.
-3. **`schema.prisma` es la única fuente de verdad del modelo.** No dupliques tipos a mano.
+3. **`schema.prisma` define persistencia y enums del CRM.** No dupliques sus
+   enums a mano. DTO y modelos de respuesta describen contratos de API distintos;
+   MySQL de agenda y Resultados conservan contratos propios.
 
 ## Los tipos de Prisma salen del barril, nunca de `@prisma/client`
 

@@ -1,5 +1,10 @@
 # Agenda ScriptCase: auditoría de lectura y contraste del borrador CRM
 
+> Investigación del 6/10, anterior a la integración. «Implementación pausada»
+> describe aquella sesión: la reserva y administración ya existen. Véase
+> [agenda vigente](agenda.md); se conserva el contrato observado y su evidencia.
+
+
 Fecha: 6 de octubre de 2026, zona America/La_Paz.
 
 **Estado: implementación pausada. Código, tablas, índices y vistas verificados.

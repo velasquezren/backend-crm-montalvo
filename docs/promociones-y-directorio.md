@@ -1,15 +1,15 @@
 # Promociones y directorio médico
 
-Diseño del 2026-10-05. Dos módulos nuevos que convierten al CRM en la **única fuente
-de verdad** de lo que la clínica ofrece y de quién atiende:
+Contrato originado el 5/10, actualizado al 15/10/2026. El CRM gestiona oferta y
+presentación pública; la agenda ScriptCase/FileMaker conserva cupos y citas:
 
 - `modules/promociones`: la oferta, sus banners, sus precios, su vigencia y los
   anuncios de Meta que la publicitan.
 - `modules/directorio`: especialidades, la ficha pública de cada médico y su horario.
 
 Los consumen el CRM (agentes y recepción), la **landing** (`landing-montalvo`, Next.js
-en Vercel) por una API pública de solo lectura, y más adelante el menú de WhatsApp
-y una IA. Nada de esto toca la mensajería ni las comisiones.
+en Vercel) por una API pública de solo lectura, el menú de WhatsApp y el
+asistente. Conversaciones orquesta tarjetas/pagos; comisiones conserva su motor.
 
 ## Decisiones (y por qué)
 
@@ -17,7 +17,7 @@ y una IA. Nada de esto toca la mensajería ni las comisiones.
 |---|---|
 | El panel va en el **mismo frontend del CRM**; la cara pública es la landing | Las agentes ya trabajan ahí, con su sesión, roles y sistema de diseño. Otro frontend sería otra app que asegurar y mantener |
 | **La agente redacta, un ADMIN publica** (decisión del propietario) | Un precio o una condición mal escrita queda a la vista de pacientes |
-| El horario del médico es **informativo**, no una agenda con cupos | Las citas reales siguen en el sistema de la clínica (ScriptCase/FileMaker). Integrar reservas es una fase aparte |
+| El horario del médico es **informativo**, no una agenda con cupos | Las citas reales siguen en el sistema de la clínica (ScriptCase/FileMaker). La integración de reservas ya existe en Agenda; no duplicarla aquí |
 | La ficha pública se **enlaza** al `Medico` de comisiones, no lo reemplaza | Es la misma persona (código de FileMaker) para la planilla, las ventas y el directorio. `Medico` sigue siendo de comisiones; el directorio no lo escribe |
 | Atribución por **id de anuncio**, sin Marketing API | El referral de Click-to-WhatsApp ya trae el `source_id` y el CRM lo guarda (`Lead.anuncioId`). La Marketing API exige un acceso que todavía no está demostrado (ver CAMP-0) |
 | Banners en **R2**, servidos por la API con URL inmutable | R2 ya está en producción. Una URL firmada caduca y la landing y Meta guardan la imagen en caché; por eso la API la sirve, con `Cache-Control: immutable` y un id que cambia con cada imagen nueva |
@@ -77,10 +77,15 @@ el VPS está en Estados Unidos y sin eso, entre las 20:00 y la medianoche ya ser
 4. El detalle de cada promoción cuenta los **leads** y las **ventas ganadas** de sus anuncios.
    Es atribución por anuncio, no causalidad.
 5. Cada promoción tiene un **código** (`PRM-7K3QX`) y un `mensajeWhatsapp` que lo incluye: la
-   landing lo pone en el enlace de WhatsApp. Reconocer ese código en la ingesta es el paso
-   siguiente (abajo).
+   landing lo pone en el enlace de WhatsApp. La ingesta ya lo reconoce y atribuye
+   la promoción; véase [pagos por chat](pagos-promocion.md).
 
 ## Directorio médico
+
+Para médicos enlazados, `agendaMedicoId` une ficha pública con MySQL; Agenda
+pide al `DirectorioService` actualizar precio y horario. Con la integración
+FileMaker activa, el horario semanal se edita allí. Los bloques de abajo son
+la representación informativa, no otra fuente de cupos. Ver [agenda](agenda.md).
 
 - **Especialidades**: nombre, slug estable, descripción, orden, activa. No se borran.
 - **Ficha** (`PerfilMedico`): nombre público, slug estable, resumen, biografía, matrícula,
@@ -111,8 +116,8 @@ Las URL de imágenes son absolutas con `CRM_URL_PUBLICA` (la que ya usan las cab
 plantillas); sin ella, relativas.
 
 **La landing la consume desde el 5/10** (repo `landing-montalvo`, `docs/integracion-crm.md`):
-promociones, staff médico, especialidades y la solicitud de consulta por WhatsApp de `/reservar`
-(día y franja preferidos, sin cupos: no hay agenda real hasta integrar la de la clínica).
+promociones, staff médico y especialidades. Desde el 7/10, la reserva web
+consulta cupos reales y registra mediante `AgendaReservasService`; ver [agenda](agenda.md).
 
 ### Aviso a la landing (`common/landing/aviso-landing.service.ts`)
 
@@ -128,14 +133,11 @@ lo guardado al instante (sin el aviso, se renueva sola cada 5 minutos).
   nunca hace fallar la edición: un fallo queda en el log como `WARN` y la landing se renueva sola.
 - Sin las dos variables queda apagado, como R2 o WhatsApp sin credenciales.
 
-## Pasos siguientes (no hechos)
+## Implementación y validación
 
-1. **Pantallas del CRM** (Angular): Promociones (lista por estado, editor con banners,
-   revisión) y Directorio (especialidades, fichas, horario).
-2. ~~**Landing**: leer esta API con revalidación (ISR) y avisarle al publicar~~ — hecho el 5/10.
-3. ~~**Menú de WhatsApp**: que la opción «Promociones» lea las publicadas~~ — hecho el 6/10.
-4. ~~**Ingesta**: reconocer el código `PRM-…` y atribuir la promoción~~ — hecho el 6/10, con la
-   tarjeta y el pago por QR: [pagos-promocion](pagos-promocion.md).
-5. **Reservas reales**: integrar la agenda de la clínica (ScriptCase/FileMaker) para cupos.
-6. **IA**: tendrá datos estructurados (promoción vigente, precio, condiciones, médicos,
-   horario) en vez de texto suelto. No se programa todavía.
+Las pantallas Angular (`features/promociones`, `features/directorio`), el menú,
+PRM, las reservas reales y las herramientas de IA ya existen. Buscar allí y
+en sus specs antes de iniciar otra fase. Contratos complementarios:
+[pagos](pagos-promocion.md), [agenda](agenda.md), [asistente](asistente-ia.md).
+La configuración de revalidación y la aceptación de FileMaker requieren
+comprobación en sus entornos; un test local no las certifica.

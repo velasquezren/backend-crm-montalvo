@@ -222,9 +222,9 @@ Markdown de contexto, manuales y auditorías propios (sin dependencias ni refere
 
 | Documento | Líneas |
 | --- | ---: |
-| [CONTEXTO_CONTINUACION_CHAT_2026-09-22.md](../../CONTEXTO_CONTINUACION_CHAT_2026-09-22.md) | 125 |
-| [CONTEXTO_CONTINUIDAD.md](../../CONTEXTO_CONTINUIDAD.md) | 257 |
-| [REQUISITOS_INTEGRACION_META.md](../../REQUISITOS_INTEGRACION_META.md) | 93 |
+| `CONTEXTO_CONTINUACION_CHAT_2026-09-22.md` (referencia histórica no disponible en este checkout) | 125 |
+| `CONTEXTO_CONTINUIDAD.md` (referencia histórica no disponible en este checkout) | 257 |
+| `REQUISITOS_INTEGRACION_META.md` (referencia histórica no disponible en este checkout) | 93 |
 | [backend-crm-montalvo/CLAUDE.md](../CLAUDE.md) | 227 |
 | [backend-crm-montalvo/GEMINI.md](../GEMINI.md) | 15 |
 | [backend-crm-montalvo/MANUAL-COMISIONES.md](../MANUAL-COMISIONES.md) | 802 |

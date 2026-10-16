@@ -1,5 +1,11 @@
 # Cobrar una promoción por WhatsApp
 
+> La separación comercial descrita está implementada. Las secciones fechadas
+> de preparación/validación conservan el alcance de aquella entrega. Para
+> reservas reales posteriores consultar [agenda](agenda.md); para activaciones
+> registradas, [historial de octubre](historial/estado-2026-10.md).
+
+
 Diseño del 2026-10-06 (decisiones de René: pago por WhatsApp con QR y comprobante, un
 QR por línea, y el CRM responde solo con la tarjeta de la promoción). Se construye sobre
 [promociones](promociones-y-directorio.md), el [menú de atención](menu-atencion.md) y la

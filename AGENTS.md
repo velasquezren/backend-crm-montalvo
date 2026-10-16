@@ -1,10 +1,5 @@
-# Instrucciones para agentes
+# Entrada para agentes — CRM Montalvo
 
-Lee [`AI_GUIDE.md`](AI_GUIDE.md), [`CLAUDE.md`](CLAUDE.md) y el
-`CRM_MANIFESTO.md` del repo hermano antes de cambiar código. Luego consulta
-`docs/PANORAMA.md`, `docs/ESTADO_ACTUAL.md` y las skills pertinentes indicadas en
-esos archivos.
-
-Respeta las reglas de seguridad, privacidad, arquitectura y despliegue de
-`CLAUDE.md`. Ejecuta los comandos de verificación apropiados que allí se indican;
-`npm run build` es la compuerta oficial del backend.
+Lee [CLAUDE.md](CLAUDE.md): contiene las reglas comunes y dirige a la
+documentación del área de la tarea. No hace falta recorrer los otros
+archivos de entrada; todos remiten a la misma guía.

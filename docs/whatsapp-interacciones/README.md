@@ -1,5 +1,11 @@
 # Preparación local de interacciones oficiales — 2026-10-04
 
+> Los estados de preparación corresponden a la fecha de cada sección.
+> Existen integración, endpoint dinámico y Flows publicados posteriores. Antes
+> de crear o publicar otro, revisar los manifiestos locales y
+> [agenda vigente](../agenda.md). Los pasos remotos requieren autorización.
+
+
 **Estado: SOLO LOCAL, DESACTIVADO.** No es una integración operativa de Flows.
 No hay nuevos endpoints, transportes, asignaciones, persistencia ni automatismos.
 La mensajería actual sigue usando exactamente sus controladores y servicios anteriores.

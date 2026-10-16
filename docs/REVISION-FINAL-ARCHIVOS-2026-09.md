@@ -1,5 +1,10 @@
 # Revisión final archivo por archivo — 18/09/2026
 
+> Foto del 18/09, no inventario ni deuda vigente. MIME saliente y límite SQL
+> del inbox ya están corregidos; comprobar [estado actual](ESTADO_ACTUAL.md)
+> antes de retomar sus propuestas. Se conserva la evidencia original.
+
+
 Última revisión técnica de la etapa. **No** es auditoría de arquitectura, ni
 ronda de optimización, ni búsqueda de features. El criterio fue buscar
 inconsistencias, no trabajo: un archivo que funciona y tiene propósito no se

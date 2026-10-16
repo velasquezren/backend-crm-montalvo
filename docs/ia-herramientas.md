@@ -1,5 +1,10 @@
 # IA en el chat: herramientas y límites (preparación, 7/10/2026)
 
+> Propuesta del 7/10 superada por [asistente-ia](asistente-ia.md). La IA,
+> sus herramientas y reservas ya están implementadas. Se conserva la decisión
+> de reutilizar servicios; las fases de abajo no son un plan vigente.
+
+
 **Estado: no hay IA.** Este documento fija, antes de escribir una línea de ella,
 QUÉ podrá consultar y hacer, con QUÉ código ya existente y bajo QUÉ reglas. Las
 condiciones médicas para que conteste sola están en

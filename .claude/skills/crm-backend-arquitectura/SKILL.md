@@ -1,21 +1,27 @@
 ---
 name: crm-backend-arquitectura
-description: Mapa completo del backend — infraestructura real de producción (VPS Debian 12 compartido con Resultados, systemd, Apache, Postgres 16), cómo desplegar paso a paso, la escala real de datos, qué decisiones de arquitectura ya están tomadas y por qué, y dónde mirar para rendimiento/escalabilidad. Úsalo para cualquier tarea que no sea "tocar un endpoint" — desplegar, diagnosticar lentitud o un incidente, decidir si algo escala, entender por qué el servidor está configurado así, u orientarte la primera vez que trabajas en este repo. Para el patrón de código de un módulo (paginación, roles, DTOs, webhooks) usa `crm-backend-module`; este skill es el contexto de alrededor.
+description: Infraestructura, despliegue y diagnóstico de rendimiento del backend CRM. Consultar la sección pertinente para operaciones del VPS, preparación de una base descartable o un incidente medido. Para orientación general usar docs/PANORAMA.md; para código de módulos, crm-backend-module.
 ---
 
 # Mapa del backend — CRM Clínica Montalvo
 
-Esto es lo que un agente nuevo (o vos mañana, sin memoria de hoy) necesita para no
-perderse: dónde vive cada cosa, en qué máquina real corre, cuánta gente y cuántos
-datos hay de verdad, qué ya está resuelto, y dónde mirar si hay que hacerlo más
-rápido o más grande. Todo lo que sigue lo verifiqué contra el servidor real:
-primero el 2026-08-21, y revisado de punta a punta el **2026-09-02**, día en que
-además se cambiaron varias cosas de la máquina (§9). No es una descripción de
-memoria — donde algo pueda haber cambiado, lo digo.
+Procedimientos de operación y evidencia de infraestructura observada desde
+agosto de 2026, con actualizaciones fechadas por sección. La migración de VPS
+y la llegada de Resultados invalidaron varias cifras anteriores: conservarlas
+como antecedentes, no como prueba de recursos o configuración actuales.
 
 **Este skill NO repite `crm-backend-module`** (paginación, roles, DTOs, webhooks,
 concurrencia). Léelos como un par: ese es el "cómo escribo código en un módulo",
 este es "dónde vive el sistema y qué tan grande es de verdad".
+
+## Consulta por tarea
+
+No cargar este documento entero al entrar al repo. Orientación general:
+[PANORAMA](../../../docs/PANORAMA.md). Para despliegue, leer §4 completo; para
+base descartable y pruebas, §8; para una decisión arquitectónica, §5; para
+diagnóstico, §7 y la fecha de sus mediciones. Las secciones §3 y §9 son historia.
+Las cifras observadas no acreditan recursos libres ni seguridad actuales.
+
 
 ## 1. El sistema, en una pantalla
 
@@ -27,7 +33,7 @@ en Vercel                      TLS Let's Encrypt, HTTP/2 al navegador
                                 └─ proxy WS (socket.io) ──▶ mismo puerto
                                                               │
                                                         Postgres 16
-                                                    (localhost:5432, solo esta app)
+                                                    (localhost:5432, bases CRM y Resultados)
 ```
 
 - **Backend** (este repo): NestJS 10 + Prisma 7 + PostgreSQL, TypeScript estricto.
@@ -37,7 +43,7 @@ en Vercel                      TLS Let's Encrypt, HTTP/2 al navegador
 - `CRM_MANIFESTO.md` (en el repo del frontend) es la referencia de arquitectura
   que gobierna los dos repos; los skills de acá la citan.
 
-## 2. La máquina real — esto es lo que más se pierde
+## 2. Infraestructura registrada — verificar antes de operar
 
 > **Migrado el 2026-09-17.** Hasta esa fecha esto era un VPS AlmaLinux de **un
 > núcleo y 1,7 GB** en `107.172.193.34`, compartido con MySQL y dos backends
@@ -57,13 +63,14 @@ vecino. Los dos productos son independientes: no comparten base, usuarios ni
 sesiones, y se hablan por loopback con una credencial de solo lectura (ver
 `modules/resultados/`).
 
-Debian, con lo que corre hoy:
+Inventario registrado tras la migración y la llegada de Resultados. Las
+cifras del bloque de RAM/disco son anteriores a ese vecino, no una medición actual:
 
 ```
 $ nproc && free -h && df -h /
 4                                     ← 4 vCPU
               total   used   disp
-Mem:          7.8Gi   793Mi  7.0Gi    ← 7,8 GB, para esta app sola
+Mem:          7.8Gi   793Mi  7.0Gi    ← medición histórica del 18/09, antes de Resultados
 /dev/…          59G    12G   (22%)
 
 $ systemctl list-units --type=service --state=running
@@ -85,10 +92,10 @@ qemu-guest-agent.service
 
 **Lo que sigue siendo verdad y lo que ya no.**
 
-Ya NO es verdad que la RAM sea escasa ni que se comparta: hay 7 GB disponibles y
-esta app es la única que corre. Medido el 2026-09-18 en marcha: load 0,00, Node
-al 1 % de CPU y 280 MB, Postgres con 99,94 % de cache hit. **No hay cuello ni de
-CPU ni de memoria ni de base.**
+El 18/09, antes de Resultados, se midieron load 0,00, Node al 1 % y 280 MB,
+y Postgres con 99,94 % de cache hit. Desde el 21/09 comparte recursos con
+Resultados y ClamAV. Esas mediciones no prueban la carga ni el margen actuales;
+medir el incidente concreto antes de dimensionar u optimizar.
 
 Sigue siendo verdad que **Node atiende las peticiones en un solo hilo**: cualquier
 trabajo síncrono pesado en el event loop —parsear un Excel con `exceljs`, un
@@ -167,7 +174,8 @@ de fondo de "todo listado se pagina" y del tope de entradas de
 
 ### Postgres
 
-Solo esta app lo usa; ya no hay MySQL en la máquina. `max_connections = 100`
+El servidor PostgreSQL aloja bases separadas de CRM y Resultados. La agenda
+usa MySQL en otro VPS, no la base del CRM. `max_connections = 100`
 a nivel servidor (medición histórica). Desde Prisma 7, `PrismaService` configura
 el adaptador `pg`: `max: 10`, `connectionTimeoutMillis: 5000` e
 `idleTimeoutMillis: 120000`. Los parámetros del antiguo motor en `DATABASE_URL`
@@ -480,7 +488,7 @@ núcleo y siguen valiendo) o de la escala real de §3. Si una te parece
   Sacar `declaration` —nadie importa este backend como librería, y generaba
   113 `.d.ts` de más— bajó el build de 3,0 a 2,7s y el `dist/` de 2,1 a 1,5 MB
   (mediana de 3 builds limpios, medido en el commit). 10% menos en la máquina
-  de un solo core que también corre el build (§2).
+  en el que también corre el build (§2); no dimensionarlo como el VPS antiguo de un núcleo.
 - **Cachear sin medir salió caro, y se revirtió** (`695d9d0`/`c9d2b72`,
   2026-08-19, revertidos en `69f80bc`, 2026-08-20) — caché en memoria para
   `dashboard`/`demografia`/`historialPaciente`/`perfilMedico` de `servicios`.
@@ -567,6 +575,10 @@ Lo que sí conviene dejar anotado (sin el secreto):
   visible para cualquiera.
 
 ## 7. Dónde mirar para rendimiento y escalabilidad
+
+Las mediciones de esta sección son de agosto/septiembre. El inbox ya recibió
+SQL lateral con `LIMIT 1` el 1/10; ver [auditoría](../../../docs/auditoria-2026-10-01.md).
+No repetir propuestas resueltas ni usar los percentiles antiguos como baseline actual.
 
 Lo que sigue es honesto sobre lo que **no** verifiqué a fondo — son pistas
 concretas basadas en lo que sí encontré hoy, no un análisis de performance real
@@ -695,7 +707,7 @@ cierre de esta sección).
   500` desde antes, o sea que viene registrando toda query lenta: en el último
   mes hay **exactamente tres**, y las tres son los `COPY` de los propios
   `pg_dump` de respaldo. **Ninguna consulta de la aplicación pasó de 500 ms.**
-  Conclusión honesta: hoy este sistema no tiene un problema de rendimiento.
+  Conclusión de aquella medición: no se observó un problema de rendimiento.
   Optimizar el código sería resolver lo que no duele.
 
 - **Sigue sin haber profiling de CPU/event-loop**: lo de arriba es latencia
@@ -722,7 +734,11 @@ cierre de esta sección).
   justamente las que lo hubieran atrapado antes de producción. Mismo
   razonamiento detrás de las tres suites nuevas.
 
-## 8. Antes de dar por terminada cualquier tarea de este tipo
+## 8. Verificación según el cambio
+
+Para documentación, bastan las comprobaciones documentales indicadas en
+CLAUDE. Lo siguiente corresponde a código/infraestructura, según el alcance;
+no ejecutar integración destructiva para corregir prosa.
 
 - `npm run build` (incluye `check:skills`) sin errores.
 - `npm test -- --runInBand` en verde; los conteos cambian con el código.

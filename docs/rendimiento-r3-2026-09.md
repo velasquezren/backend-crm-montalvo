@@ -1,5 +1,11 @@
 # R3 — Rendimiento y latencia · PASO 2 HECHO, INFRAESTRUCTURA MEDIDA
 
+> Bitácora de septiembre, con conclusiones sucesivas. El estado inicial
+> «antes de implementar» fue superado en este mismo informe. Cierre en
+> [CIERRE-TECNICO](CIERRE-TECNICO-2026-09.md); el último mensaje del inbox se
+> corrigió después con SQL lateral, [auditoría 1/10](auditoria-2026-10-01.md).
+
+
 **Estado: parado a propósito el 18 de septiembre de 2026, antes de implementar nada.**
 No se tocó código de producción, no hay cambios de rendimiento commiteados y no se
 desplegó nada. Lo único que este trabajo dejó en Git es este informe.

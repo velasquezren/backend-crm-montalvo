@@ -1,5 +1,11 @@
 # Fase 2 — integración local de interacciones Meta
 
+> Los estados de preparación corresponden a la fecha de cada sección.
+> Existen integración, endpoint dinámico y Flows publicados posteriores. Antes
+> de crear o publicar otro, revisar los manifiestos locales y
+> [agenda vigente](../agenda.md). Los pasos remotos requieren autorización.
+
+
 Fecha: 2026-10-04. Sin push, despliegue, mensajes reales, IA ni operaciones sobre activos Meta. La preparación de fase 1 se reutiliza.
 
 ## 1. Cambios realizados

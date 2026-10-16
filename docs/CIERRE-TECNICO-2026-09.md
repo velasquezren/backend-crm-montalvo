@@ -1,5 +1,10 @@
 # Cierre técnico — septiembre de 2026
 
+> Cierre histórico del 18/09. Sus frases «actual», «no hay más» y «próximo
+> trabajo» están acotadas a esa fecha. [Estado actual](ESTADO_ACTUAL.md)
+> distingue resoluciones posteriores y pendientes; no usar sus métricas como actuales.
+
+
 > **Actualización local 2026-10-01.** La deuda del último mensaje del inbox se
 > corrigió con límite SQL por chat; también se reforzó la recuperación de campañas.
 > Ver [auditoria-2026-10-01](auditoria-2026-10-01.md). Las mediciones y estados

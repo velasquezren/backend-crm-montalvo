@@ -1,4 +1,9 @@
-# Plantillas de WhatsApp — preparadas, SIN enviar a Meta
+# Plantillas de WhatsApp — propuestas y decisiones fechadas
+
+El estado de cada plantilla depende de su sección y de la aprobación en Meta.
+Este documento reúne propuestas y revisiones de fechas distintas; su título
+anterior «SIN enviar» no era un inventario vigente. Antes de crear otra plantilla,
+consultar el catálogo de la línea y el historial para evitar duplicarla.
 
 Regla de la clínica: **ninguna plantilla se crea, borra ni edita en Meta sin OK
 explícito**. Este documento deja cada una lista para enviarla a revisión con

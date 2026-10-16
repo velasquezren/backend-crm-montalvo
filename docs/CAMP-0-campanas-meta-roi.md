@@ -1,5 +1,10 @@
 # CAMP-0 — ¿REALMENTE VALEN LA PENA NUESTRAS CAMPAÑAS?
 
+> Diagnóstico histórico de atribución. No confundir el dashboard ROAS/CAC
+> propuesto aquí con el módulo Campañas de envío que ya existe. CAMP-1 ya
+> implementó el enlace y corrección de origen de venta: [contrato](CAMP-1-atribucion-venta-lead.md).
+
+
 **Primera entrega: diagnóstico solamente.** Esta revisión no modifica código,
 schema, campañas, presupuesto ni suscripciones, y no envía eventos a Meta.
 
@@ -386,7 +391,7 @@ Evidencia nueva, sin repetir las consultas MCP de la primera entrega:
 - Graph API sí respondió consultas GET con una credencial local de la app.
   Se describen sus resultados en CAMP-10, sin publicar ningún token.
 - Consultas reproducibles preparadas en
-  [SQL temporal de investigación](/tmp/camp-atribucion-solo-lectura.sql):
+  `SQL temporal de investigación` (referencia histórica no disponible en este checkout):
   transacción `REPEATABLE READ READ ONLY`, límites de tiempo, solo agregados y
   `ROLLBACK`. **No ejecutadas contra datos: la base no está disponible.**
   El archivo está fuera de Git y no se debe commitear.

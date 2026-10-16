@@ -1,246 +1,63 @@
 # CRM Clínica Montalvo — backend
 
-API del CRM de una clínica estética en Bolivia. NestJS 10 + Prisma 7 + PostgreSQL.
-Lo usan a diario agentes de venta reales sobre datos de pacientes reales: **no hay
-entorno de staging**. Un error aquí lo ve una paciente.
+NestJS + Prisma + PostgreSQL; frontend Angular en el repo hermano.
+Esta es la entrada operativa común para Claude Code y los demás agentes.
 
-## Dónde está todo
+## Orientación y fuentes
 
-Dos repositorios hermanos bajo el mismo directorio padre:
+1. Comprueba `git status` y el historial; haz `git fetch` en los repos implicados
+   antes de editar. Conserva trabajo local ajeno; no sincronices con reset.
+2. Lee el [estado breve](docs/ESTADO_ACTUAL.md) y usa el [índice por tarea](docs/README.md) para elegir
+   la sección necesaria. No cargues todas las auditorías ni todas las skills.
+3. Busca primero la implementación y sus tests (`rg` y `git log --all -- <ruta>`).
+   Un «pendiente» histórico no demuestra que falte la funcionalidad.
 
-```
-CRM/
-├── backend-crm-montalvo/    ← estás aquí
-└── frontend-crm-montalvo/   ← Angular 21, PWA, desplegado en Vercel
-```
+La petición actual fija el alcance. El contrato ejecutable (código, schema,
+migraciones y tests) describe lo implementado; el [manifiesto](../frontend-crm-montalvo/CRM_MANIFESTO.md) fija
+los principios de arquitectura y marca. Las guías y skills explican decisiones.
+Si discrepan, contrasta la evidencia: no cambies comportamiento solo para hacer
+coincidir una frase, ni declares correcto un bug porque compila.
+`check:skills` valida comprobaciones concretas, no toda la prosa ni producción.
 
-`CRM_MANIFESTO.md` vive en el repo del **frontend** pero gobierna los dos: es la
-referencia de arquitectura que citan los skills.
+## Límites operativos
 
-## Antes de escribir código
+- No hay staging; producción atiende pacientes reales. No desplegar, reiniciar,
+  migrar, enviar mensajes ni cambiar Meta/VPS sin una petición que lo autorice.
+  Un push a `main` del frontend publica en Vercel; el del backend no despliega.
+- No copiar secretos, `.env` ni datos reales de pacientes a documentación,
+  prompts, ejemplos o logs. El alias SSH local `montalvo-vps` no identifica por
+  sí solo el servidor del CRM: distinguir CRM/Resultados de agenda ScriptCase.
+- No usar navegador en este proyecto; comprobar UI desde código y declarar el
+  límite. Para API, pruebas locales o `curl` contra desarrollo.
+- Actualizar la guía propietaria cuando cambie un contrato. El historial no es
+  una lista de órdenes; no crear un archivo de seguimiento por sesión.
 
-**Primero lee [`docs/PANORAMA.md`](docs/PANORAMA.md)** —el mapa de qué hay hoy: productos, módulos, pantallas, roles e integraciones— **y después [`docs/ESTADO_ACTUAL.md`](docs/ESTADO_ACTUAL.md)** y haz `git fetch`
-en los dos repos. Dice qué fase de la auditoría está cerrada, qué sigue y qué no
-hay que deshacer. Se trabaja desde dos máquinas: es normal encontrarse commits
-que no se hicieron aquí.
+## Reglas de implementación
 
-Carga el skill `crm-backend-module`. No es opcional ni es para cambios grandes:
-cubre paginación, escopado por rol, concurrencia en webhooks, firma de Meta y
-migraciones, y casi todo cambio toca al menos uno de esos. Su descripción explica
-cuándo aplica.
+- Cada módulo escribe sus tablas; pide mutaciones al service dueño. Lecturas
+  agregadas entre dominios permitidas. Excepciones en [PANORAMA](docs/PANORAMA.md#quién-escribe-cada-tabla).
+- Reutilizar helpers de roles, paginación, caché y trabajo en segundo plano.
+  No comparar roles a mano, añadir `any`, ni mezclar permiso con filtro de vista.
+- DTO con `class-validator`; webhooks Meta firmados; cambios de schema con
+  migración revisada. Tipos Prisma desde `src/prisma/prisma-client.ts`.
+- Antes de cambiar código, consultar **Reglas de oro** y las secciones del área
+  en [crm-backend-module](.claude/skills/crm-backend-module/SKILL.md).
+  Infraestructura/despliegue/rendimiento: solo la sección correspondiente de
+  [crm-backend-arquitectura](.claude/skills/crm-backend-arquitectura/SKILL.md).
+  No necesita leer esta última quien solo modifica documentación o un DTO.
 
-Ese skill documenta **cicatrices**, no teoría: cada regla está ahí porque algo se
-rompió en producción. Si una te parece excesiva, probablemente estás a punto de
-reintroducir el bug que la motivó.
+## Comprobación
 
-Para cualquier tarea que no sea "tocar un endpoint" —desplegar, diagnosticar
-lentitud, decidir si algo escala, u orientarte la primera vez en este repo—
-carga además `crm-backend-arquitectura`: infraestructura real del servidor,
-escala real de datos, cómo desplegar paso a paso, y dónde mirar para
-rendimiento sin inventar problemas que no existen a esta escala.
+Instalación y comandos: [README](README.md). Para código, `npm run build` es
+la compuerta oficial, más tests del comportamiento afectado; integración real
+si cambia persistencia, permisos o concurrencia. Para documentación, ejecutar
+`check:skills` en ambos repos si cambian sus contratos, comprobar enlaces y
+`git diff --check`; no repetir toda la suite de negocio por cambios de prosa.
+`test:integracion:preparar` **borra crm_test**: solo en PostgreSQL descartable propio.
 
 ## Skills de terceros
 
-Además de los propios, `.claude/skills/` trae dos skills oficiales copiados tal cual
-(no se editan: se reemplazan por la versión nueva de su repositorio):
-
-- `prisma-client-api` — de [prisma/skills](https://github.com/prisma/skills), escrito
-  para Prisma 7.
-- `supabase-postgres-best-practices` — de
-  [supabase/agent-skills](https://github.com/supabase/agent-skills): índices, bloqueos,
-  paginación y conexiones de Postgres.
-
-**Si contradicen a este repo, manda este repo** (este archivo, `crm-backend-module` y
-`crm-backend-arquitectura`). Dos casos conocidos: aquí las tablas usan los nombres de
-Prisma entre comillas (`"Conversacion"`), así que su regla de identificadores en
-minúscula no aplica; y no hay RLS: los permisos los pone NestJS. Los tipos se importan
-del barril `src/prisma/prisma-client.ts`, no de donde indique el skill. No se usa
-`prisma-cli` a propósito: enseña `migrate reset` y `db push`, que borran datos.
-`check:skills` no los contrasta con el código (lista `TERCEROS`).
-
-## Instalación y arranque local (Linux / macOS)
-
-Clonar ambos repositorios como hermanos. Entorno comprobado: Node 22.23.2 y
-npm 10.9.8; usar Node 22 >= 22.12 (los `engines` de dependencias son más
-restrictivos que el `>=22` del proyecto). PostgreSQL 16 para las integraciones.
-
-```bash
-npm ci
-cp .env.example .env   # solo si todavía no existe; completar variables locales
-npm run build
-npm test -- --runInBand
-npm run test:build
-```
-
-`npm ci` genera Prisma sin necesitar una base ni `.env`. Para arrancar la API,
-configurar `DATABASE_URL` hacia una base de desarrollo, `JWT_SECRET`, `PORT=3001`
-y `CORS_ORIGINS=http://localhost:4200`. Una base nueva necesita las migraciones
-**ya versionadas** (`npx prisma migrate deploy`) antes de `npm run start:dev`.
-No se requiere un dump ni una base particular de esta máquina. No usar los
-scripts históricos `scripts/seed-admin.js` / `scripts/import-pacientes.js`:
-aún importan el cliente anterior a Prisma 7; mantenimiento pendiente.
-
-Meta, R2 y VAPID son opcionales para levantar/verificar localmente; sin sus
-credenciales las integraciones externas quedan deshabilitadas. La plantilla
-`.env.example` contiene sus nombres, nunca credenciales reales. Los tests
-sintéticos usan exclusivamente `crm_test` local; la receta descartable está en
-[crm-backend-arquitectura §8](.claude/skills/crm-backend-arquitectura/SKILL.md).
-`test:integracion:preparar` **borra crm_test**: solo ejecutarlo sobre el servidor
-descartable propio, nunca sobre una base con datos que se quieran conservar.
-
-## Comandos
-
-```bash
-npm run build          # check:skills + nest build + check:build — la compuerta real
-npm run test:build     # verificador + builds limpio/consecutivo y fallo sin emisión, sin base
-npm test               # unitarias (rápidas, sin base)
-npm run test:integracion:preparar && npm run test:integracion   # necesitan Postgres
-npx prisma migrate dev --name <nombre> --create-only            # revisar el SQL antes
-```
-
-La base local escucha en el **puerto 5433**, no en el 5432.
-
-El build guarda su `tsBuildInfoFile` dentro de `dist`: `deleteOutDir` debe
-eliminar la caché junto con los artefactos. Con la caché fuera, un segundo
-build podía terminar con exit 0 sin reemitir `dist/main.js`. `check:build`
-rechaza un entrypoint ausente, vacío o que no sea archivo. No sustituye la
-prueba de arranque/DI ni los curls post-despliegue. Al cambiar el compilador,
-verificar un build limpio y otro consecutivo, y arrancar el artefacto real.
-
-`test:build` compila una copia temporal del código actual usando las dependencias
-ya instaladas (incluido el cliente Prisma generado). No copia `.env`, `dist` ni
-cachés previas. Comprueba también que `npm run build` falla si TypeScript termina
-sin errores pero no emite JavaScript (`noEmit`). No arranca la aplicación ni usa
-PostgreSQL; el arranque/DI se comprueba aparte con `node dist/main.js`, una base
-temporal y `NODE_ENV=test` para desactivar los trabajos periódicos. Verificar
-`GET /health` → 200, login vacío con JSON → 400 y periodos sin token → 401.
-
-**No uses el navegador en este proyecto.** Para probar un endpoint, `curl` contra
-la base local.
-
-## Invariantes
-
-- **`npm run build` es la verdad.** Encadena `check:skills`, que compara los skills
-  con el código y falla si mienten. Si te contradice, el equivocado es el skill:
-  corrígelo en el mismo commit.
-- **Ningún `any`.** Tampoco `catch (e: any)` — usa `unknown` y estrecha. Con
-  `strict` completo en `tsconfig` (`useUnknownInCatchVariables`), esto ya no es
-  solo convención: el compilador lo rechaza.
-- **Ningún módulo escribe la tabla de otro dominio.** Se llama a su service. Leer
-  para agregar o informar (KPIs, Servicios) sí está permitido. Las pocas
-  escrituras cruzadas que existen hoy están listadas, con su motivo, en
-  [PANORAMA](docs/PANORAMA.md#quién-escribe-cada-tabla); no añadas otra sin
-  apuntarla ahí.
-- **Todo listado se pagina.** Hay 15.000+ pacientes.
-- **Nunca compares roles a mano** (`rol === 'ADMIN'`): usa `alcanceAgente()` /
-  `cubreRol()` de `common/auth/roles.ts`. La jerarquía es `RECEPCION` y `ASISTENTE`
-  (0) < `AGENTE` (1) < `ADMIN` (2) < `SUPER_ADMIN` (3). Lo que el rango no expresa
-  son **capacidades** de la misma lista: `esRolOperativo()` (recepción y asistente:
-  atienden sus líneas sin alcance comercial) y `puedeEntregarResultados()`.
-- **Si tocas `schema.prisma`, la migración se genera y se commitea.** Sin eso, quien
-  clone el repo queda con la base desincronizada.
-- **Todo campo de un DTO lleva su decorador de `class-validator`.** El
-  `ValidationPipe` global corre con `whitelist: true`: un DTO sin decoradores no
-  llega incompleto, llega `{}` —siempre, sin lanzar y sin log—. `check:skills` lo
-  rechaza.
-- **Permiso y preferencia de vista son parámetros distintos.** El alcance por rol
-  sale de `alcanceAgente()`; un filtro de la interfaz (`?soloMios=true`) se combina
-  con AND y nunca lo sustituye. Fundirlos ya recortó en silencio lo que ven las
-  agentes.
-
-## Autenticación
-
-`POST /auth/login` devuelve un `access_token` de 8 horas (payload mínimo — nunca la
-foto, que a ~2 MB en base64 disparaba 431 Request Header Fields Too Large en
-cada petición) y un `refresh_token` de 30 días **absolutos desde el login** en
-cookie `HttpOnly`. El frontend vive en Vercel y esta API en otro dominio: es
-**cross-site**, así que la cookie necesita `SameSite=None; Secure` en
-producción (`Lax` alcanza en local, mismo sitio) — condicionado a `NODE_ENV`
-en `opcionesCookieRefresh()` (`auth.controller.ts`). Esa misma función arma
-las opciones tanto del `res.cookie()` de login como del `res.clearCookie()` de
-logout **a propósito**: si divergen en `path`/`sameSite`/`secure`, el
-navegador no borra la cookie y el logout falla en silencio.
-
-**`POST /auth/logout` revoca la sesión actual** en PostgreSQL y borra la cookie;
-otros dispositivos conservan sus sesiones. Access y refresh llevan `type`, `sid`
-y `versionSesion`: HTTP y socket comprueban propósito, sesión vigente, usuario
-activo y versión actual. Cambiar contraseña, rol o activo incrementa esa versión
-en el mismo UPDATE e invalida las credenciales anteriores del usuario. El refresh
-no se devuelve en JSON. En `refresh()`, solo un problema de credenciales responde 401: un parpadeo
-transitorio de la base no debe cerrarle la sesión a todo el mundo a la vez.
-Detalle completo, y el patrón para módulos nuevos con sesiones, en
-`crm-backend-module`.
-
-## Notificaciones
-
-`emitirActividad()` refresca las pestañas abiertas y lo llama todo. **Solo
-`notificarEntrante()` manda push al teléfono, y solo lo llama `procesarEntrante`** —
-el único punto donde ha escrito una paciente. Si haces que otro sitio notifique,
-las agentes recibirán avisos por sus propios envíos y por cada tilde de entrega de
-Meta; eso termina con la notificación desactivada y con la que sí importa perdida.
-
-**A quién le suena lo decide `LineasWhatsappService.audiencia()`, no quién ve la
-línea.** Cada persona —admins incluidos— puede silenciar una línea (`SilencioLinea`,
-desde su Perfil): la sigue viendo, pero solo le suenan sus chats asignados. El push y el aviso en la
-pestaña salen de la misma lista; no le pongas a uno una regla que el otro no tenga.
-
-Sin `VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY` la función queda apagada, igual que R2 y
-WhatsApp. **No generes llaves al vuelo**: cambian en cada reinicio e invalidan todas
-las suscripciones sin avisar.
-
-## Caché
-
-Una sola implementación: `common/cache/cache-memoria.ts` (TTL + tope de entradas +
-deduplicación de cargas en vuelo). **No escribas otro `Map` con `expiresAt` a mano** —
-había tres y una de ellas no borraba nunca, que es como se llegó a la fuga de KPIs.
-
-Vive en el proceso, no es distribuida. Si algún día el backend escala a varias
-instancias, ese archivo es el único sitio donde cambiar a Redis.
-
-## Observabilidad
-
-Toda petición HTTP lleva un `requestId` (cabecera `X-Request-Id`), asignado por
-`asignarRequestId` en `main.ts` — el primer middleware de la cadena. `LoggingInterceptor`
-(global, en `app.module.ts`) registra una línea por petición **exitosa**; `AllExceptionsFilter`
-(global, en `main.ts`) registra los errores. Entre los dos, cada petición deja exactamente una
-línea de log con su `requestId`, que también viaja en el cuerpo de cualquier error — así se
-cruza lo que vio la agente con el log del servidor sin depender de la hora aproximada. Ninguno
-de los dos registra cuerpo, cabeceras ni query string (son datos de pacientes).
-
-`AllExceptionsFilter` no cambia la forma de un `HttpException` normal (400/401/404 siguen
-siendo `{ statusCode, message, error }`, igual que antes): solo le suma `requestId`. Es la red
-de seguridad para lo que NO es un `HttpException` — antes cualquier error de programación caía
-al 500 default de Nest, sin forma consistente.
-
-`GET /health` (`common/health/`) es `@Public()` + `@SkipThrottle()` y verifica la base con
-`SELECT 1`; 503 si no responde. Sirve para monitoreo/systemd y para confirmar rápido que un
-despliegue subió — no reemplaza los dos curls de verificación post-despliegue (`/auth/login`
-vacío → 400, `/planilla-comisiones/periodos` sin token → 401), que prueban que el
-`ValidationPipe` y el guard siguen vivos.
-
-## Trampas conocidas
-
-- **Comisiones: el Excel importado viene en DÓLARES**, y se convierte a Bs con el
-  tipo de cambio al final. Asumir bolivianos en la base rompe el cálculo de forma
-  silenciosa — ya pasó. El razonamiento completo está en la cabecera de
-  `calculo-comisiones.service.ts`; léelo antes de tocar ese módulo.
-- **Dos campos con "%" en el nombre pueden tener unidades distintas.** `pctMonto`
-  es fracción; `pctEmpresa`/`pctPropio` de `NivelTipoARA` y hermanos ya nacen en
-  puntos porcentuales (`configuracion-por-defecto.ts`), mismo criterio que el
-  motor (`comisionUsd = base * porcentaje / 100`). Asumir fracción y multiplicar
-  por 100 de más infló un 4,5% hasta 450% en el Excel exportado — ya pasó, ver
-  la cabecera de `exportacion-comisiones.service.ts`. Antes de tocar un `%`,
-  confirma la unidad contra el sembrado o el motor, nunca contra el nombre del
-  campo.
-- **La UI muestra Bs (es-BO)**; el dólar es interno al cálculo de comisiones.
-- **`prisma/schema.prisma` es la fuente de verdad de los enums del frontend**, que
-  los genera desde aquí. Añadir un valor a un enum obliga a correr `npm run sync:tipos`
-  en el otro repo o su build falla.
-- **El cliente de Prisma se GENERA y no está en git.** Desde la v7 sale a
-  `src/generated/prisma/` en vez de vivir dentro de `@prisma/client`. Los tipos y
-  enums se importan del barril `src/prisma/prisma-client.ts`, nunca de
-  `@prisma/client` ni de la ruta generada. `npm ci` lo regenera solo
-  (`postinstall`).
-- **La URL de la base vive en DOS sitios distintos, a propósito.** La de la
-  aplicación la arma `PrismaService` con el adaptador `pg`; la del CLI (migrate,
-  studio) está en `prisma.config.ts`. El `schema.prisma` ya **no admite** `url`.
+`prisma-client-api` y `supabase-postgres-best-practices` son referencias opcionales
+copiadas de sus proveedores; no editarlas como reglas locales. Aquí no hay RLS,
+las tablas Prisma conservan mayúsculas y los tipos salen del barril local.
+Sus consejos no autorizan `db push`, `migrate reset` ni cambios de arquitectura.

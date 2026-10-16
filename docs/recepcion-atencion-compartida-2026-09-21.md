@@ -1,5 +1,10 @@
 # Recepción: atención compartida y actividades
 
+> Entrega histórica del 21/09. La asignación cambió el 25/09: contestar desde
+> Recepción ya no asigna un chat libre. Contrato vigente en
+> [líneas](lineas-whatsapp.md) y `acceso-conversacion.ts`; no restaurar esa asignación.
+
+
 El rol RECEPCION puede leer y responder todos los chats de sus líneas habilitadas, aunque estén asignados a otro usuario. La respuesta conserva al responsable existente del chat y al agente comercial del paciente. En un chat sin responsable se mantiene la asignación a quien responde primero, sin impedir el acceso a las demás recepcionistas de esa línea.
 
 La excepción se aplica en el filtro común del inbox, contadores, resumen, detalle, historial, búsqueda, lectura y envíos. Los destinatarios de WebSocket y push siguen el mismo alcance. Los roles AGENTE, ADMIN y SUPER_ADMIN conservan sus permisos.
