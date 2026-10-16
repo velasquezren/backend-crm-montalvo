@@ -157,8 +157,10 @@ export class AgendaReservasService {
         await this.r2.subir(clave, cuerpo, imagen.tipo);
         return clave;
       });
-    } catch {
-      this.logger.warn('QR de agenda no disponible para el chat');
+    } catch (error: unknown) {
+      /* Con el porqué: «no disponible» a secas no dejaba distinguir un QR
+         vencido o sin cargar en ScriptCase de una agenda que no respondió. */
+      this.logger.warn(`QR de agenda (banco ${bancoId}) no disponible para el chat: ${error instanceof Error ? error.message : 'falló'}`);
       return null;
     }
   }
