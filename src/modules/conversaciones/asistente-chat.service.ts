@@ -96,7 +96,7 @@ const ESPERA_POR_DEFECTO_MS = 3_000;
 const ESPERA_MAXIMA_MS = 20_000;
 /** Turnos simultáneos en todo el servidor: comparte máquina y pool con las agentes. */
 const TURNOS_SIMULTANEOS = 3;
-/** Si una persona escribió hace menos que esto, está atendiendo: el asistente no interrumpe. */
+/** Si una persona escribió hace menos que esto, está atendiendo: el asistente no interrumpe, salvo que lo haya devuelto ella («Marcar atendida»). */
 const PERSONA_ATENDIENDO_MS = 15 * 60_000;
 /** Una conversación con más turnos que esto en una hora es un bucle o un abuso. */
 const TURNOS_POR_HORA = 15;
@@ -324,7 +324,7 @@ export class AsistenteChatService implements ProgramadorAsistente, OnModuleInit,
     /* La pausa protege a una PACIENTE que pidió una persona; a un médico solo lo dejaría
        sin su agenda. Lo que sí vale para los dos: si una persona está escribiendo, no se interrumpe. */
     if (responde && !medico && conversacion.automatizacionPausadaEn) return registrar({ resultado: 'OMITIDO', motivo: 'La automatización está pausada: espera a una persona.' });
-    if (responde && personas.some(m => m.createdAt.getTime() > inicio - PERSONA_ATENDIENDO_MS)) {
+    if (responde && personas.some(m => m.createdAt.getTime() > inicio - PERSONA_ATENDIENDO_MS) && !(await this.devueltaTrasPersona(e.conversacionId, personas))) {
       return registrar({ resultado: 'OMITIDO', motivo: 'Una persona está atendiendo este chat.' });
     }
     const turnosRecientes = await this.prisma.turnoAsistente.count({
@@ -674,6 +674,20 @@ export class AsistenteChatService implements ProgramadorAsistente, OnModuleInit,
       },
       select: { id: true },
     }));
+  }
+
+  /**
+   * ¿Una persona del equipo le devolvió el chat a lo automático DESPUÉS de su último
+   * mensaje? Es «Marcar atendida» o «Reactivar» (`AUTOMATIZACION_REANUDADA`): con eso
+   * dijo explícitamente que la IA siga, y los 15 min de cortesía ya no esperan (15/10).
+   */
+  private async devueltaTrasPersona(conversacionId: string, personas: readonly { createdAt: Date }[]): Promise<boolean> {
+    const ultima = Math.max(...personas.map(m => m.createdAt.getTime()));
+    const devuelta = await this.prisma.auditLog.findFirst({
+      where: { entidad: 'Conversacion', entidadId: conversacionId, accion: 'AUTOMATIZACION_REANUDADA', createdAt: { gt: new Date(ultima) } },
+      select: { id: true },
+    });
+    return devuelta !== null;
   }
 
   /**

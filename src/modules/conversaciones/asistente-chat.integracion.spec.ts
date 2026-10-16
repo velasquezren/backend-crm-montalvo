@@ -601,6 +601,18 @@ describe('RESPONDER: lo que no le toca, pasa a una persona', () => {
     expect((await turnos(id)).at(-1)).toMatchObject({ resultado: 'OMITIDO', motivo: 'Una persona está atendiendo este chat.' });
   });
 
+  it('…salvo que la persona se lo devuelva con «Marcar atendida»: entonces la IA sigue sin esperar los 15 min', async () => {
+    clasificador.siguiente = { categoria: 'MEDICO', confianza: 'ALTA' };
+    const id = await escribir('puedo tomar ibuprofeno después del peeling?');
+    expect((await http(`/conversaciones/${id}/mensajes`, 'POST', usuarios.agente.token, { contenido: 'Sí, sin problema. Cualquier duda me escribe.', clientMessageId: randomUUID() })).status).toBe(201);
+    expect((await http(`/conversaciones/${id}/atencion/resolver`, 'POST', usuarios.admin.token, { reanudar: true })).status).toBe(201);
+    clasificador.siguiente = { categoria: 'VENTAS', confianza: 'ALTA', solicitud: 'CONSULTAR' };
+    modelo.guion = [dice('El control prenatal está a Bs 280.')];
+    await escribir('gracias, y cuánto cuesta el control prenatal?', 2);
+    expect((await turnos(id)).at(-1)).toMatchObject({ resultado: 'RESPONDIO' });
+    expect((await salientes(id)).at(-1)!.contenido).toContain('Bs 280');
+  });
+
   it('una foto o un toque no despiertan al asistente', async () => {
     expect((await webhook([foto()])).status).toBe(200);
     await reposo();

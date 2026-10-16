@@ -51,6 +51,8 @@ asignación comercial.
 - La pausa de la automatización es independiente: resolver no la levanta.
   La levantan `POST …/automatizacion/reanudar` o «Listo» (`resolver` con
   `{ "reanudar": true }`, 14/10/2026), ambos explícitos y auditados.
+  Con esa reactivación el asistente tampoco espera los 15 min que deja pasar tras
+  el último mensaje de una persona: quien la devolvió pidió que la IA siga (15/10/2026).
 
 ## Reglas deterministas
 
