@@ -24,7 +24,7 @@ locales al comenzar; una modificación sin commit puede pertenecer a otra tarea.
 | «Marcar atendida» | Resuelve y devuelve el chat a lo automático; desde `cc23475` la IA contesta el siguiente mensaje sin esperar los 15 min tras el último de una persona ([atención](atencion-humana.md)). Frontend `4279582` lo dice en el aviso. **Desplegado el 15/10** (20:17 La Paz, respaldo `/root/backup-crm-20261015-201607-marcar-atendida.sql.gz`; Vercel `5bc05e6`). |
 | Recepción | Existe modo **Solo médicos** (`0e5600a`): pacientes atendidos por personas/menú y médicos autorizados por el asistente. Configuración registrada en el [historial de octubre](historial/estado-2026-10.md). |
 | Agenda y pagos | Web, Flow y asistente usan `AgendaReservasService`; `ReservaChat` enlaza QR/comprobante. Una reserva y un comprobante no equivalen a confirmación de Caja. [Agenda](agenda.md), [pago por chat](reservas-pago-chat.md). |
-| Horarios FileMaker | Backend y frontend implementados (`06a0ac0`, `9b31bb7`); despliegue y bandera activa registrados en `62a6777`. **Aceptación desde FileMaker pendiente**: [procedimiento](filemaker-horarios.md). |
+| Horarios FileMaker | René confirmó envíos individuales; `DR1110` se verificó sincronizado. Soporte 15/30 min implementado y probado con MySQL real; pendiente desplegar esta ampliación y reenviar el horario con extremo :45. [Procedimiento y evidencia](filemaker-horarios.md). |
 | Mis informes | Implementado; despliegue del 13/10 registrado para prueba y Recepción (`ed7f204`, Resultados `1604ded`). [Contrato, permisos y banderas](informes-por-whatsapp.md). No tratarlo como preparación sin desplegar. |
 | Promociones y directorio | Pantallas Angular, API pública, tarjetas y reconocimiento PRM implementados. El directorio está enlazado a la agenda; [guía](promociones-y-directorio.md). |
 | PDF y autor del mensaje | Límite de PDF 15 MB (`f599547`, frontend `a57f9a6`); autor humano incorporado en `ee0806f`. Columnas nuevas requieren sus migraciones versionadas. |
@@ -46,8 +46,7 @@ justificar reabrirlos; una lista antigua de pendientes, por sí sola, no.
 
 ## Pendientes con alcance explícito
 
-- **FileMaker:** pegar la credencial por canal privado y ejecutar la aceptación
-  con un médico. No se puede certificar con los dobles MySQL de las pruebas.
+- **FileMaker:** después del despliegue 15/30, reenviar el horario 08:30–11:45. El envío individual ya funciona; carga colectiva y activador automático todavía requieren aceptación dentro de FileMaker.
 - **Clínica:** conocimiento y criterio de derivación por línea, orientación de
   emergencia y contenidos públicos. Las guías describen requisitos; no prueban
   cómo está configurada hoy cada línea.

@@ -1,7 +1,7 @@
 import type { PoolConnection, ResultSetHeader, RowDataPacket } from 'mysql2/promise';
 import { createHash } from 'node:crypto';
 import { precioDelVps, versionDeFoto } from './agenda.sql';
-import { CasillaActiva, DIAS_AGENDA, DiaAgenda, HORA_CASILLA, horarioHtml, horasDeLaGrilla } from './horario-html';
+import { CasillaActiva, DIAS_AGENDA, DiaAgenda, HORA_CASILLA, HORA_FILEMAKER, horarioHtml, horasDeLaGrilla } from './horario-html';
 
 /**
  * Administración de médicos y horarios de la agenda ScriptCase desde el CRM,
@@ -202,14 +202,14 @@ export interface FichaMedicoAgenda {
   medico: MedicoAgendaAdmin;
   casillas: CasillaAgenda[];
   /** Las filas y columnas de la grilla de horario: la regla vive aquí y no en la pantalla. */
-  grilla: { dias: readonly DiaAgenda[]; horas: string[] };
+  grilla: { dias: readonly DiaAgenda[]; horas: string[]; minutosConsulta: number };
   /** Huella de lo leído: se devuelve al guardar para no pisar un cambio ajeno. */
   version: string;
 }
 
 /** La ficha de un médico con TODAS sus casillas de horario, o null si no existe. */
 export async function fichaMedicoAgenda(db: Conexion, id: number): Promise<FichaMedicoAgenda | null> {
-  const [fila] = await filas(db, `SELECT ${COLUMNAS_MEDICO} FROM medicos m WHERE m.medico_pk = ?`, [id]);
+  const [fila] = await filas(db, `SELECT ${COLUMNAS_MEDICO}, m.minutos_consulta FROM medicos m WHERE m.medico_pk = ?`, [id]);
   if (!fila) return null;
   const horarios = await filas(
     db,
@@ -219,11 +219,11 @@ export async function fichaMedicoAgenda(db: Conexion, id: number): Promise<Ficha
   const casillas = horarios.map(h => ({ id: Number(h.id_hora), dia: String(h.dia ?? ''), hora: String(h.hora ?? ''), activa: h.estado === 'ACTIVO' }));
   const medico = aMedico(fila, casillas.filter(c => c.activa).length);
   const version = createHash('sha256')
-    .update(JSON.stringify([medico, casillas]))
+    .update(JSON.stringify([medico, casillas, Number(fila.minutos_consulta)]))
     .digest('hex')
     .slice(0, 16);
   const horas = horasDeLaGrilla(casillas.filter(c => (DIAS_AGENDA as readonly string[]).includes(c.dia)).map(c => c.hora));
-  return { medico, casillas, grilla: { dias: DIAS_AGENDA, horas }, version };
+  return { medico, casillas, grilla: { dias: DIAS_AGENDA, horas, minutosConsulta: Number(fila.minutos_consulta) }, version };
 }
 
 /** Los datos del médico que el CRM edita. El código de FileMaker no está, a propósito. */
@@ -292,7 +292,9 @@ export async function guardarHorarioAgenda(
   version: string,
   activas: readonly CasillaActiva[],
   htmlDelOrigen?: string,
+  minutosDelOrigen?: number,
 ): Promise<ResultadoAdminAgenda<CambiosHorario>> {
+  if (minutosDelOrigen !== undefined && ![15, 30].includes(minutosDelOrigen)) return { ok: false, motivo: 'CASILLA_INVALIDA' };
   const vigente = await fichaVigente(db, id, version);
   if (!vigente.ok) return vigente;
   const { medico, casillas } = vigente.valor;
@@ -302,7 +304,7 @@ export async function guardarHorarioAgenda(
   const pedidas = new Map<string, CasillaActiva>();
   for (const c of activas) {
     if (!(DIAS_AGENDA as readonly string[]).includes(c.dia)) return { ok: false, motivo: 'CASILLA_INVALIDA' };
-    if (!HORA_CASILLA.test(c.hora) && !existentes.has(clave(c.dia, c.hora))) return { ok: false, motivo: 'CASILLA_INVALIDA' };
+    if (!(minutosDelOrigen !== undefined ? HORA_FILEMAKER : HORA_CASILLA).test(c.hora) && !existentes.has(clave(c.dia, c.hora))) return { ok: false, motivo: 'CASILLA_INVALIDA' };
     pedidas.set(clave(c.dia, c.hora), c);
   }
 
@@ -311,29 +313,32 @@ export async function guardarHorarioAgenda(
   const nuevas = [...pedidas.values()].filter(c => !existentes.has(clave(c.dia, c.hora)));
   if (nuevas.length > 0 && !medico.codigo) return { ok: false, motivo: 'SIN_CODIGO' };
 
-  let encendidas = 0;
-  let apagadas = 0;
+  const encender: number[] = [], apagar: number[] = [];
   for (const c of casillas) {
     if (!(DIAS_AGENDA as readonly string[]).includes(c.dia)) continue;
     const debeEstarActiva = pedidas.has(clave(c.dia, c.hora));
     if (debeEstarActiva === c.activa) continue;
-    await db.execute<ResultSetHeader>(`UPDATE horarios SET estado = ? WHERE id_hora = ? AND medico_pk = ?`, [
-      debeEstarActiva ? 'ACTIVO' : 'INACTIVO', c.id, id,
-    ]);
-    if (debeEstarActiva) encendidas++;
-    else apagadas++;
+    (debeEstarActiva ? encender : apagar).push(c.id);
   }
-
-  for (const c of nuevas) {
+  // Una escritura por estado y una inserción: no hacer cientos de viajes por
+  // Internet cuando un médico pasa de media hora a cuartos de hora.
+  for (const [estado, ids] of [['ACTIVO', encender], ['INACTIVO', apagar]] as const) {
+    if (!ids.length) continue;
+    await db.execute<ResultSetHeader>(`UPDATE horarios SET estado = ? WHERE medico_pk = ? AND id_hora IN (${ids.map(() => '?').join(',')})`, [estado, id, ...ids]);
+  }
+  if (nuevas.length) {
     await db.execute<ResultSetHeader>(
-      `INSERT INTO horarios (hora, orden, dia, medico_pk, cod_med, estado) VALUES (?, 0, ?, ?, ?, 'ACTIVO')`,
-      [`${c.hora}:00`, c.dia, id, medico.codigo],
+      `INSERT INTO horarios (hora, orden, dia, medico_pk, cod_med, estado) VALUES ${nuevas.map(() => "(?, 0, ?, ?, ?, 'ACTIVO')").join(',')}`,
+      nuevas.flatMap(c => [`${c.hora}:00`, c.dia, id, medico.codigo]),
     );
   }
 
+  if (minutosDelOrigen !== undefined) {
+    await db.execute<ResultSetHeader>('UPDATE medicos SET minutos_consulta = ? WHERE medico_pk = ?', [minutosDelOrigen, id]);
+  }
   const html = htmlDelOrigen ?? horarioHtml([...pedidas.values()].map(c => ({ dia: c.dia as DiaAgenda, hora: c.hora })));
   await db.execute<ResultSetHeader>(`UPDATE medicos SET horario_html = ? WHERE medico_pk = ?`, [html, id]);
-  return { ok: true, valor: { encendidas, apagadas, creadas: nuevas.length, horarioHtml: html } };
+  return { ok: true, valor: { encendidas: encender.length, apagadas: apagar.length, creadas: nuevas.length, horarioHtml: html } };
 }
 
 /** Alta de un médico, como `form_medicos`: id MAX+1 y el código de FileMaker que da la clínica. */

@@ -36,6 +36,7 @@ INSERT INTO agenda_med (cod_med,fecha,hora,estado,paciente) VALUES ('A',CURRENT_
 INSERT INTO para_agendar (para_age,medico_pk,fecha,hora,nombre_age,ci_age,estado,uno) VALUES
 (1,1,CURRENT_DATE()+INTERVAL 1 DAY,'13:00','Paciente sintético','ci-sintetico','PENDIENTE',1),
 (5,1,CURRENT_DATE()+INTERVAL 1 DAY,'11:00','Paciente sintético','ci-sintetico','ATENDIDO',1);
+ALTER TABLE medicos ADD COLUMN minutos_consulta TINYINT UNSIGNED NOT NULL DEFAULT 30, ADD CONSTRAINT ck_medicos_minutos_consulta CHECK (minutos_consulta IN (15,30));
 CREATE USER 'crm_agenda_lectura'@'%' IDENTIFIED BY 'solo-pruebas-sinteticas-no-produccion-2026' REQUIRE SSL WITH MAX_USER_CONNECTIONS 4;
 GRANT SELECT (medico_pk,nombre,sigla,especialidad,estado,horario_html,precio_con,orden,foto) ON clinica.medicos TO 'crm_agenda_lectura'@'%';
 GRANT SELECT (medico_pk,dia,hora,estado,cod_med) ON clinica.horarios TO 'crm_agenda_lectura'@'%';
@@ -81,3 +82,9 @@ GRANT SELECT (id_hora, medico_pk, cod_med, dia, hora, estado) ON clinica.horario
 GRANT INSERT (hora, orden, dia, medico_pk, cod_med, estado) ON clinica.horarios TO 'crm_agenda_admin'@'%';
 GRANT UPDATE (estado) ON clinica.horarios TO 'crm_agenda_admin'@'%';
 GRANT SELECT (qr_pk, banco, fecha_vence) ON clinica.pagos_qr TO 'crm_agenda_admin'@'%';
+
+-- Duración compartida por disponibilidad, reserva y edición; sin ampliar otros permisos.
+GRANT SELECT (minutos_consulta) ON clinica.medicos TO 'crm_agenda_lectura'@'%';
+GRANT SELECT (minutos_consulta) ON clinica.medicos TO 'crm_agenda_reserva'@'%';
+GRANT SELECT (minutos_consulta) ON clinica.medicos TO 'crm_agenda_admin'@'%';
+GRANT UPDATE (minutos_consulta) ON clinica.medicos TO 'crm_agenda_admin'@'%';

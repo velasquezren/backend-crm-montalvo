@@ -74,7 +74,7 @@ const claveDeCodigo = (codigo: string) => codigo.trim().toUpperCase();
 /** El horario de la web que corresponde a las casillas encendidas de una ficha. */
 function bloquesDeFicha(f: FichaMedicoAgenda) {
   return bloquesDeCasillas(
-    f.casillas.filter(c => c.activa && (f.grilla.dias as readonly string[]).includes(c.dia)).map(c => ({ dia: c.dia as DiaAgenda, hora: c.hora })),
+    f.casillas.filter(c => c.activa && (f.grilla.dias as readonly string[]).includes(c.dia)).map(c => ({ dia: c.dia as DiaAgenda, hora: c.hora })), f.grilla.minutosConsulta,
   );
 }
 
@@ -271,7 +271,7 @@ export class AgendaMedicosCrmService {
 
   private bloquesWeb(ficha: FichaMedicoAgenda) {
     return this.horariosFilemaker.activo()
-      ? bloquesContiguos(ficha.casillas.filter(c => c.activa && (ficha.grilla.dias as readonly string[]).includes(c.dia)).map(c => ({ dia: c.dia as DiaAgenda, hora: c.hora })))
+      ? bloquesContiguos(ficha.casillas.filter(c => c.activa && (ficha.grilla.dias as readonly string[]).includes(c.dia)).map(c => ({ dia: c.dia as DiaAgenda, hora: c.hora })), ficha.grilla.minutosConsulta)
       : bloquesDeFicha(ficha);
   }
 

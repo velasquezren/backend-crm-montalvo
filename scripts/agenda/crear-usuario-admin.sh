@@ -13,6 +13,7 @@
 # del CRM y no se muestra. Requiere `clave-casa` cargada (ssh-add) y el alias
 # `montalvo-vps`. La política validate_password exige mayúscula, minúscula,
 # número y símbolo; se usan solo «-» y «_» porque el .env se lee con `.`.
+# Requiere antes scripts/agenda/duracion-consulta.sql (columna de duración).
 set -euo pipefail
 P="Ad-$(openssl rand -base64 48 | tr -dc 'A-Za-z0-9' | head -c 36)_7m"
 [ ${#P} -ge 40 ] || { echo "No se pudo generar la contraseña"; exit 1; }
@@ -22,8 +23,10 @@ cat <<SQL
 CREATE USER IF NOT EXISTS 'crm_agenda_admin'@$H IDENTIFIED BY '$P' REQUIRE SSL WITH MAX_USER_CONNECTIONS 3;
 ALTER USER 'crm_agenda_admin'@$H IDENTIFIED BY '$P';
 GRANT SELECT (medico_pk, codigo, nombre, sigla, especialidad, telefono, estado, horario_html, orden, precio_con, banco, foto) ON clinica.medicos TO 'crm_agenda_admin'@$H;
+GRANT SELECT (minutos_consulta) ON clinica.medicos TO 'crm_agenda_admin'@$H;
 GRANT INSERT (medico_pk, codigo, nombre, sigla, especialidad, telefono, estado, horario_html, orden, precio_con, banco) ON clinica.medicos TO 'crm_agenda_admin'@$H;
 GRANT UPDATE (nombre, sigla, especialidad, telefono, estado, horario_html, orden, precio_con, banco) ON clinica.medicos TO 'crm_agenda_admin'@$H;
+GRANT UPDATE (minutos_consulta) ON clinica.medicos TO 'crm_agenda_admin'@$H;
 GRANT SELECT (id_hora, medico_pk, cod_med, dia, hora, estado) ON clinica.horarios TO 'crm_agenda_admin'@$H;
 GRANT INSERT (hora, orden, dia, medico_pk, cod_med, estado) ON clinica.horarios TO 'crm_agenda_admin'@$H;
 GRANT UPDATE (estado) ON clinica.horarios TO 'crm_agenda_admin'@$H;

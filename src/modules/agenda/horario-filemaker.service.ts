@@ -74,7 +74,7 @@ export class HorarioFilemakerService implements OnModuleInit, OnModuleDestroy {
         }
         const campos = { registroId: datos.registroId, medicoAgendaId: ids[0], revision: datos.revision, huella, datos: JSON.parse(JSON.stringify(datos)) as Prisma.InputJsonValue, pendiente: true };
         await tx.horarioFilemaker.upsert({ where: { codigo: datos.medicoCodigo }, create: { codigo: datos.medicoCodigo, ...campos }, update: campos });
-        await tx.auditLog.create({ data: { entidad: 'HorarioFilemaker', entidadId: datos.medicoCodigo, accion: 'HORARIO_FILEMAKER_RECIBIDO', cambios: { registroId: datos.registroId, revision: datos.revision, medicoAgendaId: ids[0], cupos: preparado.activas.length } } });
+        await tx.auditLog.create({ data: { entidad: 'HorarioFilemaker', entidadId: datos.medicoCodigo, accion: 'HORARIO_FILEMAKER_RECIBIDO', cambios: { registroId: datos.registroId, revision: datos.revision, medicoAgendaId: ids[0], cupos: preparado.activas.length, minutosConsulta: preparado.minutosConsulta } } });
       });
     } catch (error: unknown) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') throw new ConflictException('Este registro o médico ya tiene otra vinculación de horario.');
@@ -96,7 +96,7 @@ export class HorarioFilemakerService implements OnModuleInit, OnModuleDestroy {
         const resultado = await this.agenda.enTransaccion(async db => {
           const ficha = await fichaMedicoAgenda(db, fila.medicoAgendaId);
           if (!ficha || ficha.medico.codigo?.trim().toUpperCase() !== codigo) return null;
-          const guardado = await guardarHorarioAgenda(db, fila.medicoAgendaId, ficha.version, preparado.activas, preparado.html);
+          const guardado = await guardarHorarioAgenda(db, fila.medicoAgendaId, ficha.version, preparado.activas, preparado.html, preparado.minutosConsulta);
           return guardado.ok ? ficha.medico : null;
         });
         if (!resultado) throw new ConflictException('El médico o su código cambió en la agenda. Debe revisarse la vinculación.');
@@ -108,9 +108,9 @@ export class HorarioFilemakerService implements OnModuleInit, OnModuleDestroy {
         });
         sincronizadoEn = new Date();
         await tx.horarioFilemaker.update({ where: { codigo }, data: { pendiente: false, sincronizadoEn } });
-        await tx.auditLog.create({ data: { entidad: 'HorarioFilemaker', entidadId: codigo, accion: 'HORARIO_FILEMAKER_SINCRONIZADO', cambios: { revision: fila.revision, medicoAgendaId: fila.medicoAgendaId, cupos: preparado.activas.length } } });
+        await tx.auditLog.create({ data: { entidad: 'HorarioFilemaker', entidadId: codigo, accion: 'HORARIO_FILEMAKER_SINCRONIZADO', cambios: { revision: fila.revision, medicoAgendaId: fila.medicoAgendaId, cupos: preparado.activas.length, minutosConsulta: preparado.minutosConsulta } } });
       }
-      return { estado: 'SINCRONIZADO' as const, registroId: fila.registroId, medicoCodigo: codigo, revision: fila.revision, medicoAgendaId: fila.medicoAgendaId, cupos: preparado.activas.length, sincronizadoEn };
+      return { estado: 'SINCRONIZADO' as const, registroId: fila.registroId, medicoCodigo: codigo, revision: fila.revision, medicoAgendaId: fila.medicoAgendaId, cupos: preparado.activas.length, minutosConsulta: preparado.minutosConsulta, sincronizadoEn };
     }, { timeout: 25_000, maxWait: 5_000 });
     this.avisos.next(respuesta.medicoAgendaId);
     return respuesta;

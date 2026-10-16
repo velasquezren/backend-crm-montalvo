@@ -1,3 +1,7 @@
+import { AgendaAdminClient } from './agenda-admin.client';
+import { fichaMedicoAgenda, guardarHorarioAgenda } from './agenda-admin.sql';
+import { prepararHorarioFilemaker } from './horario-filemaker';
+import { DIAS_AGENDA } from './horario-html';
 import { Global, INestApplication, Module, ValidationPipe } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
@@ -826,6 +830,60 @@ ejecutar('Agenda HTTP → adaptador TLS → MySQL real descartable', () => {
     const token=sellarTokenFlow('59170012345',Date.now(),'linea-apagada');
     expect((await pantallaDelFlow({action:'INIT',flow_token:token})).status).toBe(427);
     expect((await pantallaDelFlow({action:'INIT',flow_token:sellarTokenFlow('59170012345')})).status).toBe(427);
+  });
+
+  it('FileMaker 08:30–11:45: persiste 15 min y descuenta el cuarto correcto al consultar y reservar', async () => {
+    const db = await conexionRoot();
+    const admin = app.get(AgendaAdminClient);
+    const id = 901;
+    const fechaConsulta = fecha(new Date(`${fecha(1)}T12:00:00Z`).getUTCDay() === 0 ? 2 : 1);
+    const preparado = prepararHorarioFilemaker({
+      registroId: 'hm-cuarto-sintetico', medicoCodigo: 'CUARTO', revision: 1, estado: 'ACTIVO', sucursal: '', minutosConsulta: 30,
+      dias: DIAS_AGENDA.map(dia => ({ dia, mananaInicio: '08:30', mananaUltima: '11:45', tardeInicio: '', tardeUltima: '' })),
+    });
+    try {
+      await db.query("INSERT INTO medicos (medico_pk,codigo,nombre,sigla,especialidad,estado,precio_con,banco,orden) VALUES (901,'CUARTO','Profesional cuarto sintético','Dra.','Prueba','ACTIVO',100,7,0)");
+      await admin.enTransaccion(async conn => {
+        const f = (await fichaMedicoAgenda(conn, id))!;
+        expect((await guardarHorarioAgenda(conn, id, f.version, preparado.activas, preparado.html, preparado.minutosConsulta)).ok).toBe(true);
+      });
+      const ficha = (await admin.consultar(conn => fichaMedicoAgenda(conn, id)))!;
+      expect(ficha.grilla.minutosConsulta).toBe(15);
+      expect(ficha.casillas.filter(c => c.activa)).toHaveLength(84);
+      expect(ficha.grilla.horas).toContain('11:45');
+      const horas = async () => {
+        const r = await get(`disponibilidad?medicoId=${id}&fecha=${fechaConsulta}`);
+        expect(r.status).toBe(200);
+        return (await r.json() as { horarios: { hora: string }[] }).horarios.map(h => h.hora);
+      };
+      expect(await horas()).toHaveLength(14);
+      await db.query("INSERT INTO agenda_med (cod_med,fecha,hora,estado) VALUES ('CUARTO',?,'11:45','CREADO')", [fechaConsulta]);
+      await db.query("INSERT INTO para_agendar (para_age,medico_pk,fecha,hora,estado) VALUES (99001,901,?,'09:15','PAGADO')", [fechaConsulta]);
+      expect(await horas()).toEqual(['08:30','08:45','09:00','09:30','09:45','10:00','10:15','10:30','10:45','11:00','11:15','11:30']);
+      const pedir = (hora: string) => reservar({ medicoId: String(id), fecha: fechaConsulta, hora });
+      expect((await pedir('11:45')).status).toBe(409);
+      expect((await pedir('09:15')).status).toBe(409);
+      expect((await pedir('09:30')).status).toBe(201);
+      expect((await pedir('09:30')).status).toBe(409);
+      expect(await horas()).toContain('09:45');
+      expect(await horas()).not.toContain('09:30');
+      const [web] = await db.query<RowDataPacket[]>("SELECT hora_disponible FROM vista_horas_libres WHERE medico_pk=? AND fecha=? AND estado='ACTIVO'", [id, fechaConsulta]);
+      expect(web.map(h => h.hora_disponible)).toContain('11:30:00');
+      expect(web.map(h => h.hora_disponible)).not.toContain('11:45:00');
+      // La duración y los cupos no quedan desparejados si la transacción falla.
+      await expect(admin.enTransaccion(async conn => {
+        const f = (await fichaMedicoAgenda(conn, id))!;
+        await guardarHorarioAgenda(conn, id, f.version, [{ dia: 'Lunes', hora: '08:30' }], '', 30);
+        throw new Error('Fallo sintético después de guardar');
+      })).rejects.toThrow();
+      expect((await admin.consultar(conn => fichaMedicoAgenda(conn, id)))!.grilla.minutosConsulta).toBe(15);
+    } finally {
+      await db.query('DELETE FROM para_agendar WHERE medico_pk=?', [id]);
+      await db.query("DELETE FROM agenda_med WHERE cod_med='CUARTO'");
+      await db.query('DELETE FROM horarios WHERE medico_pk=?', [id]);
+      await db.query('DELETE FROM medicos WHERE medico_pk=?', [id]);
+      await db.end();
+    }
   });
 
 });

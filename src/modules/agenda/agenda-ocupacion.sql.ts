@@ -19,7 +19,7 @@ import type { PoolConnection, RowDataPacket } from 'mysql2/promise';
  *
  * «La casilla que la contiene» y no «esa hora exacta»: FileMaker agenda a `:15`
  * y `:45`, fuera de la grilla de media hora, y comparando la hora exacta esas
- * citas no ocupaban nada. Ver `CASILLA_QUE_CONTIENE` para la medición.
+ * citas no ocupaban nada. La duración del médico define esa casilla.
  *
  * No se toca la vista: la sigue usando ScriptCase tal cual.
  */
@@ -32,31 +32,13 @@ export const ESTADOS_QUE_OCUPAN = ['PENDIENTE', 'PAGADO'] as const;
 /** El único estado de `agenda_med` que ocupa: las citas vigentes. */
 export const ESTADO_CITA_VIGENTE = 'CREADO';
 
-/** Los segundos que dura una casilla de `horarios`: media hora. */
-export const SEGUNDOS_CASILLA = 1800;
-
 /**
- * La casilla de 30 minutos que CONTIENE esa hora: `11:45` → `11:30`.
- *
- * FileMaker no agenda en la grilla. Medido en producción el 2026-10-10, de 308
- * citas `CREADO` futuras hay **41 fuera de la grilla** —23 a `:15` y 18 a
- * `:45`, ninguna a otro minuto—, y **24 de ellas caen dentro de una casilla que
- * la web estaba ofreciendo**, en 9 médicos. Comparando `h.hora = a.hora` esas
- * citas no ocupaban nada: la paciente reservaba y llegaba a una consulta
- * tomada.
- *
- * Es el 8% de las citas, y por eso nadie lo había notado. Importa más de aquí
- * en adelante: cualquier cosa que multiplique las reservas multiplica el choque.
- *
- * **Ocupa la casilla que contiene el INICIO de la cita, no las siguientes.**
- * `agenda_med` guarda la hora pero no la duración, así que una cita de 11:45
- * que durara una hora tocaría también la casilla de 12:00 y eso no se puede
- * saber desde la tabla. Suponer una duración quitaría cupos sin fundamento;
- * esto quita exactamente los que constan ocupados.
+ * Cada cupo contiene los inicios en [hora, hora + minutos_consulta).
+ * Así 11:45 ocupa 11:30 para un médico de 30 min y 11:45 para uno de 15.
+ * También funciona con consultas de 30 min que empiezan a :15.
+ * agenda_med no guarda duración individual: no inferimos citas especiales
+ * más largas ni modificamos las citas que recepción ya registró.
  */
-const CASILLA_QUE_CONTIENE = (columna: string) =>
-  `SEC_TO_TIME(FLOOR(TIME_TO_SEC(${columna}) / ${SEGUNDOS_CASILLA}) * ${SEGUNDOS_CASILLA})`;
-
 export interface HoraLibre {
   /** AAAA-MM-DD */
   fecha: string;
@@ -79,6 +61,7 @@ export interface FiltroHorasLibres {
  * Bolivia), de casillas `ACTIVO` de `horarios`. Ordenadas por fecha y hora.
  */
 export async function horasLibres(db: Lector, f: FiltroHorasLibres): Promise<HoraLibre[]> {
+  // 3000 cubre 30 días completos de cupos de 15 min sin truncar el calendario.
   const soloHora = f.hora ? 'AND h.hora = ?' : '';
   // `ocupadas` recorre agenda_med UNA vez (no tiene índices: es de FileMaker y
   // no se le agregan) y deja solo las citas vigentes de este médico en el rango;
@@ -96,31 +79,32 @@ export async function horasLibres(db: Lector, f: FiltroHorasLibres): Promise<Hor
        UNION ALL SELECT fecha + INTERVAL 1 DAY FROM fechas WHERE fecha < CAST(? AS DATE)
      ),
      turnos AS (
-       SELECT DISTINCT f.fecha, h.hora, h.cod_med
+       SELECT DISTINCT f.fecha, h.hora, h.cod_med, m.minutos_consulta
          FROM fechas f
          JOIN horarios h ON h.medico_pk = ? AND h.estado = 'ACTIVO' ${soloHora}
           AND h.dia = ELT(DAYOFWEEK(f.fecha), 'Domingo', 'Lunes', 'Martes', 'Miercoles', 'Jueves', 'Viernes', 'Sabado')
+         JOIN medicos m ON m.medico_pk = h.medico_pk
      ),
      ocupadas AS (
-       SELECT DISTINCT a.cod_med, a.fecha, ${CASILLA_QUE_CONTIENE('a.hora')} AS hora
+       SELECT DISTINCT a.cod_med, a.fecha, a.hora
          FROM agenda_med a
         WHERE a.estado = ? AND a.fecha BETWEEN CAST(? AS DATE) AND CAST(? AS DATE)
           AND a.cod_med IN (SELECT DISTINCT cod_med FROM turnos)
      ),
      reservadas AS (
-       SELECT DISTINCT p.fecha, ${CASILLA_QUE_CONTIENE('p.hora')} AS hora
+       SELECT DISTINCT p.fecha, p.hora
          FROM para_agendar p
         WHERE p.medico_pk = ? AND p.fecha BETWEEN CAST(? AS DATE) AND CAST(? AS DATE)
           AND p.estado IN (${ESTADOS_QUE_OCUPAN.map(() => '?').join(',')})
      )
      SELECT DISTINCT DATE_FORMAT(t.fecha, '%Y-%m-%d') AS fecha, DATE_FORMAT(t.hora, '%H:%i') AS hora
        FROM turnos t
-       LEFT JOIN ocupadas o ON o.cod_med = t.cod_med AND o.fecha = t.fecha AND o.hora = t.hora
-       LEFT JOIN reservadas r ON r.fecha = t.fecha AND r.hora = t.hora
+       LEFT JOIN ocupadas o ON o.cod_med = t.cod_med AND o.fecha = t.fecha AND o.hora >= t.hora AND TIME_TO_SEC(o.hora) < TIME_TO_SEC(t.hora) + t.minutos_consulta * 60
+       LEFT JOIN reservadas r ON r.fecha = t.fecha AND r.hora >= t.hora AND TIME_TO_SEC(r.hora) < TIME_TO_SEC(t.hora) + t.minutos_consulta * 60
       WHERE o.fecha IS NULL AND r.fecha IS NULL
         AND (t.fecha > CURRENT_DATE() OR (t.fecha = CURRENT_DATE() AND t.hora > CURRENT_TIME()))
       ORDER BY fecha, hora
-      LIMIT 1500`,
+      LIMIT 3000`,
     [
       f.desde, f.hasta, f.medicoId, ...(f.hora ? [`${f.hora}:00`] : []),
       ESTADO_CITA_VIGENTE, f.desde, f.hasta,

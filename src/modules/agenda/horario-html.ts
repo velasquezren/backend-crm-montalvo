@@ -1,7 +1,7 @@
 /**
  * El horario de un médico en la agenda ScriptCase, en sus dos formas:
  *
- * - `horarios`: una fila por casilla de 30 minutos, día por día (Lunes…Sabado,
+ * - `horarios`: una fila por casilla de 15 o 30 minutos, día por día (Lunes…Sabado,
  *   sin tildes y sin Domingo), que se enciende o apaga con `estado` ACTIVO /
  *   INACTIVO. Es lo que da cupos (`agenda-ocupacion.sql.ts` y la vista de ScriptCase).
  * - `medicos.horario_html`: el recuadro verde de 6 × 2 cm que muestran la web de
@@ -34,7 +34,7 @@ export const INICIO_TARDE = '13:00';
 /** «09:30» → «9:30», como escribe ScriptCase. */
 const sinCeroInicial = (hora: string) => hora.replace(/^0(\d)/, '$1');
 
-/** «9:30-11:00»: la primera y la última casilla del turno (la última es la hora de inicio de su turno de 30 min). */
+/** «9:30-11:00»: la primera y la última casilla del turno (la última es la hora de inicio de su consulta). */
 function rango(horas: string[]): string {
   if (horas.length === 0) return '';
   const orden = [...horas].sort();
@@ -93,6 +93,9 @@ export function horarioHtmlPorTurnos(turnos: readonly { dia: DiaAgenda; manana: 
 /** Una hora de casilla válida: HH:MM en punto o y media, de 05:00 a 22:30. */
 export const HORA_CASILLA = /^(0[5-9]|1\d|2[0-2]):(00|30)$/;
 
+/** FileMaker admite consultas de 15 o 30 minutos; última cita hasta las 22:30. */
+export const HORA_FILEMAKER = /^(?:(?:0[5-9]|1\d|2[01]):(?:00|15|30|45)|22:(?:00|15|30))$/;
+
 /**
  * Las horas que muestra la grilla del CRM: de 07:00 a 20:30 cada media hora,
  * más cualquier hora que el médico ya tenga en la agenda fuera de ese rango
@@ -121,12 +124,12 @@ const minutos = (hora: string) => Number(hora.slice(0, 2)) * 60 + Number(hora.sl
  * y uno de tarde, de la primera casilla al final de la última (+30 min). Es lo
  * mismo que dice el recuadro de `horario_html`, con la hora de fin real.
  */
-export function bloquesDeCasillas(casillas: readonly CasillaActiva[]): BloqueDeAgenda[] {
+export function bloquesDeCasillas(casillas: readonly CasillaActiva[], minutosConsulta = 30): BloqueDeAgenda[] {
   const bloques: BloqueDeAgenda[] = [];
   DIAS_AGENDA.forEach((dia, i) => {
     for (const tarde of [false, true]) {
       const horas = casillas.filter(c => c.dia === dia && (c.hora >= INICIO_TARDE) === tarde).map(c => minutos(c.hora)).sort((a, b) => a - b);
-      if (horas.length) bloques.push({ diaSemana: i + 1, inicioMinuto: horas[0], finMinuto: horas[horas.length - 1] + 30 });
+      if (horas.length) bloques.push({ diaSemana: i + 1, inicioMinuto: horas[0], finMinuto: horas[horas.length - 1] + minutosConsulta });
     }
   });
   return bloques;

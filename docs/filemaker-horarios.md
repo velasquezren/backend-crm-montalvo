@@ -1,14 +1,34 @@
 # Horarios de consulta: FileMaker → agenda → CRM
 
-Decisión de René, 15/10/2026: FileMaker local es el lugar de edición del horario
-semanal de CONSULTAS. Son de 30 minutos. La hora final es el inicio de la última
-cita: 12:30 significa una consulta de 12:30 a 13:00. Reconsultas de 15 minutos,
-otras actividades, reservas pagadas y su pase a agenda quedan fuera de este cambio.
+Decisión de René, 15/10/2026: FileMaker local edita el horario semanal de CONSULTAS.
+La hora final es el inicio de la última cita: 12:30 con 30 minutos termina a las 13:00.
+Las consultas son de 30 minutos por defecto. Si algún tramo no encaja en 30 pero
+sí en 15 (08:30–11:45), el servidor usa **15 minutos para toda la semana del médico**:
+08:30, 08:45…11:45; termina a las 12:00. No redondea horas ni añade un último cupo
+solapado. También se puede enviar `minutosConsulta: 15` explícitamente cuando los
+extremos por sí solos no distinguen la duración (por ejemplo 09:00–12:00).
+Un rango 08:15–09:15 sigue admitiendo 30: 08:15, 08:45, 09:15.
+La respuesta devuelve `minutosConsulta` efectivo. El guion actual que envía 30
+no necesita cambios para los rangos que requieren cuartos de hora.
+Reconsultas y otras actividades, reservas pagadas y su pase a agenda siguen fuera.
+
+La duración efectiva se guarda en MySQL `medicos.minutos_consulta`, en la MISMA
+transacción que los cupos y el HTML. La disponibilidad pública y la reserva leen
+esa columna. La ficha del CRM muestra la duración y los bloques informativos de
+la web terminan después de la última consulta (15 o 30 min). Los cupos de
+`horarios` también quedan disponibles para ScriptCase.
+
+Limitación del legado: `agenda_med` no registra duración individual. La comprobación
+ocupa el cupo que contiene el inicio de cada cita vigente, con la duración semanal
+del médico; no puede deducir consultas excepcionalmente más largas ni cambia citas
+existentes. La vista propia de ScriptCase conserva su lógica histórica (no incorpora
+reservas web pendientes); las reservas del CRM y su web usan `horasLibres` compartida.
 
 Estado al 15/10/2026 15:32 (La Paz): backend `06a0ac0` y frontend `9b31bb7`
 desplegados; integración activa y credencial propia configurada en el servidor.
-René confirmó que creó los cinco campos y el guion; la captura comprobó la lectura
-de `hm4`/`DR1110`. Falta pegar la credencial en FileMaker y ejecutar la prueba de §5.
+René confirmó que creó los cinco campos y el guion, pegó la credencial y envió
+horarios. `hm4`/`DR1110` se verificó sincronizado en el servidor. Falta la
+aceptación del horario de 15 minutos después de desplegar esta ampliación.
 El activador automático se conecta después de esa prueba manual.
 
 ## 1. Preparar FileMaker
@@ -103,6 +123,35 @@ y PENDIENTE. No mantiene una transacción local abierta esperando Internet.
 El envío se confirma solo si la respuesta dice SINCRONIZADO y coincide en
 registro, código y revisión. No basta con que `Get(LastError)` sea 0.
 
+### Sincronizar todos los horarios desde FileMaker
+
+Después de comprobar el individual, crear **CRM - Sincronizar todos los horarios**
+con [horarios-todos-guion.txt](filemaker/horarios-todos-guion.txt). Ejecutarlo desde
+la misma presentación basada en `horario_medicos`; no es un guion para el activador.
+Antes, rodear CADA ventana personalizada del individual con
+`If [ not $$CRM_HORARIOS_LOTE ] … End If`, incluidas las ventanas temporales
+«Datos que voy a enviar», «Respuesta del CRM» y «Sin cambios», o eliminarlas si
+solo eran de diagnóstico. Los pasos de salir, guardar y enviar quedan fuera de
+esas condiciones. La versión individual de esta guía ya protege sus avisos.
+
+El colectivo muestra todos los registros y quita la ordenación para recorrerlos
+sin reordenación por los campos modificados. Incluye horarios ACTIVO e INACTIVO:
+estos últimos apagan cupos de su médico. Procesa en serie y espera dos segundos
+entre registros. Los que ya están sincronizados y no cambiaron no se reenvían.
+La cuenta de correctos incluye esos registros ya al día. Un error remoto queda
+pendiente y permite seguir; si el individual devuelve 0 por un error de guardado
+local, el recorrido se detiene para no saltar ni descartar un registro sin guardar.
+El resumen distingue revisados, correctos, pendientes y sin procesar, con códigos
+de médico/registro pendientes conservados en `$$CRM_HORARIOS_PENDIENTES`.
+
+**Revisión fraccionaria corregida (15/10):** se observó `revision: 12.11` en el
+JSON de `MED48`/`hm18`; la API lo rechazó correctamente. El cálculo de `$cambio`
+ahora detecta esa revisión inválida en el cuerpo pendiente y `$revision` utiliza
+`Int(Max(0; revisión del campo; revisión del cuerpo))+1`. Se conserva el máximo
+anterior y se reconstruye el envío como entero, sin reiniciar el contador. René
+confirmó que el envío individual funcionó después. El recorrido colectivo aún
+requiere prueba en su archivo FileMaker; esta guía no afirma haberlo ejecutado.
+
 ## 4. Reintentos e instalación del servidor
 
 Puede añadir un botón **Reintentar horario** que ejecute el MISMO guion, una sola
@@ -175,3 +224,30 @@ certifican los activadores ni los campos dentro del archivo `.fmp12` real.
 - [Consignar registros/peticiones y validación](https://help.claris.com/es/pro-help/content/commit-records-requests.html).
 - [While, FileMaker 18 o posterior](https://help.claris.com/en/pro-help/content/while.html).
 - [Variables en cURL: `--data-binary @$variable`](https://help.claris.com/en/pro-help/content/curl-options.html).
+
+## Desplegar la duración de consulta (15/10/2026)
+
+Antes del backend nuevo, respaldar `medicos` y `horarios` con `mysqldump`, verificar
+el archivo y ejecutar como administrador MySQL `scripts/agenda/duracion-consulta.sql`.
+Es aditiva e idempotente: columna NOT NULL, valor inicial 30, CHECK (15,30).
+Después ejecutar `scripts/agenda/permisos-duracion.sql`: SELECT de esa única columna
+para lectura, reservas y administración; UPDATE solo para administración.
+No se amplían permisos sobre pacientes ni credenciales. No bajar la versión del
+backend después de activar horarios de 15 min: la versión antigua calcula ocupación
+fija en 30 min. Ante un fallo, mantener cerrada la reserva hasta reparar.
+
+### Validación del soporte 15/30 (16/10/2026)
+
+- Backend: build, 1.246 pruebas unitarias y 993 integraciones PostgreSQL aprobadas;
+  las 46 MySQL se ejecutaron por separado y aprobaron con MySQL 8.0.44 descartable.
+  Las comprobaciones de Excel privados no disponibles conservan su omisión propia.
+- La suite MySQL incluye 08:30–11:45, ocupación a :15/:45, reserva duplicada,
+  permisos de cuentas y rollback conjunto de cupos/duración. Se ejecutó desde el
+  VPS contra una instancia sintética en otro puerto; la latencia del túnel desde
+  el Mac excedía el plazo de la prueba de concurrencia. No se relajaron los plazos
+  de producción ni se usó la base clínica para las pruebas.
+- Frontend: build, tipos de tests y 792 pruebas aprobadas; sin prueba de navegador.
+- Integrados backend `f62fcd1` y frontend `5bc05e6` de la otra máquina; build de ambos
+  y 91 integraciones de FileMaker/IA más 139 unitarias pertinentes aprobadas.
+- El envío de la doctora desde FileMaker se confirma después de desplegar: una
+  captura del horario o la prueba sintética no reemplaza ese envío real.

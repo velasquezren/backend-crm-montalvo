@@ -60,7 +60,9 @@ une el historial de Servicios con el médico de agenda. Las páginas públicas d
 especialidad se enlazan por `claveDeEspecialidad`.
 
 Con `FILEMAKER_HORARIOS_ACTIVO`, el editor semanal está en FileMaker. Consultas
-de 30 minutos, revisiones monotónicas y reintento de la última instantánea;
+de 30 minutos por defecto y 15 cuando el rango lo requiere o se indica explícitamente.
+La duración se guarda con los cupos en MySQL y la leen disponibilidad y reserva.
+Mantiene revisiones monotónicas y reintento de la última instantánea;
 conserva citas. No implementar reconsultas o traslado de reservas como parte
 de ese flujo. La aceptación pendiente se detalla en [FileMaker](filemaker-horarios.md).
 

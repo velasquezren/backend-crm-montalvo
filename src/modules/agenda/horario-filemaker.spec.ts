@@ -18,6 +18,33 @@ describe('horarios de consulta de FileMaker', () => {
     expect(p.activas.map(c => c.hora)).toEqual(['10:00', '10:30', '11:00', '11:30', '12:00', '12:30']);
     expect(p.bloques).toEqual([{ diaSemana: 1, inicioMinuto: 600, finMinuto: 780 }]);
   });
+  it('adapta 08:30–11:45 a 15 minutos para todo el médico sin redondear', () => {
+    const dto = horarioSintetico();
+    Object.assign(dto.dias[0], { mananaInicio: '08:30', mananaUltima: '11:45', tardeInicio: '14:00', tardeUltima: '18:00' });
+    const p = prepararHorarioFilemaker(dto);
+    expect(p.minutosConsulta).toBe(15);
+    expect(p.activas.filter(c => c.hora < '12:00').map(c => c.hora)).toEqual([
+      '08:30', '08:45', '09:00', '09:15', '09:30', '09:45', '10:00', '10:15', '10:30', '10:45', '11:00', '11:15', '11:30', '11:45',
+    ]);
+    expect(p.bloques).toEqual([{ diaSemana: 1, inicioMinuto: 510, finMinuto: 720 }, { diaSemana: 1, inicioMinuto: 840, finMinuto: 1095 }]);
+    expect(p.datos.minutosConsulta).toBe(30); // cuerpo original estable para reintentar
+  });
+  it('admite 15 explícito incluso para una única consulta y mantiene 30 por defecto', () => {
+    const dto = horarioSintetico(); dto.minutosConsulta = 15;
+    dto.dias[0].mananaInicio = dto.dias[0].mananaUltima = '08:45';
+    expect(prepararHorarioFilemaker(dto).bloques).toEqual([{ diaSemana: 1, inicioMinuto: 525, finMinuto: 540 }]);
+    expect(prepararHorarioFilemaker(horarioSintetico()).minutosConsulta).toBe(30);
+  });
+  it('permite media hora empezando a :15 sin inventar cupos intermedios', () => {
+    const dto = horarioSintetico(); dto.dias[0].mananaInicio = '08:15'; dto.dias[0].mananaUltima = '09:15';
+    const p = prepararHorarioFilemaker(dto);
+    expect(p.minutosConsulta).toBe(30);
+    expect(p.activas.map(c => c.hora)).toEqual(['08:15', '08:45', '09:15']);
+  });
+  it('rechaza el solapamiento entre turnos aunque sus inicios sean distintos', () => {
+    const dto = horarioSintetico(); dto.dias[0].tardeInicio = '12:45'; dto.dias[0].tardeUltima = '13:15';
+    expect(() => prepararHorarioFilemaker(dto)).toThrow('superponen');
+  });
   it('respeta tarde a las 12:30 y no duplica el extremo compartido', () => {
     const dto = horarioSintetico(); dto.dias[0].tardeInicio = '12:30'; dto.dias[0].tardeUltima = '13:00';
     const p = prepararHorarioFilemaker(dto);
@@ -40,7 +67,7 @@ describe('horarios de consulta de FileMaker', () => {
     const dto = horarioSintetico();
     if (caso === 'tramo incompleto') dto.dias[0].mananaUltima = '';
     if (caso === 'invertido') dto.dias[0].mananaUltima = '09:30';
-    if (caso === 'fuera de grilla') dto.dias[0].mananaUltima = '12:15';
+    if (caso === 'fuera de grilla') dto.dias[0].mananaUltima = '12:10';
     if (caso === 'día duplicado') dto.dias[1].dia = 'Lunes';
     if (caso === 'superposición') { dto.dias[0].tardeInicio = '12:00'; dto.dias[0].tardeUltima = '14:00'; }
     expect(() => prepararHorarioFilemaker(dto)).toThrow(BadRequestException);
@@ -51,7 +78,7 @@ describe('horarios de consulta de FileMaker', () => {
     expect(prepararHorarioFilemaker(dto).huella).toBe(prepararHorarioFilemaker(otro).huella);
   });
   it('el contrato rechaza minutos distintos, días ausentes, revisiones de texto y claves desconocidas', async () => {
-    for (const cambios of [{ minutosConsulta: 15 }, { dias: [] }, { revision: '1' }, { inesperado: 'x' }]) {
+    for (const cambios of [{ minutosConsulta: 10 }, { dias: [] }, { revision: '1' }, { inesperado: 'x' }]) {
       const errores = await validate(plainToInstance(HorarioFilemakerDto, { ...horarioSintetico(), ...cambios }), { whitelist: true, forbidNonWhitelisted: true });
       expect(errores.length).toBeGreaterThan(0);
     }

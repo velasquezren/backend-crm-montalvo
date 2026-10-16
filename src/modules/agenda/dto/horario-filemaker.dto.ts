@@ -19,7 +19,7 @@ export class HorarioFilemakerDto {
   @IsInt() @Min(1) @Max(2147483647) revision!: number;
   @IsIn(ESTADOS_MEDICO_AGENDA) estado!: EstadoMedicoAgenda;
   @IsString() @MaxLength(100) sucursal!: string;
-  @IsInt() @IsIn([30]) minutosConsulta!: number;
+  @IsInt() @IsIn([15, 30]) minutosConsulta!: number;
   @IsArray() @ArrayMinSize(6) @ArrayMaxSize(6) @ValidateNested({ each: true }) @Type(() => DiaHorarioFilemakerDto)
   dias!: DiaHorarioFilemakerDto[];
 }

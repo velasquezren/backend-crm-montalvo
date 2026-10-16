@@ -15,7 +15,9 @@ Establecer variable [ $url ; Valor: "https://crm.107.175.132.15.nip.io/integraci
 Establecer variable [ $datos ; Valor: PEGAR_AQUI_EL_CALCULO_DEL_ARCHIVO_horarios-datos-calculo.txt ]
 
 If [ IsEmpty ( JSONGetElement ( $datos ; "registroId" ) ) or IsEmpty ( JSONGetElement ( $datos ; "medicoCodigo" ) ) ]
-    Mostrar cuadro de diálogo personalizado [ "Horario sin identificar" ; "Falta el identificador del horario o el código del médico. No se envió nada." ]
+    If [ not $$CRM_HORARIOS_LOTE ]
+        Mostrar cuadro de diálogo personalizado [ "Horario sin identificar" ; "Falta el identificador del horario o el código del médico. No se envió nada." ]
+    End If
     Establecer variable [ $$CRM_HORARIO_EN_CURSO ; Valor: "" ]
     Salir del guion [ Resultado de texto: 0 ]
 End If
@@ -23,6 +25,7 @@ End If
 Establecer variable [ $anterior ; Valor: GetField ( $tabla & "::crm_horario_cuerpo" ) ]
 Establecer variable [ $cambio ; Valor:
     JSONFormatElements ( $datos ) ≠ JSONFormatElements ( JSONDeleteElement ( $anterior ; "revision" ) )
+    or GetAsNumber ( JSONGetElement ( $anterior ; "revision" ) ) ≠ Int ( GetAsNumber ( JSONGetElement ( $anterior ; "revision" ) ) )
 ]
 If [ not $cambio and GetField ( $tabla & "::crm_horario_estado" ) = "SINCRONIZADO" ]
     Establecer variable [ $$CRM_HORARIO_EN_CURSO ; Valor: "" ]
@@ -31,7 +34,7 @@ End If
 
 Establecer variable [ $error ; Valor: 0 ]
 If [ $cambio ]
-    Establecer variable [ $revision ; Valor: GetAsNumber ( GetField ( $tabla & "::crm_horario_revision" ) ) + 1 ]
+    Establecer variable [ $revision ; Valor: Int ( Max ( 0 ; GetAsNumber ( GetField ( $tabla & "::crm_horario_revision" ) ) ; GetAsNumber ( JSONGetElement ( $anterior ; "revision" ) ) ) ) + 1 ]
     Establecer variable [ $cuerpo ; Valor: JSONSetElement ( $datos ; "revision" ; $revision ; JSONNumber ) ]
     Establecer campo por nombre [ $tabla & "::crm_horario_revision" ; $revision ]
     Establecer variable [ $error ; Valor: Max ( $error ; Get ( LastError ) ) ]
@@ -46,7 +49,9 @@ Establecer variable [ $error ; Valor: Max ( $error ; Get ( LastError ) ) ]
 Establecer campo por nombre [ $tabla & "::crm_horario_error" ; "" ]
 Establecer variable [ $error ; Valor: Max ( $error ; Get ( LastError ) ) ]
 If [ $error ≠ 0 ]
-    Mostrar cuadro de diálogo personalizado [ "No se preparó el envío" ; "Revise los cinco campos CRM y sus permisos. Error: " & $error ]
+    If [ not $$CRM_HORARIOS_LOTE ]
+        Mostrar cuadro de diálogo personalizado [ "No se preparó el envío" ; "Revise los cinco campos CRM y sus permisos. Error: " & $error ]
+    End If
     Establecer variable [ $$CRM_HORARIO_EN_CURSO ; Valor: "" ]
     Salir del guion [ Resultado de texto: 0 ]
 End If
@@ -56,7 +61,9 @@ End If
 Consignar registros/peticiones [ Con diálogo: Inactivo ]
 Establecer variable [ $error ; Valor: Get ( LastError ) ]
 If [ $error ≠ 0 ]
-    Mostrar cuadro de diálogo personalizado [ "No se guardó el horario" ; "No se envió al CRM. Revise la validación del registro. Error: " & $error ]
+    If [ not $$CRM_HORARIOS_LOTE ]
+        Mostrar cuadro de diálogo personalizado [ "No se guardó el horario" ; "No se envió al CRM. Revise la validación del registro. Error: " & $error ]
+    End If
     Establecer variable [ $$CRM_HORARIO_EN_CURSO ; Valor: "" ]
     Salir del guion [ Resultado de texto: 0 ]
 End If
@@ -99,10 +106,14 @@ Consignar registros/peticiones [ Con diálogo: Inactivo ]
 Establecer variable [ $error ; Valor: Max ( $error ; Get ( LastError ) ) ]
 Establecer variable [ $$CRM_HORARIO_EN_CURSO ; Valor: "" ]
 If [ $error ≠ 0 ]
-    Mostrar cuadro de diálogo personalizado [ "Revise el estado local" ; "No se pudo guardar la confirmación. El envío puede haber llegado; reintentarlo es seguro. Error: " & $error ]
+    If [ not $$CRM_HORARIOS_LOTE ]
+        Mostrar cuadro de diálogo personalizado [ "Revise el estado local" ; "No se pudo guardar la confirmación. El envío puede haber llegado; reintentarlo es seguro. Error: " & $error ]
+    End If
     Salir del guion [ Resultado de texto: 0 ]
 End If
 If [ not $confirmado ]
-    Mostrar cuadro de diálogo personalizado [ "Horario pendiente" ; "El horario se guardó en FileMaker, pero todavía no se confirmó en el CRM. Revise crm_horario_error y vuelva a ejecutar este guion para reintentar." ]
+    If [ not $$CRM_HORARIOS_LOTE ]
+        Mostrar cuadro de diálogo personalizado [ "Horario pendiente" ; "El horario se guardó en FileMaker, pero todavía no se confirmó en el CRM. Revise crm_horario_error y vuelva a ejecutar este guion para reintentar." ]
+    End If
 End If
 Salir del guion [ Resultado de texto: 1 ]

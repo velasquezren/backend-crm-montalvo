@@ -1,0 +1,89 @@
+# CRM - Sincronizar todos los horarios
+# Ejecutar desde la MISMA presentación de horario_medicos donde funciona el individual.
+# Antes, rodear CADA ventana del individual (también las de depuración) con
+# If [ not $$CRM_HORARIOS_LOTE ] ... End If. No rodear Salir del guion ni los envíos.
+# No instalar este guion colectivo en OnRecordCommit.
+
+If [ $$CRM_HORARIOS_LOTE or $$CRM_HORARIO_EN_CURSO ]
+    Mostrar cuadro de diálogo personalizado [ "Sincronización en curso" ; "Ya hay una sincronización en ejecución." ]
+    Salir del guion [ Resultado de texto: 0 ]
+End If
+If [ Get ( WindowMode ) ≠ 0 ]
+    Mostrar cuadro de diálogo personalizado [ "Abra los horarios" ; "Ejecute este guion desde HORARIOS MÉDICOS, en modo Visualizar." ]
+    Salir del guion [ Resultado de texto: 0 ]
+End If
+Establecer variable [ $tabla ; Valor: Get ( LayoutTableName ) ]
+If [ IsEmpty ( GetField ( $tabla & "::pk.hm" ) ) or GetField ( $tabla & "::pk.hm" ) = "?" ]
+    Mostrar cuadro de diálogo personalizado [ "Abra los horarios" ; "Seleccione un registro en la presentación de horarios donde funciona el envío individual." ]
+    Salir del guion [ Resultado de texto: 0 ]
+End If
+
+Establecer captura de errores [ Activo ]
+Permitir cancelación del usuario [ Inactivo ]
+Establecer variable [ $$CRM_HORARIOS_LOTE ; Valor: 1 ]
+Consignar registros/peticiones [ Con diálogo: Inactivo ]
+Establecer variable [ $error ; Valor: Get ( LastError ) ]
+If [ $error ≠ 0 ]
+    Establecer variable [ $$CRM_HORARIOS_LOTE ; Valor: "" ]
+    Mostrar cuadro de diálogo personalizado [ "No se pudo empezar" ; "Guarde primero el registro actual. Error de FileMaker: " & $error ]
+    Salir del guion [ Resultado de texto: 0 ]
+End If
+
+Mostrar todos los registros
+Establecer variable [ $error ; Valor: Get ( LastError ) ]
+If [ $error ≠ 0 ]
+    Establecer variable [ $$CRM_HORARIOS_LOTE ; Valor: "" ]
+    Mostrar cuadro de diálogo personalizado [ "No se pudieron listar los horarios" ; "Error de FileMaker: " & $error ]
+    Salir del guion [ Resultado de texto: 0 ]
+End If
+Desordenar registros
+Establecer variable [ $error ; Valor: Get ( LastError ) ]
+If [ $error ≠ 0 ]
+    Establecer variable [ $$CRM_HORARIOS_LOTE ; Valor: "" ]
+    Mostrar cuadro de diálogo personalizado [ "No se pudo preparar el recorrido" ; "Error de FileMaker: " & $error ]
+    Salir del guion [ Resultado de texto: 0 ]
+End If
+Establecer variable [ $total ; Valor: Get ( FoundCount ) ]
+Establecer variable [ $procesados ; Valor: 0 ]
+Establecer variable [ $correctos ; Valor: 0 ]
+Establecer variable [ $pendientes ; Valor: 0 ]
+Establecer variable [ $$CRM_HORARIOS_PENDIENTES ; Valor: "" ]
+Ir al registro/petición/página [ Primero ]
+Establecer variable [ $error ; Valor: Get ( LastError ) ]
+
+Loop
+    Exit Loop If [ $error ≠ 0 or $procesados ≥ $total ]
+    Establecer variable [ $codigo ; Valor: GetField ( $tabla & "::medico.pk" ) ]
+    Establecer variable [ $registro ; Valor: GetField ( $tabla & "::pk.hm" ) ]
+
+    Ejecutar guion [ "CRM - Sincronizar horario actual" ]
+    Establecer variable [ $error ; Valor: Get ( LastError ) ]
+    Establecer variable [ $resultado ; Valor: Get ( ScriptResult ) ]
+    Establecer variable [ $procesados ; Valor: $procesados + 1 ]
+
+    If [ $error = 0 and $resultado = 1 and GetField ( $tabla & "::crm_horario_estado" ) = "SINCRONIZADO" ]
+        Establecer variable [ $correctos ; Valor: $correctos + 1 ]
+    Else
+        Establecer variable [ $pendientes ; Valor: $pendientes + 1 ]
+        Establecer variable [ $$CRM_HORARIOS_PENDIENTES ; Valor:
+            List ( $$CRM_HORARIOS_PENDIENTES ; $codigo & " (" & $registro & ")" )
+        ]
+    End If
+
+    Exit Loop If [ $error ≠ 0 or $resultado ≠ 1 or $procesados ≥ $total ]
+    Pausar/reanudar guion [ Duración (segundos): 2 ]
+    Ir al registro/petición/página [ Siguiente ; Salir después del último: Inactivo ]
+    Establecer variable [ $error ; Valor: Get ( LastError ) ]
+End Loop
+
+Establecer variable [ $$CRM_HORARIOS_LOTE ; Valor: "" ]
+Mostrar cuadro de diálogo personalizado [ "Resultado de sincronización" ;
+    "Registros encontrados: " & $total & "¶"
+    & "Revisados: " & $procesados & "¶"
+    & "Sincronizados o ya al día: " & $correctos & "¶"
+    & "Requieren revisión: " & $pendientes & "¶"
+    & "Sin procesar: " & Max ( 0 ; $total - $procesados )
+    & Case ( not IsEmpty ( $$CRM_HORARIOS_PENDIENTES ) ; "¶¶Revisar estos códigos y registros:¶" & $$CRM_HORARIOS_PENDIENTES ; "" )
+    & Case ( $procesados < $total ; "¶¶El recorrido se detuvo. Revise el registro actual y sus permisos/validaciones antes de repetir." ; "" )
+]
+Salir del guion [ Resultado de texto: $pendientes = 0 and $procesados = $total ]

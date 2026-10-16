@@ -30,7 +30,7 @@ const medico = {
   id: 7, codigo: 'M07', nombre: 'Médico sintético', sigla: 'Dr.', especialidad: 'Consulta', telefono: null,
   estado: 'ACTIVO', precio: '100.00', precioPublico: null, bancoId: null, orden: 0, reservaEnLinea: true, casillasActivas: 0, fotoVersion: null,
 };
-const ficha = { medico, version: 'a'.repeat(16), casillas: [], grilla: { dias: DIAS_AGENDA, horas: [] } };
+const ficha = { medico, version: 'a'.repeat(16), casillas: [], grilla: { dias: DIAS_AGENDA, horas: [], minutosConsulta: 30 } };
 const dto = (): HorarioFilemakerDto => ({
   registroId: 'hm-test-7', medicoCodigo: 'M07', revision: 1, minutosConsulta: 30, estado: 'ACTIVO', sucursal: '',
   dias: DIAS_AGENDA.map(dia => ({ dia, mananaInicio: dia === 'Lunes' ? '12:00' : '', mananaUltima: dia === 'Lunes' ? '12:30' : '', tardeInicio: '', tardeUltima: '' })),
@@ -80,10 +80,21 @@ describe('FileMaker → horarios: HTTP y PostgreSQL real', () => {
   it('exige credencial, contrato completo y bandera encendida antes de tocar datos', async () => {
     expect((await post(dto(), null)).status).toBe(401);
     expect((await post(dto(), 'token-equivocado-sintetico-2026-xxxx')).status).toBe(401);
-    for (const cambio of [{ minutosConsulta: 15 }, { dias: [] }, { revision: 0 }, { medicoCodigo: '' }, { extra: true }]) expect((await post({ ...dto(), ...cambio })).status).toBe(400);
+    for (const cambio of [{ minutosConsulta: 10 }, { dias: [] }, { revision: 0 }, { medicoCodigo: '' }, { extra: true }]) expect((await post({ ...dto(), ...cambio })).status).toBe(400);
     config.set('FILEMAKER_HORARIOS_ACTIVO', 'off');
     expect((await post(dto())).status).toBe(503);
     expect(await prisma.horarioFilemaker.count()).toBe(0); expect(guardar).not.toHaveBeenCalled();
+  });
+  it('acepta el guion de 30 min con extremo :45, aplica 15 y confirma la duración efectiva', async () => {
+    const d = dto(); d.dias[0].mananaInicio = '08:30'; d.dias[0].mananaUltima = '11:45';
+    const r = await post(d);
+    expect(r.status).toBe(200);
+    expect(await r.json()).toMatchObject({ estado: 'SINCRONIZADO', minutosConsulta: 15, cupos: 14 });
+    expect(guardar.mock.calls[0][5]).toBe(15);
+    expect(directorio.sincronizarConAgenda).toHaveBeenCalledWith(7, expect.objectContaining({ bloques: [{ diaSemana: 1, inicioMinuto: 510, finMinuto: 720 }] }));
+    const repetido = await post(d);
+    expect(repetido.status).toBe(200);
+    expect(guardar).toHaveBeenCalledTimes(1);
   });
   it('actualiza las consultas y devuelve éxito solo después de MySQL y la ficha web', async () => {
     const r = await post(dto()); expect(r.status).toBe(200);
