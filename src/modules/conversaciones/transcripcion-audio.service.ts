@@ -63,8 +63,13 @@ export class TranscripcionAudioService implements OnModuleInit, OnModuleDestroy 
       }
       // Persiste antes de llamar al proveedor: un reinicio no concede intentos ilimitados.
       await this.prisma.trabajoTranscripcionAudio.update({ where: { mensajeId }, data: { intentos: { increment: 1 }, proximoIntento: new Date(Date.now() + 120_000) } });
+      const inicio = Date.now();
       const r = await this.escuchas.escuchar([m]);
       const texto = r.transcripciones.get(mensajeId);
+      // Sin el texto (es de la paciente): solo si salió y cuánto tardó, para verificar desde journalctl.
+      const segundos = ((Date.now() - inicio) / 1000).toFixed(1);
+      if (texto) this.logger.log(`Audio ${mensajeId} transcrito en ${segundos} s (intento ${t.intentos + 1})`);
+      else this.logger.warn(`Audio ${mensajeId} sin transcripción en ${segundos} s (intento ${t.intentos + 1} de 3)`);
       await tx.trabajoTranscripcionAudio.update({ where: { mensajeId }, data: {
         proximoIntento: texto || t.intentos + 1 >= 3 ? null : new Date(Date.now() + 120_000),
         ultimoError: texto ? null : 'TRANSCRIPCION_NO_DISPONIBLE',
