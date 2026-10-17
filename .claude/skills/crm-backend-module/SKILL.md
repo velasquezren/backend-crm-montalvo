@@ -265,7 +265,10 @@ Diseño en [asistente-ia](../../../docs/asistente-ia.md). Lo que no se puede olv
 - **Una nota de voz es un texto más** (`EscuchaAudiosService`, 12/10): se transcribe una vez,
   se guarda en `Mensaje.transcripcion` y entra por el MISMO filtro y las mismas herramientas.
   Si no se entiende, texto fijo; nunca se adivina. Todo lo que decida NO contestar (un médico en
-  «Sugerir») se decide ANTES de escuchar: lo que no se contesta no se manda a Google.
+  «Sugerir») se decide ANTES de escuchar. Excepción autorizada el 17/10: la
+  transcripción interna (`TRANSCRIPCION_AUDIO_LINEAS`) procesa nuevos audios para
+  las agentes sin contestar. Cola durable y lock compartido con el turno; no
+  altera la pausa ni concede acceso a herramientas médicas. Ver asistente-ia.md.
 - **En SQL, `NOT (estadoEnvio = 'FALLIDO')` descarta los NULL**, que son todos los
   mensajes entrantes. Para excluir los no enviados: `OR: [{ estadoEnvio: null }, { estadoEnvio: { not: 'FALLIDO' } }]`.
   Lo cazó la prueba de integración del asistente; con `NOT` no contestaba nunca.

@@ -658,13 +658,14 @@ model Mensaje {
   mediaAncho          Int?
   mediaAlto           Int?
   /// Lo que dice una nota de voz (AUDIO entrante), transcrito por el asistente
-  /// de IA la primera vez que la contesta (`EscuchaAudiosService`). Null si nunca
+  /// de IA o por la transcripción interna activada por línea. Null si nunca
   /// se escuchó —línea sin asistente— o si no se entendió. Se guarda para no
   /// volver a mandarla a Google en cada turno y para que el asistente no pierda lo
   /// que ella dijo cuando la conversación sigue. Solo la escribe Conversaciones.
   transcripcion       String?                 @db.VarChar(2000)
   /// Trabajo interno; no se incluye en lecturas REST.
   trabajoMedia        TrabajoMediaEntrante?
+  trabajoTranscripcion TrabajoTranscripcionAudio?
   interaccion         InteraccionMensaje?
   /// Solo aplica a SALIENTE — el paciente no tiene "estado de entrega" hacia nosotros.
   /// Ticks estilo WhatsApp: ENVIADO al crear, luego lo actualiza la respuesta de Meta
@@ -721,7 +722,18 @@ model Mensaje {
   @@index([mediaKey])
 }
 
-/// Una recuperación por mensaje. CHECK en SQL: estados internos, fuera de la API.
+/// Transcripción interna durable por mensaje; no envía respuestas. Dueño: Conversaciones.
+model TrabajoTranscripcionAudio {
+  mensajeId      String    @id
+  mensaje        Mensaje   @relation(fields: [mensajeId], references: [id], onDelete: Cascade)
+  intentos       Int       @default(0)
+  proximoIntento DateTime? @default(now())
+  ultimoError    String?   @db.VarChar(80)
+  createdAt      DateTime  @default(now())
+
+  @@index([proximoIntento, mensajeId])
+}
+
 model TrabajoMediaEntrante {
   mensajeId      String    @id
   mensaje        Mensaje   @relation(fields: [mensajeId], references: [id], onDelete: Cascade)

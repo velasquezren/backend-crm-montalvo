@@ -1,9 +1,10 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 import { R2Service } from '../../common/storage/r2.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { TranscriptorAudio, UsoModelo } from '../asistente/modelo.port';
+import { ConversacionesGateway } from './conversaciones.gateway';
 import { BYTES_MAXIMOS_AUDIO } from '../asistente/transcripcion';
 
 /** Lo mínimo de un mensaje para saber si es una nota de voz de la ráfaga que se contesta. */
@@ -57,8 +58,8 @@ export interface Escucha {
  * la conversación sigue. El texto entra al asistente como si ella lo hubiera
  * ESCRITO: mismo filtro de entrada, mismas herramientas, mismas reglas.
  *
- * Solo se llama desde un turno del asistente, que solo existe en una línea que la
- * clínica encendió: un audio de una línea sin asistente nunca sale del CRM.
+ * Lo llaman los turnos autorizados y el worker interno de las líneas habilitadas
+ * expresamente para transcripción. Este servicio no contesta ni deriva chats.
  */
 @Injectable()
 export class EscuchaAudiosService {
@@ -69,6 +70,7 @@ export class EscuchaAudiosService {
     private readonly r2: R2Service,
     private readonly transcriptor: TranscriptorAudio,
     private readonly config: ConfigService,
+    @Optional() private readonly gateway?: ConversacionesGateway,
   ) {}
 
   async escuchar(mensajes: readonly MensajeEscuchable[]): Promise<Escucha> {
@@ -79,24 +81,39 @@ export class EscuchaAudiosService {
     for (const m of audiosDeLaRafaga(mensajes)) {
       if (m.transcripcion) continue;
       try {
-        const audio = await this.audioDe(m.id);
-        if (!audio) {
-          transcripciones.set(m.id, null);
-          continue;
-        }
-        const r = await this.transcriptor.transcribir(audio);
+        const r = await this.transcribirMensaje(m.id);
         uso.tokensEntrada += r.uso.tokensEntrada;
         uso.tokensSalida += r.uso.tokensSalida;
         transcripciones.set(m.id, r.texto);
-        /* Solo lo entendido; `null` se vuelve a intentar si vuelve a ser parte de una ráfaga. */
-        if (r.texto) await this.prisma.mensaje.updateMany({ where: { id: m.id, transcripcion: null }, data: { transcripcion: r.texto } });
-      } catch (error: unknown) {
+      } catch {
         /* Un audio que no se pudo escuchar no rompe el turno: se dice que no se escuchó. */
-        this.logger.warn(`Nota de voz ${m.id}: ${error instanceof Error ? error.message.slice(0, 200) : 'falló'}`);
+        this.logger.warn(`Nota de voz ${m.id}: transcripción no disponible`);
         transcripciones.set(m.id, null);
       }
     }
     return { transcripciones, uso };
+  }
+
+  /** El turno y la transcripción interna comparten exclusión, incluso entre procesos. */
+  private async transcribirMensaje(mensajeId: string) {
+    const resultado = await this.prisma.$transaction(async tx => {
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${mensajeId}, 60062))::text`;
+      const actual = await tx.mensaje.findUnique({ where: { id: mensajeId }, select: { transcripcion: true, conversacionId: true } });
+      const sinUso = { tokensEntrada: 0, tokensSalida: 0 };
+      if (!actual || actual.transcripcion) return { texto: actual?.transcripcion ?? null, uso: sinUso, conversacionId: null };
+      const audio = await this.audioDe(mensajeId);
+      if (!audio) return { texto: null, uso: sinUso, conversacionId: null };
+      const r = await this.transcriptor.transcribir(audio);
+      // La escritura pertenece a la transacción que conserva el lock. Un dueño
+      // cuyo timeout venció no puede persistir sobre el trabajo de su sucesor.
+      if (r.texto) await tx.mensaje.updateMany({ where: { id: mensajeId, transcripcion: null }, data: { transcripcion: r.texto } });
+      return { ...r, conversacionId: r.texto ? actual.conversacionId : null };
+    }, { timeout: 90_000, maxWait: 5_000 });
+    if (resultado.conversacionId) {
+      try { this.gateway?.emitirActividad(resultado.conversacionId); }
+      catch { this.logger.warn('Transcripción guardada; refresco del chat no disponible'); }
+    }
+    return resultado;
   }
 
   private esperaMs(): number {

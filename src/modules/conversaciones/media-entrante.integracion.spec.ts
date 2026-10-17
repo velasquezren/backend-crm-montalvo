@@ -506,3 +506,17 @@ describe('F06-R1: PostgreSQL real y transportes externos controlados', () => {
     expect(await prisma.trabajoMediaEntrante.count({ where: { mensajeId: mensaje.id } })).toBe(0);
   });
 });
+
+it('encola transcripción solo de nuevos audios en líneas habilitadas, en la misma ingesta', async () => {
+  process.env.TRANSCRIPCION_AUDIO_LINEAS = LINEA;
+  try {
+    const s = ingesta();
+    const m = await s.procesarEntrante('+59179000001', '', 'wamid.audio-interno', 'Sintética', { tipo: 'AUDIO', mediaId: 'audio-interno', mime: 'audio/ogg' }, undefined, false, LINEA);
+    expect(await prisma.trabajoTranscripcionAudio.findUnique({ where: { mensajeId: m.id } })).toMatchObject({ intentos: 0 });
+    const imagen = await recibir(s, 'wamid.imagen-no-transcribir');
+    expect(await prisma.trabajoTranscripcionAudio.findUnique({ where: { mensajeId: imagen.id } })).toBeNull();
+    delete process.env.TRANSCRIPCION_AUDIO_LINEAS;
+    const otro = await s.procesarEntrante('+59179000001', '', 'wamid.audio-apagado', 'Sintética', { tipo: 'AUDIO', mediaId: 'audio-apagado', mime: 'audio/ogg' }, undefined, false, LINEA);
+    expect(await prisma.trabajoTranscripcionAudio.findUnique({ where: { mensajeId: otro.id } })).toBeNull();
+  } finally { delete process.env.TRANSCRIPCION_AUDIO_LINEAS; }
+});

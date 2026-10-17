@@ -350,7 +350,32 @@ Probado con notas sintéticas en ogg/opus (el formato de WhatsApp): transcripci�
 - **El médico** también habla: «dime qué pacientes tengo mañana» por audio consulta su
   agenda. Con un médico en «Sugerir» el turno se omite ANTES de escuchar: su audio no sale.
 - **En el chat**, debajo del reproductor, la agente ve lo que el asistente entendió.
-- **Línea sin asistente:** el audio nunca sale del CRM.
+- **Línea sin asistente:** el audio no sale del CRM salvo activación explícita de transcripción interna (abajo).
+
+### Transcripción interna para las agentes (17/10/2026)
+
+Autorizada por el propietario para Recepción y Ventas, independiente de si el
+asistente responde. `TRANSCRIPCION_AUDIO_LINEAS` permite IDs explícitos separados
+por comas (vacío = apagado, sin comodines). Conserva el modo de cada línea:
+Recepción puede seguir en `SOLO_MEDICOS`; transcribir a una paciente no le da
+acceso al asistente médico ni envía una respuesta al WhatsApp.
+
+- Solo nuevos AUDIO entrantes de líneas activadas; no recorre audios históricos.
+- La ingesta crea `TrabajoTranscripcionAudio` junto con `Mensaje`. El worker
+  `TranscripcionAudioService` recupera el trabajo tras reinicios, espera el audio
+  en R2, procesa un lote acotado cada 15 s y limita a tres intentos/24 h.
+- Usa `EscuchaAudiosService` y el mismo proveedor configurado. El turno y el
+  worker comparten bloqueo PostgreSQL por mensaje y releen la transcripción:
+  una transcripción ya guardada no vuelve a solicitarse por concurrencia.
+- Persiste únicamente `Mensaje.transcripcion` y metadatos de la tarea; emite
+  actualización WebSocket después del commit. El frontend existente muestra
+  «Transcripción automática» debajo del reproductor, sin una burbuja saliente.
+- Funciona con chat pausado o atendido por una persona. No resuelve, asigna,
+  deriva ni cambia la prioridad del chat. Los límites del transcriptor siguen
+  vigentes (10 MiB, 1500 caracteres); inaudible/fallo deja el audio disponible.
+- Para desactivar, retirar la línea de la variable y reiniciar; no borra textos
+  existentes. La cola no contiene nombres ni texto del audio. Sus intentos no
+  equivalen a turnos conversacionales en las métricas del asistente.
 
 ## Probar los caminos contra Gemini real (13/10/2026)
 

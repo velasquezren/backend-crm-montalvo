@@ -39,6 +39,8 @@ function montar(o: {
 } = {}) {
   const lecturas: Record<string, number> = {};
   const prisma = {
+    $queryRaw: jest.fn().mockResolvedValue([]),
+    $transaction: jest.fn(),
     mensaje: {
       findUnique: jest.fn(async ({ where }: { where: { id: string } }) => {
         const serie = o.claves?.[where.id] ?? [null];
@@ -49,6 +51,7 @@ function montar(o: {
       updateMany: jest.fn().mockResolvedValue({ count: 1 }),
     },
   };
+  prisma.$transaction.mockImplementation(async (trabajo: (tx: typeof prisma) => Promise<unknown>) => trabajo(prisma));
   const cancel = jest.fn();
   const r2 = {
     habilitado: o.r2Habilitado ?? true,

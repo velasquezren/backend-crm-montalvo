@@ -1,3 +1,4 @@
+import { transcribirAudioEnLinea } from './transcripcion-audio-lineas';
 import { LINEA_COMERCIAL_INICIAL, obtenerOCrearConversacion } from './acceso-conversacion';
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { IdentificacionInformePendiente, InformesChatService, informesEnLinea, PEDIR_CARNET_INFORME, pideSusInformes, PREFIJO_INFORME_CHAT } from '../resultados/informes-chat.service';
@@ -238,6 +239,8 @@ export class IngestaWhatsappService {
             mediaNombre: media?.nombre ?? null,
             // El trabajo nace con el mensaje, incluso si R2/Meta no están configurados.
             ...(media ? { trabajoMedia: { create: { mediaId: media.mediaId } } } : {}),
+            ...(media?.tipo === 'AUDIO' && transcribirAudioEnLinea(lineaId)
+              ? { trabajoTranscripcion: { create: {} } } : {}),
           },
         });
         if (interaccionOriginal !== undefined && interacciones) {

@@ -3,6 +3,7 @@ import { PortalResultadosModule } from '../resultados/portal-resultados.module';
 import { AsistenteModule } from '../asistente/asistente.module';
 import { AsistenteChatController } from './asistente-chat.controller';
 import { EscuchaAudiosService } from './escucha-audios.service';
+import { TranscripcionAudioService } from './transcripcion-audio.service';
 import { AsistenteChatService } from './asistente-chat.service';
 import { LecturaComprobantesService } from './lectura-comprobantes.service';
 import { ComprobantesReservaChatService } from './comprobantes-reserva-chat.service';
@@ -57,6 +58,7 @@ import { WhatsappWebhookController } from './webhooks/whatsapp-webhook.controlle
     ConstanciaReservaService,
     AsistenteChatService,
     EscuchaAudiosService,
+    TranscripcionAudioService,
     LecturaComprobantesService,
     MetaSignatureGuard,
     WhatsappCloudService,
