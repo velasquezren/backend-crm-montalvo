@@ -354,6 +354,16 @@ Probado con notas sintéticas en ogg/opus (el formato de WhatsApp): transcripci�
 
 ### Transcripción interna para las agentes (17/10/2026)
 
+**Desplegada y activada el 17/10 a las 11:12 La Paz**, backend `e935c2f`.
+Recepción conserva `SOLO_MEDICOS` y Ventas `RESPONDER`; ambas tienen transcripción
+interna. Migración `20261017150000_transcripcion_audio_chat` aplicada. Respaldo
+verificado: `/root/backup-crm-audio-20261017-151017` (PostgreSQL, `.env`, `dist`,
+commit anterior). Pruebas de integración con PostgreSQL y de exclusión concurrente
+aprobadas, tipos/build y arranque Nest aislado comprobados. En producción:
+health/base OK, login 400, guard 401 y audio sintético reconocido por el proveedor
+real en 2,6 s. No se enviaron mensajes de prueba ni se procesaron audios históricos.
+El frontend existente ya muestra y actualiza la transcripción; no requirió despliegue.
+
 Autorizada por el propietario para Recepción y Ventas, independiente de si el
 asistente responde. `TRANSCRIPCION_AUDIO_LINEAS` permite IDs explícitos separados
 por comas (vacío = apagado, sin comodines). Conserva el modo de cada línea:

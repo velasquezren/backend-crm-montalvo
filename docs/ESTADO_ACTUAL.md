@@ -19,6 +19,7 @@ locales al comenzar; una modificación sin commit puede pertenecer a otra tarea.
 
 | Tema | Estado comprobable y dónde continuar |
 | --- | --- |
+| Transcripción interna de audios | Activada el 17/10 (`e935c2f`) en Recepción y Ventas para nuevos audios entrantes; conserva `SOLO_MEDICOS`/`RESPONDER`. Cola durable, texto bajo el audio y actualización en vivo, sin respuestas por esta función. [Contrato y verificación](asistente-ia.md#transcripción-interna-para-las-agentes-17102026). |
 | IA por WhatsApp | Existe proveedor Gemini, clasificación, sugerencias/respuestas, audio y agenda del médico. Reservas conversacionales y QR incorporados el 15/10 (`2d70cd4`, `5dc4420`, `7daea1f`). Ver [asistente](asistente-ia.md); no reiniciar el plan «no hay IA» del 7/10. |
 | Médicos a solicitud | `9efdd1f`, nota `c20e012`: el asistente coordina preferencias y deja `SOLICITUD_CITA`, sin inventar cupos. **Desplegado el 15/10** (19:46 La Paz, respaldo `/root/backup-crm-20261015-194528-cita-a-solicitud.sql.gz`); [guía](asistente-ia.md). |
 | «Marcar atendida» | Resuelve y devuelve el chat a lo automático; desde `cc23475` la IA contesta el siguiente mensaje sin esperar los 15 min tras el último de una persona ([atención](atencion-humana.md)). Frontend `4279582` lo dice en el aviso. **Desplegado el 15/10** (20:17 La Paz, respaldo `/root/backup-crm-20261015-201607-marcar-atendida.sql.gz`; Vercel `5bc05e6`). |
