@@ -34,6 +34,10 @@ lectura clínica de edición. El endpoint de reservas de una conversación aplic
 el acceso a ese chat. Público: catálogo/reserva/pago con límites propios; no
 convertir los permisos del directorio público en acceso a datos de pacientes.
 
+`/publico/agenda/dias` y `/disponibilidad` también los lee el CRM: el botón
+«Cupos» del compositor del chat (frontend `cupos-medico`) ofrece las mismas horas
+que la web, con el CORS del CRM y sin ruta duplicada. Solo lee; no reserva.
+
 ## Reserva, cita y pago son hechos distintos
 
 1. Web, Flow o IA registran la reserva con el mismo service; revalidan cupo.
