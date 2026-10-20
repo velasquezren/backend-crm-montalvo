@@ -9,6 +9,7 @@ import {
   mensajeDePromociones,
   orientacionDeEmergencia,
   PIE_DEL_MENU,
+  esSoloSaludo,
   pideMenu,
   PromocionDeMenu,
   seResuelveSola,
@@ -182,5 +183,22 @@ describe('qué hace cada opción', () => {
     /* Un menú sin la opción de promociones no responde a un toque de promoción. */
     expect(accionDeSeleccion(m, `PROMO_${PUBLICADAS[0].id}`)).toBeNull();
     expect(accionDeSeleccion(null, 'TALK_TO_HUMAN')).toBeNull();
+  });
+});
+
+describe('esSoloSaludo', () => {
+  it('un saludo, con o sin signos, tildes, letras repetidas o emoji, es solo un saludo', () => {
+    for (const t of ['hola', 'Holaaa!!', 'Buenas tardes', 'buenos días doctora', '¿Qué tal?', 'hola, buenas noches 👋', '👋', 'Buen día a todos']) {
+      expect(esSoloSaludo(t)).toBe(true);
+    }
+  });
+
+  it('un saludo con una pregunta o un pedido no es solo un saludo (20/10: la de coloproctología recibió solo el menú)', () => {
+    for (const t of [
+      'Buenas tardes\nQue costo tiene la consulta con la especialidad de coloproctologia y cual es su horario de atención?',
+      'hola quiero una cita', 'buenas, precio de la ecografía?', 'hola, ¿atienden mañana?', 'menú', 'gracias',
+    ]) {
+      expect(esSoloSaludo(t)).toBe(false);
+    }
   });
 });

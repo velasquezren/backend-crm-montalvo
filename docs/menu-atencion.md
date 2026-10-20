@@ -58,6 +58,11 @@ En la ingesta, después de guardar el mensaje, si **todo** se cumple:
 - el mensaje no es la respuesta a un botón ni un pedido/emergencia escrito;
 - la automatización no está pausada (nadie pidió una persona);
 - en las últimas 24 h no se le ofreció un menú ni le escribió una persona del equipo.
+- si la línea tiene el asistente en **«Responder solo»**, el mensaje es **solo un saludo**
+  («hola», «buenas tardes», un 👋: `esSoloSaludo`). Una pregunta concreta («¿cuánto cuesta la
+  consulta de coloproctología y qué horario tiene?») la contesta el asistente y no sale el menú:
+  el 20/10 una paciente recibió solo el saludo del menú y su pregunta quedó sin respuesta. Una
+  nota de voz también va al asistente. En las demás modalidades nada cambia.
 
 **Excepción: escribió «menú»** (u «opciones», «inicio», «volver al menú»: el mensaje
 entero, `pideMenu`). Entonces sale siempre, aunque la conversación esté en curso o espere

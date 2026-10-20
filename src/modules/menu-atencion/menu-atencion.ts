@@ -210,6 +210,24 @@ export function pideMenu(texto: string): boolean {
   return PIDE_MENU.has(t);
 }
 
+/** Palabras de un saludo: «hola», «buenas tardes», «qué tal, doctora»… y nada más. */
+const DE_SALUDO = new Set([
+  'hola', 'ola', 'holi', 'hi', 'hello', 'hey', 'alo', 'buen', 'buena', 'buenas', 'bueno', 'buenos', 'dia', 'dias', 'tarde', 'tardes',
+  'noche', 'noches', 'que', 'tal', 'como', 'esta', 'estan', 'saludos', 'saludo', 'senorita', 'senor', 'doctor', 'doctora', 'dr', 'dra',
+  'a', 'todos', 'usted', 'ustedes', 'muy', 'clinica', 'montalvo', 'disculpe', 'y',
+]);
+
+/**
+ * ¿Solo saluda? Sin tildes, mayúsculas, signos ni letras repetidas («holaaa»). Un
+ * emoji solo también cuenta. Con el asistente contestando, un saludo recibe el menú;
+ * una pregunta («¿cuánto cuesta la consulta…?») la contesta el asistente.
+ */
+export function esSoloSaludo(texto: string): boolean {
+  const palabras = texto.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ').replace(/([a-z])\1+/g, '$1').trim().split(' ').filter(Boolean);
+  return palabras.length <= 8 && palabras.every(p => DE_SALUDO.has(p));
+}
+
 /**
  * La lista de promociones publicadas para WhatsApp, con el texto que escribió la
  * clínica. `null` si el menú no la ofrece o no hay ninguna. Los títulos de la

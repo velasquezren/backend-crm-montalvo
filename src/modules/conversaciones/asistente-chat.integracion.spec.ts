@@ -416,6 +416,33 @@ describe('RESPONDER: contesta lo comercial', () => {
     expect((await prisma.conversacion.findUniqueOrThrow({ where: { id } })).atencionMotivo).toBeNull();
   });
 
+  it('con el menú encendido, una pregunta concreta la contesta el asistente, sin menú; un saludo solo y «menú» reciben el menú (20/10)', async () => {
+    await app.get(MenuAtencionService).guardar(ventas, {
+      activo: true, saludo: 'Hola, ¿en qué le ayudamos?',
+      opciones: [{ tipo: 'PERSONA', titulo: 'Hablar con una persona' }, { tipo: 'UBICACION', titulo: 'Cómo llegar' }],
+    } as never, usuarios.admin.id);
+    const menus = (id: string) => prisma.mensaje.count({ where: { conversacionId: id, direccion: 'SALIENTE', interaccion: { isNot: null } } });
+
+    clasificador.siguiente = { categoria: 'VENTAS', confianza: 'ALTA', solicitud: 'CONSULTAR' };
+    const respuesta = 'La consulta de Coloproctología cuesta Bs 300. El Dr. Sintético atiende los martes de 10:00 a 12:00.';
+    modelo.guion = [pide('listar_especialidades', {}), dice(respuesta)];
+    const id = await escribir('Buenas tardes\nQue costo tiene la consulta con la especialidad de coloproctologia y cual es su horario de atención?');
+    expect(await menus(id)).toBe(0);
+    expect((await salientes(id)).map(m => m.contenido.replace(PRESENTACION, '').trim())).toEqual([respuesta]);
+    expect((await salientes(id)).some(m => m.contenido === ACUSE)).toBe(false);
+    expect(await turnos(id)).toMatchObject([{ resultado: 'RESPONDIO' }]);
+
+    /* Otra paciente que solo saluda: el menú, sin turno. Y si escribe «menú», el menú otra vez. */
+    await prisma.cliente.deleteMany({ where: { telefono: { startsWith: PREFIJO_TEL } } });
+    expect((await webhook([texto('Hola, buenas tardes 👋')])).status).toBe(200);
+    const saluda = await chat();
+    await esperar(async () => (await menus(saluda.id)) === 1);
+    expect((await webhook([texto('menú')])).status).toBe(200);
+    await esperar(async () => (await menus(saluda.id)) === 2);
+    await reposo();
+    expect(await turnos(saluda.id)).toHaveLength(0);
+  });
+
   it('una petición ambigua pide aclaración y no permite consultar cupos ni abrir promociones', async () => {
     clasificador.siguiente = { categoria: 'OTRO', confianza: 'ALTA', solicitud: 'ACLARAR' };
     modelo.guion = [pide('dias_con_cupo', { medicoId: '7' }), dice('¿A cuál de las dos consultas te refieres?')];

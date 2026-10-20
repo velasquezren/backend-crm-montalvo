@@ -23,6 +23,7 @@ import {
   mensajeDelMenu,
   mensajeDePromociones,
   orientacionDeEmergencia,
+  esSoloSaludo,
   pideMenu,
   seResuelveSola,
 } from '../menu-atencion/menu-atencion';
@@ -473,8 +474,13 @@ export class IngestaWhatsappService {
       const atiende = asistente && (asistente.modo !== 'SOLO_MEDICOS' || medico) ? asistente : null;
       /* Quien acaba de pedir algo ya tiene una persona en camino. */
       /* Escribió «menú»: se le muestra aunque la conversación esté en curso. */
-      const ofrecido = !tarjeta && menu && !pedido && !esRespuestaBoton && !medico
-        ? await this.ofrecerMenu(conversacion.id, cliente.telefono, menu, { aPedido: !media && pideMenu(contenido) })
+      const aPedido = !media && pideMenu(contenido);
+      /* Con el asistente contestando solo, una pregunta la contesta él: el menú genérico la
+         dejaba sin respuesta (20/10: «¿Qué costo tiene la consulta de coloproctología y su
+         horario?» recibió solo el saludo del menú). Un saludo solo, o «menú», sí lo recibe. */
+      const preguntaParaElAsistente = atiende?.modo === 'RESPONDER' && !aPedido && (!!media || !esSoloSaludo(contenido));
+      const ofrecido = !tarjeta && menu && !pedido && !esRespuestaBoton && !medico && !preguntaParaElAsistente
+        ? await this.ofrecerMenu(conversacion.id, cliente.telefono, menu, { aPedido })
         : false;
       /* Si el asistente va a contestar, el acuse «no hay nadie» sobra: hay alguien. */
       const contesta = atiende !== null && atiende.modo !== 'SUGERIR' && !ofrecido;
