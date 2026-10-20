@@ -25,7 +25,7 @@ const LINEAS_MAXIMAS_TEXTO = 45;
 const CARACTERES_MAXIMOS_LISTA = 3400;
 
 /** El diseño de la imagen: sube cuando cambia el dibujo, para no reusar un PNG viejo. */
-export const VERSION_DISENO_AGENDA_MEDICO = 3;
+export const VERSION_DISENO_AGENDA_MEDICO = 4;
 
 const CABECERA = 360;
 const RESUMEN_ALTO = 158;
@@ -33,6 +33,8 @@ const SECCION = 70;
 const FILA = 88;
 /** Con el renglón de actividad y seguro debajo del nombre. */
 const FILA_CON_DETALLE = 112;
+/** Del nombre a la pastilla de estado, con 18 px de aire antes de ella. */
+const ANCHO_TEXTO = 500;
 const PIE = 140;
 
 const COLOR_ESTADO: Readonly<Record<EstadoCitaMedico, { fondo: string; texto: string; borde: string }>> = {
@@ -118,9 +120,13 @@ const minutos = (hora: string) => minutosDeHora(hora) ?? 0;
 
 const altoDeFila = (c: CitaMedico) => (detalleDeCita(c) ? FILA_CON_DETALLE : FILA);
 
-/** La actividad en verde y semibold, el seguro en gris: se lee qué es antes que quién paga. */
+/**
+ * La actividad en verde y semibold, el seguro en gris: se lee qué es antes que quién paga.
+ * Tamaño casi fijo: achicada a 19 px una actividad larga no se leía en el teléfono y
+ * cada fila salía de otro tamaño. Lo que no cabe se corta por el final (el seguro primero).
+ */
 function renglonDeDetalle(c: CitaMedico, y: number): string {
-  const detalle = ajustar(detalleDeCita(c), 23, 19, 470);
+  const detalle = ajustar(detalleDeCita(c), 24, 22, ANCHO_TEXTO);
   const enVerde = Math.min(c.actividad?.length ?? 0, detalle.texto.length);
   const actividad = enVerde > 0 ? `<tspan font-weight="600" fill="${COLOR.primario}">${escaparXml(detalle.texto.slice(0, enVerde))}</tspan>` : '';
   return `<text x="${MARGEN + 172}" y="${y}" font-size="${detalle.tamano}" fill="${COLOR.apagado}">${actividad}${escaparXml(detalle.texto.slice(enVerde))}</text>`;
@@ -128,7 +134,7 @@ function renglonDeDetalle(c: CitaMedico, y: number): string {
 
 function filaDeCita(c: CitaMedico, y: number, primera: boolean): string {
   const estilo = COLOR_ESTADO[c.estado];
-  const paciente = ajustar(c.paciente, 30, 27, 470);
+  const paciente = ajustar(c.paciente, 30, 27, ANCHO_TEXTO);
   const alto = altoDeFila(c);
   const conDetalle = alto === FILA_CON_DETALLE;
   return [
