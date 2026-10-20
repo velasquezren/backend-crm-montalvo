@@ -9,8 +9,11 @@ import { ESTADO_CITA_VIGENTE } from './agenda-medico-citas.sql';
  * médico, el día y el estado vigente como parámetros, nunca pegados al SQL) y el
  * rango de fechas. Los resultados contra MySQL real están en la suite MySQL.
  */
-function montar(filas: { agenda?: unknown[]; reservas?: unknown[] } = {}, habilitada = true) {
-  const execute = jest.fn(async (sql: string) => [/FROM agenda_med/.test(sql) ? filas.agenda ?? [] : filas.reservas ?? []]);
+function montar(filas: { agenda?: unknown[]; reservas?: unknown[] } = {}, habilitada = true, errorDetalle?: { errno: number }) {
+  const execute = jest.fn(async (sql: string) => {
+    if (errorDetalle && /a\.actividad/.test(sql)) throw Object.assign(new Error('sin permiso'), errorDetalle);
+    return [/FROM agenda_med/.test(sql) ? filas.agenda ?? [] : filas.reservas ?? []];
+  });
   const cliente = {
     habilitada: () => habilitada,
     ejecutar: jest.fn(async (trabajo: (db: unknown) => Promise<unknown>) => {
@@ -38,6 +41,23 @@ describe('AgendaMedicoCitasService', () => {
     /* Solo el nombre y la hora: nunca carnet, teléfono, PAC ni comprobante. */
     for (const sql of [sqlAgenda, sqlReservas]) expect(sql).not.toMatch(/ci_age|telefono|comprobante|\bpac\b|precio|nit/i);
     expect(sqlAgenda).toContain('a.estado = ?');
+  });
+
+  it('trae la actividad y el seguro de FileMaker; sin permiso para esas columnas, la agenda sale igual sin ellos', async () => {
+    const fila = { hora: '09:00', paciente: 'Ana Pérez', actividad: 'Ecografía FIV', seguro: 'Particular' };
+    const conDetalle = montar({ agenda: [fila] });
+    expect((await conDetalle.servicio.delDia(7, '2026-10-11', AHORA)).citas[0]).toMatchObject({ actividad: 'Ecografía FIV', seguro: 'Particular' });
+    expect(conDetalle.execute.mock.calls[0][0]).toContain('a.actividad, a.seguro');
+
+    /* 1143 = ER_COLUMNACCESS_DENIED_ERROR: el despliegue llegó antes que el GRANT. */
+    const sinPermiso = montar({ agenda: [{ hora: '09:00', paciente: 'Ana Pérez' }] }, true, { errno: 1143 });
+    const a = await sinPermiso.servicio.delDia(7, '2026-10-11', AHORA);
+    expect(a.citas).toEqual([{ hora: '09:00', paciente: 'Ana Pérez', estado: 'CONFIRMADA' }]);
+    expect(sinPermiso.execute.mock.calls[1][0]).not.toContain('actividad');
+
+    /* Cualquier otro error no se esconde: el asistente dice que no pudo consultar. */
+    const caida = montar({}, true, { errno: 2013 });
+    await expect(caida.servicio.delDia(7, '2026-10-11', AHORA)).rejects.toThrow('sin permiso');
   });
 
   it('«hoy» es el de La Paz: a las 22:00 del domingo todavía es domingo aunque en UTC sea lunes', async () => {

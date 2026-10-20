@@ -17,7 +17,7 @@ CREATE USER IF NOT EXISTS 'crm_agenda_consulta'@$H IDENTIFIED BY '$P' REQUIRE SS
 ALTER USER 'crm_agenda_consulta'@$H IDENTIFIED BY '$P';
 GRANT SELECT (para_age, medico_pk, fecha, hora, nombre_age, telefono_age, ci_age, obs, estado, nom_med, fecha_registro, hora_registro, nit, razon_social, precio_con, comprobante) ON clinica.para_agendar TO 'crm_agenda_consulta'@$H;
 GRANT SELECT (medico_pk, codigo, nombre, especialidad) ON clinica.medicos TO 'crm_agenda_consulta'@$H;
-GRANT SELECT (agendam_pk, cod_med, fecha, hora, estado, paciente) ON clinica.agenda_med TO 'crm_agenda_consulta'@$H;
+GRANT SELECT (agendam_pk, cod_med, fecha, hora, estado, paciente, actividad, seguro) ON clinica.agenda_med TO 'crm_agenda_consulta'@$H;
 SHOW GRANTS FOR 'crm_agenda_consulta'@$H;
 SELECT estado, COUNT(*) AS reservas FROM clinica.para_agendar GROUP BY estado;
 SQL

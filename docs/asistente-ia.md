@@ -279,15 +279,17 @@ lecturas): `agenda_med` en estado **CREADO** → «Confirmada» (BORRADO y MODIF
 están en `agenda_med`: es la misma regla con la que `horasLibres` decide qué hora ocupa);
 ATENDIDO no se lee (ya está en `agenda_med`). Si recepción ya cargó la reserva en FileMaker y no
 la marcó, se junta con su cita (misma paciente, misma casilla de 30 min). La hora es la de La
-Paz y «hoy» también (`fechaCivilClinica`). De cada fila solo la hora y el nombre: ni carnet, ni
-teléfono, ni pago.
+Paz y «hoy» también (`fechaCivilClinica`). De cada fila solo la hora y el nombre y, de las citas de
+FileMaker, la **actividad** y el **seguro** (lo que el médico ve en su pantalla «Ver agenda»; una
+reserva todavía no los tiene): ni carnet, ni teléfono, ni pago. Si la cuenta de consulta aún no
+tiene permiso para esas dos columnas, la agenda sale igual sin ese renglón y queda un aviso en el log.
 
 **Qué hace el modelo y qué no.** Elige el día y si quiere la `LISTA` o el `RESUMEN`
 (`mi_agenda`, atada al médico por el contexto: no tiene parámetro de médico). **Al modelo vuelven
 solo cantidades**; los nombres no pasan por el proveedor. La imagen y el texto los arma el
 código (`agenda-medico-imagen.ts`: mismo SVG→PNG con resvg y la Poppins que el horario; el total
 en la cabecera, los tres recuadros por estado, las citas separadas en mañana y tarde con una franja
-de color por estado —[muestra](imagenes-whatsapp/agenda-medico.png)—; clave de R2 = huella del
+de color por estado y, debajo del nombre, la actividad en verde y el seguro en gris —[muestra](imagenes-whatsapp/agenda-medico.png)—; clave de R2 = huella del
 dibujo, en `asistente/agenda-medico/`) y **el texto del modelo se descarta** cuando
 ya se mandó el listado. Si el modelo afirma horas o cantidades sin haber consultado, no sale y el
 chat pasa a una persona. Sin R2, el listado sale entero en texto.
@@ -316,8 +318,9 @@ chat pasa a una persona. Sin R2, el listado sale entero en texto.
 **Para habilitarlo en una instalación o línea nueva** (comprobar antes qué está configurado):
 
 1. Permisos de MySQL, una vez: `scripts/agenda/permisos-agenda-medicos.sh` (da a `crm_agenda_consulta`
-   el nombre de la paciente de `agenda_med` y `medicos.codigo`; nunca el PAC). Sin él, la herramienta
-   dice que no puede consultar y el médico pasa a una persona.
+   el nombre de la paciente, la actividad y el seguro de `agenda_med` y `medicos.codigo`; nunca el
+   PAC ni el teléfono). Sin él, la herramienta dice que no puede consultar y el médico pasa a una
+   persona. Volver a correrlo es seguro: así se sumaron actividad y seguro (20/10).
 2. `AGENDA_VPS_CONSULTA=on` (ya está) y `ASISTENTE_IA=on` con la línea en «Responder solo».
 3. Desplegar con la migración `20261010195626_acceso_medico_agenda` (aditiva: una tabla nueva).
 4. Autorizar el número de un médico en su ficha y probar desde su teléfono, en la línea de prueba.

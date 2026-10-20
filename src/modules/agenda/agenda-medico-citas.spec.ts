@@ -55,6 +55,21 @@ describe('la agenda de un médico: qué cuenta y cómo se junta', () => {
     expect(a.citas.map(c => c.hora)).toEqual(['08:30', '12:00', '15:00']);
   });
 
+  it('la cita de FileMaker lleva su actividad y su seguro; lo vacío no deja claves, y la reserva juntada toma los de la cita', () => {
+    const a = armarAgendaDelDia(DIA,
+      [
+        { hora: '09:00', paciente: 'Ana Pérez', actividad: ' Ecografía   FIV ', seguro: 'Particular' },
+        { hora: '10:00', paciente: 'Luis Gómez', actividad: '', seguro: null },
+      ],
+      [{ hora: '09:00', paciente: 'ana perez', estado: 'PENDIENTE' }, { hora: '11:00', paciente: 'Dina Rojas', estado: 'PENDIENTE' }]);
+    expect(a.citas).toEqual([
+      { hora: '09:00', paciente: 'Ana Pérez', estado: 'CONFIRMADA', actividad: 'Ecografía FIV', seguro: 'Particular' },
+      { hora: '10:00', paciente: 'Luis Gómez', estado: 'CONFIRMADA' },
+      { hora: '11:00', paciente: 'Dina Rojas', estado: 'POR_CONFIRMAR' },
+    ]);
+    expect(Object.keys(a.citas[1])).toEqual(['hora', 'paciente', 'estado']);
+  });
+
   it('un día vacío da ceros, no un error', () => {
     expect(armarAgendaDelDia(DIA, [], [])).toEqual({ fecha: DIA, citas: [], confirmadas: 0, pendientes: 0, porConfirmar: 0, pagoPorVerificar: 0, total: 0 });
   });

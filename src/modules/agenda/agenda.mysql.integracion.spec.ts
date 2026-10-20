@@ -513,7 +513,7 @@ ejecutar('Agenda HTTP → adaptador TLS → MySQL real descartable', () => {
       try {
         for (const sql of [
           /* El nombre de la paciente en agenda_med SÍ se lee (agenda del médico); su PAC y cualquier escritura, no. */
-          'SELECT pac FROM agenda_med', "INSERT INTO agenda_med (cod_med) VALUES ('x')", "UPDATE agenda_med SET estado = 'BORRADO' WHERE 1=0",
+          'SELECT pac FROM agenda_med', 'SELECT telefono FROM agenda_med', "INSERT INTO agenda_med (cod_med) VALUES ('x')", "UPDATE agenda_med SET estado = 'BORRADO' WHERE 1=0",
           'DELETE FROM agenda_med WHERE 1=0', 'SELECT password FROM medicos', 'SELECT banco FROM para_agendar',
           "UPDATE para_agendar SET estado = 'ATENDIDO' WHERE 1=0", 'DELETE FROM para_agendar WHERE 1=0',
           "INSERT INTO para_agendar (para_age) VALUES (999)",
@@ -537,10 +537,10 @@ ejecutar('Agenda HTTP → adaptador TLS → MySQL real descartable', () => {
       await limpiar();
       await sql([
         /* Médico A (id 1): dos vigentes, una anulada y una movida (no cuentan). B (id 2): una suya. */
-        `INSERT INTO agenda_med (cod_med,fecha,hora,estado,paciente,pac) VALUES
-          ('A','${DIA}','09:00','CREADO','Ana Pérez','PAC-1'),('A','${DIA}','09:45','CREADO','Luis  Gómez','PAC-2'),
-          ('A','${DIA}','10:00','BORRADO','Anulada Sintética','PAC-3'),('A','${DIA}','11:00','MODIFICADO','Movida Sintética','PAC-4'),
-          ('B','${DIA}','09:00','CREADO','Paciente de otro médico','PAC-5')`,
+        `INSERT INTO agenda_med (cod_med,fecha,hora,estado,paciente,pac,actividad,seguro) VALUES
+          ('A','${DIA}','09:00','CREADO','Ana Pérez','PAC-1','Ecografía FIV','Particular'),('A','${DIA}','09:45','CREADO','Luis  Gómez','PAC-2',NULL,NULL),
+          ('A','${DIA}','10:00','BORRADO','Anulada Sintética','PAC-3',NULL,NULL),('A','${DIA}','11:00','MODIFICADO','Movida Sintética','PAC-4',NULL,NULL),
+          ('B','${DIA}','09:00','CREADO','Paciente de otro médico','PAC-5',NULL,NULL)`,
         /* Reservas del médico 1: la misma Ana (recepción la cargó y no marcó), una por verificar, una por confirmar,
            una ya atendida (ya está en agenda_med); y una del médico 2. */
         `INSERT INTO para_agendar (para_age,medico_pk,fecha,hora,nombre_age,telefono_age,ci_age,estado,uno) VALUES
@@ -554,7 +554,7 @@ ejecutar('Agenda HTTP → adaptador TLS → MySQL real descartable', () => {
     it('arma la agenda real del médico: vigentes de agenda_med más reservas sin cargar, sin repetir ni mezclar médicos', async () => {
       const a = await citas.delDia(1, DIA);
       expect(a.citas).toEqual([
-        { hora: '09:00', paciente: 'Ana Pérez', estado: 'CONFIRMADA' },
+        { hora: '09:00', paciente: 'Ana Pérez', estado: 'CONFIRMADA', actividad: 'Ecografía FIV', seguro: 'Particular' },
         { hora: '09:45', paciente: 'Luis Gómez', estado: 'CONFIRMADA' },
         { hora: '12:00', paciente: 'Carla Soto', estado: 'PAGO_POR_VERIFICAR' },
         { hora: '15:00', paciente: 'Dina Rojas', estado: 'POR_CONFIRMAR' },
@@ -571,7 +571,7 @@ ejecutar('Agenda HTTP → adaptador TLS → MySQL real descartable', () => {
       expect((await citas.delDia(99999, DIA)).total).toBe(0);
     });
 
-    it('lee solo nombre y hora: nunca el PAC, el carnet ni el teléfono', async () => {
+    it('lee nombre, hora, actividad y seguro: nunca el PAC, el carnet ni el teléfono', async () => {
       const dump = JSON.stringify(await citas.delDia(1, DIA));
       expect(dump).not.toMatch(/PAC-|111|70011111|70022222/);
     });

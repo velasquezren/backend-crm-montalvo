@@ -34,6 +34,10 @@ export const ETIQUETA_ESTADO_CITA: Readonly<Record<EstadoCitaMedico, string>> = 
 export interface FilaCitaAgenda {
   readonly hora: string;
   readonly paciente: string | null;
+  /** «Ecografía FIV», «Laparoscopia»: lo que FileMaker anota en la columna Actividad. */
+  readonly actividad?: string | null;
+  /** «Particular» o el nombre del seguro. */
+  readonly seguro?: string | null;
 }
 
 /** Lo mínimo que se lee de `para_agendar`: sin carnet, teléfono, pago ni comprobante. */
@@ -48,6 +52,9 @@ export interface CitaMedico {
   readonly hora: string;
   readonly paciente: string;
   readonly estado: EstadoCitaMedico;
+  /** Solo las de FileMaker: una reserva todavía no tiene actividad ni seguro. */
+  readonly actividad?: string;
+  readonly seguro?: string;
 }
 
 export interface AgendaDelDia {
@@ -81,10 +88,18 @@ export function nombreComparable(nombre: string | null): string {
   return (nombre ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
 }
 
-const limpio = (nombre: string | null) => nombre?.replace(/\s+/g, ' ').trim() || SIN_NOMBRE;
+const sinEspacios = (texto: string | null | undefined) => texto?.replace(/\s+/g, ' ').trim() || undefined;
+const limpio = (nombre: string | null) => sinEspacios(nombre) ?? SIN_NOMBRE;
+
+/** Actividad y seguro, solo si FileMaker anotó algo: sin claves vacías. */
+function detalleDe(f: FilaCitaAgenda): Pick<CitaMedico, 'actividad' | 'seguro'> {
+  const actividad = sinEspacios(f.actividad);
+  const seguro = sinEspacios(f.seguro);
+  return { ...(actividad && { actividad }), ...(seguro && { seguro }) };
+}
 
 export function armarAgendaDelDia(fecha: string, agenda: readonly FilaCitaAgenda[], reservas: readonly FilaReservaMedico[]): AgendaDelDia {
-  const confirmadas: CitaMedico[] = agenda.map(f => ({ hora: f.hora.slice(0, 5), paciente: limpio(f.paciente), estado: 'CONFIRMADA' }));
+  const confirmadas: CitaMedico[] = agenda.map(f => ({ hora: f.hora.slice(0, 5), paciente: limpio(f.paciente), estado: 'CONFIRMADA', ...detalleDe(f) }));
   const pendientes: CitaMedico[] = [];
   for (const r of reservas) {
     const estado = ESTADO_DE_RESERVA[r.estado];

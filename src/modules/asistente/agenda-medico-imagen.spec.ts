@@ -12,7 +12,7 @@ import { ImagenHorarioService } from './imagen-horario.service';
 const MEDICO = 'Dra. Claudia Azogue';
 const DIA = '2026-10-12';
 const AGENDA = armarAgendaDelDia(DIA,
-  [{ hora: '09:00', paciente: 'Ana Pérez' }, { hora: '09:45', paciente: 'Luis Gómez' }],
+  [{ hora: '09:00', paciente: 'Ana Pérez', actividad: 'Ecografía FIV', seguro: 'Particular' }, { hora: '09:45', paciente: 'Luis Gómez' }],
   [{ hora: '12:00', paciente: 'Carla Soto', estado: 'PAGADO' }, { hora: '15:00', paciente: 'Dina Rojas', estado: 'PENDIENTE' }]);
 const VACIA = armarAgendaDelDia(DIA, [], []);
 const MUCHAS = armarAgendaDelDia(DIA, Array.from({ length: 60 }, (_, i) => ({ hora: `${String(8 + Math.floor(i / 4)).padStart(2, '0')}:${String((i % 4) * 15).padStart(2, '0')}`, paciente: `Paciente ${i + 1}` })), []);
@@ -50,7 +50,8 @@ describe('el texto de la agenda', () => {
 
   it('el listado en texto lleva hora, paciente y estado de cada cita', () => {
     const t = textoListado(MEDICO, AGENDA);
-    expect(t).toContain('09:00 · Ana Pérez · Confirmada');
+    expect(t).toContain('09:00 · Ana Pérez · Ecografía FIV · Particular · Confirmada');
+    expect(t).toContain('09:45 · Luis Gómez · Confirmada');
     expect(t).toContain('12:00 · Carla Soto · Pago por verificar');
     expect(t).toContain('15:00 · Dina Rojas · Por confirmar');
   });
@@ -62,6 +63,13 @@ describe('el texto de la agenda', () => {
     const pie = pieDeLaImagen(MEDICO, AGENDA);
     expect(pie).not.toMatch(/Ana|Luis|Carla|Dina/);
     expect(pie.length).toBeLessThan(1024);
+    /* Con actividad y seguro largos en todas, tampoco se pasa del tope de WhatsApp. */
+    const largas = armarAgendaDelDia(DIA, Array.from({ length: 45 }, (_, i) => ({
+      hora: '09:00', paciente: `Paciente con nombre bastante largo ${i}`, actividad: 'Laparoscopia más histeroscopia diagnóstica', seguro: 'Seguro Universitario',
+    })), []);
+    const tl = textoListado(MEDICO, largas);
+    expect(tl.length).toBeLessThan(4096);
+    expect(tl).toMatch(/… y \d+ citas más\./);
   });
 });
 
@@ -71,6 +79,18 @@ describe('el SVG de la agenda', () => {
     for (const esperado of [MEDICO, 'lunes 12 de octubre de 2026', '09:00', 'Ana Pérez', 'Luis Gómez', 'Carla Soto', 'Dina Rojas', 'Confirmada', 'Por confirmar', 'Pago por verificar']) {
       expect(svg).toContain(esperado);
     }
+  });
+
+  it('debajo del nombre va la actividad en verde y el seguro en gris; la fila sin ellos no lleva renglón vacío', () => {
+    const svg = svgDeAgendaMedico(MEDICO, AGENDA);
+    expect(svg).toContain('<tspan font-weight="600" fill="#006156">Ecografía FIV</tspan> · Particular</text>');
+    expect(svg.match(/<tspan/g)).toHaveLength(1);
+    /* Más alta con el renglón de más: la de solo nombre mide lo de antes. */
+    const alto = (svg: string) => Number(/height="(\d+)"/.exec(svg)![1]);
+    const sinDetalle = armarAgendaDelDia(DIA, [{ hora: '09:00', paciente: 'Ana Pérez' }], []);
+    const conDetalle = armarAgendaDelDia(DIA, [{ hora: '09:00', paciente: 'Ana Pérez', seguro: 'Particular' }], []);
+    expect(alto(svgDeAgendaMedico(MEDICO, conDetalle)) - alto(svgDeAgendaMedico(MEDICO, sinDetalle))).toBe(24);
+    expect(svgDeAgendaMedico(MEDICO, conDetalle)).not.toContain('<tspan');
   });
 
   it('separa la mañana de la tarde, con cuántas hay en cada una, y el total en la cabecera', () => {

@@ -2,7 +2,8 @@
  * La agenda de un médico como imagen y como texto. Puro y probado: lo que se le
  * manda al médico lo escribe ESTE archivo con los datos de la agenda, no el
  * modelo. Misma mano que el horario y la constancia (`marca-imagen.ts`): mañana y
- * tarde por separado, y el estado de cada cita en color y en palabras.
+ * tarde por separado, el estado de cada cita en color y en palabras, y debajo del
+ * nombre la actividad y el seguro, como en la pantalla de FileMaker del médico.
  *
  * El texto sale siempre —es el pie de la imagen, y es lo que se manda entero si
  * la imagen no se pudo dibujar—: se copia, y lo lee un lector de pantalla.
@@ -19,16 +20,19 @@ export { fechaLarga } from './marca-imagen';
 export const ANCHO_AGENDA = ANCHO_IMAGEN;
 /** Más filas que esto no caben en una imagen legible en un teléfono: el resto se cuenta. */
 export const FILAS_MAXIMAS = 30;
-/** El tope del texto de WhatsApp es 4096; este deja aire para el encabezado. */
+/** El tope del texto de WhatsApp es 4096; estos dejan aire para el encabezado y el aviso. */
 const LINEAS_MAXIMAS_TEXTO = 45;
+const CARACTERES_MAXIMOS_LISTA = 3400;
 
 /** El diseño de la imagen: sube cuando cambia el dibujo, para no reusar un PNG viejo. */
-export const VERSION_DISENO_AGENDA_MEDICO = 2;
+export const VERSION_DISENO_AGENDA_MEDICO = 3;
 
 const CABECERA = 360;
 const RESUMEN_ALTO = 158;
 const SECCION = 70;
 const FILA = 88;
+/** Con el renglón de actividad y seguro debajo del nombre. */
+const FILA_CON_DETALLE = 112;
 const PIE = 140;
 
 const COLOR_ESTADO: Readonly<Record<EstadoCitaMedico, { fondo: string; texto: string; borde: string }>> = {
@@ -76,7 +80,11 @@ export function textoResumen(medico: string, a: AgendaDelDia): string {
   return [encabezado(medico, a), '', resumenEnPalabras(a), desglose(a), ...(a.pendientes > 0 ? ['', NOTA_PENDIENTES] : [])].join('\n');
 }
 
-const lineaDeCita = (c: CitaMedico) => `${c.hora} · ${c.paciente} · ${ETIQUETA_ESTADO_CITA[c.estado]}`;
+/** «Ecografía FIV · Particular», o vacío si FileMaker no anotó nada (una reserva). */
+export const detalleDeCita = (c: CitaMedico) => [c.actividad, c.seguro].filter(Boolean).join(' · ');
+
+const lineaDeCita = (c: CitaMedico) =>
+  [c.hora, c.paciente, detalleDeCita(c), ETIQUETA_ESTADO_CITA[c.estado]].filter(Boolean).join(' · ');
 
 /** El pie de la imagen: el resumen, sin la lista (que ya está dibujada y un pie largo se corta). */
 export function pieDeLaImagen(medico: string, a: AgendaDelDia): string {
@@ -86,7 +94,16 @@ export function pieDeLaImagen(medico: string, a: AgendaDelDia): string {
 /** Cuando no hay imagen: el listado entero en texto, con tope y avisando lo que no cabe. */
 export function textoListado(medico: string, a: AgendaDelDia): string {
   if (a.total === 0) return textoResumen(medico, a);
-  const lineas = a.citas.slice(0, LINEAS_MAXIMAS_TEXTO).map(lineaDeCita);
+  /* Con actividad y seguro una línea puede pasar de 100 caracteres: se corta por
+     tamaño además de por cantidad, para no pasarse del tope de WhatsApp. */
+  const lineas: string[] = [];
+  let largo = 0;
+  for (const c of a.citas.slice(0, LINEAS_MAXIMAS_TEXTO)) {
+    const linea = lineaDeCita(c);
+    if (largo + linea.length + 1 > CARACTERES_MAXIMOS_LISTA) break;
+    lineas.push(linea);
+    largo += linea.length + 1;
+  }
   const resto = a.total - lineas.length;
   return [
     encabezado(medico, a), '', resumenEnPalabras(a), '',
@@ -99,16 +116,29 @@ export function textoListado(medico: string, a: AgendaDelDia): string {
 /** Una hora ilegible cuenta como de la mañana: se ve igual, solo cambia de sección. */
 const minutos = (hora: string) => minutosDeHora(hora) ?? 0;
 
+const altoDeFila = (c: CitaMedico) => (detalleDeCita(c) ? FILA_CON_DETALLE : FILA);
+
+/** La actividad en verde y semibold, el seguro en gris: se lee qué es antes que quién paga. */
+function renglonDeDetalle(c: CitaMedico, y: number): string {
+  const detalle = ajustar(detalleDeCita(c), 23, 19, 470);
+  const enVerde = Math.min(c.actividad?.length ?? 0, detalle.texto.length);
+  const actividad = enVerde > 0 ? `<tspan font-weight="600" fill="${COLOR.primario}">${escaparXml(detalle.texto.slice(0, enVerde))}</tspan>` : '';
+  return `<text x="${MARGEN + 172}" y="${y}" font-size="${detalle.tamano}" fill="${COLOR.apagado}">${actividad}${escaparXml(detalle.texto.slice(enVerde))}</text>`;
+}
+
 function filaDeCita(c: CitaMedico, y: number, primera: boolean): string {
   const estilo = COLOR_ESTADO[c.estado];
   const paciente = ajustar(c.paciente, 30, 27, 470);
+  const alto = altoDeFila(c);
+  const conDetalle = alto === FILA_CON_DETALLE;
   return [
     primera ? '' : `<line x1="${MARGEN}" y1="${y}" x2="${ANCHO_AGENDA - MARGEN}" y2="${y}" stroke="${COLOR.borde}" stroke-width="2"/>`,
     /* La franja de color repite el estado: se distingue de reojo, sin leer la pastilla. */
-    `<rect x="${MARGEN}" y="${y + 18}" width="6" height="${FILA - 36}" rx="3" fill="${estilo.borde}"/>`,
-    `<text x="${MARGEN + 26}" y="${y + 56}" font-size="34" font-weight="600" fill="${COLOR.primario}">${escaparXml(c.hora)}</text>`,
-    `<text x="${MARGEN + 172}" y="${y + 55}" font-size="${paciente.tamano}" fill="${COLOR.texto}">${escaparXml(paciente.texto)}</text>`,
-    pastilla(ANCHO_AGENDA - MARGEN - 270, y + 20, 270, 48, ETIQUETA_ESTADO_CITA[c.estado], estilo, 22),
+    `<rect x="${MARGEN}" y="${y + 18}" width="6" height="${alto - 36}" rx="3" fill="${estilo.borde}"/>`,
+    `<text x="${MARGEN + 26}" y="${y + alto / 2 + 12}" font-size="34" font-weight="600" fill="${COLOR.primario}">${escaparXml(c.hora)}</text>`,
+    `<text x="${MARGEN + 172}" y="${y + (conDetalle ? 50 : 55)}" font-size="${paciente.tamano}" fill="${COLOR.texto}">${escaparXml(paciente.texto)}</text>`,
+    conDetalle ? renglonDeDetalle(c, y + 88) : '',
+    pastilla(ANCHO_AGENDA - MARGEN - 270, y + alto / 2 - 24, 270, 48, ETIQUETA_ESTADO_CITA[c.estado], estilo, 22),
   ].join('');
 }
 
@@ -119,7 +149,7 @@ export function svgDeAgendaMedico(medico: string, a: AgendaDelDia): string {
     { titulo: 'Mañana', citas: visibles.filter(c => minutos(c.hora) < INICIO_TARDE_MINUTO) },
     { titulo: 'Tarde', citas: visibles.filter(c => minutos(c.hora) >= INICIO_TARDE_MINUTO) },
   ].filter(s => s.citas.length > 0);
-  const cuerpo = a.total === 0 ? 170 : secciones.reduce((s, x) => s + SECCION + x.citas.length * FILA, 0) + (resto > 0 ? 70 : 20);
+  const cuerpo = a.total === 0 ? 170 : secciones.reduce((s, x) => s + SECCION + x.citas.reduce((t, c) => t + altoDeFila(c), 0), 0) + (resto > 0 ? 70 : 20);
   const alto = CABECERA + RESUMEN_ALTO + cuerpo + PIE;
   /* El total va a la derecha de la cabecera: el nombre no puede pisarlo. */
   const nombre = ajustar(medico, 54, 32, ANCHO_AGENDA - 2 * MARGEN - 190);
@@ -147,7 +177,7 @@ export function svgDeAgendaMedico(medico: string, a: AgendaDelDia): string {
       y += SECCION;
       s.citas.forEach((c, i) => {
         filas += filaDeCita(c, y, i === 0);
-        y += FILA;
+        y += altoDeFila(c);
       });
     }
     if (resto > 0) {
