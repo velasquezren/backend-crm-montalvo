@@ -10,6 +10,7 @@
  */
 import { evaluarComprobante, LecturaComprobante } from '../asistente/comprobante';
 import type { DatosComprobante } from '../asistente/modelo.port';
+import { textoBs } from './reservas-chat';
 
 export interface EsperadoReserva {
   /** En Bs: lo que se le pidió al mandarle el QR. */
@@ -58,6 +59,21 @@ export function detalleDeLectura(lectura: Pick<LecturaComprobante, 'resultado' |
 /** Lo que se le dice cuando la imagen no es un comprobante. De usted, sin culpa. */
 export const TEXTO_NO_ES_COMPROBANTE =
   'La imagen que nos envió no parece un comprobante de pago. Cuando realice el pago con el QR, envíenos por aquí la foto o captura del comprobante, por favor.';
+
+/**
+ * Lo que se le dice cuando su comprobante queda para una persona. Nunca la acusa
+ * (una operación «repetida» puede ser un error de lectura): dice qué pasa ahora.
+ * Solo nombra el monto, que es lo que ella puede corregir.
+ */
+export function textoRevisionParaPaciente(lectura: Pick<LecturaComprobante, 'resultado' | 'verificaciones'> | null, montoCentavos: number): string {
+  if (lectura?.resultado === 'NO_ES_COMPROBANTE') {
+    return 'La imagen que nos envió tampoco parece un comprobante de pago. Una persona del equipo le escribirá por aquí para ayudarle.';
+  }
+  if (lectura?.verificaciones.some(v => v.campo === 'MONTO' && v.estado === 'ALERTA')) {
+    return `El monto de su comprobante no coincide con el de su reserva (${textoBs(montoCentavos)}). Una persona del equipo lo revisará y le escribirá por aquí.`;
+  }
+  return 'Recibimos su comprobante, pero no pudimos validarlo automáticamente. Una persona del equipo lo revisará y le confirmará la cita por aquí.';
+}
 
 /** La lectura guardada, si tiene la forma esperada. */
 export function lecturaGuardada(valor: unknown): LecturaComprobante | null {

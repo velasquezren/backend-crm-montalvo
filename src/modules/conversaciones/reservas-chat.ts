@@ -47,7 +47,9 @@ export function textoReservaSinPago(resumen: string): string {
   return `Su reserva ${resumen} quedó registrada. Recepción le confirmará la cita y cómo pagarla por este chat.`;
 }
 
-export const TEXTO_COMPROBANTE_RESERVA = '✅ Recibimos su comprobante. Recepción lo verificará y le confirmará la cita por aquí.';
+/* «Su imagen», no «su comprobante»: con la lectura de la IA encendida todavía no se
+   sabe si lo es, y si no, el aviso siguiente le diría lo contrario (22/10/2026). */
+export const TEXTO_COMPROBANTE_RESERVA = '✅ Recibimos su imagen. La estamos revisando y le confirmaremos la cita por aquí.';
 
 /**
  * Dentro de la transacción de la ingesta, al llegar el cierre del Flow ya

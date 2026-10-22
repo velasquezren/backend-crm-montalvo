@@ -10,7 +10,7 @@ import { AsistenteLineasService } from '../asistente/asistente-lineas.service';
 import { LecturaComprobante, referenciaComparable } from '../asistente/comprobante';
 import { LectorComprobantes } from '../asistente/modelo.port';
 import { CANDADO_AUTOMATICOS } from './atencion-humana';
-import { decidirComprobanteDeReserva, detalleDeLectura, evaluarComprobanteDeReserva, lecturaGuardada, TEXTO_NO_ES_COMPROBANTE } from './comprobante-reserva';
+import { decidirComprobanteDeReserva, detalleDeLectura, evaluarComprobanteDeReserva, lecturaGuardada, TEXTO_NO_ES_COMPROBANTE, textoRevisionParaPaciente } from './comprobante-reserva';
 import { ConstanciaReservaService } from './constancia-reserva.service';
 import { ConversacionesGateway } from './conversaciones.gateway';
 import { DespachadorSalienteService } from './despachador-saliente.service';
@@ -184,7 +184,7 @@ export class ComprobantesReservaChatService implements OnModuleInit, OnModuleDes
     } catch (error: unknown) {
       this.logger.warn(`Comprobante de la reserva ${p.reservaAgenda} sin leer: ${error instanceof Error ? error.message : 'falló'}`);
       if (p.intentos + 1 >= INTENTOS_LECTURA) {
-        await this.cerrar(p, lease, 'REVISION', DETALLE.SIN_LECTURA);
+        if (await this.cerrar(p, lease, 'REVISION', DETALLE.SIN_LECTURA)) await this.avisarRevision(p, mensajeId, null);
         return false;
       }
       await this.prisma.reservaChat.updateMany({ where: { id: p.id, estado: 'COMPROBANTE_RECIBIDO', proximoIntento: lease },
@@ -202,7 +202,7 @@ export class ComprobantesReservaChatService implements OnModuleInit, OnModuleDes
       return count > 0;
     }
     if (decision === 'REVISAR') {
-      await this.cerrar(p, lease, 'REVISION', detalleDeLectura(lectura), lectura);
+      if (await this.cerrar(p, lease, 'REVISION', detalleDeLectura(lectura), lectura)) await this.avisarRevision(p, mensajeId, lectura);
       return false;
     }
     /* No es un comprobante: la reserva vuelve a esperar el suyo y se le pide. */
@@ -211,9 +211,15 @@ export class ComprobantesReservaChatService implements OnModuleInit, OnModuleDes
         lecturaComprobante: lectura as unknown as Prisma.InputJsonValue } });
     if (count) {
       this.gateway.emitirActividad(p.conversacionId);
-      await this.pedirComprobante(p, mensajeId);
+      await this.avisar(p, `reserva-no-comprobante:${mensajeId}`, TEXTO_NO_ES_COMPROBANTE);
     }
     return false;
+  }
+
+  /** Que no se quede sin respuesta: su comprobante lo ve ahora una persona. */
+  private avisarRevision(p: Pendiente, mensajeId: string, lectura: LecturaComprobante | null): Promise<void> {
+    const centavos = Math.round((p.monto?.toNumber() ?? 0) * 100);
+    return this.avisar(p, `reserva-revision:${mensajeId}`, textoRevisionParaPaciente(lectura, centavos));
   }
 
   private async leer(p: Pendiente, mensajeId: string, bytes: Buffer, mime: string, ahora: Date): Promise<LecturaComprobante> {
@@ -241,25 +247,25 @@ export class ComprobantesReservaChatService implements OnModuleInit, OnModuleDes
   }
 
   /**
-   * Una vez por imagen (`clientMessageId` estable), como la constancia: sale aunque
-   * una persona atienda el chat, porque responde a lo que ella acaba de mandar.
-   * No lanza: la reserva ya volvió a esperar, y una persona ve la lectura.
+   * Una vez por imagen (`clientMessageId` estable por `clave`), como la constancia:
+   * sale aunque una persona atienda el chat, porque responde a lo que ella acaba de
+   * mandar. No lanza: el estado de la reserva ya quedó, y una persona ve la lectura.
    */
-  private async pedirComprobante(p: Pendiente, mensajeId: string): Promise<void> {
-    const clientMessageId = uuidEstable(`reserva-no-comprobante:${mensajeId}`);
+  private async avisar(p: Pendiente, clave: string, texto: string): Promise<void> {
+    const clientMessageId = uuidEstable(clave);
     try {
       const mensaje = await this.prisma.$transaction(async tx => {
         await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${p.conversacionId}, ${CANDADO_AUTOMATICOS}))::text`;
-        const creado = await tx.mensaje.create({ data: { conversacionId: p.conversacionId, direccion: 'SALIENTE', contenido: TEXTO_NO_ES_COMPROBANTE,
+        const creado = await tx.mensaje.create({ data: { conversacionId: p.conversacionId, direccion: 'SALIENTE', contenido: texto,
           automatico: true, asistente: true, clientMessageId, estadoEnvio: 'ENVIADO' }, select: { id: true } });
         await tx.conversacion.update({ where: { id: p.conversacionId }, data: { updatedAt: new Date() } });
         return creado;
       });
       this.gateway.emitirActividad(p.conversacionId);
-      await this.despachador.texto({ mensajeId: mensaje.id, conversacionId: p.conversacionId, telefono: p.conversacion.cliente.telefono }, TEXTO_NO_ES_COMPROBANTE);
+      await this.despachador.texto({ mensajeId: mensaje.id, conversacionId: p.conversacionId, telefono: p.conversacion.cliente.telefono }, texto);
     } catch (error: unknown) {
       if (esChoqueUnicoEn(error, 'Mensaje', 'clientMessageId')) return;
-      this.logger.warn(`Aviso de comprobante no válido (reserva ${p.reservaAgenda}) sin enviar: ${error instanceof Error ? error.message : 'falló'}`);
+      this.logger.warn(`Aviso del comprobante de la reserva ${p.reservaAgenda} sin enviar: ${error instanceof Error ? error.message : 'falló'}`);
     }
   }
 }

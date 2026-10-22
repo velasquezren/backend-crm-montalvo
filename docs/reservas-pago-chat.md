@@ -69,6 +69,12 @@ las citas está en `conversaciones/comprobante-reserva.ts`:
 | No es un comprobante (una foto, el carnet) | Vuelve a `ESPERANDO_COMPROBANTE` y se le pide el comprobante **una vez** (`clientMessageId` por imagen). Una segunda imagen que tampoco lo es va a `REVISION`. |
 | La IA no responde | Reintenta con espera creciente; a la tercera, `REVISION`. Nunca pasa a la agenda sin leerse. |
 
+- **La paciente nunca se queda sin respuesta.** Al llegar la imagen recibe «✅ Recibimos su
+  imagen. La estamos revisando…» (neutral: todavía no se sabe si es un comprobante). Después:
+  si coincide, la constancia; si no es un comprobante, que lo envíe; si el monto no cuadra,
+  cuál era el de su reserva; en cualquier otra revisión, que una persona le escribirá. Nunca
+  se le menciona una operación «repetida»: puede ser un error de lectura. Un aviso por imagen
+  (`clientMessageId` estable), aunque una persona esté atendiendo el chat.
 - El **destinatario no se compara**: `pagos_qr` no guarda el titular de la cuenta, y sin él esa
   fila siempre saldría «mirar». Caja lo ve en la imagen.
 - La lectura queda en `ReservaChat.lecturaComprobante` (migración aditiva

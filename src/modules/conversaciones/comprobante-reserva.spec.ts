@@ -1,5 +1,5 @@
 import type { DatosComprobante } from '../asistente/modelo.port';
-import { decidirComprobanteDeReserva, detalleDeLectura, evaluarComprobanteDeReserva, lecturaGuardada } from './comprobante-reserva';
+import { decidirComprobanteDeReserva, detalleDeLectura, evaluarComprobanteDeReserva, lecturaGuardada, textoRevisionParaPaciente } from './comprobante-reserva';
 
 const pedidoEn = new Date('2026-10-22T19:00:00Z'); // 15:00 en La Paz
 const ahora = new Date('2026-10-22T19:20:00Z');
@@ -47,6 +47,17 @@ describe('detalleDeLectura', () => {
     const detalle = detalleDeLectura(r);
     expect(detalle.indexOf('se esperaba')).toBeLessThan(detalle.indexOf('número de operación'));
     expect(detalle.length).toBeLessThanOrEqual(300);
+  });
+});
+
+describe('textoRevisionParaPaciente', () => {
+  it('le dice el monto si es lo que no cuadra, y nunca la acusa de nada', () => {
+    expect(textoRevisionParaPaciente(evaluarComprobanteDeReserva(datos({ monto: 250 }), esperado), 40000)).toContain('(Bs 400)');
+    const repetida = textoRevisionParaPaciente(evaluarComprobanteDeReserva(datos(), { ...esperado, referenciaRepetida: true }), 40000);
+    expect(repetida).toContain('no pudimos validarlo automáticamente');
+    expect(repetida).not.toMatch(/reutiliz|repetid|fraude/i);
+    expect(textoRevisionParaPaciente(null, 40000)).toContain('Una persona del equipo');
+    expect(textoRevisionParaPaciente({ resultado: 'NO_ES_COMPROBANTE', verificaciones: [] }, 40000)).toContain('tampoco parece');
   });
 });
 

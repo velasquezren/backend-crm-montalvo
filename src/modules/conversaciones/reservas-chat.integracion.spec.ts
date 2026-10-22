@@ -203,6 +203,7 @@ describe('con la lectura de comprobantes encendida, la IA decide qué llega sola
   beforeEach(() => { lineasIA.leeComprobantes.mockResolvedValue(true); });
 
   it('un comprobante que coincide en monto, fecha y operación se registra y guarda su lectura', async () => {
+    /* Lo que le llega es la constancia, no un aviso de revisión. */
     const {fila}=await pendiente();
     lector.leer.mockResolvedValue(leido());
     expect(await worker().procesar()).toBe(1);
@@ -213,6 +214,7 @@ describe('con la lectura de comprobantes encendida, la IA decide qué llega sola
     /* Sin titular en el QR de la agenda no se compara el destinatario: no estorba el resultado. */
     expect((final.lecturaComprobante as {verificaciones:{campo:string}[]}).verificaciones.map(v=>v.campo)).not.toContain('DESTINATARIO');
     expect(constancia.enviar).toHaveBeenCalledTimes(1);
+    expect(despachador.texto).not.toHaveBeenCalled();
   });
 
   it('otro monto, o una fecha anterior al QR, va a revisión y no toca la agenda', async () => {
@@ -226,6 +228,10 @@ describe('con la lectura de comprobantes encendida, la IA decide qué llega sola
     }
     expect(agenda.registrarPagoDesdeChat).not.toHaveBeenCalled();
     expect(constancia.enviar).not.toHaveBeenCalled();
+    /* Nunca se queda sin respuesta: una por comprobante. Otro monto, o en dólares, le dice cuánto era. */
+    expect(despachador.texto).toHaveBeenCalledTimes(3);
+    expect(await db.mensaje.count({where:{conversacionId:chat,contenido:{contains:'no coincide con el de su reserva (Bs 400,25)'}}})).toBe(2);
+    expect(await db.mensaje.count({where:{conversacionId:chat,contenido:{contains:'no pudimos validarlo automáticamente'}}})).toBe(1);
   });
 
   it('sin número de operación legible no pasa solo', async () => {
@@ -265,7 +271,8 @@ describe('con la lectura de comprobantes encendida, la IA decide qué llega sola
     expect(await db.$transaction(tx=>marcarComprobanteDeReserva(tx,chat,otra.id))).toBe(true);
     await worker().procesar();
     expect(await db.reservaChat.findUniqueOrThrow({where:{id:fila.id}})).toMatchObject({estado:'REVISION',comprobanteMensajeId:otra.id});
-    expect(despachador.texto).toHaveBeenCalledTimes(1);
+    expect(despachador.texto).toHaveBeenCalledTimes(2);
+    expect(await db.mensaje.count({where:{conversacionId:chat,contenido:{contains:'tampoco parece un comprobante'}}})).toBe(1);
     expect(mensaje.id).not.toBe(otra.id);
   });
 
@@ -278,6 +285,7 @@ describe('con la lectura de comprobantes encendida, la IA decide qué llega sola
     await worker().procesar();
     expect(await db.reservaChat.findUniqueOrThrow({where:{id:fila.id}})).toMatchObject({estado:'REVISION',detalle:expect.stringContaining('no pudo leer')});
     expect(agenda.registrarPagoDesdeChat).not.toHaveBeenCalled();
+    expect(despachador.texto).toHaveBeenCalledTimes(1);
   });
 
   it('si la agenda falla después de leerlo, el reintento no lo vuelve a leer', async () => {
