@@ -5,9 +5,16 @@
  * Sale como PLANTILLA de WhatsApp: a caja se le escribe primero, y fuera de la
  * ventana de 24 h Meta solo acepta plantillas aprobadas.
  */
-import { fechaLarga } from './agenda-flow.service';
 import type { FilaReservaAgenda } from './agenda-consulta.sql';
 import { precioDelVps } from './agenda.sql';
+
+/*
+ * Propia y no la de `agenda-flow.service.ts`: importar ese servicio desde aquí
+ * cerraba el ciclo AgendaReservasService → AvisosCajaService → AgendaFlowService
+ * → AgendaReservasService, y Nest no arrancaba (22/10/2026). Mismo formato.
+ */
+const fechaLarga = (fecha: string) =>
+  new Intl.DateTimeFormat('es-BO', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'UTC' }).format(new Date(`${fecha}T12:00:00Z`));
 
 export const PLANTILLA_AVISO_CAJA = 'montalvo_comprobante_caja';
 export const IDIOMA_AVISO_CAJA = 'es';
