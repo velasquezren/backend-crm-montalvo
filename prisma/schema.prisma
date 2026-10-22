@@ -378,6 +378,10 @@ model ReservaChat {
   intentos              Int               @default(0)
   /// Por qué quedó en revisión (para quien lo atiende).
   detalle               String?           @db.VarChar(300)
+  /// Lo que la IA leyó del último comprobante y cómo se compara con lo pedido
+  /// (`LecturaComprobante`, `comprobante-reserva.ts`). Con la lectura encendida
+  /// en la línea, solo un comprobante que COINCIDE llega solo a la agenda.
+  lecturaComprobante    Json?
   createdAt             DateTime          @default(now())
   updatedAt             DateTime          @updatedAt
 

@@ -117,7 +117,7 @@ los roles de agenda distinguen consulta clínica de edición.
 | Servicio | Para qué | Dónde se configura |
 | --- | --- | --- |
 | WhatsApp Cloud API (Meta) | Líneas configurables; una app y un `META_APP_SECRET` para todas | `.env` del servidor + pantalla Líneas WhatsApp |
-| Gemini | Clasificación, conversación, audio y lectura de comprobantes de promociones | `.env.example` + configuración del asistente por línea |
+| Gemini | Clasificación, conversación, audio y lectura de comprobantes (promociones y citas del chat) | `.env.example` + configuración del asistente por línea |
 | Meta Lead Ads | Leads de formularios de anuncios | `/webhooks/meta` |
 | Cloudflare R2 | Media de los chats y de Mi Memoria (URLs firmadas); banners de promociones y fotos del directorio, servidos por la API con URL pública inmutable solo si están publicados | `.env` (`R2_*`) |
 | Web Push (VAPID) | Avisos al teléfono: mensaje entrante y recordatorios | `.env` (`VAPID_*`); **no regenerar las llaves** |

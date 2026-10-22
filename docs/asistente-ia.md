@@ -224,6 +224,12 @@ Montalvo SRL», «Es del 01/10: anterior a cuando se le mandó el QR», «La ope
 778899 ya llegó en otro pago: puede ser un comprobante reutilizado». **Confirmar
 sigue siendo de una persona**: el asistente ahorra leer con lupa, no el criterio.
 
+**En las citas reservadas por el chat (22/10/2026) la lectura decide qué pasa solo
+a la agenda** ([detalle](reservas-pago-chat.md#lectura-del-comprobante-con-ia)): solo un
+comprobante que coincide en monto, fecha y número de operación llega a `para_agendar` como
+PAGADO; lo demás queda en revisión, y una imagen que no es un comprobante se le vuelve a
+pedir una vez. El destinatario no se compara: el QR de la agenda no dice su titular.
+
 **Promociones con servicios (12/10/2026)**: `listar_promociones` trae cada servicio con
 su precio de promoción y el de siempre; `ver_promocion` los trae con su id; y
 `enviar_promocion` acepta un `servicioId` opcional (los parámetros opcionales declarados
@@ -616,8 +622,8 @@ y `uso=conversar|clasificar|leer-comprobante|transcribir-audio` (solo en Vertex:
   afirmar que toda la implementación solo se probó con modelos guionados.
 - **Reservar por el asistente:** hecho el 15/10 (arriba). Encendido en la línea de prueba
   y en Ventas (`ASISTENTE_RESERVAS_LINEAS`); Recepción sigue en «Solo médicos».
-- **Comprobantes de reservas** (QR del médico): la lectura cubre por ahora los pagos de
-  promociones.
+- **Comprobantes de reservas** (QR del médico): leídos desde el 22/10 con el mismo
+  interruptor por línea ([reservas-pago-chat](reservas-pago-chat.md#lectura-del-comprobante-con-ia)).
 - **Notas de voz:** implementadas; `scripts/probar-asistente.mjs` pasa
   transcriptor y audio de prueba a `probarProveedor`, que incluye el paso AUDIO.
   La disponibilidad del proveedor se comprueba al ejecutar, no al leer esta guía.

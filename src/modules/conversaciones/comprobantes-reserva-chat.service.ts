@@ -4,29 +4,45 @@ import { BYTES_MAXIMOS_IMAGEN } from '../../common/storage/imagen-publica';
 import { R2Service } from '../../common/storage/r2.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { Prisma } from '../../prisma/prisma-client';
+import { esChoqueUnicoEn } from '../../prisma/choque-unico';
 import { AgendaReservasService } from '../agenda/agenda-reservas.service';
+import { AsistenteLineasService } from '../asistente/asistente-lineas.service';
+import { LecturaComprobante, referenciaComparable } from '../asistente/comprobante';
+import { LectorComprobantes } from '../asistente/modelo.port';
+import { CANDADO_AUTOMATICOS } from './atencion-humana';
+import { decidirComprobanteDeReserva, detalleDeLectura, evaluarComprobanteDeReserva, lecturaGuardada, TEXTO_NO_ES_COMPROBANTE } from './comprobante-reserva';
 import { ConstanciaReservaService } from './constancia-reserva.service';
 import { ConversacionesGateway } from './conversaciones.gateway';
+import { DespachadorSalienteService } from './despachador-saliente.service';
 import { interaccionesEnLinea, interaccionesHabilitadas } from './interacciones-integracion';
+import { uuidEstable } from './pagos-chat';
 
 const INTERVALO_MS = 30_000;
 const ESPERA_MEDIA_MS = 6 * 60 * 60 * 1000;
 const MAX_INTENTOS = 20;
 const POR_PASADA = 10;
 const LEASE_MS = 120_000;
+/** Lecturas fallidas (Gemini caído, respuesta rara) antes de dejarlo a una persona. */
+const INTENTOS_LECTURA = 3;
 const DETALLE = {
   NO_ES_IMAGEN: 'El comprobante debe ser una imagen JPG, PNG o WebP de hasta 5 MB. Revisa el archivo en el chat.',
   NO_ENCONTRADA: 'La reserva ya no existe en la agenda.',
   YA_NO_PENDIENTE: 'Revisa la agenda: la reserva ya tenía comprobante o recepción la gestionó. No se sobrescribió.',
   SIN_MEDIA: 'La imagen no se pudo descargar de WhatsApp.',
   AGENDA: 'No se pudo completar el registro automático. Revisa el comprobante en la agenda antes de cargarlo a mano.',
+  SIN_LECTURA: 'La IA no pudo leer el comprobante. Revísalo en el chat antes de cargarlo a mano en la agenda.',
 } as const;
 
 type Pendiente = { id: string; reservaAgenda: number; intentos: number; comprobanteMensajeId: string | null;
-  comprobanteRecibidoEn: Date | null; updatedAt: Date; conversacionId: string; conversacion: { lineaId: string | null } };
+  comprobanteRecibidoEn: Date | null; updatedAt: Date; createdAt: Date; monto: Prisma.Decimal | null; lecturaComprobante: Prisma.JsonValue;
+  conversacionId: string; conversacion: { lineaId: string | null; cliente: { telefono: string } } };
 
 /** Cola durable de comprobantes; nunca confirma pagos. MySQL sigue siendo la
- * fuente. CAS con lease recuperable tras reinicio, solo líneas habilitadas. */
+ * fuente. CAS con lease recuperable tras reinicio, solo líneas habilitadas.
+ *
+ * Con la lectura de comprobantes encendida en la línea (Líneas WhatsApp →
+ * Asistente), la IA lee la imagen ANTES de llevarla a la agenda y solo pasa sola
+ * la que coincide (`comprobante-reserva.ts`). Con la lectura apagada, como antes. */
 @Injectable()
 export class ComprobantesReservaChatService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(ComprobantesReservaChatService.name);
@@ -34,7 +50,8 @@ export class ComprobantesReservaChatService implements OnModuleInit, OnModuleDes
   private corriendo = false;
   constructor(private readonly prisma: PrismaService, private readonly r2: R2Service,
     private readonly agenda: AgendaReservasService, private readonly gateway: ConversacionesGateway,
-    private readonly constancia: ConstanciaReservaService) {}
+    private readonly constancia: ConstanciaReservaService, private readonly lineas: AsistenteLineasService,
+    private readonly lector: LectorComprobantes, private readonly despachador: DespachadorSalienteService) {}
 
   onModuleInit(): void {
     if (process.env.NODE_ENV === 'test') return;
@@ -83,7 +100,8 @@ export class ComprobantesReservaChatService implements OnModuleInit, OnModuleDes
           OR: [{ proximoIntento: null }, { proximoIntento: { lte: ahora } }] },
         orderBy: { updatedAt: 'asc' }, take: POR_PASADA,
         select: { id: true, conversacionId: true, reservaAgenda: true, intentos: true, comprobanteMensajeId: true,
-          comprobanteRecibidoEn: true, updatedAt: true, conversacion: { select: { lineaId: true } } },
+          comprobanteRecibidoEn: true, updatedAt: true, createdAt: true, monto: true, lecturaComprobante: true,
+          conversacion: { select: { lineaId: true, cliente: { select: { telefono: true } } } } },
       });
       let resueltos = 0;
       for (const p of pendientes) {
@@ -115,6 +133,7 @@ export class ComprobantesReservaChatService implements OnModuleInit, OnModuleDes
       const bytes = await leerImagenAcotada(objeto.cuerpo);
       if (!bytes) return this.cerrar(p, lease, 'REVISION', DETALLE.NO_ES_IMAGEN);
       if (!interaccionesEnLinea(p.conversacion.lineaId)) return false;
+      if (!(await this.verificado(p, bytes, mensaje.mediaMime ?? 'image/jpeg', ahora, lease))) return false;
       const resultado = await this.agenda.registrarPagoDesdeChat(p.reservaAgenda, bytes);
       if (resultado !== 'REGISTRADO') return this.cerrar(p, lease, 'REVISION', DETALLE[resultado]);
       const registrado = await this.cerrar(p, lease, 'PAGO_REGISTRADO', null);
@@ -131,10 +150,117 @@ export class ComprobantesReservaChatService implements OnModuleInit, OnModuleDes
     }
   }
 
-  private async cerrar(p: Pendiente, lease: Date, estado: 'PAGO_REGISTRADO' | 'REVISION', detalle: string | null): Promise<boolean> {
-    const { count } = await this.prisma.reservaChat.updateMany({ where: { id: p.id, estado: 'COMPROBANTE_RECIBIDO', proximoIntento: lease }, data: { estado, detalle, proximoIntento: null } });
+  private async cerrar(p: Pendiente, lease: Date, estado: 'PAGO_REGISTRADO' | 'REVISION', detalle: string | null, lectura?: LecturaComprobante): Promise<boolean> {
+    const { count } = await this.prisma.reservaChat.updateMany({ where: { id: p.id, estado: 'COMPROBANTE_RECIBIDO', proximoIntento: lease },
+      data: { estado, detalle, proximoIntento: null, ...(lectura ? { lecturaComprobante: lectura as unknown as Prisma.InputJsonValue } : {}) } });
     if (count) this.gateway.emitirActividad(p.conversacionId);
     return count > 0;
+  }
+
+  /**
+   * ¿Puede seguir a la agenda? `true` si la línea no lee comprobantes (como antes)
+   * o si la IA lo leyó y coincide en todo. Si no, deja la reserva donde corresponde
+   * —esperando otro, o en revisión— y devuelve `false`. Una lectura que falla se
+   * reintenta; a la tercera, revisión: nunca pasa a la agenda sin leerse.
+   */
+  private async verificado(p: Pendiente, bytes: Buffer, mime: string, ahora: Date, lease: Date): Promise<boolean> {
+    const mensajeId = p.comprobanteMensajeId!;
+    if (!p.conversacion.lineaId || !(await this.lineas.leeComprobantes(p.conversacion.lineaId))) return true;
+    const anterior = lecturaGuardada(p.lecturaComprobante);
+    /* Ya leída en una pasada anterior (la agenda no respondió): no se paga otra lectura. */
+    if (anterior?.mensajeId === mensajeId) {
+      if (anterior.resultado === 'COINCIDE') return true;
+      await this.cerrar(p, lease, 'REVISION', detalleDeLectura(anterior));
+      return false;
+    }
+    /* Sin monto no hay con qué comparar (no debería pasar: sin monto no se manda QR). */
+    if (p.monto === null) {
+      await this.cerrar(p, lease, 'REVISION', DETALLE.SIN_LECTURA);
+      return false;
+    }
+    let lectura: LecturaComprobante;
+    try {
+      lectura = await this.leer(p, mensajeId, bytes, mime, ahora);
+    } catch (error: unknown) {
+      this.logger.warn(`Comprobante de la reserva ${p.reservaAgenda} sin leer: ${error instanceof Error ? error.message : 'falló'}`);
+      if (p.intentos + 1 >= INTENTOS_LECTURA) {
+        await this.cerrar(p, lease, 'REVISION', DETALLE.SIN_LECTURA);
+        return false;
+      }
+      await this.prisma.reservaChat.updateMany({ where: { id: p.id, estado: 'COMPROBANTE_RECIBIDO', proximoIntento: lease },
+        data: { intentos: { increment: 1 }, proximoIntento: new Date(ahora.getTime() + 60_000 * 2 ** p.intentos) } });
+      return false;
+    }
+    /* Una línea por lectura, sin datos de la paciente: qué reserva y qué salió. */
+    this.logger.log(`Comprobante de la reserva ${p.reservaAgenda} leído: ${lectura.resultado}`);
+    const decision = decidirComprobanteDeReserva(lectura, anterior);
+    if (decision === 'REGISTRAR') {
+      /* Queda guardada antes de ir a la agenda: si la agenda falla, el reintento no vuelve a leer. */
+      const { count } = await this.prisma.reservaChat.updateMany({ where: { id: p.id, estado: 'COMPROBANTE_RECIBIDO', proximoIntento: lease },
+        data: { lecturaComprobante: lectura as unknown as Prisma.InputJsonValue } });
+      if (count) this.gateway.emitirActividad(p.conversacionId);
+      return count > 0;
+    }
+    if (decision === 'REVISAR') {
+      await this.cerrar(p, lease, 'REVISION', detalleDeLectura(lectura), lectura);
+      return false;
+    }
+    /* No es un comprobante: la reserva vuelve a esperar el suyo y se le pide. */
+    const { count } = await this.prisma.reservaChat.updateMany({ where: { id: p.id, estado: 'COMPROBANTE_RECIBIDO', proximoIntento: lease },
+      data: { estado: 'ESPERANDO_COMPROBANTE', comprobanteMensajeId: null, comprobanteRecibidoEn: null, proximoIntento: null, intentos: 0, detalle: null,
+        lecturaComprobante: lectura as unknown as Prisma.InputJsonValue } });
+    if (count) {
+      this.gateway.emitirActividad(p.conversacionId);
+      await this.pedirComprobante(p, mensajeId);
+    }
+    return false;
+  }
+
+  private async leer(p: Pendiente, mensajeId: string, bytes: Buffer, mime: string, ahora: Date): Promise<LecturaComprobante> {
+    const { datos } = await this.lector.leer({ bytes: new Uint8Array(bytes), mime });
+    const referencia = referenciaComparable(datos.referencia);
+    /* Un comprobante reutilizado: la misma operación ya llegó por otra cita o por una promoción. */
+    const repetidas = referencia ? await Promise.all([
+      this.prisma.reservaChat.count({ where: { id: { not: p.id }, lecturaComprobante: { path: ['referenciaNormalizada'], equals: referencia } } }),
+      this.prisma.pagoPromocion.count({ where: { lecturaComprobante: { path: ['referenciaNormalizada'], equals: referencia } } }),
+    ]) : [0, 0];
+    return {
+      version: 1,
+      mensajeId,
+      leidoEn: ahora.toISOString(),
+      modelo: this.lector.nombre,
+      datos,
+      referenciaNormalizada: referencia,
+      ...evaluarComprobanteDeReserva(datos, {
+        monto: p.monto!.toNumber(),
+        pedidoEn: p.createdAt,
+        ahora,
+        referenciaRepetida: repetidas[0] + repetidas[1] > 0,
+      }),
+    };
+  }
+
+  /**
+   * Una vez por imagen (`clientMessageId` estable), como la constancia: sale aunque
+   * una persona atienda el chat, porque responde a lo que ella acaba de mandar.
+   * No lanza: la reserva ya volvió a esperar, y una persona ve la lectura.
+   */
+  private async pedirComprobante(p: Pendiente, mensajeId: string): Promise<void> {
+    const clientMessageId = uuidEstable(`reserva-no-comprobante:${mensajeId}`);
+    try {
+      const mensaje = await this.prisma.$transaction(async tx => {
+        await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${p.conversacionId}, ${CANDADO_AUTOMATICOS}))::text`;
+        const creado = await tx.mensaje.create({ data: { conversacionId: p.conversacionId, direccion: 'SALIENTE', contenido: TEXTO_NO_ES_COMPROBANTE,
+          automatico: true, asistente: true, clientMessageId, estadoEnvio: 'ENVIADO' }, select: { id: true } });
+        await tx.conversacion.update({ where: { id: p.conversacionId }, data: { updatedAt: new Date() } });
+        return creado;
+      });
+      this.gateway.emitirActividad(p.conversacionId);
+      await this.despachador.texto({ mensajeId: mensaje.id, conversacionId: p.conversacionId, telefono: p.conversacion.cliente.telefono }, TEXTO_NO_ES_COMPROBANTE);
+    } catch (error: unknown) {
+      if (esChoqueUnicoEn(error, 'Mensaje', 'clientMessageId')) return;
+      this.logger.warn(`Aviso de comprobante no válido (reserva ${p.reservaAgenda}) sin enviar: ${error instanceof Error ? error.message : 'falló'}`);
+    }
   }
 }
 

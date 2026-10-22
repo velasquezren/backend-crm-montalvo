@@ -6,7 +6,9 @@ import { fechaCivilClinica, fechaCivilDesdeTexto, textoDeFechaCivil } from '../.
 import { normalizarTelefono } from '../../common/telefono/telefono';
 import { EstadoReservaChat } from '../../prisma/prisma-client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { LecturaComprobante } from '../asistente/comprobante';
 import { whereAccesoConversacion } from '../conversaciones/acceso-conversacion';
+import { lecturaGuardada } from '../conversaciones/comprobante-reserva';
 import { AgendaConsultaClient } from './agenda-consulta.client';
 import { comprobanteDeReserva, FilaReservaAgenda, listarReservasAgenda, reservasPorTelefono } from './agenda-consulta.sql';
 import { precioDelVps } from './agenda.sql';
@@ -25,7 +27,12 @@ export interface ReservaAgendaCrm extends Omit<FilaReservaAgenda, 'precio'> {
   precio: { importeCentavos: number; moneda: 'BOB' } | null;
   /** E.164 si el teléfono escrito en la agenda es válido: con él se abre su conversación. */
   telefonoE164: string | null;
-  pagoChat?: { estado: EstadoReservaChat; detalle: string | null };
+  pagoChat?: {
+    estado: EstadoReservaChat;
+    detalle: string | null;
+    /** Lo que la IA leyó del último comprobante: qué cuadró y qué no. Sin los datos crudos. */
+    lectura: Pick<LecturaComprobante, 'resultado' | 'verificaciones' | 'leidoEn'> | null;
+  };
 }
 
 function presentar(f: FilaReservaAgenda): ReservaAgendaCrm {
@@ -104,10 +111,13 @@ export class AgendaReservasCrmService {
     const desde = textoDeFechaCivil(hoyEnLaClinica());
     const reservas = (await this.agenda.ejecutar(db => reservasPorTelefono(db, local, desde, RESERVAS_EN_EL_CHAT))).map(presentar);
     const pagos = await this.prisma.reservaChat.findMany({ where: { conversacionId, reservaAgenda: { in: reservas.map(r => r.id) } },
-      select: { reservaAgenda: true, estado: true, detalle: true } });
+      select: { reservaAgenda: true, estado: true, detalle: true, lecturaComprobante: true } });
     return reservas.map(r => {
       const pago = pagos.find(p => p.reservaAgenda === r.id);
-      return pago ? { ...r, pagoChat: { estado: pago.estado, detalle: pago.detalle } } : r;
+      if (!pago) return r;
+      const l = lecturaGuardada(pago.lecturaComprobante);
+      const lectura = l ? { resultado: l.resultado, verificaciones: l.verificaciones, leidoEn: l.leidoEn } : null;
+      return { ...r, pagoChat: { estado: pago.estado, detalle: pago.detalle, lectura } };
     });
   }
 

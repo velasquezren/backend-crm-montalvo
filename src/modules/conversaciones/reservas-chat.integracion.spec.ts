@@ -10,6 +10,9 @@ import { ConstanciaReservaService } from './constancia-reserva.service';
 import { ComprobantesReservaChatService, leerImagenAcotada } from './comprobantes-reserva-chat.service';
 import { comprobanteAmbiguo, marcarComprobanteDeReserva, registrarReservaDeChat } from './reservas-chat';
 import { BYTES_MAXIMOS_IMAGEN } from '../../common/storage/imagen-publica';
+import { AsistenteLineasService } from '../asistente/asistente-lineas.service';
+import { DatosComprobante, LectorComprobantes } from '../asistente/modelo.port';
+import { TEXTO_NO_ES_COMPROBANTE } from './comprobante-reserva';
 
 const db = new PrismaService('postgresql://crm_app@127.0.0.1:5433/crm_test');
 const telefono = '+59170009988';
@@ -19,7 +22,17 @@ const agenda = { registrarPagoDesdeChat: jest.fn<Promise<'REGISTRADO' | 'YA_NO_P
 const gateway = { emitirActividad: jest.fn() };
 const r2 = { leer: jest.fn(async () => ({ cuerpo: new Blob([Uint8Array.from([1,2,3])]).stream(), bytes: 3 })) };
 const constancia = { enviar: jest.fn(async () => true) };
-const worker = () => new ComprobantesReservaChatService(db, r2 as unknown as R2Service, agenda as unknown as AgendaReservasService, gateway as unknown as ConversacionesGateway, constancia as unknown as ConstanciaReservaService);
+/* La lectura con IA: apagada por defecto (el camino de siempre); cada prueba de lectura la enciende. */
+const lineasIA = { leeComprobantes: jest.fn(async () => false) };
+const lector = { nombre: 'lector-sintetico', leer: jest.fn<Promise<{ datos: DatosComprobante; uso: never }>, [unknown]>() };
+const despachador = { texto: jest.fn(async () => undefined) };
+const worker = () => new ComprobantesReservaChatService(db, r2 as unknown as R2Service, agenda as unknown as AgendaReservasService, gateway as unknown as ConversacionesGateway, constancia as unknown as ConstanciaReservaService,
+  lineasIA as unknown as AsistenteLineasService, lector as unknown as LectorComprobantes, despachador as unknown as DespachadorSalienteService);
+/** Ahora, como lo escribe un comprobante boliviano: «2026-10-22T15:10». */
+const ahoraEnLaPaz = () => new Date().toLocaleString('sv-SE', { timeZone: 'America/La_Paz' }).slice(0, 16).replace(' ', 'T');
+const leido = (cambios: Partial<DatosComprobante> = {}): { datos: DatosComprobante; uso: never } => ({ uso: undefined as never, datos: {
+  esComprobante: true, monto: 400.25, moneda: 'Bs', fechaHora: ahoraEnLaPaz(), referencia: 'OP-' + randomUUID().slice(0, 8),
+  banco: 'Banco sintético', destinatario: null, ordenante: null, ...cambios } });
 const cierre = (reserva = ++codigo) => ({ telefono: telefono.slice(1), reserva, montoCentavos:40025, qrClave:'agenda/qr/7-0123456789abcdef.png' });
 
 beforeAll(async () => { await db.$connect(); });
@@ -37,6 +50,9 @@ beforeEach(async () => {
   gateway.emitirActividad.mockClear();
   r2.leer.mockClear();
   constancia.enviar.mockClear();
+  lineasIA.leeComprobantes.mockReset().mockResolvedValue(false);
+  lector.leer.mockReset();
+  despachador.texto.mockClear();
 });
 afterEach(async () => {
   await db.conversacion.deleteMany({where:{id:{in:[chat,otroChat]}}});
@@ -181,4 +197,98 @@ it('despacho del QR se detiene si se apagó la línea o tomó control una person
     expect(transporte.enviar).not.toHaveBeenCalled();
     expect(await db.mensaje.findUnique({where:{id:pago!.mensajeId}})).toMatchObject({permiteReintento:false,proximoIntento:null});
   }
+});
+
+describe('con la lectura de comprobantes encendida, la IA decide qué llega sola a la agenda', () => {
+  beforeEach(() => { lineasIA.leeComprobantes.mockResolvedValue(true); });
+
+  it('un comprobante que coincide en monto, fecha y operación se registra y guarda su lectura', async () => {
+    const {fila}=await pendiente();
+    lector.leer.mockResolvedValue(leido());
+    expect(await worker().procesar()).toBe(1);
+    expect(agenda.registrarPagoDesdeChat).toHaveBeenCalledTimes(1);
+    const final=await db.reservaChat.findUniqueOrThrow({where:{id:fila.id}});
+    expect(final.estado).toBe('PAGO_REGISTRADO');
+    expect(final.lecturaComprobante).toMatchObject({resultado:'COINCIDE',mensajeId:fila.comprobanteMensajeId});
+    /* Sin titular en el QR de la agenda no se compara el destinatario: no estorba el resultado. */
+    expect((final.lecturaComprobante as {verificaciones:{campo:string}[]}).verificaciones.map(v=>v.campo)).not.toContain('DESTINATARIO');
+    expect(constancia.enviar).toHaveBeenCalledTimes(1);
+  });
+
+  it('otro monto, o una fecha anterior al QR, va a revisión y no toca la agenda', async () => {
+    for (const cambios of [{monto:250}, {fechaHora:'2020-01-01T10:00'}, {moneda:'USD'}]) {
+      const {fila}=await pendiente();
+      lector.leer.mockResolvedValueOnce(leido(cambios));
+      await worker().procesar();
+      const final=await db.reservaChat.findUniqueOrThrow({where:{id:fila.id}});
+      expect(final).toMatchObject({estado:'REVISION',detalle:expect.stringContaining('La IA no lo dio por bueno')});
+      expect(final.lecturaComprobante).toMatchObject({resultado:'REVISAR'});
+    }
+    expect(agenda.registrarPagoDesdeChat).not.toHaveBeenCalled();
+    expect(constancia.enviar).not.toHaveBeenCalled();
+  });
+
+  it('sin número de operación legible no pasa solo', async () => {
+    const {fila}=await pendiente();
+    lector.leer.mockResolvedValue(leido({referencia:null}));
+    await worker().procesar();
+    expect(agenda.registrarPagoDesdeChat).not.toHaveBeenCalled();
+    expect((await db.reservaChat.findUniqueOrThrow({where:{id:fila.id}})).estado).toBe('REVISION');
+  });
+
+  it('la misma operación en otra cita es un comprobante reutilizado: revisión', async () => {
+    const primera=await pendiente();
+    lector.leer.mockResolvedValue(leido({referencia:'OP-REPETIDA-1'}));
+    await worker().procesar();
+    expect((await db.reservaChat.findUniqueOrThrow({where:{id:primera.fila.id}})).estado).toBe('PAGO_REGISTRADO');
+    /* La segunda cita: la primera ya no espera comprobante, así que no hay ambigüedad. */
+    const segunda=await pendiente();
+    await worker().procesar();
+    const final=await db.reservaChat.findUniqueOrThrow({where:{id:segunda.fila.id}});
+    expect(final).toMatchObject({estado:'REVISION',detalle:expect.stringContaining('reutilizado')});
+    expect(agenda.registrarPagoDesdeChat).toHaveBeenCalledTimes(1);
+  });
+
+  it('una imagen que no es comprobante: vuelve a esperar y se le pide, una sola vez; la segunda va a revisión', async () => {
+    const {fila,mensaje}=await pendiente();
+    lector.leer.mockResolvedValue(leido({esComprobante:false,monto:null,referencia:null,fechaHora:null}));
+    await worker().procesar();
+    expect(await db.reservaChat.findUniqueOrThrow({where:{id:fila.id}})).toMatchObject({estado:'ESPERANDO_COMPROBANTE',comprobanteMensajeId:null,intentos:0});
+    expect(await db.mensaje.count({where:{conversacionId:chat,contenido:TEXTO_NO_ES_COMPROBANTE}})).toBe(1);
+    expect(despachador.texto).toHaveBeenCalledTimes(1);
+    expect(agenda.registrarPagoDesdeChat).not.toHaveBeenCalled();
+    /* Otra pasada no repite el aviso. */
+    await worker().procesar();
+    expect(despachador.texto).toHaveBeenCalledTimes(1);
+    /* Manda otra imagen que tampoco es: ya no se le insiste, la ve una persona. */
+    const otra=await db.mensaje.create({data:{conversacionId:chat,direccion:'ENTRANTE',tipo:'IMAGEN',contenido:'',mediaKey:'sintetico/otra.png',mediaMime:'image/png'}});
+    expect(await db.$transaction(tx=>marcarComprobanteDeReserva(tx,chat,otra.id))).toBe(true);
+    await worker().procesar();
+    expect(await db.reservaChat.findUniqueOrThrow({where:{id:fila.id}})).toMatchObject({estado:'REVISION',comprobanteMensajeId:otra.id});
+    expect(despachador.texto).toHaveBeenCalledTimes(1);
+    expect(mensaje.id).not.toBe(otra.id);
+  });
+
+  it('si la IA no puede leerlo se reintenta, y a la tercera va a revisión sin pasar nunca a la agenda', async () => {
+    const {fila}=await pendiente();
+    lector.leer.mockRejectedValue(new Error('Vertex sintético caído'));
+    await worker().procesar();
+    expect(await db.reservaChat.findUniqueOrThrow({where:{id:fila.id}})).toMatchObject({estado:'COMPROBANTE_RECIBIDO',intentos:1,proximoIntento:expect.any(Date)});
+    await db.reservaChat.update({where:{id:fila.id},data:{intentos:2,proximoIntento:null}});
+    await worker().procesar();
+    expect(await db.reservaChat.findUniqueOrThrow({where:{id:fila.id}})).toMatchObject({estado:'REVISION',detalle:expect.stringContaining('no pudo leer')});
+    expect(agenda.registrarPagoDesdeChat).not.toHaveBeenCalled();
+  });
+
+  it('si la agenda falla después de leerlo, el reintento no lo vuelve a leer', async () => {
+    const {fila}=await pendiente();
+    lector.leer.mockResolvedValue(leido());
+    agenda.registrarPagoDesdeChat.mockRejectedValueOnce(new Error('agenda sintética caída'));
+    await worker().procesar();
+    expect(await db.reservaChat.findUniqueOrThrow({where:{id:fila.id}})).toMatchObject({estado:'COMPROBANTE_RECIBIDO',lecturaComprobante:expect.objectContaining({resultado:'COINCIDE'})});
+    await db.reservaChat.update({where:{id:fila.id},data:{proximoIntento:null}});
+    await worker().procesar();
+    expect(lector.leer).toHaveBeenCalledTimes(1);
+    expect((await db.reservaChat.findUniqueOrThrow({where:{id:fila.id}})).estado).toBe('PAGO_REGISTRADO');
+  });
 });

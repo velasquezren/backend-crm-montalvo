@@ -107,10 +107,14 @@ export class LecturaComprobantesService implements OnModuleInit, OnModuleDestroy
 
       const { datos } = await this.lector.leer({ bytes, mime });
       const referencia = referenciaComparable(datos.referencia);
-      const [cobro, repetida] = await Promise.all([
+      const [cobro, repetida, enCitas] = await Promise.all([
         this.prisma.cobroLinea.findUnique({ where: { lineaId: pago.lineaId }, select: { titular: true } }),
         referencia
           ? this.prisma.pagoPromocion.count({ where: { id: { not: pago.id }, lecturaComprobante: { path: ['referenciaNormalizada'], equals: referencia } } })
+          : Promise.resolve(0),
+        /* Las citas del chat guardan su lectura igual (`ReservaChat`): un mismo comprobante no paga las dos cosas. */
+        referencia
+          ? this.prisma.reservaChat.count({ where: { lecturaComprobante: { path: ['referenciaNormalizada'], equals: referencia } } })
           : Promise.resolve(0),
       ]);
       const lectura: LecturaComprobante = {
@@ -125,7 +129,7 @@ export class LecturaComprobantesService implements OnModuleInit, OnModuleDestroy
           titular: cobro?.titular ?? null,
           pedidoEn: pago.createdAt,
           ahora,
-          referenciaRepetida: repetida > 0,
+          referenciaRepetida: repetida + enCitas > 0,
         }),
       };
       if (!(await this.pagos.guardarLectura(pago.id, mensajeId, lectura))) return false;

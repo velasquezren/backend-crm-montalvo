@@ -55,6 +55,31 @@ resumen en texto; sin R2, sale el texto solo. [Muestra](imagenes-whatsapp/consta
   **`CONSTANCIA_RESERVA=todas`** la manda en todas las líneas; **`CONSTANCIA_RESERVA=off`** la
   apaga. Las dos, sin desplegar.
 
+### Lectura del comprobante con IA (22/10/2026)
+
+Con **Leer los comprobantes** encendido en la línea (Líneas WhatsApp → Asistente; Ventas lo
+tiene), el trabajador lee la imagen con Gemini **antes** de llevarla a la agenda, con el mismo
+lector y las mismas reglas que los pagos de promociones (`evaluarComprobante`); lo propio de
+las citas está en `conversaciones/comprobante-reserva.ts`:
+
+| Lo que leyó | Qué pasa |
+| --- | --- |
+| Comprobante con el **monto pedido**, en Bs, con **fecha** desde el envío del QR (±1 h) y **número de operación** que no llegó antes por otra cita ni promoción | Sigue el camino de siempre: `para_agendar` en PAGADO, Telegram, constancia. |
+| Monto distinto, otra moneda, fecha anterior al QR o futura, operación repetida, o sin fecha u operación legibles | `REVISION`, sin tocar la agenda. `detalle` dice qué no cuadró («Dice Bs 250; se esperaba Bs 400»). |
+| No es un comprobante (una foto, el carnet) | Vuelve a `ESPERANDO_COMPROBANTE` y se le pide el comprobante **una vez** (`clientMessageId` por imagen). Una segunda imagen que tampoco lo es va a `REVISION`. |
+| La IA no responde | Reintenta con espera creciente; a la tercera, `REVISION`. Nunca pasa a la agenda sin leerse. |
+
+- El **destinatario no se compara**: `pagos_qr` no guarda el titular de la cuenta, y sin él esa
+  fila siempre saldría «mirar». Caja lo ve en la imagen.
+- La lectura queda en `ReservaChat.lecturaComprobante` (migración aditiva
+  `20261022160000_lectura_comprobante_reserva`) con el id del mensaje leído: si la agenda falla
+  después de leer, el reintento no paga otra lectura. Los pagos de promociones comparan también
+  contra estas lecturas para detectar un comprobante reutilizado, y viceversa.
+- La ficha del chat (Próximas reservas) muestra la lectura con cada punto, como el bloque del pago
+  de una promoción. La API la entrega sin los datos crudos (ni ordenante ni banco).
+- Con el interruptor apagado, o sin IA configurada, todo sigue como antes de esta fecha.
+- Un PDF sigue yendo a revisión: la agenda solo guarda imágenes.
+
 `PAGADO` en ScriptCase significa comprobante cargado, **no pago verificado**.
 La reserva todavía necesita la gestión administrativa habitual. Recepción carga
 la cita en FileMaker; FileMaker escribe `agenda_med` por ODBC. Este cambio no

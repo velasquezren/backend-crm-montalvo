@@ -5,6 +5,9 @@ import { AgendaConsultaClient } from '../agenda/agenda-consulta.client';
 import * as sql from '../agenda/agenda-consulta.sql';
 import { ConversacionesGateway } from '../conversaciones/conversaciones.gateway';
 import { ConstanciaReservaService } from '../conversaciones/constancia-reserva.service';
+import { AsistenteLineasService } from '../asistente/asistente-lineas.service';
+import { LectorComprobantes } from '../asistente/modelo.port';
+import { DespachadorSalienteService } from '../conversaciones/despachador-saliente.service';
 import { ComprobantesReservaChatService } from '../conversaciones/comprobantes-reserva-chat.service';
 import { AgendaReservasService } from '../agenda/agenda-reservas.service';
 import { R2Service } from '../../common/storage/r2.service';
@@ -24,7 +27,8 @@ let chat: string, linea: string, recepcion: string, agente: string, ajena: strin
 const ahora = new Date('2031-05-10T15:00:00Z');
 const siguiente = (minutos: number) => new Date(ahora.getTime() + minutos * 60_000);
 const leer = new ActividadesService(prisma, {} as ClientesService, push as unknown as PushService, gateway as unknown as ConversacionesGateway);
-const comprobantes = new ComprobantesReservaChatService(prisma, {} as R2Service, {} as AgendaReservasService, gateway as unknown as ConversacionesGateway, {} as ConstanciaReservaService);
+const comprobantes = new ComprobantesReservaChatService(prisma, {} as R2Service, {} as AgendaReservasService, gateway as unknown as ConversacionesGateway, {} as ConstanciaReservaService,
+  {} as AsistenteLineasService, {} as LectorComprobantes, {} as DespachadorSalienteService);
 const lineas = new LineasWhatsappService(prisma, config);
 const crear = () => new ReservasActividadesService(prisma, config, agenda as unknown as AgendaConsultaClient,
   comprobantes, lineas, gateway as unknown as ConversacionesGateway, push as unknown as PushService);
