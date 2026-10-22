@@ -1853,6 +1853,19 @@ model PerfilMedico {
 /// autoriza un ADMIN: sin una fila aquí, ese número es una paciente más.
 /// Un médico, un número; un número, un médico. Revocar borra la fila (la
 /// constancia queda en `AuditLog`).
+/// Los WhatsApp de caja: a cada uno le llega «comprobante nuevo, revíselo en
+/// FileMaker» cuando un comprobante de reserva queda cargado en la agenda
+/// (`AvisosCajaService`, docs/avisos-caja.md). Solo administración los gestiona.
+model NumeroCaja {
+  id            String   @id @default(uuid())
+  /// Quién es («Caja central», «Ana — caja»): lo que ve quien administra.
+  nombre        String   @db.VarChar(80)
+  /// E.164 (`+59170012345`).
+  telefono      String   @unique @db.VarChar(20)
+  agregadoPorId String
+  createdAt     DateTime @default(now())
+}
+
 model AccesoMedicoAgenda {
   id              String   @id @default(uuid())
   /// `medicos.medico_pk` en la agenda ScriptCase.

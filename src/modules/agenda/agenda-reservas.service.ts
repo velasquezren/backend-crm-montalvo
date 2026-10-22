@@ -20,6 +20,7 @@ import { ARCHIVO_IMAGEN_AGENDA, precioDelVps, versionDeFoto } from './agenda.sql
 import { registrarPagoEnAgenda, reservarEnAgenda } from './agenda-reserva.sql';
 import { AgendaReservaClient } from './agenda-reserva.client';
 import { firmarReferencia, leerReferencia } from './agenda-referencia';
+import { AvisosCajaService } from './avisos-caja.service';
 import { AgendaTelegramService } from './agenda-telegram.service';
 import { AgendaVpsClient } from './agenda-vps.client';
 import { CrearReservaAgendaDto, PagoReservaAgendaDto } from './dto/reserva-agenda.dto';
@@ -61,6 +62,7 @@ export class AgendaReservasService {
     private readonly lectura: AgendaVpsClient,
     private readonly telegram: AgendaTelegramService,
     private readonly r2: R2Service,
+    private readonly avisosCaja: AvisosCajaService,
   ) {
     const secreto = config.get<string>('AGENDA_RESERVA_SECRETO')?.trim() ?? '';
     this.secreto = secreto.length >= 32 ? secreto : null;
@@ -124,6 +126,7 @@ export class AgendaReservasService {
         : new ConflictException({ codigo: 'YA_REGISTRADO', message: 'Esta reserva ya tiene un comprobante o la clínica ya la gestionó.' });
     }
     this.telegram.pagoParaVerificar(resultado.nombre, resultado.ci);
+    this.avisosCaja.comprobanteRegistrado(paraAge);
     return { codigo: paraAge, estado: 'PAGADO' as const };
   }
 
@@ -176,6 +179,7 @@ export class AgendaReservasService {
     const resultado = await this.reservas.enTransaccion(conexion => registrarPagoEnAgenda(conexion, paraAge, comprobante, '', ''));
     if (!resultado.ok) return resultado.motivo;
     this.telegram.pagoParaVerificar(resultado.nombre, resultado.ci);
+    this.avisosCaja.comprobanteRegistrado(paraAge);
     return 'REGISTRADO';
   }
 

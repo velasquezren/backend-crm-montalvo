@@ -204,3 +204,24 @@ en el enlace, que es lo que más confianza da. Pasos cuando exista:
 2. `PORTAL_ORIGIN` del portal y `PORTAL_RESULTADOS_PUBLICO` del CRM.
 3. **Una plantilla nueva**: la URL base del botón está fijada en la plantilla
    aprobada; Meta no deja cambiarla editando.
+
+## 5. `montalvo_comprobante_caja` — aviso a caja
+
+Propuesta del 22/10/2026 para [avisos a caja](avisos-caja.md). **Sin crear en Meta hasta el
+OK de René.** WABA de **Recepción**, categoría **Utilidad**, idioma `es`, formato posicional,
+sin cabecera ni botones. La fuente del texto es `avisos-caja.ts` (lo que manda el CRM):
+
+```text
+Comprobante nuevo para verificar 🧾
+
+Paciente: {{1}}
+Carnet: {{2}}
+Médico: {{3}}
+Cita: {{4}}
+Monto: {{5}}
+
+El comprobante ya está cargado en la agenda. Revíselo y regístrelo en FileMaker.
+```
+
+Pie: `Clínica Montalvo · aviso automático del CRM`. Ejemplos para la revisión: «Ana Pérez»,
+«1234567», «Juan Carlos Montalvo Doria Medina», «lunes, 2 de noviembre, 15:00», «Bs 400».
