@@ -19,6 +19,7 @@ locales al comenzar; una modificación sin commit puede pertenecer a otra tarea.
 
 | Tema | Estado comprobable y dónde continuar |
 | --- | --- |
+| Resultados multítipo | Preparado el 23/10, sin despliegue. Continuar en `feat/informes-multitipo` en los tres repositorios (CRM backend, Angular y Resultados): tipos clínicos, filtros antes de paginar, identidad estricta y referencias por tipo. Guion de Papanicolau documentado en Resultados; laboratorio espera capturas. [Contrato y orden de publicación](informes-por-whatsapp.md#cola-multítipo-de-resultados-23102026-preparada-localmente). |
 | Transcripción interna de audios | Activada el 17/10 (`e935c2f`) en Recepción y Ventas para nuevos audios entrantes; conserva `SOLO_MEDICOS`/`RESPONDER`. Cola durable, texto bajo el audio y actualización en vivo, sin respuestas por esta función. [Contrato y verificación](asistente-ia.md#transcripción-interna-para-las-agentes-17102026). |
 | IA por WhatsApp | Existe proveedor Gemini, clasificación, sugerencias/respuestas, audio y agenda del médico. Reservas conversacionales y QR incorporados el 15/10 (`2d70cd4`, `5dc4420`, `7daea1f`). Ver [asistente](asistente-ia.md); no reiniciar el plan «no hay IA» del 7/10. |
 | Médicos a solicitud | `9efdd1f`, nota `c20e012`: el asistente coordina preferencias y deja `SOLICITUD_CITA`, sin inventar cupos. **Desplegado el 15/10** (19:46 La Paz, respaldo `/root/backup-crm-20261015-194528-cita-a-solicitud.sql.gz`); [guía](asistente-ia.md). |

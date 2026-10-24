@@ -19,9 +19,11 @@ import { EnvioPlantillasService } from '../conversaciones/envio-plantillas.servi
 import { LineasWhatsappService } from '../lineas-whatsapp/lineas-whatsapp.service';
 import { InformePublicado, PortalResultadosClient } from './portal-resultados.client';
 import { EstadoCola, QueryResultadosDto } from './dto/query-resultados.dto';
+import { TipoInforme } from './tipo-informe';
 
 /** Una fila de la cola tal y como la ve el asistente. */
 export interface FilaEntrega {
+  tipo: TipoInforme;
   informeId: string;
   estudio: string;
   fechaEstudio: string;
@@ -90,7 +92,7 @@ export class ResultadosService {
     /* El conjunto de trabajo (vigentes y sin abrir) partido por lo que solo
        sabe el CRM. Un aviso FALLIDO no cuenta como avisado: el paciente no
        recibió nada. Una reserva sin mensaje sí: el envío está en vuelo. */
-    const panorama = await this.portal.panorama(query.busqueda);
+    const panorama = await this.portal.panorama(query.busqueda, query.tipo);
     const avisados = new Set(
       (
         await this.prisma.avisoResultado.findMany({
@@ -118,12 +120,13 @@ export class ResultadosService {
       const lista = (estado === 'POR_AVISAR' ? porAvisar : esperando).filter(id => !coinciden || coinciden.has(id));
       const pagina = lista.slice(skip, skip + take);
       total = lista.length;
-      informes = pagina.length ? (await this.portal.informes({ ids: pagina, limite: pagina.length })).datos : [];
+      informes = pagina.length ? (await this.portal.informes({ ids: pagina, limite: pagina.length, tipo: query.tipo })).datos : [];
     } else {
       const cola = await this.portal.informes({
         pagina: query.pagina ?? 1,
         limite: take,
         buscar: query.busqueda,
+        tipo: query.tipo,
         ...(estado === 'VENCIDOS' ? { vigente: false, abierto: false } : estado === 'ABIERTOS' ? { abierto: true } : {}),
       });
       informes = cola.datos;
@@ -166,6 +169,7 @@ export class ResultadosService {
       const aviso = porInforme.get(informe.informeId);
       return {
         informeId: informe.informeId,
+        tipo: informe.tipo ?? 'ECOGRAFIA',
         estudio: informe.estudio,
         fechaEstudio: informe.fechaEstudio,
         publicadoEn: informe.publicadoEn,

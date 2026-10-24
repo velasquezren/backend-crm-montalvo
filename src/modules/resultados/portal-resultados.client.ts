@@ -1,9 +1,11 @@
 import { ConflictException, Injectable, Logger, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { BYTES_MAXIMOS_PDF } from '../../common/archivos/pdf';
+import { TipoInforme } from './tipo-informe';
 
 /** Una fila de la cola del portal de resultados. Contrato de su API, no nuestro. */
 /** Filtros de `GET /v1/integraciones/crm/informes`. Ver `docs/api.md` del portal. */
 export interface FiltrosCola {
+  tipo?: TipoInforme;
   pagina?: number;
   limite?: number;
   informeId?: string;
@@ -26,6 +28,8 @@ export interface PanoramaCola {
 }
 
 export interface InformePublicado {
+  /** Ausente en versiones anteriores del portal: solo contenían ecografías. */
+  tipo?: TipoInforme;
   informeId: string;
   /**
    * Cómo está registrado el paciente en el portal. El CRM lo reconoce con
@@ -136,6 +140,7 @@ export class PortalResultadosClient {
    */
   async informes(params: FiltrosCola): Promise<ColaInformes> {
     const query = new URLSearchParams();
+    if (params.tipo) query.set('tipo', params.tipo);
     if (params.pagina) query.set('pagina', String(params.pagina));
     if (params.limite) query.set('limite', String(params.limite));
     if (params.informeId) query.set('informeId', params.informeId);
@@ -151,9 +156,11 @@ export class PortalResultadosClient {
    * pestañas. «Por avisar» y «esperando lectura» son ese conjunto partido por
    * lo que solo sabe el CRM: si ya se avisó. Ver el portal, `panoramaForCrm`.
    */
-  panorama(buscar?: string): Promise<PanoramaCola> {
-    const query = buscar ? `?${new URLSearchParams({ buscar })}` : '';
-    return this.pedir<PanoramaCola>(`/v1/integraciones/crm/informes/panorama${query}`, 'GET');
+  panorama(buscar?: string, tipo?: TipoInforme): Promise<PanoramaCola> {
+    const query = new URLSearchParams();
+    if (buscar) query.set('buscar', buscar);
+    if (tipo) query.set('tipo', tipo);
+    return this.pedir<PanoramaCola>(`/v1/integraciones/crm/informes/panorama${query.size ? `?${query}` : ''}`, 'GET');
   }
 
   /** Extiende 30 días el acceso de un informe publicado; el enlace no cambia. */

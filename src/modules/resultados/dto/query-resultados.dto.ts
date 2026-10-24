@@ -2,6 +2,7 @@ import { Transform } from 'class-transformer';
 import { IsIn, IsOptional, IsString, Length } from 'class-validator';
 
 import { PaginationDto } from '../../../common/dto/pagination.dto';
+import { TIPOS_INFORME, TipoInforme } from '../tipo-informe';
 
 /**
  * Las pestañas de la cola, por lo que la asistente tiene que HACER:
@@ -24,6 +25,9 @@ export type EstadoCola = (typeof ESTADOS_COLA)[number];
  * portal. Filtrar aquí una página ya cortada haría mentir a la paginación.
  */
 export class QueryResultadosDto extends PaginationDto {
+  @IsOptional()
+  @IsIn(TIPOS_INFORME)
+  tipo?: TipoInforme;
   @IsOptional()
   @IsIn(ESTADOS_COLA)
   estado?: EstadoCola;
