@@ -107,3 +107,31 @@ Referencias oficiales consultadas: [Media API](https://www.postman.com/meta/what
 - CRM: build, coherencia de skills, validación local de Flows y tipos de pruebas aprobados.
 - Base de pruebas aislada en puerto 55439; no se reutilizó ni reinició el PostgreSQL que ya estaba en 5433. Migraciones únicamente en las bases descartables.
 - Meta y la IA se simularon. No hubo despliegue, push, mensajes reales, lectura de PDFs clínicos, cambios de configuración de producción ni prueba de carga.
+
+
+## Cola multítipo de Resultados (23/10/2026, preparada localmente)
+
+El módulo Angular y el backend admiten `tipo=ECOGRAFIA|PAPANICOLAU|LABORATORIO|OTRO`.
+La omisión muestra todos los tipos. El CRM envía el filtro tanto al panorama como
+al listado del portal antes de paginar, también en Por avisar/Esperando lectura.
+Las filas incluyen `tipo`; solo una respuesta de portal anterior sin este campo
+se interpreta como ecografía por compatibilidad con su contrato histórico.
+Los contadores corresponden al tipo elegido, sin variar por el texto de búsqueda.
+
+La pantalla conserva tipo, estado y búsqueda en la URL y vuelve a la página 1
+al cambiar de filtro. El PAC queda visible aunque ya exista ficha. «Editar teléfono»
+explica que cambia la ficha completa y muestra el valor actual. Un aviso sin mensaje
+está «En proceso de envío»; un enlace vencido sin apertura se muestra vencido incluso
+si WhatsApp entregó el aviso. No se ofrece un aviso nuevo si el paciente ya lo abrió.
+
+El portal permite crear/listar estos tipos; su integración FileMaker usa una clave
+única por tipo y referencia y rechaza identidades PAC/CI contradictorias. API y BD
+siguen perteneciendo a Resultados, sin joins ni escritura cruzada desde CRM.
+
+No se alteran roles ni línea de entrega, plantilla, automatizaciones o IA. Laboratorio
+no pasa automáticamente a CLIMON. Los guiones de Papanicolau y laboratorio todavía
+requieren los campos y la captura del módulo FileMaker que entregará René.
+
+Publicación pendiente: API Resultados y su migración primero; después CRM backend y
+ambos frontends. La prueba actual fue local con dos bases sintéticas aisladas;
+producción solo se consultó por cantidades, sin leer informes ni identidades.

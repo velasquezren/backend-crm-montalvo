@@ -26,8 +26,8 @@ import { categoriasDePrueba } from '../clientes/categorias.de-prueba';
  * `npm run test:integracion`.
  */
 
-const URL_TEST = 'postgresql://crm_app:crm_dev_local@localhost:5433/crm_test?schema=public';
-if (!URL_TEST.includes('/crm_test')) {
+const URL_TEST = process.env.CRM_TEST_DATABASE_URL ?? 'postgresql://crm_app:crm_dev_local@localhost:5433/crm_test?schema=public';
+if (new URL(URL_TEST).pathname !== '/crm_test' || !['localhost', '127.0.0.1'].includes(new URL(URL_TEST).hostname)) {
   throw new Error('La suite de integración solo puede correr contra la base crm_test');
 }
 
@@ -80,6 +80,7 @@ beforeAll(async () => {
        aquí solo hace falta que se comporten igual. */
     const q = url.searchParams;
     const buscar = q.get('buscar')?.toLowerCase();
+    const porTipo = informesDelPortal.filter(i => !q.get('tipo') || (i.tipo ?? 'ECOGRAFIA') === q.get('tipo'));
     const coincide = (i: Record<string, unknown>) => {
       const p = i.paciente as { nombre: string; pac: string | null; ci: string | null };
       return !buscar || [p.nombre, p.pac, p.ci].some(v => v?.toLowerCase().includes(buscar));
@@ -89,18 +90,18 @@ beforeAll(async () => {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({
         totales: {
-          todos: informesDelPortal.length,
-          abiertos: informesDelPortal.filter(i => i.abiertoEn).length,
-          vencidosSinAbrir: informesDelPortal.filter(i => !i.accesoVigente && !i.abiertoEn).length,
+          todos: porTipo.length,
+          abiertos: porTipo.filter(i => i.abiertoEn).length,
+          vencidosSinAbrir: porTipo.filter(i => !i.accesoVigente && !i.abiertoEn).length,
         },
-        vigentesSinAbrir: informesDelPortal.filter(vigenteSinAbrir).map(i => i.informeId),
+        vigentesSinAbrir: porTipo.filter(vigenteSinAbrir).map(i => i.informeId),
         truncado: false,
-        ...(buscar ? { coinciden: informesDelPortal.filter(i => vigenteSinAbrir(i) && coincide(i)).map(i => i.informeId) } : {}),
+        ...(buscar ? { coinciden: porTipo.filter(i => vigenteSinAbrir(i) && coincide(i)).map(i => i.informeId) } : {}),
       }));
       return;
     }
     const ids = q.get('ids')?.split(',');
-    const datos = informesDelPortal
+    const datos = porTipo
       .filter(i => !q.get('informeId') || i.informeId === q.get('informeId'))
       .filter(i => !ids || ids.includes(i.informeId as string))
       .filter(i => q.get('abierto') === null || Boolean(i.abiertoEn) === (q.get('abierto') === 'true'))
@@ -212,6 +213,19 @@ describe('entrega de resultados contra Postgres real', () => {
   it('administración entrega sin necesitar la línea', async () => {
     const admin = { sub: 'a0000000-0000-4000-8000-000000000001', rol: 'ADMIN' } as never;
     await expect(service.pendientes({}, admin)).resolves.toMatchObject({ total: 1 });
+  });
+
+  it('filtra tipo en el portal antes de contar y paginar las pestañas', async () => {
+    informesDelPortal.push({ ...informesDelPortal[0], informeId: '44444444-4444-4444-8444-444444444444', tipo: 'LABORATORIO' });
+    for (const estado of ['POR_AVISAR', 'TODOS'] as const) {
+      const cola = await service.pendientes({ estado, tipo: 'LABORATORIO', limite: 1 }, asistente);
+      expect(cola.total).toBe(1);
+      expect(cola.contadores.TODOS).toBe(1);
+      expect(cola.contadores.POR_AVISAR).toBe(1);
+      expect(cola.datos[0]).toMatchObject({ tipo: 'LABORATORIO', informeId: '44444444-4444-4444-8444-444444444444' });
+    }
+    expect((await service.pendientes({ tipo: 'PAPANICOLAU' }, asistente)).total).toBe(0);
+    expect((await service.pendientes({ estado: 'TODOS' }, asistente)).total).toBe(2);
   });
 
   it('la cola cruza el PAC con la ficha del CRM y marca lo ya avisado', async () => {
