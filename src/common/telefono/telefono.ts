@@ -1,4 +1,5 @@
 import { parsePhoneNumberFromString } from 'libphonenumber-js';
+import { esBsuid } from '../whatsapp/destino';
 
 /**
  * Un teléfono en la forma en que lo guarda el CRM: E.164, `+` y dígitos.
@@ -14,6 +15,9 @@ import { parsePhoneNumberFromString } from 'libphonenumber-js';
  */
 export function normalizarTelefono(valor: string | null | undefined): string | null {
   if (!valor?.trim()) return null;
+  /* Un BSUID de WhatsApp no es un teléfono, aunque lo parezca: la librería lee
+     `BO.70012345` como +59170012345 y uniría a una persona con la ficha de otra. */
+  if (esBsuid(valor.trim())) return null;
   const numero = parsePhoneNumberFromString(valor.trim(), 'BO');
   if (numero?.isValid()) return numero.number;
 

@@ -2,6 +2,7 @@ import { PromocionesChatService } from '../conversaciones/promociones-chat.servi
 import { CobrosService } from '../cobros/cobros.service';
 import { PromocionesService } from '../promociones/promociones.service';
 import { VentasService } from '../ventas/ventas.service';
+import { ConversionesMetaService } from '../conversiones-meta/conversiones-meta.service';
 import { LeadsService } from '../leads/leads.service';
 import { AvisoLandingService } from '../../common/landing/aviso-landing.service';
 import { MenuAtencionService } from '../menu-atencion/menu-atencion.service';
@@ -100,7 +101,7 @@ const r2 = {
     ConversacionesGateway,
     DespachadorSalienteService,
     MediaEntranteService,
-    IngestaWhatsappService, MenuAtencionService, PromocionesChatService, CobrosService, PromocionesService, VentasService, LeadsService, AvisoLandingService,
+    IngestaWhatsappService, MenuAtencionService, PromocionesChatService, CobrosService, PromocionesService, VentasService, ConversionesMetaService, LeadsService, AvisoLandingService,
     PrimerContactoService,
     AcuseAutomaticoService,
     WhatsappCloudService,

@@ -1,4 +1,5 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 
 import { AuditService } from '../../common/audit/audit.service';
 import { R2Service } from '../../common/storage/r2.service';
@@ -7,6 +8,7 @@ import { ClientesService } from '../clientes/clientes.service';
 import { LeadsService } from '../leads/leads.service';
 import { ServiciosService } from '../servicios/servicios.service';
 import { VentasService } from './ventas.service';
+import { ConversionesMetaService } from '../conversiones-meta/conversiones-meta.service';
 import { categoriasDePrueba } from '../clientes/categorias.de-prueba';
 
 /**
@@ -81,6 +83,8 @@ beforeEach(async () => {
     new LeadsService(prisma, new ClientesService(prisma, audit, new ServiciosService(prisma), categoriasDePrueba(prisma))),
     audit,
     r2 as unknown as R2Service,
+    /* Sin META_CONVERSIONES: el aviso a Meta tiene su propia suite. */
+    new ConversionesMetaService(prisma, new ConfigService({})),
   );
 
   const agente = await prisma.usuario.create({

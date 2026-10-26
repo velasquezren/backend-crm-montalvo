@@ -5,7 +5,7 @@ description: Patrón obligatorio de los módulos NestJS de este CRM — límites
 
 # Patrón de módulo del backend
 
-NestJS 10 + Prisma 7 + PostgreSQL. Reglas base: `CRM_MANIFESTO.md` (repo del frontend) §1.1.
+NestJS 11 (Express 5) + Prisma 7 + PostgreSQL. Reglas base: `CRM_MANIFESTO.md` (repo del frontend) §1.1.
 
 ## Consulta por tarea
 

@@ -31,8 +31,10 @@ import {
   WhatsappContactDto,
   WhatsappMessageDto,
   WhatsappPreferenciaDto,
+  WhatsappSistemaDto,
   WhatsappWebhookDto,
 } from './dto/whatsapp-webhook.dto';
+import { RemitenteWhatsapp } from '../../../common/whatsapp/destino';
 
 /** Extrae el objeto de media de un mensaje entrante y lo normaliza, o null si no es media soportada. */
 function extraerMedia(
@@ -305,9 +307,23 @@ export class WhatsappWebhookController {
    * añade categorías con el tiempo) se ignora sin fallar el lote.
    */
   private async procesarPreferencias(preferencias: WhatsappPreferenciaDto[]): Promise<void> {
-    for (const { wa_id, category, value } of preferencias) {
-      if (!wa_id || category !== 'marketing_messages' || (value !== 'stop' && value !== 'resume')) continue;
-      await this.clientes.preferenciaPromocionesDesdeWhatsapp(`+${wa_id}`, value === 'resume');
+    for (const { wa_id, user_id, category, value } of preferencias) {
+      if ((!wa_id && !user_id) || category !== 'marketing_messages' || (value !== 'stop' && value !== 'resume')) continue;
+      await this.clientes.preferenciaPromocionesDesdeWhatsapp(
+        { telefono: wa_id ? `+${wa_id}` : null, waUsuarioId: user_id ?? null }, value === 'resume',
+      );
+    }
+  }
+
+  /**
+   * Meta regeneró el BSUID (cambio de número o de usuario): la ficha pasa al
+   * nuevo. Un fallo de base sube y el lote sale 503, como un mensaje.
+   */
+  private async procesarSistema(sistema: WhatsappSistemaDto | undefined): Promise<void> {
+    if (sistema?.type !== 'user_changed_user_id' && sistema?.type !== 'user_changed_number') return;
+    if (!sistema.previous_user_id || !sistema.user_id) return;
+    if (await this.clientes.cambiarWaUsuarioId(sistema.previous_user_id, sistema.user_id)) {
+      this.logger.log(`WhatsApp: una paciente cambió de ${sistema.type === 'user_changed_number' ? 'número' : 'usuario'}; su ficha sigue reconociéndola`);
     }
   }
 
@@ -318,8 +334,22 @@ export class WhatsappWebhookController {
     lineaId: string,
     original?: unknown,
   ): Promise<boolean> {
-    if (!mensaje.from || !mensaje.id) return false;
-    const contacto = contactos?.find(c => c.wa_id === mensaje.from);
+    if (!mensaje.id) return false;
+    if (mensaje.type === 'system') {
+      await this.procesarSistema(mensaje.system);
+      return false;
+    }
+    /* Con nombre de usuario, Meta puede omitir el teléfono (`from`) y mandar solo
+       el BSUID (`from_user_id`). Antes este mensaje se descartaba sin rastro: era
+       justo la paciente nueva que llega desde un anuncio. */
+    if (!mensaje.from && !mensaje.from_user_id) return false;
+    const contacto = contactos?.find(c =>
+      (mensaje.from && c.wa_id === mensaje.from) || (mensaje.from_user_id && c.user_id === mensaje.from_user_id));
+    const remitente: RemitenteWhatsapp = {
+      telefono: mensaje.from ? `+${mensaje.from}` : null,
+      waUsuarioId: mensaje.from_user_id ?? contacto?.user_id ?? null,
+      usuario: contacto?.profile?.username?.trim() || null,
+    };
     const respuestaBoton = extraerRespuestaBoton(mensaje);
     const media = extraerMedia(mensaje);
     /* SOLO los dos tipos que pueden ser una respuesta a una oferta nuestra.
@@ -336,7 +366,7 @@ export class WhatsappWebhookController {
        líneas que no están en el piloto. */
     if (interaccionesEnLinea(lineaId) && (mensaje.type === 'interactive' || mensaje.type === 'button')) {
       await this.ingesta.procesarEntrante(
-        `+${mensaje.from}`, 'Interacción recibida; pendiente de revisión.', mensaje.id,
+        remitente, 'Interacción recibida; pendiente de revisión.', mensaje.id,
         contacto?.profile?.name?.trim() || undefined, undefined, extraerReferral(mensaje), false, lineaId, original ?? mensaje,
       );
       return true;
@@ -344,7 +374,7 @@ export class WhatsappWebhookController {
     const texto = mensaje.type === 'text' ? mensaje.text?.body : respuestaBoton ?? media?.caption ?? (media ? '' : undefined);
     if (texto === undefined || texto === null) return false;
     await this.ingesta.procesarEntrante(
-      `+${mensaje.from}`, texto, mensaje.id, contacto?.profile?.name?.trim() || undefined,
+      remitente, texto, mensaje.id, contacto?.profile?.name?.trim() || undefined,
       media ? { tipo: media.tipo, mediaId: media.mediaId, mime: media.mime, nombre: media.nombre } : undefined, extraerReferral(mensaje), Boolean(respuestaBoton), lineaId,
     );
     return true;

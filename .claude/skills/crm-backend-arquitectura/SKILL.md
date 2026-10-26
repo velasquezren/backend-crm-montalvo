@@ -36,7 +36,10 @@ en Vercel                      TLS Let's Encrypt, HTTP/2 al navegador
                                                     (localhost:5432, bases CRM y Resultados)
 ```
 
-- **Backend** (este repo): NestJS 10 + Prisma 7 + PostgreSQL, TypeScript estricto.
+- **Backend** (este repo): NestJS 11 (Express 5) + Prisma 7 + PostgreSQL, TypeScript estricto.
+  Subido desde Nest 10 el 23/10/2026. **NestJS 12 espera a Node 24 en el VPS**: sus
+  paquetes son solo ESM y Jest solo los carga desde Node 24.9 (guía oficial de
+  migración). Subir los dos a la vez, con `.nvmrc`, CI y servidor en la misma versión.
 - **Frontend**: Angular 21, PWA, en el repo hermano `frontend-crm-montalvo/`,
   desplegado en **Vercel** — no vive en el mismo servidor que el backend.
 - El backend NO sirve HTML ni assets: es una API REST + un gateway WebSocket.
@@ -473,6 +476,20 @@ núcleo y siguen valiendo) o de la escala real de §3. Si una te parece
   y las consultas puras del inbox a `modules/conversaciones/consultas-inbox.ts`.
   Lo que comparten el envío de texto y el de plantillas vive en
   `modules/conversaciones/envio-comun.ts`.
+- **Tareas periódicas: `@TareaPeriodica` + pg-boss** (`common/trabajos/`,
+  23/10/2026) — los barridos largos (tipo de cambio, categoría de pacientes,
+  cierre por inactividad, recordatorios, aviso de ventas a Meta) se marcan con
+  el decorador y `TrabajosService` los programa. Con `TRABAJOS_PGBOSS=on`, en
+  pg-boss sobre el mismo Postgres: cron a la hora de La Paz (no la del VPS),
+  cola `stately` (no se apilan vueltas), reintentos e historial en `pgboss.job`.
+  Sin la bandera, o si pg-boss no arranca, vuelven a su `setInterval`: encenderlo
+  no puede empeorar el peor caso. Su schema lo crea la migración
+  `pgboss_trabajos` y la app corre con `migrate: false` (sin DDL al arrancar);
+  subir pg-boss exige su `getMigrationPlans` en otra migración. Va en **11.x**,
+  la última CommonJS: la 12 es solo ESM y Jest no la carga hasta Node 24.9,
+  igual que NestJS 12. Las colas durables propias (reintentos de envío, media,
+  comprobantes, transcripción) **no** se mudaron: su lease, backoff y
+  FALLIDO/INCIERTO ya están probados contra Postgres y moverlas no compra nada.
 - **WebSocket para "algo cambió", REST para los datos** — el gateway nunca
   manda el dato en el payload del socket, solo avisa; evita que el escopado por
   rol tenga que reimplementarse en el canal de WebSocket.

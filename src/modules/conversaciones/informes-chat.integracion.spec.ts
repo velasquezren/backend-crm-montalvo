@@ -2,6 +2,7 @@ import { PromocionesChatService } from './promociones-chat.service';
 import { CobrosService } from '../cobros/cobros.service';
 import { PromocionesService } from '../promociones/promociones.service';
 import { VentasService } from '../ventas/ventas.service';
+import { ConversionesMetaService } from '../conversiones-meta/conversiones-meta.service';
 import { LeadsService } from '../leads/leads.service';
 import { AvisoLandingService } from '../../common/landing/aviso-landing.service';
 import { MenuAtencionService } from '../menu-atencion/menu-atencion.service';
@@ -59,7 +60,7 @@ const informe = { id: 'c03202ee-09cb-41d4-a4c8-9c39640bc33f', archivoId: 'c03202
     { provide: PrismaService, useValue: prisma }, { provide: ConfigService, useValue: config },
     AuditService, AuthService, UsuariosService, ClientesService, CategoriaPacienteService, ServiciosService, TipoCambioService,
     LineasWhatsappService, PrimerContactoService, MemoriaAgenteService, ConversacionesService, EnvioPlantillasService, AtencionHumanaService,
-    ConversacionesGateway, IngestaWhatsappService, MenuAtencionService, PromocionesChatService, CobrosService, PromocionesService, VentasService, LeadsService, AvisoLandingService, AcuseAutomaticoService, DespachadorSalienteService,
+    ConversacionesGateway, IngestaWhatsappService, MenuAtencionService, PromocionesChatService, CobrosService, PromocionesService, VentasService, ConversionesMetaService, LeadsService, AvisoLandingService, AcuseAutomaticoService, DespachadorSalienteService,
     MetaSignatureGuard, InformesChatService,
     { provide: PortalResultadosClient, useValue: portal },
     { provide: WhatsappCloudService, useValue: transporte },

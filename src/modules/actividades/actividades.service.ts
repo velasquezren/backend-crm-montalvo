@@ -3,8 +3,6 @@ import {
   Injectable,
   Logger,
   NotFoundException,
-  OnModuleDestroy,
-  OnModuleInit,
 } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { Prisma } from '../../prisma/prisma-client';
@@ -13,7 +11,7 @@ import { alcanceAgente, cubreRol, esRolOperativo } from '../../common/auth/roles
 import { conHoraClinica, desplazarEnCalendarioClinica, inicioDelDiaClinica, sumarDiasClinica } from '../../common/fechas/zona-clinica';
 import { UsuarioJwt } from '../../common/decorators/current-user.decorator';
 import { terminoBusqueda } from '../../common/dto/busqueda';
-import { enSegundoPlano } from '../../common/fiabilidad/en-segundo-plano';
+import { TareaPeriodica } from '../../common/trabajos/tarea-periodica.decorator';
 import { calcularPaginacion, paginar } from '../../common/dto/pagination.dto';
 import { PushService } from '../../common/push/push.service';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -88,9 +86,8 @@ export function fechasDeRepeticion(inicio: Date, repetir?: RepetirActividadDto):
  * vivo.
  */
 @Injectable()
-export class ActividadesService implements OnModuleInit, OnModuleDestroy {
+export class ActividadesService {
   private readonly logger = new Logger(ActividadesService.name);
-  private intervalo?: NodeJS.Timeout;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -98,26 +95,6 @@ export class ActividadesService implements OnModuleInit, OnModuleDestroy {
     private readonly pushService: PushService,
     private readonly realtimeGateway: ConversacionesGateway,
   ) {}
-
-  onModuleInit(): void {
-    /* La suite unitaria/integración de este backend instancia los services a
-       mano, no el AppModule completo — esto es solo por si algún día alguien
-       bootstrapea el módulo entero en una prueba. */
-    if (process.env.NODE_ENV === 'test') return;
-
-    this.intervalo = setInterval(
-      () =>
-        void enSegundoPlano('barrido de recordatorios de actividades', this.logger, () =>
-          this.barrerRecordatoriosPendientes(),
-        ),
-      INTERVALO_BARRIDO_MS,
-    );
-    this.intervalo.unref();
-  }
-
-  onModuleDestroy(): void {
-    if (this.intervalo) clearInterval(this.intervalo);
-  }
 
   private async construirWhere(query: QueryActividadDto, soloAgenteId?: string): Promise<Prisma.ActividadWhereInput> {
     const busqueda = terminoBusqueda(query.q);
@@ -550,9 +527,13 @@ export class ActividadesService implements OnModuleInit, OnModuleDestroy {
   /**
    * Recordatorios PENDIENTES cuya hora cae dentro de los próximos
    * `VENTANA_RECORDATORIO_MIN` minutos y que todavía no se notificaron.
-   * Expuesto (no `private`) para que la prueba pueda esperar su promesa —
-   * el `onModuleInit` la dispara con `void`, igual que `TipoCambioService`.
+   * Cada cinco minutos (`TrabajosService`); expuesto para que la prueba espere
+   * su promesa en vez de esperar al reloj.
    */
+  @TareaPeriodica({
+    nombre: 'recordatorios-actividades', descripcion: 'barrido de recordatorios de actividades',
+    cron: '*/5 * * * *', cadaMs: INTERVALO_BARRIDO_MS, limiteSegundos: 4 * 60,
+  })
   async barrerRecordatoriosPendientes(): Promise<number> {
     const ahora = new Date();
     const limite = new Date(ahora.getTime() + VENTANA_RECORDATORIO_MIN * 60 * 1000);

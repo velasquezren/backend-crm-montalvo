@@ -13,6 +13,7 @@ import { CreateVentaDto } from './dto/create-venta.dto';
 import { QueryVentaDto } from './dto/query-venta.dto';
 import { terminoBusqueda } from '../../common/dto/busqueda';
 import { calcularPaginacion, paginar } from '../../common/dto/pagination.dto';
+import { ConversionesMetaService } from '../conversiones-meta/conversiones-meta.service';
 
 /** Carpeta de R2 donde vive TODO comprobante, y solo eso. */
 const PREFIJO_COMPROBANTES = 'comprobantes/';
@@ -91,6 +92,7 @@ export class VentasService {
     private readonly leadsService: LeadsService,
     private readonly audit: AuditService,
     private readonly r2: R2Service,
+    private readonly conversionesMeta: ConversionesMetaService,
   ) {}
 
   async create(dto: CreateVentaDto, agenteId: string, soloAgenteId?: string) {
@@ -147,6 +149,8 @@ export class VentasService {
         if (creada.estado === 'GANADA') {
           await this.clientesService.actualizarCategoria(creada.clienteId, undefined, tx);
           await this.leadsService.marcarConvertidos(creada.clienteId, creada.leadId, tx);
+          /* Apagado sin META_CONVERSIONES=on. Se decide al enviarla, con el lead de ese momento. */
+          await this.conversionesMeta.registrarCompra(tx, creada.id, creada.createdAt);
         }
         return creada;
       });
@@ -391,6 +395,7 @@ export class VentasService {
       }
       if (estado === 'GANADA' && venta.estado !== 'GANADA') {
         await this.leadsService.marcarConvertidos(cambiada.clienteId, cambiada.leadId, tx);
+        await this.conversionesMeta.registrarCompra(tx, cambiada.id);
       }
       return cambiada;
     });

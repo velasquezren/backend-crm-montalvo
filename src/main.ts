@@ -8,10 +8,14 @@ import compression from 'compression';
 import helmet from 'helmet';
 
 import { AppModule } from './app.module';
+import { iniciarRastreoDeErrores } from './common/errores/rastreo-errores';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 import { asignarRequestId } from './common/logging/request-id.middleware';
 
 async function bootstrap(): Promise<void> {
+  /* Antes que Nest: un error al construir los módulos también tiene que llegar. Sin SENTRY_DSN, nada. */
+  iniciarRastreoDeErrores();
+
   /**
    * `rawBody: true` conserva los bytes exactos del cuerpo además del JSON ya
    * parseado. Lo necesita `WhatsappSignatureGuard`: Meta firma el cuerpo CRUDO

@@ -3,6 +3,7 @@ import type { Request, Response } from 'express';
 
 import '../logging/request.types';
 import { idPeticion, rutaSinQuery } from '../logging/ruta-peticion';
+import { reportarError } from '../errores/rastreo-errores';
 
 /**
  * Red de seguridad final de errores HTTP.
@@ -32,6 +33,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
         'Excepción fuera de un contexto HTTP (WebSocket/RPC)',
         exception instanceof Error ? exception.stack : String(exception),
       );
+      reportarError(exception, { origen: `contexto ${host.getType()}` });
       return;
     }
 
@@ -52,6 +54,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
          sin capturar: también queda con stack en el log. */
       if (status >= 500) {
         this.logger.error(`${requestId} ${req.method} ${ruta} ${status}`, exception.stack);
+        reportarError(exception, { origen: `${req.method} ${ruta}`, requestId });
       }
 
       res.status(status).json({ ...forma, requestId });
@@ -64,6 +67,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
        cliente en la respuesta. */
     const error = exception instanceof Error ? exception : new Error(String(exception));
     this.logger.error(`${requestId} ${req.method} ${ruta} 500 — sin capturar`, error.stack);
+    reportarError(error, { origen: `${req.method} ${ruta}`, requestId });
 
     res.status(HttpStatus.INTERNAL_SERVER_ERROR).json({
       statusCode: HttpStatus.INTERNAL_SERVER_ERROR,

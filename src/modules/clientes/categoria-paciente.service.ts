@@ -1,7 +1,7 @@
-import { Injectable, Logger, NotFoundException, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 
 import { AuditService } from '../../common/audit/audit.service';
-import { enSegundoPlano } from '../../common/fiabilidad/en-segundo-plano';
+import { TareaPeriodica } from '../../common/trabajos/tarea-periodica.decorator';
 import { CategoriaCliente, Prisma } from '../../prisma/prisma-client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { TipoCambioService } from '../tipo-cambio/tipo-cambio.service';
@@ -37,10 +37,8 @@ interface FilaValor {
  * UPDATE lo condiciona, también si la fijan mientras corre el barrido.
  */
 @Injectable()
-export class CategoriaPacienteService implements OnModuleInit, OnModuleDestroy {
+export class CategoriaPacienteService {
   private readonly logger = new Logger(CategoriaPacienteService.name);
-  private intervalo?: NodeJS.Timeout;
-  private primera?: NodeJS.Timeout;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -48,24 +46,15 @@ export class CategoriaPacienteService implements OnModuleInit, OnModuleDestroy {
     private readonly tipoCambio: TipoCambioService,
   ) {}
 
-  onModuleInit(): void {
-    /* Las pruebas instancian los services a mano; mismo criterio que el
-       cierre de conversaciones y Actividades. */
-    if (process.env.NODE_ENV === 'test') return;
-    const barrer = () =>
-      void enSegundoPlano('recálculo de categorías de pacientes', this.logger, async () => {
-        const cambiadas = await this.recalcular();
-        if (cambiadas) this.logger.log(`Categoría recalculada: ${cambiadas} pacientes cambiaron`);
-      });
-    this.primera = setTimeout(barrer, PRIMERA_PASADA_MS);
-    this.primera.unref();
-    this.intervalo = setInterval(barrer, INTERVALO_MS);
-    this.intervalo.unref();
-  }
-
-  onModuleDestroy(): void {
-    clearTimeout(this.primera);
-    clearInterval(this.intervalo);
+  /** El barrido de todas, cada seis horas y tras cada arranque (`TrabajosService`). */
+  @TareaPeriodica({
+    nombre: 'categoria-pacientes', descripcion: 'recálculo de categorías de pacientes',
+    cron: '15 */6 * * *', cadaMs: INTERVALO_MS, primeraEnMs: PRIMERA_PASADA_MS,
+  })
+  async recalcularTodas(): Promise<number> {
+    const cambiadas = await this.recalcular();
+    if (cambiadas) this.logger.log(`Categoría recalculada: ${cambiadas} pacientes cambiaron`);
+    return cambiadas;
   }
 
   /**

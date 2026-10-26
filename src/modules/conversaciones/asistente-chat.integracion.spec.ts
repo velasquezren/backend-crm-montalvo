@@ -29,6 +29,7 @@ import { CobrosController } from '../cobros/cobros.controller';
 import { CobrosService } from '../cobros/cobros.service';
 import { PromocionesService } from '../promociones/promociones.service';
 import { VentasService } from '../ventas/ventas.service';
+import { ConversionesMetaService } from '../conversiones-meta/conversiones-meta.service';
 import { AccesoMedicoAgendaController } from '../agenda/acceso-medico-agenda.controller';
 import { AccesoMedicoAgendaService } from '../agenda/acceso-medico-agenda.service';
 import { armarAgendaDelDia } from '../agenda/agenda-medico-citas';
@@ -188,7 +189,7 @@ const imagenes = {
     LineasWhatsappService, LeadsService, PrimerContactoService, MemoriaAgenteService, ConversacionesService, EnvioPlantillasService,
     AtencionHumanaService, ConversacionesGateway, IngestaWhatsappService, MenuAtencionService, AcuseAutomaticoService,
     DespachadorSalienteService, ReintentoSalienteService, CierreInactividadService, MetaSignatureGuard,
-    PromocionesChatService, CobrosService, PromocionesService, VentasService, AvisoLandingService,
+    PromocionesChatService, CobrosService, PromocionesService, VentasService, ConversionesMetaService, AvisoLandingService,
     ConfiguracionIA, AsistenteLineasService, ConversacionAsistente, HerramientasAsistenteService, AsistenteChatService, LecturaComprobantesService,
     { provide: ModeloConversacional, useValue: modelo },
     { provide: ClasificadorMensajes, useValue: clasificador },

@@ -39,6 +39,7 @@ comprobación en vivo. No confundir el alias local del VPS de agenda con el CRM.
 | `modules/directorio` | Presentación pública: especialidades, `PerfilMedico`, fotos, publicación, horario informativo y ausencias. Para médicos enlazados recibe precio/horario de Agenda; no calcula cupos clínicos. [Guía](promociones-y-directorio.md) | Público solo publicado; edición de presentación vía servicios y capacidades correspondientes |
 | `modules/leads` | Embudo comercial, Lead Ads de Meta (`/webhooks/meta`) y alta presencial | AGENTE+ |
 | `modules/ventas` | Registro de ventas, catálogo, atribución al lead de origen | AGENTE+ (estado: ADMIN) |
+| `modules/conversiones-meta` | Aviso a Meta de las ventas que vinieron de un anuncio de Click-to-WhatsApp (Conversions API), **apagado** sin `META_CONVERSIONES`. Dueño de `ConversionMeta`, un outbox que Ventas llena en su transacción y que se revalida al enviarse; solo viajan clic, WABA, monto y hora ([guía y decisiones de la clínica](conversiones-meta.md)) | Sin endpoints; lo dispara Ventas |
 | `modules/kpis` | Números del dashboard, medidos sobre los mensajes. `GET /kpis/resumen` (lo que pide acción, tarjetas, embudo, serie, canales, equipo; caché 15 s) y `GET /kpis/detalle` (primera respuesta por tramos, leads por día y hora de La Paz, chats por línea, pacientes por categoría y el asistente —este solo sin alcance de agente—; caché 60 s), que el Dashboard pide al llegar a esa zona | AGENTE+ |
 | `modules/resultados` | Cola de informes, enlace al paciente y autoconsulta por WhatsApp. [Contrato de entrega](informes-por-whatsapp.md) | Operación: ASISTENTE y ADMIN+ con línea; autoconsulta: identidad revalidada por el portal |
 | `modules/servicios` | Historial clínico importado, médicos y demografía | ADMIN+ |
@@ -47,7 +48,9 @@ comprobación en vivo. No confundir el alias local del VPS de agenda con el CRM.
 
 Transversal en `src/common/`: auditoría, roles y guards, caché en memoria,
 fechas en la zona de La Paz, `enSegundoPlano`, logging con `requestId`, push
-web, almacenamiento R2 y el cliente de WhatsApp Cloud.
+web, almacenamiento R2, el cliente de WhatsApp Cloud (con su destino por
+teléfono o BSUID, `whatsapp/destino.ts`), el rastreo de errores y las tareas
+periódicas (`trabajos/`: `@TareaPeriodica`, con pg-boss si `TRABAJOS_PGBOSS=on`).
 
 ### Quién escribe cada tabla
 
@@ -119,6 +122,7 @@ los roles de agenda distinguen consulta clínica de edición.
 | WhatsApp Cloud API (Meta) | Líneas configurables; una app y un `META_APP_SECRET` para todas | `.env` del servidor + pantalla Líneas WhatsApp |
 | Gemini | Clasificación, conversación, audio y lectura de comprobantes (promociones y citas del chat) | `.env.example` + configuración del asistente por línea |
 | Meta Lead Ads | Leads de formularios de anuncios | `/webhooks/meta` |
+| Meta Conversions API | Aviso de ventas de anuncios de Click-to-WhatsApp, apagado por defecto | `.env` (`META_CONVERSIONES*`); [guía](conversiones-meta.md) |
 | Cloudflare R2 | Media de los chats y de Mi Memoria (URLs firmadas); banners de promociones y fotos del directorio, servidos por la API con URL pública inmutable solo si están publicados | `.env` (`R2_*`) |
 | Web Push (VAPID) | Avisos al teléfono: mensaje entrante y recordatorios | `.env` (`VAPID_*`); **no regenerar las llaves** |
 | Portal de Resultados | Cola de informes y renovación de enlaces | `.env` (`PORTAL_RESULTADOS_*`, `RESULTADOS_*`) |

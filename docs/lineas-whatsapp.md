@@ -53,6 +53,42 @@ Esta entrega cubre mensajería Cloud API y permisos del CRM. No implementa Embed
 
 Referencias oficiales para el alta: [WhatsApp Cloud API de Meta](https://www.postman.com/meta/whatsapp-business-platform/documentation/wlk6lh4/whatsapp-cloud-api) y [Embedded Signup de Meta](https://www.postman.com/meta/whatsapp-business-platform/documentation/du6gzjv/embedded-signup). La disponibilidad concreta del flujo para estas tres cuentas queda por verificar.
 
+## Nombres de usuario de WhatsApp (BSUID, 23/10/2026)
+
+Desde 2026 una persona puede adoptar un nombre de usuario en WhatsApp. Si lo hizo
+y la línea no tuvo trato con su número en 30 días (ni está en la libreta de
+contactos de Meta), el webhook **no trae su teléfono**: `messages[].from` y
+`contacts[].wa_id` faltan y solo llega su BSUID (`from_user_id`, `contacts[].user_id`,
+`BO.` + hasta 128 alfanuméricos), propio de esta empresa. Meta lo manda en todos los
+mensajes desde abril de 2026 y acepta enviar a un BSUID (`recipient`) desde julio.
+Hasta este cambio el webhook descartaba ese mensaje sin rastro.
+
+- **Ficha.** `Cliente.telefono` es opcional y `Cliente.waUsuarioId` guarda el BSUID
+  (único). La base exige uno de los dos (`Cliente_contacto_whatsapp_check`).
+  `ClientesService.obtenerOCrearPorWhatsapp` busca por BSUID, luego por teléfono
+  (la ficha de siempre recibe su BSUID), y si no, da de alta; bajo carrera
+  resuelve el P2002 releyendo. Si llega el número de una ficha-BSUID y ese número ya
+  es de otra ficha, **no se fusionan**: queda `POSIBLE_DUPLICADO` en `AuditLog`.
+- **Envío.** Nadie usa `cliente.telefono` para mandar: `destinoWhatsapp` (en
+  `common/whatsapp/destino.ts`) devuelve el teléfono si lo hay y si no el BSUID, y
+  `WhatsappCloudService.enviar` pone `to` o `recipient`. `normalizarTelefono`
+  rechaza un BSUID: la librería leía `BO.70012345` como `+59170012345`.
+- **Lo que exige un número** no se ofrece sin él: el Flow de reserva con endpoint
+  (su token sella el teléfono) responde que una persona coordinará la cita; la
+  reserva del asistente ya exigía celular boliviano; «Mis informes» falla cerrado y
+  pide revisión; un médico se autoriza por número; la audiencia de campañas exige
+  celular. Las plantillas de autenticación no admiten BSUID (error 131062).
+- **Cambios de identidad.** Los mensajes de sistema `user_changed_user_id` y
+  `user_changed_number` pasan la ficha del `previous_user_id` al nuevo
+  (`cambiarWaUsuarioId`). Las bajas de marketing (`user_preferences`) se reconocen
+  también por `user_id`.
+- **Frontend.** El inbox y la ficha muestran «@usuario» o «Usuario de WhatsApp» y
+  ocultan llamar/wa.me/copiar número; la ficha se edita sin teléfono y se le puede
+  añadir uno cuando lo comparta.
+
+Despliegue: la migración `20261023210000_contacto_whatsapp_bsuid` es aditiva. Publicar
+el frontend antes o junto con el backend: uno anterior no espera `telefono: null`.
+
 ## Verificación local
 
 `lineas-whatsapp.integracion.spec.ts` usa PostgreSQL real y HTTP Nest con JWT, ValidationPipe y webhook firmado; solo simula salidas externas (Meta, R2 y push). Incluye aislamiento de bandeja/historial/mutaciones, permisos de usuario, separación por número, credenciales de envío/lectura/plantillas, adjuntos cruzados, idempotencia y estados de otra línea. Las suites de conversaciones, autenticación y fiabilidad verifican las regresiones existentes.

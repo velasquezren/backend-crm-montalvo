@@ -1,8 +1,8 @@
-import { BadRequestException, Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { FuenteTipoCambio, ModoTipoCambio } from '../../prisma/prisma-client';
 
 import { AuditService } from '../../common/audit/audit.service';
-import { enSegundoPlano } from '../../common/fiabilidad/en-segundo-plano';
+import { TareaPeriodica } from '../../common/trabajos/tarea-periodica.decorator';
 import { PrismaService } from '../../prisma/prisma.service';
 
 /**
@@ -24,7 +24,6 @@ const TIPO_CAMBIO_RESPALDO = 6.97;
 const URL_TC_OFICIAL_ESPEJO = 'https://apibcb.cucu.bo/api/v1/tc/oficial';
 
 const SEIS_HORAS_MS = 6 * 60 * 60 * 1000;
-const SINCRONIZACION_TC = 'sincronización del tipo de cambio con el espejo del BCB';
 
 interface RespuestaEspejoBcb {
   tc_oficial?: {
@@ -71,34 +70,13 @@ export interface ResultadoSincronizacion {
  * para mostrar montos en dólares (selector Bs/$us, KPIs, tabla de Ventas).
  */
 @Injectable()
-export class TipoCambioService implements OnModuleInit, OnModuleDestroy {
+export class TipoCambioService {
   private readonly logger = new Logger(TipoCambioService.name);
-  private intervalo?: NodeJS.Timeout;
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly auditService: AuditService,
   ) {}
-
-  onModuleInit(): void {
-    /* La suite de unit/integración de este backend instancia los services a
-       mano (`new XService(...)`), no el módulo Nest completo, así que esto no
-       las afecta hoy. Igual se guarda por si algún día alguien bootstrapea el
-       AppModule entero en una prueba: no tiene sentido pegarle a un servicio
-       de terceros en cada corrida de test. */
-    if (process.env.NODE_ENV === 'test') return;
-
-    void enSegundoPlano(SINCRONIZACION_TC, this.logger, () => this.sincronizarAutomatico());
-    this.intervalo = setInterval(
-      () => void enSegundoPlano(SINCRONIZACION_TC, this.logger, () => this.sincronizarAutomatico()),
-      SEIS_HORAS_MS,
-    );
-    this.intervalo.unref(); // no debe ser el motivo por el que el proceso sigue vivo
-  }
-
-  onModuleDestroy(): void {
-    if (this.intervalo) clearInterval(this.intervalo);
-  }
 
   /** El más reciente con fecha <= hoy. Si la tabla está vacía, el respaldo fijo. */
   async vigente(): Promise<TipoCambioVigenteRespuesta> {
@@ -215,7 +193,13 @@ export class TipoCambioService implements OnModuleInit, OnModuleDestroy {
    * Intenta traer el valor vigente del espejo y lo guarda. Nunca lanza: un
    * tercero caído no puede tumbar el arranque del proceso ni una llamada manual
    * desde el panel (`POST /tipo-cambio/sincronizar`).
+   *
+   * Al arrancar y cada seis horas (`TrabajosService`); las pruebas no lo disparan.
    */
+  @TareaPeriodica({
+    nombre: 'tipo-cambio-bcb', descripcion: 'sincronización del tipo de cambio con el espejo del BCB',
+    cron: '0 */6 * * *', cadaMs: SEIS_HORAS_MS, primeraEnMs: 0,
+  })
   async sincronizarAutomatico(): Promise<ResultadoSincronizacion> {
     let cuerpo: RespuestaEspejoBcb;
     try {

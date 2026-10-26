@@ -32,6 +32,7 @@ import { ActividadesController } from '../../modules/actividades/actividades.con
 import { ActividadesService } from '../../modules/actividades/actividades.service';
 import { VentasController } from '../../modules/ventas/ventas.controller';
 import { VentasService } from '../../modules/ventas/ventas.service';
+import { ConversionesMetaService } from '../../modules/conversiones-meta/conversiones-meta.service';
 import { LeadsController } from '../../modules/leads/leads.controller';
 import { LeadsService } from '../../modules/leads/leads.service';
 import { ConversacionesController } from '../../modules/conversaciones/conversaciones.controller';
@@ -59,7 +60,7 @@ const telefonos = { startsWith: '+59170004' };
   controllers: [AuthController, UsuariosController, ClientesController, CampanasController, ActividadesController, VentasController, LeadsController, ConversacionesController],
   providers: [LineasWhatsappService, MemoriaAgenteService, { provide: ConfigService, useValue: new ConfigService({}) },
     { provide: PrismaService, useValue: prisma }, AuditService, AuthService, UsuariosService,
-    ClientesService, CategoriaPacienteService, TipoCambioService, ServiciosService, ActividadesService, VentasService, LeadsService, PromocionesChatService, CobrosService, PromocionesService, AvisoLandingService,
+    ClientesService, CategoriaPacienteService, TipoCambioService, ServiciosService, ActividadesService, VentasService, ConversionesMetaService, LeadsService, PromocionesChatService, CobrosService, PromocionesService, AvisoLandingService,
     ConversacionesService, EnvioPlantillasService, AtencionHumanaService, CatalogoClinicoService, AudienciasService, CampanasService,
     { provide: R2Service, useValue: {} }, { provide: PushService, useValue: {} },
     { provide: WhatsappCloudService, useValue: {} }, { provide: DespachadorSalienteService, useValue: {} },

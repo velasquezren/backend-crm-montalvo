@@ -28,7 +28,7 @@ export interface FilaEntrega {
   publicadoEn: string | null;
   accesoVigente: boolean;
   /** La ficha del CRM a la que se enviaría. `null` = no se reconoció. */
-  paciente: { id: string; nombre: string; telefono: string } | null;
+  paciente: { id: string; nombre: string; telefono: string | null } | null;
   /** Por qué clave se reconoció: con CI la asistente compara el nombre. */
   vinculo: 'PAC' | 'CI' | null;
   /** Por qué NO se reconoció, dicho para poder arreglarlo. */

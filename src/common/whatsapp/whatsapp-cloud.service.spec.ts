@@ -54,6 +54,19 @@ describe('WhatsappCloudService', () => {
       expect(opciones.headers.Authorization).toBe('Bearer tok');
     });
 
+    it('a quien solo tiene BSUID le escribe por `recipient`, entero y sin `to`', async () => {
+      const fetchSpy = jest.fn().mockResolvedValue(respuestaOk('wamid.bsuid'));
+      global.fetch = fetchSpy as unknown as typeof fetch;
+
+      const resultado = await servicio().enviar('BO.13491208655302741918', { type: 'text', text: { body: 'Hola' } }, undefined, CUENTA);
+
+      expect(resultado).toEqual({ estado: 'ENVIADO', metaMsgId: 'wamid.bsuid' });
+      const cuerpo = JSON.parse(fetchSpy.mock.calls[0][1].body);
+      expect(cuerpo.recipient).toBe('BO.13491208655302741918');
+      expect(cuerpo).not.toHaveProperty('to');
+      expect(cuerpo.recipient_type).toBe('individual');
+    });
+
     it('pasa tal cual el contenido interactivo', async () => {
       const fetchSpy = jest.fn().mockResolvedValue(respuestaOk());
       global.fetch = fetchSpy as unknown as typeof fetch;

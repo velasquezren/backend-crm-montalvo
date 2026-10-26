@@ -2,6 +2,7 @@ import { PromocionesChatService } from '../conversaciones/promociones-chat.servi
 import { CobrosService } from '../cobros/cobros.service';
 import { PromocionesService } from '../promociones/promociones.service';
 import { VentasService } from '../ventas/ventas.service';
+import { ConversionesMetaService } from '../conversiones-meta/conversiones-meta.service';
 import { LeadsService } from '../leads/leads.service';
 import { AvisoLandingService } from '../../common/landing/aviso-landing.service';
 import { INestApplication, Module, ValidationPipe } from '@nestjs/common';
@@ -92,7 +93,7 @@ const config = new ConfigService({
     { provide: PrismaService, useValue: prisma }, { provide: ConfigService, useValue: config },
     AuditService, AuthService, UsuariosService, ClientesService, CategoriaPacienteService, ServiciosService, TipoCambioService,
     LineasWhatsappService, PrimerContactoService, MemoriaAgenteService, ConversacionesService, EnvioPlantillasService, AtencionHumanaService,
-    ConversacionesGateway, IngestaWhatsappService, MenuAtencionService, PromocionesChatService, CobrosService, PromocionesService, VentasService, LeadsService, AvisoLandingService, AcuseAutomaticoService, DespachadorSalienteService,
+    ConversacionesGateway, IngestaWhatsappService, MenuAtencionService, PromocionesChatService, CobrosService, PromocionesService, VentasService, ConversionesMetaService, LeadsService, AvisoLandingService, AcuseAutomaticoService, DespachadorSalienteService,
     ReintentoSalienteService, CierreInactividadService, MetaSignatureGuard,
     { provide: WhatsappCloudService, useValue: transporte },
     { provide: R2Service, useValue: { urlFirmada: async () => null } },

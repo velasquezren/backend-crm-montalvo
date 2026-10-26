@@ -50,6 +50,9 @@ export function textoReservaSinPago(resumen: string): string {
 /* «Su imagen», no «su comprobante»: con la lectura de la IA encendida todavía no se
    sabe si lo es, y si no, el aviso siguiente le diría lo contrario (22/10/2026). */
 export const TEXTO_COMPROBANTE_RESERVA = '✅ Recibimos su imagen. La estamos revisando y le confirmaremos la cita por aquí.';
+/** «Solicitar una cita» de quien escribe sin teléfono (solo BSUID): la reserva en línea
+ *  necesita su número, así que la coordina una persona. */
+export const TEXTO_CITA_SIN_NUMERO = 'Una persona del equipo le escribirá por aquí para coordinar su cita.';
 
 /**
  * Dentro de la transacción de la ingesta, al llegar el cierre del Flow ya
@@ -62,8 +65,9 @@ export async function registrarReservaDeChat(
   /** Reserva del asistente (`AsistenteChatService`): el QR lleva su marca y el texto, el resumen. */
   delAsistente?: { readonly resumen: string },
 ): Promise<PagoDeReserva | null> {
-  const chat = await tx.conversacion.findUnique({ where: { id: conversacionId }, select: { lineaId: true, cliente: { select: { telefono: true } } } });
-  if (!chat || !interaccionesEnLinea(chat.lineaId) || chat.cliente.telefono.replace(/^\+/, '') !== cierre.telefono) return null;
+  const chat = await tx.conversacion.findUnique({ where: { id: conversacionId }, select: { lineaId: true, cliente: { select: { telefono: true, waUsuarioId: true } } } });
+  /* Sin teléfono (solo BSUID) no hay reserva que registrar: la agenda la ató a un número. */
+  if (!chat?.cliente.telefono || !interaccionesEnLinea(chat.lineaId) || chat.cliente.telefono.replace(/^\+/, '') !== cierre.telefono) return null;
   await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${conversacionId}, ${CANDADO_AUTOMATICOS}))::text`;
   const { montoCentavos, qrClave } = cierre;
   const cobra = montoCentavos !== null && qrClave !== null;

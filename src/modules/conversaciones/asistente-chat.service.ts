@@ -37,6 +37,7 @@ import { HORAS_ESPERA_COMPROBANTE, pagoDelChat } from './pagos-chat';
 import { PromocionesChatService } from './promociones-chat.service';
 import type { PromocionChat } from '../promociones/promociones.service';
 import { AccionSugerida, accionesDe, accionesSugeridas } from './sugerencias-chat';
+import { destinoWhatsapp } from '../../common/whatsapp/destino';
 
 /*
  * El asistente de IA dentro de un chat (docs/asistente-ia.md). Dueño de
@@ -799,7 +800,7 @@ export class AsistenteChatService implements ProgramadorAsistente, OnModuleInit,
       throw new BadRequestException('Pasaron más de 24 h desde su último mensaje: WhatsApp solo permite una plantilla.');
     }
     /* La aprobó una persona: sale aunque el chat esté pausado esperando a una persona. */
-    const enviado = await this.ejecutar(conversacionId, conversacion.cliente.telefono, conversacion.linea.id, accion, { respetaPausa: false });
+    const enviado = await this.ejecutar(conversacionId, destinoWhatsapp(conversacion.cliente), conversacion.linea.id, accion, { respetaPausa: false });
     if (!enviado) throw new ConflictException('No se pudo enviar: la promoción ya no está vigente o la línea no lo permite.');
     await this.prisma.auditLog.create({
       data: { entidad: 'SugerenciaAsistente', entidadId: sugerenciaId, accion: 'SUGERENCIA_ACCION', usuarioId, cambios: { tipo: accion.tipo, indice } },

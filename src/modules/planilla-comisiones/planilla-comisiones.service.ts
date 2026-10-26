@@ -196,7 +196,7 @@ export class PlanillaComisionesService {
   ) {
     await this.configuracion.asegurarConfiguracion();
 
-    const { filas, filasVacias, columnasAusentes } = leerExcel(buffer);
+    const { filas, filasVacias, columnasAusentes } = await leerExcel(buffer);
     const deducido = deducirPeriodo(filas);
 
     const anio = dto.anio ?? deducido.anio;

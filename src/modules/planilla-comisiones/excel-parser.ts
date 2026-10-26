@@ -1,5 +1,5 @@
 import { BadRequestException } from '@nestjs/common';
-import * as XLSX from 'xlsx';
+import { CellValue, Workbook } from 'exceljs';
 
 import { FilaExcel, normalizar } from './clasificador';
 
@@ -48,6 +48,22 @@ const COLUMNAS_OBLIGATORIAS: ReadonlyArray<keyof FilaExcel> = ['detalle', 'preci
 
 type FilaCruda = Record<string, unknown>;
 
+/**
+ * El valor de una celda tal como lo usaba la lectura anterior (SheetJS con
+ * `raw: true`): de una fórmula, su resultado guardado; de un texto con formato
+ * o un enlace, el texto; un error de Excel (`#N/A`), vacío.
+ */
+function valorDeCelda(valor: CellValue): unknown {
+  if (valor === null || valor === undefined) return null;
+  if (valor instanceof Date) return aHoraLocal(valor);
+  if (typeof valor !== 'object') return valor;
+  if ('result' in valor) return valor.result === undefined ? null : valorDeCelda(valor.result as CellValue);
+  if ('richText' in valor) return valor.richText.map(trozo => trozo.text).join('');
+  if ('text' in valor) return valor.text;
+  if ('error' in valor) return null;
+  return null;
+}
+
 /** Convierte a número tolerando strings con separadores de miles o coma decimal. */
 function aNumero(valor: unknown): number | null {
   if (valor === null || valor === undefined || valor === '') return null;
@@ -65,6 +81,21 @@ function aNumero(valor: unknown): number | null {
   return null;
 }
 
+/**
+ * Excel no guarda zona: «01/12/2025» es una fecha de calendario. `exceljs` la
+ * entrega como medianoche UTC; SheetJS, como medianoche en la zona del proceso,
+ * y así están guardadas todas las `VentaImportada.fecha` (el VPS corre en
+ * America/New_York). Medianoche UTC, vista desde La Paz, es el día ANTERIOR a
+ * las 20:00: cada venta del día 1 caería en el mes previo. Se conserva la
+ * convención de siempre: la misma fecha y hora de pared, en la zona local.
+ */
+function aHoraLocal(utc: Date): Date {
+  return new Date(
+    utc.getUTCFullYear(), utc.getUTCMonth(), utc.getUTCDate(),
+    utc.getUTCHours(), utc.getUTCMinutes(), utc.getUTCSeconds(), utc.getUTCMilliseconds(),
+  );
+}
+
 /** Convierte a texto limpio, o null si viene vacío. */
 function aTexto(valor: unknown): string | null {
   if (valor === null || valor === undefined) return null;
@@ -72,7 +103,7 @@ function aTexto(valor: unknown): string | null {
   return texto === '' ? null : texto;
 }
 
-/** Convierte a fecha: acepta Date (cellDates), serial de Excel o texto ISO. */
+/** Convierte a fecha: acepta Date (celda con formato de fecha), serial de Excel o texto ISO. */
 function aFecha(valor: unknown): Date | null {
   if (valor === null || valor === undefined || valor === '') return null;
   if (valor instanceof Date) return Number.isNaN(valor.getTime()) ? null : valor;
@@ -116,30 +147,62 @@ export interface ResultadoLectura {
 }
 
 /**
+ * Las filas de la primera hoja como objetos `{ cabecera: valor }`, igual que
+ * las daba `sheet_to_json` de SheetJS: la primera fila son las cabeceras, una
+ * fila sin ningún valor no cuenta, y una cabecera repetida no pisa a la primera.
+ */
+function filasDeLaHoja(libro: Workbook): { cabeceras: string[]; crudas: FilaCruda[] } {
+  const hoja = libro.worksheets[0];
+  if (!hoja) throw new BadRequestException('El Excel no tiene ninguna hoja');
+
+  const cabeceras: string[] = [];
+  const columnas: Array<{ columna: number; cabecera: string }> = [];
+  hoja.getRow(1).eachCell({ includeEmpty: false }, (celda, columna) => {
+    const cabecera = aTexto(valorDeCelda(celda.value));
+    if (!cabecera || cabeceras.includes(cabecera)) return;
+    cabeceras.push(cabecera);
+    columnas.push({ columna, cabecera });
+  });
+
+  const crudas: FilaCruda[] = [];
+  for (let numero = 2; numero <= hoja.rowCount; numero++) {
+    const fila = hoja.getRow(numero);
+    const cruda: FilaCruda = {};
+    let conValor = false;
+    for (const { columna, cabecera } of columnas) {
+      const valor = valorDeCelda(fila.getCell(columna).value);
+      cruda[cabecera] = valor === '' ? null : valor;
+      if (cruda[cabecera] !== null) conValor = true;
+    }
+    if (conValor) crudas.push(cruda);
+  }
+  return { cabeceras, crudas };
+}
+
+/**
  * Lee el .xlsx completo y devuelve las filas normalizadas.
  * No clasifica ni valida reglas de negocio: solo traduce el archivo a datos.
+ *
+ * Con `exceljs` y no SheetJS (`xlsx`): el paquete de npm de SheetJS quedó
+ * congelado en 0.18.5, con dos vulnerabilidades publicadas (contaminación de
+ * prototipo y ReDoS) que justo se disparan leyendo un archivo subido. Las
+ * versiones corregidas solo salen de su CDN, donde `npm audit` no las ve.
+ * `exceljs` ya era la librería de la exportación: queda una sola.
  */
-export function leerExcel(buffer: Buffer): ResultadoLectura {
-  let libro: XLSX.WorkBook;
+export async function leerExcel(buffer: Buffer): Promise<ResultadoLectura> {
+  const libro = new Workbook();
   try {
-    libro = XLSX.read(buffer, { type: 'buffer', cellDates: true });
+    await libro.xlsx.load(buffer as unknown as ArrayBuffer);
   } catch {
     throw new BadRequestException('El archivo no es un Excel válido (.xlsx)');
   }
 
-  const nombreHoja = libro.SheetNames[0];
-  if (!nombreHoja) {
-    throw new BadRequestException('El Excel no tiene ninguna hoja');
-  }
-
-  const hoja = libro.Sheets[nombreHoja];
-  const crudas = XLSX.utils.sheet_to_json<FilaCruda>(hoja, { defval: null, raw: true });
+  const { cabeceras: cabecerasReales, crudas } = filasDeLaHoja(libro);
 
   if (crudas.length === 0) {
     throw new BadRequestException('La hoja del Excel está vacía');
   }
 
-  const cabecerasReales = Object.keys(crudas[0]);
   const { mapa, faltantes } = mapearCabeceras(cabecerasReales);
 
   if (faltantes.length > 0) {

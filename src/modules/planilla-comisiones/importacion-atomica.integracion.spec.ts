@@ -1,4 +1,3 @@
-import * as XLSX from 'xlsx';
 
 import { AuditService } from '../../common/audit/audit.service';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -8,6 +7,7 @@ import { CatalogoClinicoService } from './catalogo-clinico.service';
 import { ConfiguracionComisionesService } from './configuracion-comisiones.service';
 import { PlanillaComisionesService } from './planilla-comisiones.service';
 import { ResumenAnualService } from './resumen-anual.service';
+import { excelDePrueba } from './excel.de-prueba';
 
 const URL_TEST = process.env['DATABASE_URL_TEST'] ??
   'postgresql://crm_app:crm_dev_local@127.0.0.1:5433/crm_test?schema=public';
@@ -28,7 +28,7 @@ const planilla = new PlanillaComisionesService(
 const PERIODO = { anio: 2031, mes: 1, tipoCambio: 6.97 };
 
 /** Excel real de prueba, sin datos de pacientes. La fila 501 dispara el fallo SQL. */
-function excel(cantidad: number, version: string, control?: 'fallar' | 'pausar'): Buffer {
+function excel(cantidad: number, version: string, control?: 'fallar' | 'pausar'): Promise<Buffer> {
   const filas = Array.from({ length: cantidad }, (_, i) => ({
     FECHA: '2031-01-10',
     MODULO: 'CONSULTA',
@@ -44,9 +44,7 @@ function excel(cantidad: number, version: string, control?: 'fallar' | 'pausar')
     OBS: control && i === cantidad - 1 ? (control === 'fallar' ? 'F02_FALLAR' : 'F02_PAUSAR') : version,
     TC: 6.97,
   }));
-  const libro = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(libro, XLSX.utils.json_to_sheet(filas), 'Ventas');
-  return XLSX.write(libro, { type: 'buffer', bookType: 'xlsx' }) as Buffer;
+  return excelDePrueba(filas);
 }
 
 async function fotoPeriodo(id: string) {
@@ -123,7 +121,7 @@ afterAll(async () => {
 });
 
 async function importarAnteriorCalculada() {
-  const { periodo } = await planilla.importar(excel(2, 'anterior'), 'anterior.xlsx', PERIODO, 'F02-test');
+  const { periodo } = await planilla.importar(await excel(2, 'anterior'), 'anterior.xlsx', PERIODO, 'F02-test');
   const vendedora = await prisma.vendedoraComision.findUniqueOrThrow({ where: { codigo: 'F02-V' } });
   await prisma.ventaImportada.updateMany({
     where: { periodoId: periodo.id, codOrigen: 'F02-COMPARTIDA' },
@@ -147,7 +145,7 @@ it('conserva íntegra la importación anterior si falla un lote posterior', asyn
   const invalidarCatalogo = jest.spyOn(catalogo, 'invalidar');
   const invalidarAnual = jest.spyOn(anual, 'invalidar');
 
-  await expect(planilla.importar(excel(501, 'nueva', 'fallar'), 'nueva.xlsx', {
+  await expect(planilla.importar(await excel(501, 'nueva', 'fallar'), 'nueva.xlsx', {
     ...PERIODO, tipoCambio: 7,
   }, 'F02-test')).rejects.toThrow('F02: fallo posterior a 500 filas');
 
@@ -164,10 +162,10 @@ it('conserva íntegra la importación anterior si falla un lote posterior', asyn
 
 it('sustituye todos los lotes, conserva ajustes y no toca otro periodo', async () => {
   const anterior = await importarAnteriorCalculada();
-  const otro = await planilla.importar(excel(2, 'otro'), 'otro.xlsx', { ...PERIODO, mes: 2 }, 'F02-test');
+  const otro = await planilla.importar(await excel(2, 'otro'), 'otro.xlsx', { ...PERIODO, mes: 2 }, 'F02-test');
   const otroAntes = await fotoPeriodo(otro.periodo.id);
 
-  const respuesta = await planilla.importar(excel(501, 'nueva'), 'nueva.xlsx', PERIODO, 'F02-test');
+  const respuesta = await planilla.importar(await excel(501, 'nueva'), 'nueva.xlsx', PERIODO, 'F02-test');
   const nuevo = await fotoPeriodo(anterior.id);
   expect(respuesta.periodo.id).toBe(anterior.id);
   expect(nuevo).toMatchObject({ archivoNombre: 'nueva.xlsx', filasTotales: 501, filasValidas: 501, estado: 'BORRADOR', calculadoEn: null });
@@ -184,7 +182,7 @@ it('sustituye todos los lotes, conserva ajustes y no toca otro periodo', async (
 });
 
 it('un fallo en la primera importación tampoco deja periodo ni altas parciales', async () => {
-  await expect(planilla.importar(excel(501, 'nueva', 'fallar'), 'nueva.xlsx', PERIODO, 'F02-test'))
+  await expect(planilla.importar(await excel(501, 'nueva', 'fallar'), 'nueva.xlsx', PERIODO, 'F02-test'))
     .rejects.toThrow('F02: fallo posterior a 500 filas');
   expect(await prisma.periodoComision.count({ where: { anio: PERIODO.anio } })).toBe(0);
   expect(await prisma.ventaImportada.count({ where: { pac: 'PAC-F02' } })).toBe(0);
@@ -192,13 +190,13 @@ it('un fallo en la primera importación tampoco deja periodo ni altas parciales'
   expect(await prisma.medico.count({ where: { codigo: 'F02-M' } })).toBe(0);
 
   // El bloqueo transaccional también se libera tras rollback.
-  await expect(planilla.importar(excel(2, 'reintento'), 'reintento.xlsx', PERIODO, 'F02-test'))
+  await expect(planilla.importar(await excel(2, 'reintento'), 'reintento.xlsx', PERIODO, 'F02-test'))
     .resolves.toMatchObject({ periodo: { filasTotales: 2 } });
 });
 
 it('revierte todos los lotes si falla la actualización final del periodo', async () => {
   const anterior = await importarAnteriorCalculada();
-  await expect(planilla.importar(excel(501, 'nueva'), 'F02_FIN.xlsx', PERIODO, 'F02-test'))
+  await expect(planilla.importar(await excel(501, 'nueva'), 'F02_FIN.xlsx', PERIODO, 'F02-test'))
     .rejects.toThrow('F02: fallo final posterior a 501 filas');
   expect(await fotoPeriodo(anterior.id)).toEqual(anterior);
 });
@@ -214,7 +212,7 @@ it.each(['EN_REVISION', 'CERRADO', 'PAGADO'] as const)('sigue rechazando reimpor
   const anterior = await importarAnteriorCalculada();
   await prisma.periodoComision.update({ where: { id: anterior.id }, data: { estado } });
   const bloqueado = await fotoPeriodo(anterior.id);
-  await expect(planilla.importar(excel(2, 'nueva'), 'nueva.xlsx', PERIODO, 'F02-test'))
+  await expect(planilla.importar(await excel(2, 'nueva'), 'nueva.xlsx', PERIODO, 'F02-test'))
     .rejects.toMatchObject({ status: 409 });
   expect(await fotoPeriodo(anterior.id)).toEqual(bloqueado);
 });
@@ -247,14 +245,14 @@ it.each([false, true])('dos administradores no mezclan importaciones (periodo pr
     await retenido;
   }, { timeout: 15_000 });
   await listo;
-  const primera = planilla.importar(excel(501, 'primera', 'pausar'), 'primera.xlsx', PERIODO, 'F02-test');
+  const primera = planilla.importar(await excel(501, 'primera', 'pausar'), 'primera.xlsx', PERIODO, 'F02-test');
   // Se espera en finally incluso si falla una aserción mientras está bloqueada.
   void primera.catch(() => undefined);
   try {
     await esperarLotePausado();
     if (anterior) expect(await fotoPeriodo(anterior.id)).toEqual(anterior);
     else expect(await prisma.periodoComision.count({ where: { anio: PERIODO.anio } })).toBe(0);
-    await expect(planilla.importar(excel(502, 'segunda'), 'segunda.xlsx', PERIODO, 'F02-test'))
+    await expect(planilla.importar(await excel(502, 'segunda'), 'segunda.xlsx', PERIODO, 'F02-test'))
       .rejects.toMatchObject({ status: 409, message: expect.stringContaining('en curso') });
   } finally {
     liberar();
@@ -263,7 +261,7 @@ it.each([false, true])('dos administradores no mezclan importaciones (periodo pr
   }
   const publicada = (await primera).periodo;
   expect(await prisma.ventaImportada.count({ where: { periodoId: publicada.id } })).toBe(501);
-  const segunda = await planilla.importar(excel(502, 'segunda'), 'segunda.xlsx', PERIODO, 'F02-test');
+  const segunda = await planilla.importar(await excel(502, 'segunda'), 'segunda.xlsx', PERIODO, 'F02-test');
   expect(segunda.periodo.id).toBe(publicada.id);
   expect(await prisma.ventaImportada.count({ where: { periodoId: publicada.id } })).toBe(502);
   expect(await prisma.ventaImportada.count({ where: { periodoId: publicada.id, obs: { not: 'segunda' } } })).toBe(0);

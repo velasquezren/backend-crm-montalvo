@@ -576,6 +576,103 @@ describe('Conversaciones contra Postgres real', () => {
   });
 
   /**
+   * Nombres de usuario de WhatsApp: quien adoptó uno puede escribir sin que Meta
+   * mande su teléfono, solo su BSUID. Hasta este cambio el webhook descartaba
+   * ese mensaje; aquí se fija que entra, que no duplica fichas y que la
+   * respuesta le llega por `recipient`.
+   */
+  describe('nombres de usuario de WhatsApp (BSUID)', () => {
+    const BSUID = 'BO.13491208655302741918';
+
+    it('quien escribe sin teléfono entra: ficha con BSUID, chat y lead', async () => {
+      await ingesta.procesarEntrante({ telefono: null, waUsuarioId: BSUID, usuario: 'ana.p' }, 'Hola', 'wamid.u1', 'Ana Pérez');
+
+      const cliente = await prisma.cliente.findUniqueOrThrow({ where: { waUsuarioId: BSUID } });
+      expect(cliente).toMatchObject({ telefono: null, nombre: 'Ana Pérez' });
+      expect(await prisma.conversacion.count({ where: { clienteId: cliente.id } })).toBe(1);
+      expect(await prisma.lead.count({ where: { clienteId: cliente.id } })).toBe(1);
+    });
+
+    it('sin nombre de perfil, el marcador usa su @usuario y no el BSUID', async () => {
+      await ingesta.procesarEntrante({ telefono: null, waUsuarioId: BSUID, usuario: 'ana.p' }, 'Hola', 'wamid.u2');
+      expect((await prisma.cliente.findUniqueOrThrow({ where: { waUsuarioId: BSUID } })).nombre).toBe('WhatsApp @ana.p');
+    });
+
+    it('la ficha de siempre recibe su BSUID y la sigue reconociendo cuando Meta deja de mandar el número', async () => {
+      const deFileMaker = await prisma.cliente.create({ data: { nombre: 'Ana Pérez', telefono: '+59172100001', pac: 'PAC1' } });
+
+      await ingesta.procesarEntrante({ telefono: '+59172100001', waUsuarioId: BSUID }, 'Hola', 'wamid.u3');
+      await ingesta.procesarEntrante({ telefono: null, waUsuarioId: BSUID }, 'Sigo yo', 'wamid.u4');
+
+      expect(await prisma.cliente.count()).toBe(1);
+      expect(await prisma.cliente.findUniqueOrThrow({ where: { id: deFileMaker.id } })).toMatchObject({ waUsuarioId: BSUID, nombre: 'Ana Pérez' });
+      expect(await prisma.conversacion.count()).toBe(1);
+    });
+
+    it('si después llega su número, la ficha-BSUID lo completa', async () => {
+      await ingesta.procesarEntrante({ telefono: null, waUsuarioId: BSUID }, 'Hola', 'wamid.u5');
+      await ingesta.procesarEntrante({ telefono: '+59172100002', waUsuarioId: BSUID }, 'Otra vez', 'wamid.u6');
+
+      expect(await prisma.cliente.findUniqueOrThrow({ where: { waUsuarioId: BSUID } })).toMatchObject({ telefono: '+59172100002' });
+      expect(await prisma.cliente.count()).toBe(1);
+    });
+
+    it('un número que ya es de OTRA ficha no las fusiona: queda auditado como posible duplicado', async () => {
+      const otra = await prisma.cliente.create({ data: { nombre: 'Ana de FileMaker', telefono: '+59172100003' } });
+      await ingesta.procesarEntrante({ telefono: null, waUsuarioId: BSUID }, 'Hola', 'wamid.u7');
+      await ingesta.procesarEntrante({ telefono: '+59172100003', waUsuarioId: BSUID }, 'Soy yo', 'wamid.u8');
+
+      const porBsuid = await prisma.cliente.findUniqueOrThrow({ where: { waUsuarioId: BSUID } });
+      expect(porBsuid.id).not.toBe(otra.id);
+      expect(porBsuid.telefono).toBeNull();
+      expect(await prisma.mensaje.count({ where: { conversacion: { clienteId: porBsuid.id } } })).toBe(2);
+      expect(await prisma.auditLog.findFirst({ where: { entidadId: porBsuid.id, accion: 'POSIBLE_DUPLICADO' } }))
+        .toMatchObject({ cambios: { otraFichaId: otra.id } });
+    });
+
+    it('5 webhooks simultáneos de un BSUID nuevo: 1 ficha, 1 chat, 5 mensajes, 1 lead', async () => {
+      await Promise.all([1, 2, 3, 4, 5].map(n =>
+        ingesta.procesarEntrante({ telefono: null, waUsuarioId: BSUID }, `mensaje ${n}`, `wamid.uc${n}`, 'Paciente Nueva'),
+      ));
+
+      const cliente = await prisma.cliente.findUniqueOrThrow({ where: { waUsuarioId: BSUID } });
+      expect(await prisma.cliente.count()).toBe(1);
+      expect(await prisma.conversacion.count({ where: { clienteId: cliente.id } })).toBe(1);
+      expect(await prisma.mensaje.count()).toBe(5);
+      expect(await prisma.lead.count({ where: { clienteId: cliente.id } })).toBe(1);
+    });
+
+    it('la respuesta de la agente le llega por su BSUID', async () => {
+      const agente = await crearAgente('agente-bsuid');
+      await ingesta.procesarEntrante({ telefono: null, waUsuarioId: BSUID }, 'Hola', 'wamid.u9');
+      const conversacion = await prisma.conversacion.findFirstOrThrow();
+      let destino!: (valor: string) => void;
+      const enviadoA = new Promise<string>(resolve => { destino = resolve; });
+      const enviar = jest.spyOn(WhatsappCloudService.prototype, 'enviar').mockImplementation(async para => {
+        destino(para);
+        return { estado: 'ENVIADO', metaMsgId: 'wamid.resp.bsuid' };
+      });
+      try {
+        const mensaje = await service.enviarMensaje(conversacion.id, 'Buenas tardes', agente.id);
+        expect(mensaje.clienteTelefono).toBeNull();
+        expect(await enviadoA).toBe(BSUID);
+      } finally { enviar.mockRestore(); }
+    });
+
+    it('el cambio de BSUID que avisa Meta mueve la ficha al nuevo', async () => {
+      await ingesta.procesarEntrante({ telefono: null, waUsuarioId: BSUID }, 'Hola', 'wamid.u10');
+
+      expect(await clientesService.cambiarWaUsuarioId(BSUID, 'BO.nuevo987')).toBe(true);
+      expect(await prisma.cliente.findUnique({ where: { waUsuarioId: 'BO.nuevo987' } })).not.toBeNull();
+      expect(await clientesService.cambiarWaUsuarioId(BSUID, 'BO.otro')).toBe(false);
+    });
+
+    it('la base no admite una ficha sin teléfono ni BSUID', async () => {
+      await expect(prisma.cliente.create({ data: { nombre: 'Nadie' } })).rejects.toThrow(/Cliente_contacto_whatsapp_check/);
+    });
+  });
+
+  /**
    * Click-to-WhatsApp: varias pacientes entran por el MISMO anuncio.
    *
    * Es el caso normal de una campaña —para eso se paga— y era el que fallaba:

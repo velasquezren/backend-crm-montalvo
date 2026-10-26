@@ -1,5 +1,5 @@
 import { pagoDelChat, promocionDelChat } from './pagos-chat';
-import { medicosDeTelefonos } from './medicos-en-chat';
+import { medicoDe, medicosDeTelefonos } from './medicos-en-chat';
 import { sugerenciaDelChat } from './sugerencias-chat';
 import { esOfertaComercial } from './interaccion-comercial';
 import { estadoDeIntentoAnterior, verificarIntencion, datosOferta, interaccionesEnLinea, OfertaInteraccion, prepararOferta, proyectarInteracciones } from './interacciones-integracion';
@@ -38,6 +38,7 @@ import { REABRIR } from './estado-conversacion';
 import { auditarResolucion, bloquearSolicitudViva, contextoDeAtencion, ESPERANDO_HUMANO, ORDEN_ATENCION } from './atencion-humana';
 import { ultimosMensajesDeInbox } from './lectura-mensajes-inbox';
 import { motivoParaNoReenviar, reclamarReenvio } from './reenvio-manual';
+import { destinoWhatsapp } from '../../common/whatsapp/destino';
 
 /** Mensajes que trae el detalle inicial de una conversación (más recientes primero, luego se reordenan).
  *  Se acota a 50 para máxima velocidad inicial; los anteriores se cargan por cursor al hacer scroll. */
@@ -202,7 +203,7 @@ export class ConversacionesService {
       medicosDeTelefonos(this.prisma, conversaciones.map(c => c.cliente.telefono)),
     ]);
     return {
-      ...paginar(conversaciones.map(c => aFilaDeInbox(c, ultimos.get(c.id), medicos.get(c.cliente.telefono) ?? null)), total, dto),
+      ...paginar(conversaciones.map(c => aFilaDeInbox(c, ultimos.get(c.id), medicoDe(medicos, c.cliente.telefono))), total, dto),
       contadores,
     };
   }
@@ -285,7 +286,7 @@ export class ConversacionesService {
       medicosDeTelefonos(this.prisma, fila ? [fila.cliente.telefono] : []),
     ]);
     return {
-      conversacion: fila ? aFilaDeInbox(fila, ultimos.get(fila.id), medicos.get(fila.cliente.telefono) ?? null) : null,
+      conversacion: fila ? aFilaDeInbox(fila, ultimos.get(fila.id), medicoDe(medicos, fila.cliente.telefono)) : null,
       contadores: await this.contadoresInbox(query, soloAgenteId, usuarioId),
     };
   }
@@ -306,6 +307,7 @@ export class ConversacionesService {
             id: true,
             nombre: true,
             telefono: true,
+            waUsuarioId: true,
             email: true,
             categoria: true,
             /* El control de categoría de la ficha dice si está fijada a mano. */
@@ -378,7 +380,7 @@ export class ConversacionesService {
       pago,
       promocion,
       sugerencia,
-      medico: medicos.get(conversacion.cliente.telefono) ?? null,
+      medico: medicoDe(medicos, conversacion.cliente.telefono),
       /* `agente` es quien atiende el chat, sin caer a la dueña de la paciente:
          ver `aFilaDeInbox`. */
       cliente: conversacion.linea.comercial ? conversacion.cliente : { ...conversacion.cliente, datosExtra: null, intereses: [], agente: null, agenteId: null },
@@ -667,7 +669,7 @@ export class ConversacionesService {
     if (interaccion !== undefined && (!clientMessageId || adjunto?.mediaKey)) throw new BadRequestException('Una interacción exige clientMessageId y no admite adjunto');
     /* En un piloto (`WHATSAPP_INTERACCIONES_LINEAS`), las demás líneas no mandan botones ni Flows. */
     if (interaccion !== undefined && !interaccionesEnLinea(conversacion.linea.id)) throw new BadRequestException('Interacciones desactivadas en esta línea');
-    const oferta = interaccion === undefined ? undefined : prepararOferta(interaccion, conversacion.cliente.telefono, conversacion.linea.id);
+    const oferta = interaccion === undefined ? undefined : prepararOferta(interaccion, destinoWhatsapp(conversacion.cliente), conversacion.linea.id);
     if (oferta && !conversacion.linea.comercial && esOfertaComercial(oferta)) {
       throw new BadRequestException('Las interacciones de promociones solo se envían desde líneas de Ventas.');
     }
@@ -759,8 +761,8 @@ export class ConversacionesService {
        se corrige en segundo plano y empuja un segundo aviso por WebSocket
        para actualizar el tick sin que el agente tenga que refrescar. */
     void enSegundoPlano(`envío del mensaje ${mensaje.id} a Meta`, this.logger, () =>
-      oferta ? this.despachador.interaccion({ mensajeId: mensaje.id, conversacionId, telefono: conversacion.cliente.telefono }) : this.despachador.texto(
-        { mensajeId: mensaje.id, conversacionId, telefono: conversacion.cliente.telefono },
+      oferta ? this.despachador.interaccion({ mensajeId: mensaje.id, conversacionId, telefono: destinoWhatsapp(conversacion.cliente) }) : this.despachador.texto(
+        { mensajeId: mensaje.id, conversacionId, telefono: destinoWhatsapp(conversacion.cliente) },
         contenido,
         adjunto?.mediaKey
           ? { key: adjunto.mediaKey, mime: adjunto.mediaMime ?? null, nombre: adjunto.mediaNombre ?? null }
@@ -806,7 +808,7 @@ export class ConversacionesService {
 
     void enSegundoPlano(`envío de la ubicación ${mensaje.id} a Meta`, this.logger, () =>
       this.despachador.ubicacion(
-        { mensajeId: mensaje.id, conversacionId, telefono: conversacion.cliente.telefono },
+        { mensajeId: mensaje.id, conversacionId, telefono: destinoWhatsapp(conversacion.cliente) },
         UBICACION_CLINICA,
         CONTENIDO_PIN,
       ),
@@ -842,7 +844,7 @@ export class ConversacionesService {
     }
 
     this.gateway.emitirActividad(conversacionId);
-    const destino = { mensajeId: mensaje.id, conversacionId, telefono: conversacion.cliente.telefono };
+    const destino = { mensajeId: mensaje.id, conversacionId, telefono: destinoWhatsapp(conversacion.cliente) };
     void enSegundoPlano(`reenvío del mensaje ${mensaje.id} a Meta`, this.logger, () =>
       mensaje.contenido === CONTENIDO_PIN && !mensaje.mediaKey
         ? this.despachador.ubicacion(destino, UBICACION_CLINICA, CONTENIDO_PIN)

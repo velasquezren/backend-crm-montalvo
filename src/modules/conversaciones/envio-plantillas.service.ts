@@ -28,6 +28,7 @@ import { REABRIR } from './estado-conversacion';
 import { ESPERANDO_HUMANO } from './atencion-humana';
 import { datosOferta, interaccionesEnLinea, OfertaInteraccion } from './interacciones-integracion';
 import { PlantillaMeta, PlantillaResumen, renderizarPlantilla, resumirPlantilla, validarParametros } from './plantillas-whatsapp';
+import { ContactoWhatsapp, destinoWhatsapp } from '../../common/whatsapp/destino';
 
 /**
  * Plantillas de WhatsApp: listarlas, mandarlas desde un chat, mandar las que
@@ -229,7 +230,8 @@ export class EnvioPlantillasService {
     }
     await this.verificarPromociones(envio.clienteId, preparada.categoria);
 
-    const { telefono } = await this.prisma.cliente.findUniqueOrThrow({ where: { id: envio.clienteId }, select: { telefono: true } });
+    /* La audiencia ya exige un celular; el destino sale igual del helper común. */
+    const telefono = destinoWhatsapp(await this.prisma.cliente.findUniqueOrThrow({ where: { id: envio.clienteId }, select: { telefono: true, waUsuarioId: true } }));
     const conversacionId = await this.conversacionParaCampana(envio.clienteId, linea.id);
 
     let mensaje;
@@ -310,7 +312,7 @@ export class EnvioPlantillasService {
     const { id } = await obtenerOCrearConversacion(this.prisma, cliente.id, linea.id, false);
     const conversacion = await this.prisma.conversacion.findFirst({
       where: { id, ...whereVisibilidad(soloAgenteId) },
-      select: { id: true, clienteId: true, linea: { select: SELECT_LINEA }, cliente: { select: { telefono: true } } },
+      select: { id: true, clienteId: true, linea: { select: SELECT_LINEA }, cliente: { select: { telefono: true, waUsuarioId: true } } },
     });
     if (!conversacion) {
       throw new ForbiddenException('Ese chat ya lo atiende otra persona de la línea.');
@@ -372,7 +374,7 @@ export class EnvioPlantillasService {
   }
 
   private async registrarPlantilla(
-    conversacion: { id: string; clienteId: string; linea: { comercial: boolean }; cliente: { telefono: string } },
+    conversacion: { id: string; clienteId: string; linea: { comercial: boolean }; cliente: ContactoWhatsapp },
     { despacho, contenido, categoria }: { despacho: PlantillaADespachar; contenido: string; categoria: string },
     clientMessageId: string | undefined,
     agenteId: string,
@@ -382,7 +384,7 @@ export class EnvioPlantillasService {
       throw new ForbiddenException('Las plantillas de marketing solo se envían desde líneas de Ventas.');
     }
     const oferta: OfertaInteraccion | undefined = despacho.respuestasRapidas?.length ? {
-      mensaje: { tipo: 'texto', cuerpo: contenido }, telefono: conversacion.cliente.telefono,
+      mensaje: { tipo: 'texto', cuerpo: contenido }, telefono: destinoWhatsapp(conversacion.cliente),
       respuestasPlantilla: despacho.respuestasRapidas.map(b => ({ id: b.id, titulo: b.titulo })),
     } : undefined;
     let mensaje;
@@ -439,7 +441,7 @@ export class EnvioPlantillasService {
     this.gateway.emitirActividad(conversacionId);
 
     void enSegundoPlano(`envío de la plantilla ${despacho.plantilla} a Meta`, this.logger, () =>
-      this.despachador.plantilla({ mensajeId: mensaje.id, conversacionId, telefono: conversacion.cliente.telefono }, despacho),
+      this.despachador.plantilla({ mensajeId: mensaje.id, conversacionId, telefono: destinoWhatsapp(conversacion.cliente) }, despacho),
     );
 
     return { ...mensaje, clienteTelefono: conversacion.cliente.telefono };

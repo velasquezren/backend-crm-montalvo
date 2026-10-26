@@ -31,6 +31,7 @@ import { CobrosController } from '../cobros/cobros.controller';
 import { CobrosService } from '../cobros/cobros.service';
 import { PromocionesService } from '../promociones/promociones.service';
 import { VentasService } from '../ventas/ventas.service';
+import { ConversionesMetaService } from '../conversiones-meta/conversiones-meta.service';
 import { ConversacionesService } from './conversaciones.service';
 import { EnvioPlantillasService } from './envio-plantillas.service';
 import { AtencionHumanaService } from './atencion-humana.service';
@@ -86,7 +87,7 @@ const r2 = {
     LineasWhatsappService, LeadsService, PrimerContactoService, MemoriaAgenteService, ConversacionesService, EnvioPlantillasService,
     AtencionHumanaService, ConversacionesGateway, IngestaWhatsappService, MenuAtencionService, AcuseAutomaticoService,
     DespachadorSalienteService, ReintentoSalienteService, CierreInactividadService, MetaSignatureGuard,
-    PromocionesChatService, CobrosService, PromocionesService, VentasService, AvisoLandingService,
+    PromocionesChatService, CobrosService, PromocionesService, VentasService, ConversionesMetaService, AvisoLandingService,
     { provide: WhatsappCloudService, useValue: transporte },
     { provide: R2Service, useValue: r2 },
     { provide: PushService, useValue: { enviarAUsuario: async () => undefined } },

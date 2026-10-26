@@ -15,6 +15,8 @@ describe('normalizarTelefono', () => {
 
   it('rechaza lo que no es un teléfono', () => {
     expect(normalizarTelefono('123')).toBeNull();
+    /* La librería sola lo leía como +59170012345: uniría un BSUID con la ficha de otra persona. */
+    expect(normalizarTelefono('BO.70012345')).toBeNull();
     expect(normalizarTelefono('')).toBeNull();
     expect(normalizarTelefono(null)).toBeNull();
   });

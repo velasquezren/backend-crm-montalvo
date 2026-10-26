@@ -1,5 +1,4 @@
 import { ConflictException } from '@nestjs/common';
-import * as XLSX from 'xlsx';
 import { AuditService } from '../../common/audit/audit.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { Prisma } from '../../prisma/prisma-client';
@@ -14,6 +13,7 @@ import { VendedorasComisionService } from './vendedoras-comision.service';
 import { ResumenAnualService } from './resumen-anual.service';
 import { bloquearPeriodo, transaccionFinanciera } from './transaccion-periodo';
 import { ReglaDiccionario } from './clasificador';
+import { excelDePrueba } from './excel.de-prueba';
 
 const url = process.env['DATABASE_URL_TEST'] ?? 'postgresql://crm_app:crm_dev_local@127.0.0.1:5433/crm_test';
 const destino = new URL(url);
@@ -446,12 +446,10 @@ it('los comandos de otro periodo pueden avanzar mientras se calcula este mes', a
 });
 
 it('la publicación de F02 comparte el lock con el cálculo y conserva las filas ante 409', async () => {
-  const libro = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(libro, XLSX.utils.json_to_sheet([{
+  const excel = await excelDePrueba([{
     FECHA: '2032-01-10', MODULO: 'CONSULTA', DETALLE: 'Consulta F03 nueva',
     PRECIO: 200, TC: 6.97, VENDEDORA_PK: 'F03-V', VENDEDORA: 'Vendedora F03',
-  }]), 'Ventas');
-  const excel = XLSX.write(libro, { type: 'buffer', bookType: 'xlsx' }) as Buffer;
+  }]);
   const pausa = barrera();
   const cargar = config.cargarConfiguracion.bind(config);
   jest.spyOn(config, 'cargarConfiguracion').mockImplementationOnce(async (...args) => {

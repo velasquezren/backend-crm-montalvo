@@ -267,7 +267,7 @@ describe('WhatsappWebhookController', () => {
       );
 
       expect(servicio.procesarEntrante).toHaveBeenCalledWith(
-        '+59170000001',
+        { telefono: '+59170000001', waUsuarioId: null, usuario: null },
         'cuerpo de wamid.1',
         'wamid.1',
         'Ana Pérez', undefined, undefined, false, "linea-1",
@@ -314,7 +314,7 @@ describe('WhatsappWebhookController', () => {
       );
 
       expect(servicio.procesarEntrante).toHaveBeenCalledWith(
-        '+59170000001',
+        { telefono: '+59170000001', waUsuarioId: null, usuario: null },
         'Confirmar',
         'wamid.b',
         undefined,
@@ -371,7 +371,7 @@ describe('WhatsappWebhookController', () => {
       );
 
       expect(servicio.procesarEntrante).toHaveBeenCalledWith(
-        '+59170000001',
+        { telefono: '+59170000001', waUsuarioId: null, usuario: null },
         'Mi estudio',
         'wamid.doc',
         undefined,
@@ -420,7 +420,7 @@ describe('WhatsappWebhookController', () => {
       );
 
       expect(servicio.procesarEntrante).toHaveBeenCalledWith(
-        '+59170000001',
+        { telefono: '+59170000001', waUsuarioId: null, usuario: null },
         'Hola, quiero info de Rinoplastia',
         'wamid.ad1',
         undefined,
@@ -695,8 +695,8 @@ describe('WhatsappWebhookController', () => {
       await controller.procesarWebhook(await comoEnProduccion(preferencia('resume')));
 
       expect(clientes.preferenciaPromocionesDesdeWhatsapp.mock.calls).toEqual([
-        ['+59170000001', false],
-        ['+59170000001', true],
+        [{ telefono: '+59170000001', waUsuarioId: null }, false],
+        [{ telefono: '+59170000001', waUsuarioId: null }, true],
       ]);
       expect(servicio.procesarEntrante).not.toHaveBeenCalled();
     });
@@ -769,5 +769,91 @@ describe('WhatsappWebhookController', () => {
       expect(alertas.recibidos).toHaveLength(0);
       expect(servicio.procesarEntrante).toHaveBeenCalledTimes(1);
     });
+  });
+});
+
+describe('WhatsappWebhookController — nombres de usuario de WhatsApp (BSUID)', () => {
+  /* Por el mismo pipe global que en producción: un campo nuevo sin decorador
+     (`from_user_id`, `user_id`, `username`) llegaría vacío y la prueba pasaría
+     describiendo un webhook que no es el real. */
+  async function comoEnProduccion(cuerpo: object): Promise<WhatsappWebhookDto> {
+    const pipe = new ValidationPipe({ whitelist: true, transform: true });
+    return pipe.transform(cuerpo, { type: 'body', metatype: WhatsappWebhookDto }) as Promise<WhatsappWebhookDto>;
+  }
+  const BSUID = 'BO.13491208655302741918';
+
+  function montarConClientes() {
+    const ingesta = { procesarEntrante: jest.fn().mockResolvedValue({ id: 'msg' }) };
+    const clientes = {
+      preferenciaPromocionesDesdeWhatsapp: jest.fn().mockResolvedValue(true),
+      cambiarWaUsuarioId: jest.fn().mockResolvedValue(true),
+    };
+    const controller = new WhatsappWebhookController(
+      { get: () => undefined } as unknown as ConfigService,
+      { procesarEstadoMensaje: jest.fn() } as unknown as ConversacionesService,
+      ingesta as unknown as IngestaWhatsappService,
+      new AlertasEspia() as unknown as AlertasWhatsappService,
+      lineaConocida as never,
+      clientes as unknown as ClientesService,
+    );
+    jest.spyOn(controller['logger'], 'log').mockImplementation(() => undefined);
+    jest.spyOn(controller['logger'], 'error').mockImplementation(() => undefined);
+    return { controller, ingesta, clientes };
+  }
+
+  it('un mensaje SIN teléfono, solo con BSUID, ya no se descarta', async () => {
+    const { controller, ingesta } = montarConClientes();
+    await controller.procesarWebhook(await comoEnProduccion(payload({
+      contacts: [{ user_id: BSUID, profile: { name: 'Ana', username: 'ana.p' } }],
+      messages: [{ from_user_id: BSUID, id: 'wamid.u1', type: 'text', text: { body: 'Hola' } }],
+    })));
+
+    expect(ingesta.procesarEntrante).toHaveBeenCalledWith(
+      { telefono: null, waUsuarioId: BSUID, usuario: 'ana.p' },
+      'Hola', 'wamid.u1', 'Ana', undefined, undefined, false, 'linea-1',
+    );
+  });
+
+  it('con teléfono y BSUID pasa los dos, para enlazar la ficha de siempre', async () => {
+    const { controller, ingesta } = montarConClientes();
+    await controller.procesarWebhook(await comoEnProduccion(payload({
+      contacts: [{ wa_id: '59170000001', user_id: BSUID, profile: { name: 'Ana' } }],
+      messages: [{ from: '59170000001', from_user_id: BSUID, id: 'wamid.u2', type: 'text', text: { body: 'Hola' } }],
+    })));
+
+    expect(ingesta.procesarEntrante.mock.calls[0][0]).toEqual({ telefono: '+59170000001', waUsuarioId: BSUID, usuario: null });
+  });
+
+  it('el cambio de BSUID mueve la ficha al nuevo y no se guarda como mensaje', async () => {
+    const { controller, ingesta, clientes } = montarConClientes();
+    await controller.procesarWebhook(await comoEnProduccion(payload({
+      messages: [{
+        from_user_id: 'BO.nuevo123', id: 'wamid.s1', type: 'system',
+        system: { type: 'user_changed_user_id', body: 'User changed from BO.viejo123 to BO.nuevo123', user_id: 'BO.nuevo123', previous_user_id: 'BO.viejo123' },
+      }],
+    })));
+
+    expect(clientes.cambiarWaUsuarioId).toHaveBeenCalledWith('BO.viejo123', 'BO.nuevo123');
+    expect(ingesta.procesarEntrante).not.toHaveBeenCalled();
+  });
+
+  it('la baja de promociones de quien solo tiene BSUID se registra igual', async () => {
+    const { controller, clientes } = montarConClientes();
+    await controller.procesarWebhook(await comoEnProduccion({
+      object: 'whatsapp_business_account',
+      entry: [{ changes: [{ field: 'user_preferences', value: {
+        user_preferences: [{ user_id: BSUID, category: 'marketing_messages', value: 'stop' }],
+      } }] }],
+    }));
+
+    expect(clientes.preferenciaPromocionesDesdeWhatsapp).toHaveBeenCalledWith({ telefono: null, waUsuarioId: BSUID }, false);
+  });
+
+  it('sin teléfono ni BSUID no hay a quién atribuirlo: se ignora sin fallar', async () => {
+    const { controller, ingesta } = montarConClientes();
+    await expect(controller.procesarWebhook(await comoEnProduccion(payload({
+      messages: [{ id: 'wamid.x', type: 'text', text: { body: 'Hola' } }],
+    })))).resolves.toBeUndefined();
+    expect(ingesta.procesarEntrante).not.toHaveBeenCalled();
   });
 });

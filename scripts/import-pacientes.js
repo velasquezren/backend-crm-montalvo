@@ -12,6 +12,11 @@
  * Uso:
  *   node scripts/import-pacientes.js "/ruta/a/pacientes.xlsx" --dry-run   (solo cuenta, no escribe)
  *   node scripts/import-pacientes.js "/ruta/a/pacientes.xlsx"            (importa de verdad)
+ *
+ * HISTÓRICO, no ejecutable tal cual: además de importar el cliente anterior a
+ * Prisma 7, usa SheetJS (`xlsx`), que salió del proyecto el 23/10/2026 por sus
+ * vulnerabilidades (ver `leerExcel` en planilla-comisiones). Adaptarlo a
+ * `exceljs` y probarlo en una base descartable antes de usarlo.
  */
 const path = require('path');
 const XLSX = require('xlsx');

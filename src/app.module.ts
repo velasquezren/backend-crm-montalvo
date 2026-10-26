@@ -22,6 +22,7 @@ import { KpisModule } from './modules/kpis/kpis.module';
 import { LeadsModule } from './modules/leads/leads.module';
 import { MemoriaAgenteModule } from './modules/memoria-agente/memoria-agente.module';
 import { PushModule } from './common/push/push.module';
+import { TrabajosModule } from './common/trabajos/trabajos.module';
 import { PlanillaComisionesModule } from './modules/planilla-comisiones/planilla-comisiones.module';
 import { PlantillasAgenteModule } from './modules/plantillas-agente/plantillas-agente.module';
 import { UsuariosModule } from './modules/usuarios/usuarios.module';
@@ -40,6 +41,7 @@ import { PrismaModule } from './prisma/prisma.module';
     AuditModule,
     HealthModule,
     PushModule,
+    TrabajosModule,
     AuthModule,
     UsuariosModule,
     ClientesModule,

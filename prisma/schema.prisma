@@ -136,7 +136,17 @@ model SesionUsuario {
 model Cliente {
   id                   String           @id @default(uuid())
   nombre               String
-  telefono             String           @unique
+  /// E.164 (`+59170012345`). Opcional desde los nombres de usuario de WhatsApp:
+  /// quien adoptó uno y escribe por primera vez llega SIN teléfono, solo con su
+  /// BSUID (`waUsuarioId`). La base exige al menos uno de los dos
+  /// (`Cliente_contacto_whatsapp_check`). Para mandarle algo, nunca este campo
+  /// a pelo: `destinoWhatsapp` en `common/whatsapp/destino.ts`.
+  telefono             String?          @unique
+  /// BSUID de WhatsApp (`BO.13491208655302741918`): el identificador que Meta da
+  /// a la paciente para ESTA empresa, llegue o no su teléfono. Se guarda en
+  /// cuanto aparece en un webhook, y con él se la reconoce aunque mañana Meta
+  /// deje de mandar su número. Ver docs/lineas-whatsapp.md («Nombres de usuario»).
+  waUsuarioId          String?          @unique @db.VarChar(160)
   email                String?
   /// La categoría que ve todo el CRM (inbox, fichas, filtros). Es la calculada
   /// por valor —ver `clientes/categoria-paciente.ts`— salvo que esté fijada a
@@ -812,6 +822,8 @@ model Venta {
   clientRequestId   String?        @unique @db.VarChar(64)
   /// Si nació de confirmar un pago de promoción por WhatsApp.
   pagoPromocion     PagoPromocion?
+  /// El aviso de esta venta a Meta (Conversions API), si se registró. Ver `ConversionMeta`.
+  conversionMeta    ConversionMeta?
   createdAt         DateTime       @default(now())
 
   @@index([clienteId])
@@ -2164,4 +2176,47 @@ model TurnoAsistente {
 
   @@index([conversacionId, createdAt])
   @@index([lineaId, createdAt])
+}
+
+enum EstadoConversionMeta {
+  /// Espera su hora (`proximoIntento`): se revalida al enviarla.
+  PENDIENTE
+  /// Meta la recibió (`events_received`).
+  ENVIADO
+  /// Al revalidarla no correspondía avisar (anulada, sin clic del mismo anuncio, fuera de ventana).
+  DESCARTADO
+  /// Meta la rechazó (4xx que no es un límite de uso). No se reintenta sola.
+  FALLIDO
+  /// Corte de red o 5xx: pudo llegar. Meta no deduplica estos eventos, así que
+  /// no se reenvía sola; ver docs/conversiones-meta.md.
+  INCIERTO
+}
+
+/// Outbox del aviso de venta a Meta (Conversions API para Business Messaging):
+/// una fila por venta GANADA, escrita en la MISMA transacción que la venta por
+/// `ConversionesMetaService.registrarCompra`. El evento no se arma aquí: se
+/// arma al enviarlo, con la venta, el lead y el clic de ESE momento, así una
+/// corrección hecha antes (anular, cambiar el lead) se respeta. Solo viajan el
+/// clic (`ctwa_clid`), la WABA, el monto en Bs y la hora: nada de la paciente
+/// ni de lo que compró. Dueño: `modules/conversiones-meta`.
+model ConversionMeta {
+  id             String               @id @default(uuid())
+  venta          Venta                @relation(fields: [ventaId], references: [id], onDelete: Cascade)
+  /// Una por venta: Meta no deduplica, el único es la garantía.
+  ventaId        String               @unique
+  estado         EstadoConversionMeta @default(PENDIENTE)
+  /// Cuándo la venta pasó a GANADA: el `event_time` del evento.
+  ocurridoEn     DateTime
+  /// No antes de esta hora: deja corregir la venta antes de avisar, y espacia los reintentos.
+  proximoIntento DateTime
+  intentos       Int                  @default(0)
+  /// Por qué se descartó o falló, sin datos de la paciente.
+  motivo         String?              @db.VarChar(300)
+  /// `fbtrace_id` de la respuesta de Meta, para rastrear el evento con su soporte.
+  fbtraceId      String?              @db.VarChar(64)
+  enviadoEn      DateTime?
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+
+  @@index([estado, proximoIntento])
 }

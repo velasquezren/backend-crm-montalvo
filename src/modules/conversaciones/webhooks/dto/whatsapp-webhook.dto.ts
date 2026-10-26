@@ -180,13 +180,38 @@ export class WhatsappContextDto {
   @IsOptional() @IsString() from?: string;
 }
 
+/**
+ * Aviso de sistema (`type: 'system'`): Meta regeneró el BSUID de la paciente,
+ * porque cambió de número (`user_changed_number`) o de usuario
+ * (`user_changed_user_id`). Sin leerlo, la ficha dejaría de reconocerla.
+ */
+export class WhatsappSistemaDto {
+  @IsOptional() @IsString() type?: string;
+  @IsOptional() @IsString() body?: string;
+  /** El BSUID nuevo. */
+  @IsOptional() @IsString() user_id?: string;
+  /** El BSUID que deja de valer. */
+  @IsOptional() @IsString() previous_user_id?: string;
+}
+
 export class WhatsappMessageDto {
   @IsOptional() @IsString() timestamp?: string;
   @IsOptional() @ValidateNested() @Type(() => WhatsappContextDto)
   context?: WhatsappContextDto;
+  /** Teléfono sin `+`. Meta lo OMITE si la paciente tiene nombre de usuario y no hubo trato en 30 días. */
   @IsOptional()
   @IsString()
   from?: string;
+
+  /** BSUID de quien escribe: llega siempre, con o sin `from`. */
+  @IsOptional()
+  @IsString()
+  from_user_id?: string;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => WhatsappSistemaDto)
+  system?: WhatsappSistemaDto;
 
   @IsOptional()
   @IsString()
@@ -251,12 +276,23 @@ export class WhatsappProfileDto {
   @IsOptional()
   @IsString()
   name?: string;
+
+  /** Nombre de usuario de WhatsApp (sin `@`), si lo adoptó. */
+  @IsOptional()
+  @IsString()
+  username?: string;
 }
 
 export class WhatsappContactDto {
+  /** Teléfono sin `+`; puede faltar igual que `messages[].from`. */
   @IsOptional()
   @IsString()
   wa_id?: string;
+
+  /** BSUID; con él se empareja el contacto cuando no hay `wa_id`. */
+  @IsOptional()
+  @IsString()
+  user_id?: string;
 
   @IsOptional()
   @ValidateNested()
@@ -324,6 +360,11 @@ export class WhatsappPreferenciaDto {
   @IsOptional()
   @IsString()
   wa_id?: string;
+
+  /** BSUID: la única identidad si la paciente tiene nombre de usuario y Meta no manda su número. */
+  @IsOptional()
+  @IsString()
+  user_id?: string;
 
   /** Hoy siempre `marketing_messages`. */
   @IsOptional()

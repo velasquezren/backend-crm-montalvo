@@ -16,6 +16,7 @@ import { ConversacionesGateway } from './conversaciones.gateway';
 import { DespachadorSalienteService } from './despachador-saliente.service';
 import { interaccionesEnLinea, interaccionesHabilitadas } from './interacciones-integracion';
 import { uuidEstable } from './pagos-chat';
+import { ContactoWhatsapp, destinoWhatsapp } from '../../common/whatsapp/destino';
 
 const INTERVALO_MS = 30_000;
 const ESPERA_MEDIA_MS = 6 * 60 * 60 * 1000;
@@ -35,7 +36,7 @@ const DETALLE = {
 
 type Pendiente = { id: string; reservaAgenda: number; intentos: number; comprobanteMensajeId: string | null;
   comprobanteRecibidoEn: Date | null; updatedAt: Date; createdAt: Date; monto: Prisma.Decimal | null; lecturaComprobante: Prisma.JsonValue;
-  conversacionId: string; conversacion: { lineaId: string | null; cliente: { telefono: string } } };
+  conversacionId: string; conversacion: { lineaId: string | null; cliente: ContactoWhatsapp } };
 
 /** Cola durable de comprobantes; nunca confirma pagos. MySQL sigue siendo la
  * fuente. CAS con lease recuperable tras reinicio, solo líneas habilitadas.
@@ -101,7 +102,7 @@ export class ComprobantesReservaChatService implements OnModuleInit, OnModuleDes
         orderBy: { updatedAt: 'asc' }, take: POR_PASADA,
         select: { id: true, conversacionId: true, reservaAgenda: true, intentos: true, comprobanteMensajeId: true,
           comprobanteRecibidoEn: true, updatedAt: true, createdAt: true, monto: true, lecturaComprobante: true,
-          conversacion: { select: { lineaId: true, cliente: { select: { telefono: true } } } } },
+          conversacion: { select: { lineaId: true, cliente: { select: { telefono: true, waUsuarioId: true } } } } },
       });
       let resueltos = 0;
       for (const p of pendientes) {
@@ -262,7 +263,7 @@ export class ComprobantesReservaChatService implements OnModuleInit, OnModuleDes
         return creado;
       });
       this.gateway.emitirActividad(p.conversacionId);
-      await this.despachador.texto({ mensajeId: mensaje.id, conversacionId: p.conversacionId, telefono: p.conversacion.cliente.telefono }, texto);
+      await this.despachador.texto({ mensajeId: mensaje.id, conversacionId: p.conversacionId, telefono: destinoWhatsapp(p.conversacion.cliente) }, texto);
     } catch (error: unknown) {
       if (esChoqueUnicoEn(error, 'Mensaje', 'clientMessageId')) return;
       this.logger.warn(`Aviso del comprobante de la reserva ${p.reservaAgenda} sin enviar: ${error instanceof Error ? error.message : 'falló'}`);

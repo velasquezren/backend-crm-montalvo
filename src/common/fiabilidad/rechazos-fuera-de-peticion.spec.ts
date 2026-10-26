@@ -1,9 +1,12 @@
 import { Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { DiscoveryService, MetadataScanner, Reflector } from '@nestjs/core';
 
 import { ActividadesService } from '../../modules/actividades/actividades.service';
 import { DespachadorSalienteService } from '../../modules/conversaciones/despachador-saliente.service';
 import { TipoCambioService } from '../../modules/tipo-cambio/tipo-cambio.service';
 
+import { TrabajosService } from '../trabajos/trabajos.service';
 import { enSegundoPlano } from './en-segundo-plano';
 
 /**
@@ -41,8 +44,8 @@ import { enSegundoPlano } from './en-segundo-plano';
 const BASE_CAIDA = new Error('Timed out fetching a new connection from the connection pool');
 
 /**
- * `onModuleInit` de ambos servicios sale por la puerta de atrás cuando
- * `NODE_ENV === 'test'`, que es justo el camino que hay que ejercitar.
+ * Los barridos los dispara `TrabajosService` (`@TareaPeriodica`), que no corre
+ * nada con `NODE_ENV === 'test'`: justo el camino que hay que ejercitar.
  */
 async function comoEnProduccion<T>(fn: () => Promise<T>): Promise<T> {
   const previo = process.env.NODE_ENV;
@@ -52,6 +55,16 @@ async function comoEnProduccion<T>(fn: () => Promise<T>): Promise<T> {
   } finally {
     process.env.NODE_ENV = previo;
   }
+}
+
+/**
+ * El `TrabajosService` real, con la bandera de pg-boss apagada —sus
+ * temporizadores, el camino por defecto— y descubriendo solo `instancia`: así se
+ * prueba también que el decorador está puesto en el método que importa.
+ */
+function trabajosDe(instancia: object): TrabajosService {
+  const descubrimiento = { getProviders: () => [{ instance: instancia }] } as unknown as DiscoveryService;
+  return new TrabajosService(new ConfigService({}), descubrimiento, new MetadataScanner(), new Reflector());
 }
 
 let errores: Array<{ mensaje: string; causa: unknown }>;
@@ -113,10 +126,11 @@ describe('ActividadesService — el barrido de recordatorios', () => {
       { emitirRecordatorioActividad: jest.fn() } as never,
     );
 
+    const trabajos = trabajosDe(service);
     jest.useFakeTimers();
     try {
       await comoEnProduccion(async () => {
-        service.onModuleInit();
+        await trabajos.onApplicationBootstrap();
         jest.advanceTimersByTime(5 * 60 * 1000);
         jest.useRealTimers();
         /* Deja correr las microtareas del barrido ya disparado. */
@@ -127,7 +141,7 @@ describe('ActividadesService — el barrido de recordatorios', () => {
       expect(errores.map(e => e.mensaje).join(' ')).toContain('recordatorios');
     } finally {
       jest.useRealTimers();
-      service.onModuleDestroy();
+      await trabajos.detener();
     }
   });
 });
@@ -157,17 +171,19 @@ describe('TipoCambioService — la sincronización automática', () => {
       },
     };
     const service = new TipoCambioService(prisma as never, { registrar: jest.fn() } as never);
+    const trabajos = trabajosDe(service);
 
     try {
       await comoEnProduccion(async () => {
-        service.onModuleInit();
-        await new Promise(resolver => setImmediate(resolver));
+        /* La primera pasada es inmediata (`primeraEnMs: 0`), como al arrancar el VPS. */
+        await trabajos.onApplicationBootstrap();
+        await new Promise(resolver => setTimeout(resolver, 20));
       });
 
       expect(prisma.tipoCambioDiario.findUnique).toHaveBeenCalled();
       expect(errores.map(e => e.mensaje).join(' ')).toContain('tipo de cambio');
     } finally {
-      service.onModuleDestroy();
+      await trabajos.detener();
       global.fetch = fetchOriginal;
     }
   });

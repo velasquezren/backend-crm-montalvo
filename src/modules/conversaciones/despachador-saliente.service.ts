@@ -17,6 +17,7 @@ import { Prisma } from '../../prisma/prisma-client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ConversacionesGateway } from './conversaciones.gateway';
 import { esOfertaComercial } from './interaccion-comercial';
+import { destinoWhatsapp } from '../../common/whatsapp/destino';
 
 /**
  * A quién y sobre qué fila va el envío.
@@ -141,9 +142,9 @@ export class DespachadorSalienteService {
     }
     if (adjunto?.key.startsWith('agenda/qr/')) {
       const m = await this.prisma.mensaje.findFirst({ where: { id: destino.mensajeId, conversacionId: destino.conversacionId },
-        select: { reservaQr: { select: { estado: true } }, conversacion: { select: { lineaId: true, atencionTomadaEn: true, cliente: { select: { telefono: true } } } } } });
+        select: { reservaQr: { select: { estado: true } }, conversacion: { select: { lineaId: true, atencionTomadaEn: true, cliente: { select: { telefono: true, waUsuarioId: true } } } } } });
       if (!m || !interaccionesEnLinea(m.conversacion.lineaId) || m.reservaQr?.estado !== 'ESPERANDO_COMPROBANTE'
-        || m.conversacion.atencionTomadaEn || m.conversacion.cliente.telefono !== destino.telefono) {
+        || m.conversacion.atencionTomadaEn || destinoWhatsapp(m.conversacion.cliente) !== destino.telefono) {
         await this.detenerPorLinea(destino); return;
       }
       // Una caída después de reclamar se trata como incierta, no como permiso
@@ -195,7 +196,7 @@ export class DespachadorSalienteService {
   /** Acuse con botonera de respuesta rápida. Degrada a texto plano si Meta lo rechaza. */
   async interaccion(destino: Destino): Promise<void> {
     if (!interaccionesHabilitadas()) return;
-    const fila = await this.prisma.mensaje.findFirst({ where: { id: destino.mensajeId, conversacionId: destino.conversacionId }, include: { interaccion: true, conversacion: { select: { linea: { select: { comercial: true } }, cliente: { select: { telefono: true } } } } } });
+    const fila = await this.prisma.mensaje.findFirst({ where: { id: destino.mensajeId, conversacionId: destino.conversacionId }, include: { interaccion: true, conversacion: { select: { linea: { select: { comercial: true } }, cliente: { select: { telefono: true, waUsuarioId: true } } } } } });
     if (!fila?.interaccion || !fila.clientMessageId) return;
     const i = fila.interaccion;
     if (!i.privado || i.venceEn.getTime() < Date.now()) {
@@ -213,7 +214,7 @@ export class DespachadorSalienteService {
       await this.detenerPorLinea(destino);
       return;
     }
-    if (oferta.telefono !== destino.telefono || oferta.telefono !== fila.conversacion.cliente.telefono) {
+    if (oferta.telefono !== destino.telefono || oferta.telefono !== destinoWhatsapp(fila.conversacion.cliente)) {
       await this.prisma.mensaje.updateMany({ where: { id: fila.id, estadoEnvio: 'FALLIDO' }, data: { proximoIntento: null, permiteReintento: false } });
       return;
     }

@@ -15,6 +15,7 @@ import { DatosConstancia, svgDeConstancia, textoConstancia, VERSION_DISENO_CONST
 import { ConversacionesGateway } from './conversaciones.gateway';
 import { DespachadorSalienteService } from './despachador-saliente.service';
 import { uuidEstable } from './pagos-chat';
+import { destinoWhatsapp } from '../../common/whatsapp/destino';
 
 /** Fuera de la ventana de 24 h de Meta un mensaje libre no sale: ni se intenta. */
 const VENTANA_MS = 23 * 3_600_000;
@@ -90,7 +91,7 @@ export class ConstanciaReservaService {
     try {
       const seguimiento = await this.prisma.reservaChat.findUnique({
         where: { reservaAgenda },
-        select: { conversacionId: true, estado: true, monto: true, comprobanteRecibidoEn: true, conversacion: { select: { lineaId: true, cliente: { select: { telefono: true } } } } },
+        select: { conversacionId: true, estado: true, monto: true, comprobanteRecibidoEn: true, conversacion: { select: { lineaId: true, cliente: { select: { telefono: true, waUsuarioId: true } } } } },
       });
       if (!seguimiento || seguimiento.estado !== 'PAGO_REGISTRADO') return false;
       const recibido = seguimiento.comprobanteRecibidoEn?.getTime() ?? 0;
@@ -109,7 +110,7 @@ export class ConstanciaReservaService {
       const { conversacionId } = seguimiento;
       const mensaje = await this.guardar(conversacionId, clientMessageId, texto, imagen);
       if (!mensaje) return false;
-      await this.despachador.texto({ mensajeId: mensaje.id, conversacionId, telefono: seguimiento.conversacion.cliente.telefono }, texto, imagen ?? undefined);
+      await this.despachador.texto({ mensajeId: mensaje.id, conversacionId, telefono: destinoWhatsapp(seguimiento.conversacion.cliente) }, texto, imagen ?? undefined);
       return true;
     } catch (error: unknown) {
       /* Sin volcar datos de la paciente: solo qué reserva y qué pasó. */

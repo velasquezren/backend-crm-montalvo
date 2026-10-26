@@ -6,6 +6,7 @@ import { ERRORES_WHATSAPP_PERMANENTES } from '../../common/whatsapp/error-envio'
 import { interaccionesHabilitadas, purgarInteracciones } from './interacciones-integracion';
 
 import { DespachadorSalienteService, proximoReintento } from './despachador-saliente.service';
+import { ContactoWhatsapp, destinoWhatsapp } from '../../common/whatsapp/destino';
 
 const INTERVALO_BARRIDO_MS = 60 * 1000;
 
@@ -125,7 +126,7 @@ export class ReintentoSalienteService implements OnModuleInit, OnModuleDestroy {
         mediaMime: true,
         mediaNombre: true,
         intentosEnvio: true,
-        conversacion: { select: { cliente: { select: { telefono: true } } } },
+        conversacion: { select: { cliente: { select: { telefono: true, waUsuarioId: true } } } },
       },
       orderBy: { proximoIntento: 'asc' },
       take: TOPE_BARRIDO,
@@ -158,7 +159,7 @@ export class ReintentoSalienteService implements OnModuleInit, OnModuleDestroy {
       mediaMime?: string | null;
       mediaNombre?: string | null;
       intentosEnvio: number;
-      conversacion: { cliente: { telefono: string } };
+      conversacion: { cliente: ContactoWhatsapp };
     },
     ahora: Date,
   ): Promise<boolean> {
@@ -182,7 +183,7 @@ export class ReintentoSalienteService implements OnModuleInit, OnModuleDestroy {
         {
           mensajeId: mensaje.id,
           conversacionId: mensaje.conversacionId,
-          telefono: mensaje.conversacion.cliente.telefono,
+          telefono: destinoWhatsapp(mensaje.conversacion.cliente),
           reintento: true,
         },
         mensaje.contenido,

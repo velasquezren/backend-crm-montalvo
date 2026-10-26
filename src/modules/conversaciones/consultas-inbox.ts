@@ -197,6 +197,8 @@ export const SELECT_INBOX = {
       id: true,
       nombre: true,
       telefono: true,
+      /* Sin teléfono (nombre de usuario de WhatsApp), el inbox la rotula por aquí. */
+      waUsuarioId: true,
       categoria: true,
       pac: true,
       ci: true,

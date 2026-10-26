@@ -1,10 +1,11 @@
-import { BadRequestException, ConflictException, ForbiddenException, HttpStatus, Injectable, NotFoundException } from '@nestjs/common';
-import { CategoriaCliente, EstadoLead, OrigenLead, Prisma } from '../../prisma/prisma-client';
+import { BadRequestException, ConflictException, ForbiddenException, HttpStatus, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { CategoriaCliente, Cliente, EstadoLead, OrigenLead, Prisma } from '../../prisma/prisma-client';
 import { campoDeIndice, candidatosDeChoqueUnico, tablaDelChoque } from '../../prisma/choque-unico';
 
 import { AuditService } from '../../common/audit/audit.service';
 import { terminoBusqueda } from '../../common/dto/busqueda';
 import { normalizarTelefono } from '../../common/telefono/telefono';
+import { normalizarBsuid, RemitenteWhatsapp } from '../../common/whatsapp/destino';
 import { calcularPaginacion, construirOrden, paginar } from '../../common/dto/pagination.dto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ServiciosService } from '../servicios/servicios.service';
@@ -150,6 +151,7 @@ const CAMPOS_CLIENTE = {
   id: true,
   nombre: true,
   telefono: true,
+  waUsuarioId: true,
   email: true,
   categoria: true,
   /* Para que la ficha diga «fijada a mano» o «automática». */
@@ -188,6 +190,8 @@ const CAMPOS_CLIENTE = {
 
 @Injectable()
 export class ClientesService {
+  private readonly logger = new Logger(ClientesService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
@@ -357,8 +361,8 @@ export class ClientesService {
    * Un teléfono sin ficha no crea una: si nunca fue paciente no hay nada que
    * registrar, y la baja de Meta sigue vigente en su lado igual.
    */
-  async preferenciaPromocionesDesdeWhatsapp(telefono: string, recibe: boolean): Promise<boolean> {
-    const cliente = await this.findByTelefono(telefono);
+  async preferenciaPromocionesDesdeWhatsapp(remitente: RemitenteWhatsapp | string, recibe: boolean): Promise<boolean> {
+    const cliente = await this.findByWhatsapp(typeof remitente === 'string' ? { telefono: remitente } : remitente);
     if (!cliente) return false;
     if (!recibe) return this.registrarBajaPromociones(cliente.id);
     const { count } = await this.prisma.cliente.updateMany({
@@ -571,21 +575,21 @@ export class ClientesService {
          sin separadores contra la columna cruda hacía que «PRUEBA-7761» del
          portal no encontrara nunca a «PRUEBA-7761» del CRM. */
       pacs.length
-        ? this.prisma.$queryRaw<Array<{ clave: string; id: string; nombre: string; telefono: string }>>`
+        ? this.prisma.$queryRaw<Array<{ clave: string; id: string; nombre: string; telefono: string | null }>>`
             SELECT upper(regexp_replace(pac, '[^A-Za-z0-9]', '', 'g')) AS clave, id, nombre, telefono
               FROM "Cliente"
              WHERE upper(regexp_replace(pac, '[^A-Za-z0-9]', '', 'g')) = ANY(${pacs}::text[])`
         : Promise.resolve([]),
       cis.length
-        ? this.prisma.$queryRaw<Array<{ clave: string; id: string; nombre: string; telefono: string }>>`
+        ? this.prisma.$queryRaw<Array<{ clave: string; id: string; nombre: string; telefono: string | null }>>`
             SELECT upper(regexp_replace(ci, '[^A-Za-z0-9]', '', 'g')) AS clave, id, nombre, telefono
               FROM "Cliente"
              WHERE upper(regexp_replace(ci, '[^A-Za-z0-9]', '', 'g')) = ANY(${cis}::text[])`
         : Promise.resolve([]),
     ]);
-    const fichasPorPac = new Map<string, Array<{ id: string; nombre: string; telefono: string }>>();
+    const fichasPorPac = new Map<string, Array<{ id: string; nombre: string; telefono: string | null }>>();
     for (const { clave, ...ficha } of porPac) fichasPorPac.set(clave, [...(fichasPorPac.get(clave) ?? []), ficha]);
-    const fichasPorCi = new Map<string, Array<{ id: string; nombre: string; telefono: string }>>();
+    const fichasPorCi = new Map<string, Array<{ id: string; nombre: string; telefono: string | null }>>();
     for (const { clave, ...ficha } of porCi) fichasPorCi.set(clave, [...(fichasPorCi.get(clave) ?? []), ficha]);
 
     return identificadores.map(({ pac, ci }): ReconocimientoPaciente => {
@@ -640,6 +644,109 @@ export class ClientesService {
       }
       throw error;
     }
+  }
+
+  /**
+   * Get-or-create de quien escribe por WhatsApp, con o sin teléfono.
+   *
+   * Meta manda el BSUID (`waUsuarioId`) en todos los mensajes y el teléfono
+   * solo si puede: quien adoptó un nombre de usuario y no tuvo trato con la
+   * clínica en 30 días llega sin número. El orden de búsqueda es el que no
+   * duplica a nadie:
+   *
+   * 1. **Por BSUID.** Si la ficha no tenía teléfono y ahora llega, se completa.
+   * 2. **Por teléfono.** La ficha de siempre —importada de FileMaker, o de
+   *    antes de abril de 2026— recibe su BSUID, y desde entonces se la reconoce
+   *    aunque Meta deje de mandar el número.
+   * 3. **Alta**, con lo que haya. Bajo carrera, el P2002 de cualquiera de los dos
+   *    índices únicos se resuelve releyendo, como en `obtenerOCrearPorTelefono`.
+   *
+   * Un número que llega para una ficha-BSUID pero ya es de OTRA ficha no se
+   * fusiona solo: unir dos pacientes mueve chats, leads y ventas, y equivocarse
+   * revela datos de una a otra. Queda en la auditoría (`POSIBLE_DUPLICADO`) y la
+   * conversación sigue en la ficha con la que empezó.
+   */
+  async obtenerOCrearPorWhatsapp(nombre: string, remitente: RemitenteWhatsapp) {
+    const waUsuarioId = normalizarBsuid(remitente.waUsuarioId);
+    if (!waUsuarioId) {
+      if (!remitente.telefono) throw new BadRequestException('El mensaje no trae teléfono ni BSUID de WhatsApp.');
+      return this.obtenerOCrearPorTelefono(nombre, remitente.telefono);
+    }
+    const telefono = remitente.telefono ? telefonoCanonico(remitente.telefono) : null;
+
+    const porBsuid = await this.prisma.cliente.findUnique({ where: { waUsuarioId } });
+    if (porBsuid) {
+      const conTelefono = telefono && !porBsuid.telefono ? await this.completarTelefono(porBsuid.id, telefono) : porBsuid;
+      return this.ascenderNombre(conTelefono, nombre);
+    }
+    if (telefono) {
+      const porTelefono = await this.findByTelefono(telefono);
+      if (porTelefono) {
+        /* El teléfono manda: si la ficha tenía otro BSUID, Meta lo regeneró
+           (cambio de número o de usuario) y el viejo ya no llegará más. */
+        const enlazada = await this.prisma.cliente.update({ where: { id: porTelefono.id }, data: { waUsuarioId } });
+        return this.ascenderNombre(enlazada, nombre);
+      }
+    }
+    try {
+      return await this.prisma.cliente.create({ data: { nombre, telefono, waUsuarioId } });
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+        const yaCreado = await this.prisma.cliente.findUnique({ where: { waUsuarioId } })
+          ?? (telefono ? await this.findByTelefono(telefono) : null);
+        if (yaCreado) return yaCreado; // otra petición concurrente lo creó en el ínterin
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * La ficha de quien escribe, sin crearla: por BSUID y, si no, por teléfono.
+   * Para los avisos de Meta que no son un mensaje (preferencias de marketing).
+   */
+  async findByWhatsapp(remitente: RemitenteWhatsapp) {
+    const waUsuarioId = normalizarBsuid(remitente.waUsuarioId);
+    const porBsuid = waUsuarioId ? await this.prisma.cliente.findUnique({ where: { waUsuarioId } }) : null;
+    return porBsuid ?? (remitente.telefono ? this.findByTelefono(remitente.telefono) : null);
+  }
+
+  /**
+   * Meta regeneró el BSUID (mensaje de sistema `user_changed_user_id` o
+   * `user_changed_number`): la ficha pasa al nuevo, o dejaría de reconocerla.
+   * Devuelve si cambió alguna. Si el nuevo ya es de otra ficha, no pisa nada.
+   */
+  async cambiarWaUsuarioId(previo: string, nuevo: string): Promise<boolean> {
+    const desde = normalizarBsuid(previo);
+    const hacia = normalizarBsuid(nuevo);
+    if (!desde || !hacia || desde === hacia) return false;
+    try {
+      const { count } = await this.prisma.cliente.updateMany({ where: { waUsuarioId: desde }, data: { waUsuarioId: hacia } });
+      return count > 0;
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+        this.logger.warn('WhatsApp cambió el BSUID de una paciente a uno que ya tiene otra ficha: se conservan las dos sin unirlas');
+        return false;
+      }
+      throw error;
+    }
+  }
+
+  /** Llega el número de una ficha que solo tenía BSUID. Si ya es de otra ficha, no se fusionan. */
+  private async completarTelefono(clienteId: string, telefono: string) {
+    try {
+      return await this.prisma.cliente.update({ where: { id: clienteId }, data: { telefono } });
+    } catch (error) {
+      if (!(error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002')) throw error;
+      const otra = await this.findByTelefono(telefono);
+      await this.audit.registrar('Cliente', clienteId, 'POSIBLE_DUPLICADO', undefined, { otraFichaId: otra?.id ?? null });
+      return this.prisma.cliente.findUniqueOrThrow({ where: { id: clienteId } });
+    }
+  }
+
+  /** El marcador «WhatsApp …» se reemplaza por el nombre de perfil real; nunca pisa uno legítimo. */
+  private async ascenderNombre(cliente: Cliente, nombre: string): Promise<Cliente> {
+    if (!nombre || esNombreProvisional(nombre) || !esNombreProvisional(cliente.nombre)) return cliente;
+    return this.prisma.cliente.update({ where: { id: cliente.id }, data: { nombre } });
   }
 
   /** Serializa el alta comercial recuperada con las reasignaciones del paciente (F04). */
@@ -999,7 +1106,7 @@ export class ClientesService {
 
 /** Cómo se reconoció a un paciente de otro sistema, o por qué no. */
 export interface ReconocimientoPaciente {
-  cliente: { id: string; nombre: string; telefono: string } | null;
+  cliente: { id: string; nombre: string; telefono: string | null } | null;
   via: 'PAC' | 'CI' | null;
   motivo: 'SIN_COINCIDENCIA' | 'CI_REPETIDO' | null;
 }

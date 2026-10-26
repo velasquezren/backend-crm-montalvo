@@ -1,5 +1,7 @@
 import { Logger } from '@nestjs/common';
 
+import { reportarError } from '../errores/rastreo-errores';
+
 /**
  * Dispara trabajo que nadie va a esperar, sin que su fallo tumbe el proceso.
  *
@@ -53,6 +55,7 @@ export function enSegundoPlano(
       await trabajo();
     } catch (error) {
       logger.error(`Falló en segundo plano: ${contexto}`, error);
+      reportarError(error, { origen: contexto });
     }
   })();
 }

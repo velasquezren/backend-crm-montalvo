@@ -1,6 +1,6 @@
-import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 
-import { enSegundoPlano } from '../../common/fiabilidad/en-segundo-plano';
+import { TareaPeriodica } from '../../common/trabajos/tarea-periodica.decorator';
 import { PrismaService } from '../../prisma/prisma.service';
 import { diasDeInactividad } from './estado-conversacion';
 
@@ -22,30 +22,19 @@ const PRIMERA_PASADA_MS = 60 * 1000;
  * asignar, cerrar o reabrir: con él, reasignar un chat muerto lo daría por vivo.
  */
 @Injectable()
-export class CierreInactividadService implements OnModuleInit, OnModuleDestroy {
+export class CierreInactividadService {
   private readonly logger = new Logger(CierreInactividadService.name);
-  private intervalo?: NodeJS.Timeout;
-  private primera?: NodeJS.Timeout;
 
   constructor(private readonly prisma: PrismaService) {}
 
-  onModuleInit(): void {
-    /* Las pruebas instancian los services a mano; esto es por si algún día
-       alguna arranca el módulo entero. Mismo criterio que Actividades. */
-    if (process.env.NODE_ENV === 'test') return;
-    const barrer = () => void enSegundoPlano('cierre de conversaciones inactivas', this.logger, () => this.cerrarInactivas());
-    this.primera = setTimeout(barrer, PRIMERA_PASADA_MS);
-    this.primera.unref();
-    this.intervalo = setInterval(barrer, INTERVALO_MS);
-    this.intervalo.unref();
-  }
-
-  onModuleDestroy(): void {
-    clearTimeout(this.primera);
-    clearInterval(this.intervalo);
-  }
-
-  /** Cierra las abiertas sin mensajes desde el corte. Devuelve cuántas cerró. */
+  /**
+   * Cierra las abiertas sin mensajes desde el corte. Devuelve cuántas cerró.
+   * Cada seis horas y tras cada arranque (`TrabajosService`).
+   */
+  @TareaPeriodica({
+    nombre: 'cierre-inactividad', descripcion: 'cierre de conversaciones inactivas',
+    cron: '30 */6 * * *', cadaMs: INTERVALO_MS, primeraEnMs: PRIMERA_PASADA_MS,
+  })
   async cerrarInactivas(ahora = new Date()): Promise<number> {
     const dias = diasDeInactividad(process.env.CONVERSACIONES_CIERRE_DIAS);
     const corte = new Date(ahora.getTime() - dias * 24 * 60 * 60 * 1000);

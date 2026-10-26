@@ -1,6 +1,7 @@
 import { ErrorMedia, errorHttpMedia, sanitizarErrorMedia } from '../fiabilidad/error-media';
 import { Injectable, Logger } from '@nestjs/common';
 import { codigoErrorWhatsapp } from './error-envio';
+import { campoDestino } from './destino';
 import { BYTES_MAXIMOS_PDF } from '../archivos/pdf';
 
 /**
@@ -111,7 +112,8 @@ export class WhatsappCloudService {
    * que el campo se omite entero en v24; aquí se va en v25.
    */
   async enviar(
-    telefono: string,
+    /** Teléfono o BSUID: lo que devuelve `destinoWhatsapp` (ver `destino.ts`). */
+    destino: string,
     contenido: ContenidoMensaje,
     referencia: string | undefined,
     cuenta: CredencialesWhatsapp | null,
@@ -119,12 +121,6 @@ export class WhatsappCloudService {
     if (!cuenta) {
       return { estado: 'NO_SALIO', motivo: 'WhatsApp deshabilitado: faltan token o phoneId' };
     }
-
-    /* Meta espera solo dígitos. El código anterior quitaba únicamente el `+`,
-       así que un teléfono guardado como "+591 7 000 0001" —formato que puede
-       venir del volcado de FileMaker— viajaba con espacios y Meta lo rechazaba.
-       Se limpia todo lo que no sea dígito: paréntesis y guiones incluidos. */
-    const destino = telefono.replace(/\D/g, '');
 
     try {
       const respuesta = await fetch(`${BASE}/${cuenta.phoneId}/messages`, {
@@ -134,7 +130,9 @@ export class WhatsappCloudService {
         body: JSON.stringify({
           messaging_product: 'whatsapp',
           recipient_type: 'individual',
-          to: destino,
+          /* `to` con solo dígitos —un "+591 7 000 0001" del volcado de FileMaker
+             viajaba con espacios y Meta lo rechazaba— o `recipient` con el BSUID. */
+          ...campoDestino(destino),
           ...contenido,
           /* Solo si hay referencia: Meta no tiene por qué recibir el campo vacío. */
           ...(referencia ? { biz_opaque_callback_data: referencia } : {}),

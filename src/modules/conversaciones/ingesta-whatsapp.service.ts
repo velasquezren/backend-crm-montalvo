@@ -11,6 +11,7 @@ import { CANDADO_AUTOMATICOS, esAvisoDeEmergencia, esPedidoDePersona, motivoDeRe
 import { enSegundoPlano } from '../../common/fiabilidad/en-segundo-plano';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ClientesService, nombreProvisional } from '../clientes/clientes.service';
+import { destinoWhatsapp, esBsuid, RemitenteWhatsapp } from '../../common/whatsapp/destino';
 import { PrimerContactoService } from '../leads/primer-contacto.service';
 import { datosOferta, descifrarInteraccion, flowDeCita, FlowPublicado, guardarRespuesta, interaccionesEnLinea, OfertaInteraccion, prepararOferta } from './interacciones-integracion';
 import { abrirTokenFlow, CierreReserva } from '../../common/whatsapp/flows/token-flow';
@@ -33,7 +34,7 @@ import { DespachadorSalienteService } from './despachador-saliente.service';
 import { MediaEntranteService, MediaEntrante } from './media-entrante.service';
 import { CONTENIDO_PIN, TEXTO_UBICACION, UBICACION_CLINICA } from './ubicacion-clinica';
 import { registrarComprobante, uuidEstable } from './pagos-chat';
-import { comprobanteAmbiguo, marcarComprobanteDeReserva, PagoDeReserva, registrarReservaDeChat, TEXTO_COMPROBANTE_RESERVA, textoReservaSinPago } from './reservas-chat';
+import { comprobanteAmbiguo, marcarComprobanteDeReserva, PagoDeReserva, registrarReservaDeChat, TEXTO_CITA_SIN_NUMERO, TEXTO_COMPROBANTE_RESERVA, textoReservaSinPago } from './reservas-chat';
 import { codigoEnTexto, ELEGIR_SERVICIO, HABLAR_CON_PERSONA, PAGAR_PROMOCION, servicioDeOpcion, TEXTO_COMPROBANTE_RECIBIDO, TEXTO_PERSONA_TARJETA } from './promocion-chat';
 import { PromocionesChatService } from './promociones-chat.service';
 import type { PromocionChat } from '../promociones/promociones.service';
@@ -147,7 +148,8 @@ export class IngestaWhatsappService {
    *   primera vez; si no viene, se usa el marcador con el teléfono.
    */
   async procesarEntrante(
-    telefono: string,
+    /** El teléfono (como llaman las pruebas y los webhooks antiguos) o el remitente con su BSUID. */
+    remitente: string | RemitenteWhatsapp,
     contenido: string,
     whatsappMsgId?: string,
     nombrePerfil?: string,
@@ -172,11 +174,15 @@ export class IngestaWhatsappService {
 
     /* Get-or-create atómico: dos webhooks simultáneos de un número nuevo no
        deben pelearse por el índice único de telefono (antes: 500 + reintento
-       de Meta). Ver ClientesService.obtenerOCrearPorTelefono. */
-    const cliente = await this.clientesService.obtenerOCrearPorTelefono(
-      nombrePerfil || nombreProvisional(telefono),
-      telefono,
+       de Meta). Con BSUID, además la reconoce aunque Meta ya no mande su número.
+       Ver ClientesService.obtenerOCrearPorWhatsapp. */
+    const quien: RemitenteWhatsapp = typeof remitente === 'string' ? { telefono: remitente } : remitente;
+    const cliente = await this.clientesService.obtenerOCrearPorWhatsapp(
+      nombrePerfil || nombreProvisional(quien.usuario ? `@${quien.usuario}` : quien.telefono ?? 'sin número'),
+      quien,
     );
+    /* A dónde se le contesta: su teléfono o, si no lo dio, su BSUID. */
+    const destino = destinoWhatsapp(cliente);
 
     const conversacion = await obtenerOCrearConversacion(this.prisma, cliente.id, lineaId, linea.comercial);
 
@@ -245,7 +251,7 @@ export class IngestaWhatsappService {
           },
         });
         if (interaccionOriginal !== undefined && interacciones) {
-          const resultado = await guardarRespuesta(tx, creado.id, conversacion.id, telefono, interaccionOriginal);
+          const resultado = await guardarRespuesta(tx, creado.id, conversacion.id, destino, interaccionOriginal);
           respuestaInformes = resultado.deInformes === true && resultado.estado === 'CORRELACIONADA' && resultado.seleccionId !== 'TALK_TO_HUMAN';
           if (respuestaInformes && resultado.seleccionId?.startsWith('INFORME_') && informesEnLinea(lineaId)) {
             pdfPendiente = await tx.mensaje.create({ data: {
@@ -370,7 +376,7 @@ export class IngestaWhatsappService {
     const orientacion = emergencia ? (accion?.tipo === 'EMERGENCIA' ? accion.orientacion : orientacionDeEmergencia(menu)) : null;
     if (orientacion) {
       void enSegundoPlano('orientación de emergencia', this.logger, () =>
-        this.responderTexto(conversacion.id, cliente.telefono, orientacion, { respetaPausa: false, noRepetir: true }),
+        this.responderTexto(conversacion.id, destino, orientacion, { respetaPausa: false, noRepetir: true }),
       );
     }
     /* Mandó el comprobante: que sepa que llegó y que lo verifica una persona. */
@@ -379,7 +385,7 @@ export class IngestaWhatsappService {
       void enSegundoPlano('acuse de comprobante', this.logger, () =>
         /* Cada comprobante registrado es un evento propio (tras «pedir otro», el
            nuevo también merece su acuse); un webhook repetido ya no llega aquí. */
-        this.responderTexto(conversacion.id, cliente.telefono, acuse, { respetaPausa: false, noRepetir: false }),
+        this.responderTexto(conversacion.id, destino, acuse, { respetaPausa: false, noRepetir: false }),
       );
     }
 
@@ -390,12 +396,12 @@ export class IngestaWhatsappService {
       if (respuestaInformes) {
         const pdf = pdfPendiente as Mensaje | null;
         void enSegundoPlano('informe solicitado', this.logger, async () => {
-          if (pdf) await this.despachador.texto({ mensajeId: pdf.id, conversacionId: conversacion.id, telefono: cliente.telefono }, pdf.contenido,
+          if (pdf) await this.despachador.texto({ mensajeId: pdf.id, conversacionId: conversacion.id, telefono: destino }, pdf.contenido,
             { key: pdf.mediaKey!, mime: 'application/pdf', nombre: 'informe.pdf' });
           else {
             try {
-              const seleccion = await this.informes?.seleccion(conversacion.id, cliente.telefono, mensaje.id);
-              if (seleccion?.pagina) await this.ofrecerInformes(conversacion.id, cliente.telefono, mensaje.id, seleccion.pagina);
+              const seleccion = await this.informes?.seleccion(conversacion.id, destino, mensaje.id);
+              if (seleccion?.pagina) await this.ofrecerInformes(conversacion.id, destino, mensaje.id, seleccion.pagina);
               else await this.pedirRevision(conversacion.id, mensaje.id);
             } catch { await this.pedirRevision(conversacion.id, mensaje.id); }
           }
@@ -404,26 +410,26 @@ export class IngestaWhatsappService {
       const elegida = accion;
       if (elegida && elegida.tipo !== 'EMERGENCIA') {
         void enSegundoPlano('respuesta del menú de atención', this.logger, () =>
-          this.responderSeleccion(conversacion.id, cliente.telefono, lineaId, elegida, menu, mensaje.id),
+          this.responderSeleccion(conversacion.id, destino, lineaId, elegida, menu, mensaje.id),
         );
       }
       const reservaAPagar = pagoDeReserva;
       if (reservaAPagar) {
         void enSegundoPlano('QR de la reserva', this.logger, () =>
-          this.enviarPagoDeReserva(conversacion.id, cliente.telefono, reservaAPagar),
+          this.enviarPagoDeReserva(conversacion.id, destino, reservaAPagar),
         );
       }
       const promocionAPagar = pagarPromocion;
       const servicioAPagar = pagarServicio;
       if (promocionAPagar) {
         void enSegundoPlano('pago de promoción', this.logger, () =>
-          this.enviarPago(conversacion.id, cliente.telefono, lineaId, promocionAPagar, mensaje.id, servicioAPagar),
+          this.enviarPago(conversacion.id, destino, lineaId, promocionAPagar, mensaje.id, servicioAPagar),
         );
       }
       const promocionAElegir = elegirServicioDe;
       if (promocionAElegir) {
         void enSegundoPlano('lista de servicios', this.logger, () =>
-          this.enviarListaDeServicios(conversacion.id, cliente.telefono, promocionAElegir, mensaje.id),
+          this.enviarListaDeServicios(conversacion.id, destino, promocionAElegir, mensaje.id),
         );
       }
       return mensaje;
@@ -435,7 +441,7 @@ export class IngestaWhatsappService {
        le escriban. */
     if (esRespuestaBoton && esPedidoDeBaja(contenido)) {
       void enSegundoPlano('baja de promociones', this.logger, () =>
-        this.confirmarBajaPromociones(conversacion.id, cliente.id, cliente.telefono),
+        this.confirmarBajaPromociones(conversacion.id, cliente.id, destino),
       );
       return mensaje;
     }
@@ -449,12 +455,12 @@ export class IngestaWhatsappService {
     const codigo = linea.comercial && !media && !esRespuestaBoton ? codigoEnTexto(contenido) : null;
     void enSegundoPlano('respuestas automáticas', this.logger, async () => {
       if (!media && !esRespuestaBoton && !pedido && pideSusInformes(contenido) && informesEnLinea(lineaId)) {
-        await this.ofrecerInformes(conversacion.id, cliente.telefono, mensaje.id);
+        await this.ofrecerInformes(conversacion.id, destino, mensaje.id);
         return;
       }
       /* Vino por una promoción: queda atribuida y recibe su tarjeta, que hace de
          menú y de acuse a la vez. */
-      const tarjeta = codigo ? await this.atenderCodigo(conversacion.id, cliente.id, cliente.telefono, lineaId, codigo) : false;
+      const tarjeta = codigo ? await this.atenderCodigo(conversacion.id, cliente.id, destino, lineaId, codigo) : false;
       /* El asistente de IA de la línea, si tiene: para lo que ella ESCRIBIÓ o DIJO en una
          nota de voz (la escucha él). Una foto o un documento, no.
          Quien acaba de pedir una persona o una emergencia ya tiene a alguien en camino. */
@@ -468,7 +474,7 @@ export class IngestaWhatsappService {
       /* Un médico con el número autorizado viene por su agenda: ni menú ni acuse,
          le contesta el asistente (en «Responder solo» y en «Solo médicos»). */
       const medico = asistente && asistente.modo !== 'SUGERIR'
-        ? await this.asistente!.esMedico(cliente.telefono).catch(() => false)
+        ? await this.asistente!.esMedico(destino).catch(() => false)
         : false;
       /* En «Solo médicos», para una paciente la línea es como con el asistente apagado. */
       const atiende = asistente && (asistente.modo !== 'SOLO_MEDICOS' || medico) ? asistente : null;
@@ -480,18 +486,18 @@ export class IngestaWhatsappService {
          horario?» recibió solo el saludo del menú). Un saludo solo, o «menú», sí lo recibe. */
       const preguntaParaElAsistente = atiende?.modo === 'RESPONDER' && !aPedido && (!!media || !esSoloSaludo(contenido));
       const ofrecido = !tarjeta && menu && !pedido && !esRespuestaBoton && !medico && !preguntaParaElAsistente
-        ? await this.ofrecerMenu(conversacion.id, cliente.telefono, menu, { aPedido })
+        ? await this.ofrecerMenu(conversacion.id, destino, menu, { aPedido })
         : false;
       /* Si el asistente va a contestar, el acuse «no hay nadie» sobra: hay alguien. */
       const contesta = atiende !== null && atiende.modo !== 'SUGERIR' && !ofrecido;
       /* Cuando el menú sale, ES el acuse: dos automáticos al mismo mensaje se
          leen como un sistema roto. Cuando no sale (la conversación está en curso),
          el acuse fuera de horario funciona como siempre. */
-      if (linea.comercial && !ofrecido && !tarjeta && !contesta) await this.responderFueraDeHorario(conversacion.id, cliente.telefono);
-      const ubicacion = !media && await this.compartirUbicacionSiLaPiden(conversacion.id, cliente.telefono, contenido);
+      if (linea.comercial && !ofrecido && !tarjeta && !contesta) await this.responderFueraDeHorario(conversacion.id, destino);
+      const ubicacion = !media && await this.compartirUbicacionSiLaPiden(conversacion.id, destino, contenido);
       /* El menú o el mapa ya contestaron este mensaje: el asistente no repite. */
       if (atiende && !ofrecido && !ubicacion) {
-        this.asistente?.programar({ conversacionId: conversacion.id, mensajeId: mensaje.id, lineaId, telefono: cliente.telefono, asistente: atiende });
+        this.asistente?.programar({ conversacionId: conversacion.id, mensajeId: mensaje.id, lineaId, telefono: destino, asistente: atiende });
       }
     });
 
@@ -501,7 +507,7 @@ export class IngestaWhatsappService {
        ya sepa con quién habla. */
     if (linea.comercial && esRespuestaBoton) {
       void enSegundoPlano('pedido de nombre y edad tras el acuse', this.logger, () =>
-        this.pedirDatosDelPaciente(conversacion.id, cliente.telefono),
+        this.pedirDatosDelPaciente(conversacion.id, destino),
       );
     }
 
@@ -873,6 +879,13 @@ export class IngestaWhatsappService {
    * dos veces deja la segunda respuesta como `DUPLICADA`.
    */
   private async enviarFlowDeCita(conversacionId: string, telefono: string, lineaId: string, flow: FlowPublicado, confirmacion: string | null): Promise<void> {
+    /* El de reserva sella su teléfono en el token y la agenda lo exige: quien solo
+       nos dio su BSUID no puede reservar por ahí. La solicitud ya nació con el
+       toque, así que la coordina una persona, como en el Flow de solicitud. */
+    if (flow.proposito === 'RESERVA_CITA' && esBsuid(telefono)) {
+      await this.responderTexto(conversacionId, telefono, confirmacion ?? TEXTO_CITA_SIN_NUMERO, { respetaPausa: false, noRepetir: true });
+      return;
+    }
     try {
       /* El de reserva (con endpoint) agenda de verdad: elige médico, día y hora libres
          de la agenda. El de solicitud solo pregunta y una persona propone la hora. */

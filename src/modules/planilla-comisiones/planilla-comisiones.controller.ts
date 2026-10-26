@@ -74,7 +74,9 @@ const TAMANO_MAXIMO_BYTES = 15 * 1024 * 1024;
  */
 const TOPE_MULTER_BYTES = 20 * 1024 * 1024;
 
-const EXTENSIONES_VALIDAS = ['.xlsx', '.xls'];
+/* Solo .xlsx: el export de FileMaker lo es, y `exceljs` no lee el formato binario
+   antiguo (.xls). Antes se aceptaba y lo leía SheetJS, retirado por sus vulnerabilidades. */
+const EXTENSIONES_VALIDAS = ['.xlsx'];
 
 /**
  * Planilla de comisiones (liquidación mensual desde el Excel de FileMaker).
@@ -123,7 +125,7 @@ export class PlanillaComisionesController {
     }
     const nombre = archivo.originalname.toLowerCase();
     if (!EXTENSIONES_VALIDAS.some(ext => nombre.endsWith(ext))) {
-      throw new BadRequestException('El archivo debe ser un Excel (.xlsx o .xls)');
+      throw new BadRequestException('El archivo debe ser un Excel .xlsx (si es un .xls antiguo, ábralo y guárdelo como .xlsx)');
     }
 
     return this.planilla.importar(archivo.buffer, archivo.originalname, dto, usuario.sub);

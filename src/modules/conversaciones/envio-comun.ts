@@ -23,7 +23,7 @@ export async function obtenerConversacionPropia(prisma: PrismaService, id: strin
       agenteId: true,
       clienteId: true,
       linea: { select: SELECT_LINEA },
-      cliente: { select: { telefono: true, agenteId: true } },
+      cliente: { select: { telefono: true, waUsuarioId: true, agenteId: true } },
     },
   });
   if (!conversacion) {

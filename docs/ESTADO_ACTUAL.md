@@ -19,6 +19,9 @@ locales al comenzar; una modificación sin commit puede pertenecer a otra tarea.
 
 | Tema | Estado comprobable y dónde continuar |
 | --- | --- |
+| Nombres de usuario de WhatsApp (BSUID) | 23/10, **sin desplegar**: el webhook ya no descarta a quien escribe sin teléfono; `Cliente.waUsuarioId`, envío por `recipient`, cambios de BSUID y frontend sin número. Migración `contacto_whatsapp_bsuid` aditiva; publicar frontend antes o junto. [Contrato](lineas-whatsapp.md#nombres-de-usuario-de-whatsapp-bsuid-23102026). |
+| Plataforma del backend | 23/10, **sin desplegar**: NestJS 11 (Express 5), `exceljs` en vez de SheetJS (lectura idéntica al export real con TZ del VPS), Prisma 7.10.1, CI con `.nvmrc`; `npm audit --omit=dev` de 23 a 2 moderadas no aplicables. Tareas con `@TareaPeriodica` y pg-boss (`TRABAJOS_PGBOSS`, migración `pgboss_trabajos`); rastreo de errores (`SENTRY_DSN`) y latido (`LATIDO_URL`). Todo apagado por defecto. [Arquitectura §5](../.claude/skills/crm-backend-arquitectura/SKILL.md). |
+| Aviso de ventas a Meta (CAPI) | 23/10, implementado y **apagado** (`META_CONVERSIONES`): encenderlo lo decide la clínica por la política de salud de Meta. [Guía](conversiones-meta.md). |
 | Transcripción interna de audios | Activada el 17/10 (`e935c2f`) en Recepción y Ventas para nuevos audios entrantes; conserva `SOLO_MEDICOS`/`RESPONDER`. Cola durable, texto bajo el audio y actualización en vivo, sin respuestas por esta función. [Contrato y verificación](asistente-ia.md#transcripción-interna-para-las-agentes-17102026). |
 | IA por WhatsApp | Existe proveedor Gemini, clasificación, sugerencias/respuestas, audio y agenda del médico. Reservas conversacionales y QR incorporados el 15/10 (`2d70cd4`, `5dc4420`, `7daea1f`). Ver [asistente](asistente-ia.md); no reiniciar el plan «no hay IA» del 7/10. |
 | Médicos a solicitud | `9efdd1f`, nota `c20e012`: el asistente coordina preferencias y deja `SOLICITUD_CITA`, sin inventar cupos. **Desplegado el 15/10** (19:46 La Paz, respaldo `/root/backup-crm-20261015-194528-cita-a-solicitud.sql.gz`); [guía](asistente-ia.md). |
@@ -47,6 +50,7 @@ justificar reabrirlos; una lista antigua de pendientes, por sí sola, no.
 
 ## Pendientes con alcance explícito
 
+- **Desplegar lo del 23/10:** tres migraciones aditivas (`contacto_whatsapp_bsuid`, `pgboss_trabajos`, `conversiones_meta`) y `npm ci` con NestJS 11. Al publicar, subir en el CI del frontend el `ref:` fijo del backend al commit nuevo (el enum `EstadoConversionMeta` hace fallar `check:tipos` contra el SHA viejo). Después, encender por separado `TRABAJOS_PGBOSS`, `SENTRY_DSN` y `LATIDO_URL`. Respaldo externo y red (Cloudflare/WireGuard) quedan para una tarea con gcloud.
 - **FileMaker:** reenviar el horario 08:30–11:45 de `DR2435`; soporte 15/30 ya desplegado. El envío individual ya funciona; carga colectiva y activador automático todavía requieren aceptación dentro de FileMaker.
 - **Clínica:** conocimiento y criterio de derivación por línea, orientación de
   emergencia y contenidos públicos. Las guías describen requisitos; no prueban

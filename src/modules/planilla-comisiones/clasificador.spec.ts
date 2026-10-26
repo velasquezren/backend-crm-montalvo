@@ -599,9 +599,9 @@ describe('el export nuevo de enero 2026, leído con el parser real', () => {
   const RUTA = `${CARPETA_2026}/enero.xlsx`;
 
   let filas: readonly FilaExcel[] | null = null;
-  beforeAll(() => {
+  beforeAll(async () => {
     try {
-      filas = leerExcel(readFileSync(RUTA)).filas;
+      filas = (await leerExcel(readFileSync(RUTA))).filas;
     } catch {
       filas = null;
       avisarCarpetaAusente('clasificador/enero-2026', 'CRM_EXCELS_2026_DIR');
@@ -679,10 +679,10 @@ describe('reparto de planes de los seis meses exportados', () => {
     ['marzo', `${CARPETA_2025}/marzo.xlsx`, { PLANPAQ: 15 }],
   ];
 
-  it.each(CASOS)('%s reparte sus planes como espera la planilla', (_mes, ruta, esperado) => {
+  it.each(CASOS)('%s reparte sus planes como espera la planilla', async (_mes, ruta, esperado) => {
     let filas: readonly FilaExcel[];
     try {
-      filas = leerExcel(readFileSync(ruta)).filas;
+      filas = (await leerExcel(readFileSync(ruta))).filas;
     } catch {
       avisarCarpetaAusente('clasificador/reparto-de-planes', 'CRM_EXCELS_2025_DIR');
       return; // sin el fichero en disco no se falla, se omite
@@ -702,11 +702,11 @@ describe('reparto de planes de los seis meses exportados', () => {
    * número se dispara, es que los paquetes se están yendo otra vez al cubo
    * equivocado.
    */
-  it('en los seis meses hay UNA sola venta de plan varios', () => {
+  it('en los seis meses hay UNA sola venta de plan varios', async () => {
     let total = 0;
     for (const [, ruta] of CASOS) {
       try {
-        total += leerExcel(readFileSync(ruta)).filas.filter(
+        total += (await leerExcel(readFileSync(ruta))).filas.filter(
           f => clasificarFila(f).clasif === ClasifComision.PLANNIN,
         ).length;
       } catch {
