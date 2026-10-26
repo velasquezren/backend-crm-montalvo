@@ -132,6 +132,8 @@ No se alteran roles ni línea de entrega, plantilla, automatizaciones o IA. Labo
 no pasa automáticamente a CLIMON. Los guiones de Papanicolau y laboratorio todavía
 requieren los campos y la captura del módulo FileMaker que entregará René.
 
-Publicación pendiente: API Resultados y su migración primero; después CRM backend y
-ambos frontends. La prueba actual fue local con dos bases sintéticas aisladas;
-producción solo se consultó por cantidades, sin leer informes ni identidades.
+Orden de publicación: API Resultados y su migración primero; después CRM backend y
+ambos frontends. **Desplegado así el 25/10/2026**: Resultados `4cb6ada`, CRM
+`d22ef19`, Angular `7893a4e` (Vercel). En el servidor: panorama y listado
+filtran por `tipo` (las 225 vigentes son ecografías; laboratorio, 0) y un tipo
+desconocido devuelve 400. No se enviaron avisos ni se abrieron informes.
