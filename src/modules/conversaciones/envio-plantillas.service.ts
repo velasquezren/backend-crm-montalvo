@@ -174,12 +174,36 @@ export class EnvioPlantillasService {
       contenido: string;
       /** Su categoría en Meta. El aviso de resultados es Utilidad: no lleva publicidad. */
       categoria?: string;
+      /**
+       * `payload` para los botones de respuesta rápida, si la plantilla
+       * aprobada los tiene. Sin ellos no se manda ninguno: un componente de
+       * más hace que Meta rechace el envío entero.
+       */
+      respuestaRapida?: string;
     },
     agenteId: string,
   ) {
     const conversacion = await obtenerConversacionPropia(this.prisma, conversacionId);
-    const { contenido, categoria = 'UTILITY', ...despacho } = envio;
+    const { contenido, categoria = 'UTILITY', respuestaRapida, ...base } = envio;
+    const respuestasRapidas = respuestaRapida && interaccionesEnLinea(conversacion.linea.id)
+      ? await this.respuestasRapidasDe(conversacion.linea.id, base.plantilla, base.idioma, respuestaRapida) : [];
+    const despacho: PlantillaADespachar = { ...base, ...(respuestasRapidas.length ? { respuestasRapidas } : {}) };
     return this.registrarPlantilla(conversacion, { despacho, contenido, categoria }, undefined, agenteId);
+  }
+
+  /**
+   * Los botones de respuesta rápida de la plantilla aprobada, con `payload`. Si
+   * el catálogo no responde sale sin `payload`: el botón se ve igual y Meta
+   * devuelve su rótulo al tocarlo.
+   */
+  private async respuestasRapidasDe(lineaId: string, nombre: string, idioma: string, id: string) {
+    try {
+      const plantilla = (await this.listarPlantillas(false, lineaId)).find(p => p.nombre === nombre && p.idioma === idioma);
+      return plantilla?.respuestasRapidas?.map(b => ({ ...b, id })) ?? [];
+    } catch (error) {
+      this.logger.warn(`Sin el catálogo de plantillas para ${nombre}: sale sin payload (${error instanceof Error ? error.message : 'error'})`);
+      return [];
+    }
   }
 
   /**

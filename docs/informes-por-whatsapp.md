@@ -109,6 +109,50 @@ Referencias oficiales consultadas: [Media API](https://www.postman.com/meta/what
 - Meta y la IA se simularon. No hubo despliegue, push, mensajes reales, lectura de PDFs clínicos, cambios de configuración de producción ni prueba de carga.
 
 
+## «Recibir PDF» desde el aviso
+
+Desde el 27/10/2026 (código; se activa con la plantilla `montalvo_informe_pdf`,
+ver [plantillas](plantillas-whatsapp.md#6-montalvo_informe_pdf--aviso-de-resultado-con-recibir-pdf)).
+El aviso de resultado lleva dos botones: el enlace al portal, igual que antes, y
+«Recibir PDF». Tocar el segundo manda el PDF de ese informe por el mismo
+recorrido documental de arriba (pendiente durable, reclamo INCIERTO, subida a
+Meta y revalidación antes de enviar).
+
+```text
+Aviso (plantilla del sistema, payload AVISO_INFORME_PDF en el botón)
+  → Paciente toca «Recibir PDF»: webhook firmado, `type: button`, `context.id` = el aviso
+  → El aviso es de ESTE chat (`AvisoResultado.mensajeId`); respuesta + documento en una transacción
+  → Ficha del chat = ficha del aviso, mismo teléfono, PAC presente
+  → Resultados lista el informe para ese PAC (publicado, acceso vigente, no revocado)
+  → PDF original → Media API → documento `informe.pdf`
+```
+
+Diferencias con «Mis informes», a propósito:
+
+- **No hay oferta cifrada.** El aviso vale lo que su enlace (30 días) y el
+  detalle privado se purga a los 7, así que lo autoriza el aviso al que
+  responde, que tiene que estar en esta conversación. El texto del botón no
+  decide nada: solo distingue «Recibir PDF» de otro botón.
+- **Una persona en el chat o la automatización pausada no lo frenan.** El
+  paciente pide el informe del aviso que la clínica misma le mandó. Siguen
+  frenándolo la línea sin autoservicio, el chat cerrado, el teléfono o la ficha
+  cambiados y un informe que ya no está vigente para ese PAC.
+- **Dos toques en 10 minutos mandan un PDF.** El segundo queda DUPLICADO, sin
+  pedir a una persona. Pasado ese rato, otro toque lo vuelve a mandar.
+- Si no puede salir (enlace vencido, informe retirado, PAC cambiado), el
+  documento queda FALLIDO y el chat pasa a REVISIÓN: recepción usa «Renovar y
+  enviar» o lo resuelve a mano.
+- En una línea que no está en `RESULTADOS_AUTOSERVICIO_LINEAS` el toque no
+  manda nada y lo ve una persona.
+
+El aviso solo lleva el `payload` si la plantilla aprobada tiene botón de
+respuesta rápida (`EnvioPlantillasService.enviarPlantillaDelSistema`): con
+`montalvo_informe_disponible` sale exactamente como antes. Si el catálogo de
+Meta no responde, sale sin `payload` y el toque se reconoce por el rótulo.
+
+Pruebas: `aviso-informe-pdf.integracion.spec.ts` (webhook firmado y PostgreSQL
+reales; Meta y Resultados simulados) y `aviso-informe-pdf.spec.ts`.
+
 ## Cola multítipo de Resultados (desplegada el 25/10/2026)
 
 El módulo Angular y el backend admiten `tipo=ECOGRAFIA|PAPANICOLAU|LABORATORIO|OTRO`.

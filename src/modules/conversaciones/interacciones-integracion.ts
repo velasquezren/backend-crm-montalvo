@@ -4,6 +4,7 @@ import { Prisma } from '../../prisma/prisma-client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { abrirCierreReserva, CierreReserva, sellarTokenFlow } from '../../common/whatsapp/flows/token-flow';
 import type { ContextoInformes } from '../resultados/informes-chat.service';
+import { ESPERA_ENTRE_PDF_DEL_AVISO_MS, pideElPdfDelAviso, RESPUESTA_PDF_AVISO } from '../resultados/aviso-informe-pdf';
 import { MensajePreparado, contenidoMeta, validarMensaje } from '../../common/whatsapp/interacciones/mensaje-interactivo';
 import { objeto, parsearRespuesta } from '../../common/whatsapp/interacciones/respuesta-interactiva';
 import { ResultadoRespuesta } from './atencion-humana';
@@ -303,6 +304,31 @@ export async function guardarRespuesta(
           const reclamo = await tx.interaccionMensaje.updateMany({ where: { mensajeId: fuente.id, consumidaPor: null }, data: { consumidaPor: mensajeId } });
           estado = reclamo.count ? 'CORRELACIONADA' : 'DUPLICADA';
         }
+      }
+    }
+    /* «Recibir PDF» del aviso de resultado: no hay oferta cifrada que leer (el
+       aviso vale 30 días y el detalle privado se purga a los 7). Lo autoriza
+       el aviso al que responde, que es de ESTE chat; el informe y la identidad
+       se revalidan contra Resultados al despachar (`InformesChatService`). */
+    const seleccion = r.seleccion;
+    /* `r.contextoId` es obligatorio: sin él, `whatsappMsgId: undefined` no
+       filtraría y cualquier aviso del chat serviría. */
+    if (!contextoId && r.estado === 'valida' && r.contextoId && seleccion?.tipo === 'template_reply' && pideElPdfDelAviso(seleccion)) {
+      const aviso = await tx.avisoResultado.findFirst({
+        where: { mensaje: { whatsappMsgId: r.contextoId, conversacionId, direccion: 'SALIENTE' } },
+        select: { mensajeId: true },
+      });
+      if (aviso?.mensajeId) {
+        contextoId = aviso.mensajeId;
+        seleccionId = RESPUESTA_PDF_AVISO;
+        cuerpo = seleccion.titulo;
+        origenOferta = 'INFORMES';
+        const reciente = await tx.interaccionMensaje.findFirst({
+          where: { estado: 'CORRELACIONADA', vista: { path: ['contextoId'], equals: aviso.mensajeId },
+            mensaje: { conversacionId, createdAt: { gte: new Date(Date.now() - ESPERA_ENTRE_PDF_DEL_AVISO_MS) } } },
+          select: { mensajeId: true },
+        });
+        estado = reciente ? 'DUPLICADA' : 'CORRELACIONADA';
       }
     }
   }

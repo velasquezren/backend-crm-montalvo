@@ -2,9 +2,12 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { acortar } from '../../common/texto/acortar';
 import { descifrarInteraccion, interaccionesEnLinea, OfertaInteraccion, prepararOferta } from '../conversaciones/interacciones-integracion';
+import { RESPUESTA_PDF_AVISO } from './aviso-informe-pdf';
 import { IdentidadInformeChat, InformeParaChat, PortalResultadosClient } from './portal-resultados.client';
 
 export const PREFIJO_INFORME_CHAT = 'informe-chat/';
+/** Un paciente con más informes vigentes que esto lo atiende una persona. */
+const PAGINAS_MAXIMAS_AVISO = 10;
 /** Falta vincular la ficha. Un CI escrito ayuda a recepción, nunca autoriza un PDF. */
 export class IdentificacionInformePendiente extends NotFoundException {
   constructor() { super('Recepción debe verificar la identidad para consultar informes.'); }
@@ -29,13 +32,18 @@ export function pideSusInformes(texto: string): boolean {
 export class InformesChatService {
   constructor(private readonly prisma: PrismaService, private readonly portal: PortalResultadosClient) {}
 
-  private async ficha(conversacionId: string, telefono: string) {
+  /**
+   * `aunqueAtiendan`: solo el «Recibir PDF» del aviso. Lo pide el paciente sobre
+   * el aviso que la clínica le mandó de ESE informe, así que una persona en el
+   * chat o la automatización pausada no lo frenan; todo lo demás sí.
+   */
+  private async ficha(conversacionId: string, telefono: string, { aunqueAtiendan = false } = {}) {
     const c = await this.prisma.conversacion.findUnique({ where: { id: conversacionId }, select: {
       clienteId: true, lineaId: true, cerradaEn: true, automatizacionPausadaEn: true, atencionTomadaEn: true,
       cliente: { select: { telefono: true, pac: true, ci: true } }, linea: { select: { activa: true } },
     } });
     const ultimo = await this.prisma.mensaje.findFirst({ where: { conversacionId, direccion: 'ENTRANTE' }, orderBy: { createdAt: 'desc' }, select: { createdAt: true } });
-    if (!c || !c.linea.activa || !informesEnLinea(c.lineaId) || c.cerradaEn || c.automatizacionPausadaEn || c.atencionTomadaEn
+    if (!c || !c.linea.activa || !informesEnLinea(c.lineaId) || c.cerradaEn || (!aunqueAtiendan && (c.automatizacionPausadaEn || c.atencionTomadaEn))
       || c.cliente.telefono !== telefono || !ultimo || Date.now() - ultimo.createdAt.getTime() >= 86_400_000)
       throw new NotFoundException('Recepción debe verificar la solicitud de informes.');
     // Solo tras validar el chat: nunca pedir identificación para un teléfono ajeno
@@ -68,6 +76,7 @@ export class InformesChatService {
     const respuesta = await this.prisma.interaccionMensaje.findFirst({ where: { mensajeId: respuestaId, estado: 'CORRELACIONADA', mensaje: { conversacionId, direccion: 'ENTRANTE' } } });
     const vista = respuesta?.vista as { contextoId?: string; seleccionId?: string } | undefined;
     if (!vista?.contextoId || !vista.seleccionId) throw new NotFoundException('Selección no autorizada.');
+    if (vista.seleccionId === RESPUESTA_PDF_AVISO) return this.informeDelAviso(conversacionId, telefono, vista.contextoId);
     const fuente = await this.prisma.mensaje.findFirst({ where: { id: vista.contextoId, conversacionId, direccion: 'SALIENTE' }, include: { interaccion: true } });
     if (!fuente?.clientMessageId || !fuente.interaccion?.privado || fuente.interaccion.venceEn.getTime() <= Date.now()) throw new NotFoundException('Selección vencida.');
     const oferta = descifrarInteraccion(fuente.interaccion.privado, fuente.clientMessageId) as OfertaInteraccion;
@@ -84,6 +93,29 @@ export class InformesChatService {
     }
     const pagina = /^INFORMES_PAGINA_(\d+)$/.exec(id);
     return { informe, pagina: pagina ? Number(pagina[1]) : null, identidad: oferta.informes!.identidad };
+  }
+
+  /**
+   * El informe del aviso al que respondió «Recibir PDF». El aviso tiene que ser
+   * de este chat y de esta ficha, y el informe tiene que seguir en la lista que
+   * Resultados le da a ESTE PAC: publicado, con acceso vigente y no revocado.
+   * Vencido el enlace, ya no está ahí y lo resuelve una persona.
+   */
+  private async informeDelAviso(conversacionId: string, telefono: string, avisoMensajeId: string) {
+    const aviso = await this.prisma.avisoResultado.findFirst({
+      where: { mensajeId: avisoMensajeId, mensaje: { conversacionId, direccion: 'SALIENTE' } },
+      select: { informeId: true, clienteId: true },
+    });
+    if (!aviso) throw new NotFoundException('Aviso no encontrado.');
+    const ficha = await this.ficha(conversacionId, telefono, { aunqueAtiendan: true });
+    if (ficha.clienteId !== aviso.clienteId) throw new NotFoundException('La ficha cambió desde el aviso.');
+    for (let pagina = 1; pagina <= PAGINAS_MAXIMAS_AVISO; pagina++) {
+      const datos = await this.portal.informesDelPaciente(ficha.identidad, pagina);
+      const informe = datos.datos.find(i => i.id === aviso.informeId);
+      if (informe) return { informe, pagina: null, identidad: ficha.identidad };
+      if (pagina * datos.limite >= datos.total) break;
+    }
+    throw new NotFoundException('El informe del aviso ya no está disponible.');
   }
 
   async pdf(conversacionId: string, telefono: string, key: string): Promise<Buffer> {

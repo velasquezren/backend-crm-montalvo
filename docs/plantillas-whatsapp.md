@@ -225,3 +225,26 @@ El comprobante ya está cargado en la agenda. Revíselo y regístrelo en FileMak
 
 Pie: `Clínica Montalvo · aviso automático del CRM`. Ejemplos para la revisión: «Ana Pérez»,
 «1234567», «Juan Carlos Montalvo Doria Medina», «lunes, 2 de noviembre, 15:00», «Bs 400».
+
+## 6. `montalvo_informe_pdf` — aviso de resultado con «Recibir PDF»
+
+Aprobada por René el 27/10/2026 para enviarla a revisión de Meta (WABA de
+Recepción). Mismo aviso que `montalvo_informe_disponible`, en trato de usted y
+con un segundo botón: quien no quiere entrar al portal toca «Recibir PDF» y el
+CRM le manda el PDF de ESE informe por el chat. Cómo se autoriza y qué se
+revalida: [informes por WhatsApp](informes-por-whatsapp.md#recibir-pdf-desde-el-aviso).
+
+- **Categoría:** Utility · **Idioma:** `es`
+- **Cuerpo:**
+  > Clínica Montalvo: su informe médico ya está disponible.
+  >
+  > Toque «Ver mi informe» para abrirlo en línea, o «Recibir PDF» y se lo enviamos por este chat.
+- **Pie:** `Enlace personal. No lo reenvíe.`
+- **Botones** (en este orden):
+  1. URL · «Ver mi informe» · `https://resultados.107.175.132.15.nip.io/resultados/{{1}}`
+  2. Respuesta rápida · «Recibir PDF»
+
+**Al aprobarse**, con el backend que ya lo sabe leer desplegado:
+`RESULTADOS_PLANTILLA=montalvo_informe_pdf` en `/opt/crm-backend/.env` y
+reiniciar. Volver atrás es poner de nuevo `montalvo_informe_disponible`: el
+código manda el `payload` del botón solo si la plantilla aprobada lo tiene.

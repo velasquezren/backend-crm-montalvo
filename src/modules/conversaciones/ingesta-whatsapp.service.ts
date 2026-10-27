@@ -2,6 +2,7 @@ import { transcribirAudioEnLinea } from './transcripcion-audio-lineas';
 import { LINEA_COMERCIAL_INICIAL, obtenerOCrearConversacion } from './acceso-conversacion';
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { IdentificacionInformePendiente, InformesChatService, informesEnLinea, PEDIR_CARNET_INFORME, pideSusInformes, PREFIJO_INFORME_CHAT } from '../resultados/informes-chat.service';
+import { RESPUESTA_PDF_AVISO } from '../resultados/aviso-informe-pdf';
 import { randomUUID } from 'node:crypto';
 import { Mensaje, MotivoAtencion, OrigenLead, Prisma } from '../../prisma/prisma-client';
 
@@ -252,8 +253,12 @@ export class IngestaWhatsappService {
         });
         if (interaccionOriginal !== undefined && interacciones) {
           const resultado = await guardarRespuesta(tx, creado.id, conversacion.id, destino, interaccionOriginal);
-          respuestaInformes = resultado.deInformes === true && resultado.estado === 'CORRELACIONADA' && resultado.seleccionId !== 'TALK_TO_HUMAN';
-          if (respuestaInformes && resultado.seleccionId?.startsWith('INFORME_') && informesEnLinea(lineaId)) {
+          /* «Recibir PDF» del aviso en una línea sin autoservicio de informes:
+             no se contesta solo, lo ve una persona (`motivoDeRespuesta`). */
+          const pdfDelAviso = resultado.seleccionId === RESPUESTA_PDF_AVISO;
+          respuestaInformes = resultado.deInformes === true && resultado.estado === 'CORRELACIONADA' && resultado.seleccionId !== 'TALK_TO_HUMAN'
+            && (!pdfDelAviso || informesEnLinea(lineaId));
+          if (respuestaInformes && (resultado.seleccionId?.startsWith('INFORME_') || pdfDelAviso) && informesEnLinea(lineaId)) {
             pdfPendiente = await tx.mensaje.create({ data: {
               conversacionId: conversacion.id, direccion: 'SALIENTE', tipo: 'DOCUMENTO', automatico: true,
               contenido: 'Informe solicitado por el paciente. Documento clínico privado.',

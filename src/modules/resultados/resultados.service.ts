@@ -17,6 +17,7 @@ import { ClientesService } from '../clientes/clientes.service';
 import { obtenerOCrearConversacion } from '../conversaciones/acceso-conversacion';
 import { EnvioPlantillasService } from '../conversaciones/envio-plantillas.service';
 import { LineasWhatsappService } from '../lineas-whatsapp/lineas-whatsapp.service';
+import { RESPUESTA_PDF_AVISO } from './aviso-informe-pdf';
 import { InformePublicado, PortalResultadosClient } from './portal-resultados.client';
 import { EstadoCola, QueryResultadosDto } from './dto/query-resultados.dto';
 import { TipoInforme } from './tipo-informe';
@@ -257,6 +258,9 @@ export class ResultadosService {
              una con imagen es cambiar dos variables, no el código. Ver
              `docs/plantillas-whatsapp.md`. */
           ...(process.env.RESULTADOS_PLANTILLA_IMAGEN ? { imagenCabecera: process.env.RESULTADOS_PLANTILLA_IMAGEN } : {}),
+          /* «Recibir PDF», si la plantilla aprobada lo tiene: el toque manda el
+             PDF de este informe por el chat (`InformesChatService`). */
+          respuestaRapida: RESPUESTA_PDF_AVISO,
           contenido: this.textoParaHistorial(informe),
         },
         usuario.sub,
