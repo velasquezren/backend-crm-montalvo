@@ -74,6 +74,10 @@ sus tests y Git. Mantener pruebas, SQL y procedimientos de rollback asociados.
   y [R3](rendimiento-r3-2026-09.md): diagnósticos y resoluciones de septiembre.
 - [CAMP-0](CAMP-0-campanas-meta-roi.md): diagnóstico de atribución y opciones;
   [CAMP-1](CAMP-1-atribucion-venta-lead.md) es el contrato implementado.
+- Entregas del 21/09: [WhatsApp, agenda y modales](ENTREGA_WHATSAPP_AGENDA_MODALES_2026-09-21.md)
+  y [Recepción compartida](recepcion-atencion-compartida-2026-09-21.md); F06-R2 en
+  [primer contacto durable](f06-r2-primer-contacto-durable.md). Evidencia cruda de
+  la etapa 2 en `auditoria-etapa2/` (scripts locales; no ejecutar).
 - [Auditoría 1/10](auditoria-2026-10-01.md), [6/10](auditoria-2026-10-06.md) y
   [revisión 10/10](REVISION_2026-10-10.md): evidencia fechada, no backlog automático.
 - Auditorías de agenda [VPS](auditoria-agenda-vps-2026-10-06.md) y

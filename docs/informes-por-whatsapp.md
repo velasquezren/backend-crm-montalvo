@@ -109,7 +109,7 @@ Referencias oficiales consultadas: [Media API](https://www.postman.com/meta/what
 - Meta y la IA se simularon. No hubo despliegue, push, mensajes reales, lectura de PDFs clínicos, cambios de configuración de producción ni prueba de carga.
 
 
-## Cola multítipo de Resultados (23/10/2026, preparada localmente)
+## Cola multítipo de Resultados (desplegada el 25/10/2026)
 
 El módulo Angular y el backend admiten `tipo=ECOGRAFIA|PAPANICOLAU|LABORATORIO|OTRO`.
 La omisión muestra todos los tipos. El CRM envía el filtro tanto al panorama como

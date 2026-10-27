@@ -1,5 +1,10 @@
 # WhatsApp, agenda y modales · 2026-09-21
 
+> Entrega histórica del 21/09: sus conteos de pruebas y límites son de esa
+> fecha. Contratos vigentes en [líneas](lineas-whatsapp.md),
+> [plantillas](plantillas-whatsapp.md), [agenda](agenda.md) y
+> [reservas/actividades](reservas-actividades.md); no reabrir desde aquí.
+
 ## Alcance
 
 Continuación de A1–A5 de Actividades y corrección del hallazgo Temporal registrado

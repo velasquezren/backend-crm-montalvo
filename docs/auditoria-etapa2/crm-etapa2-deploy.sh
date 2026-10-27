@@ -1,3 +1,10 @@
+# EVIDENCIA HISTÓRICA del despliegue de la etapa 2 (2026-09-07). NO EJECUTAR:
+# fija el commit 775abbd, usa `npm install` y su comprobación llega después del
+# `git pull`. El procedimiento vigente es §4 de
+# .claude/skills/crm-backend-arquitectura/SKILL.md.
+echo "crm-etapa2-deploy.sh es evidencia histórica: usar arquitectura §4" >&2
+exit 1
+
 set -euo pipefail
 cd /opt/crm-backend
 old_commit=$(git rev-parse HEAD)

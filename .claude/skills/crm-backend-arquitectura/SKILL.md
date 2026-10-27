@@ -19,7 +19,7 @@ este es "dónde vive el sistema y qué tan grande es de verdad".
 No cargar este documento entero al entrar al repo. Orientación general:
 [PANORAMA](../../../docs/PANORAMA.md). Para despliegue, leer §4 completo; para
 base descartable y pruebas, §8; para una decisión arquitectónica, §5; para
-diagnóstico, §7 y la fecha de sus mediciones. Las secciones §3 y §9 son historia.
+diagnóstico, §7 y la fecha de sus mediciones. §3 es historia medida; §9 resume el endurecimiento vigente.
 Las cifras observadas no acreditan recursos libres ni seguridad actuales.
 
 
@@ -578,57 +578,22 @@ historial de git para siempre, aunque se borren después.
 
 Lo que sí conviene dejar anotado (sin el secreto):
 
-- **Acceso al servidor**: hay **llave SSH para `root`** y funciona sin
-  contraseña — verificado el 2026-08-26 con `ssh -o BatchMode=yes root@…`,
-  que desactiva por completo el prompt de contraseña y aun así conecta. (Este
-  archivo afirmaba lo contrario —"hoy es contraseña de root, no una llave"—
-  hasta esa fecha.) **`crmapp` NO tiene llave**: `ssh crmapp@…` responde
-  `Permission denied (publickey)`, así que todo despliegue entra como `root` y
-  baja de privilegios con `sudo -u crmapp` comando a comando.
+- **Acceso al servidor** (comprobado con `sshd -T` el 2026-10-27): **solo por
+  llave**. `/etc/ssh/sshd_config.d/99-crm-hardening.conf`, puesto en la
+  migración del 17/09, fija `PasswordAuthentication no`, `PermitRootLogin
+  prohibit-password` y `KbdInteractiveAuthentication no`. `root` tiene tres
+  llaves autorizadas: dos ED25519 del dueño y una restringida con
+  `from="23.95.128.187"` (el servidor de la agenda). **`crmapp` no tiene
+  llave**: todo despliegue entra como `root` y baja de privilegios con
+  `sudo -u crmapp` comando a comando. `Permission denied (publickey)` desde la
+  máquina del dueño casi siempre es el agente SSH vacío tras reiniciar
+  (`ssh-add` de su llave), no un cambio en el servidor.
 
-  **El ataque, medido de verdad** (2026-09-02): `/var/log/secure` tenía
-  **2.206.756 intentos de contraseña fallidos desde 10.818 IPs distintas** y
-  pesaba **971 MB acumulados en menos de una semana** — un ritmo sostenido de
-  ~4,3 intentos por segundo. En una máquina de un solo núcleo compartida por
-  varias aplicaciones, eso es CPU y disco robados todo el día. (La cifra de
-  82.723 que traía antes este archivo salía del banner del login, que solo
-  cuenta desde el último acceso exitoso: subestimaba el problema en 25x.)
-
-  **Estado actual** (`sshd -T` + `fail2ban-client`, 2026-09-02):
-
-  ```
-  permitrootlogin yes
-  passwordauthentication yes    ← sigue abierto, ver abajo
-  pubkeyauthentication yes
-  fail2ban: ACTIVO desde el 2026-09-02, jail sshd
-  ```
-
-  `fail2ban` (EPEL, ya estaba habilitado como repo) se instaló y configuró en
-  `/etc/fail2ban/jail.local`: banea 1 hora tras 6 fallos en 10 minutos, con
-  `ignoreip` para las IPs desde las que históricamente entró el dueño. Baneó a
-  su primer atacante a los 8 segundos de arrancar. Efecto medido: el log pasó
-  de ~1,6 MB cada 20 minutos a **16 KB en 20 minutos**, unas 100 veces menos.
-
-  **Lo que sigue abierto**: `passwordauthentication yes`. Apagarlo es seguro y
-  está verificado —no es una suposición—: las dos máquinas del dueño entran
-  **por llave**, no por contraseña. El histórico de `/var/log/secure` lo
-  confirma (`181.114.107.115` → 2.409 autenticaciones por llave pública;
-  `190.186.23.243` → 20), y hay dos llaves distintas en
-  `/root/.ssh/authorized_keys`, una RSA y una ED25519, una por máquina. El
-  cambio quedó redactado pero **sin aplicar**, a la espera del dueño:
-
-  ```
-  # /etc/ssh/sshd_config.d/00-endurecimiento.conf   (00- para que gane por orden
-  # alfabético sobre 01-permitrootlogin.conf y 50-redhat.conf, ya que sshd toma
-  # el PRIMER valor que encuentra)
-  PasswordAuthentication no
-  PermitRootLogin prohibit-password
-  KbdInteractiveAuthentication no
-  ```
-
-  Aplicarlo así, encadenado, para que no recargue si la sintaxis está mal:
-  `sshd -t && systemctl reload sshd`. Con `fail2ban` puesto ya no es urgente,
-  pero cierra la puerta del todo.
+  `fail2ban` está activo con la jail `sshd` (más de 1.100 IPs baneadas hasta
+  el 27/10). Contexto de por qué: en la máquina anterior (AlmaLinux, hasta el
+  17/09) se midieron el 2026-09-02 **2,2 millones de intentos de contraseña
+  desde 10.818 IPs en menos de una semana**; esa máquina ya no existe y sus
+  rutas (`/var/log/secure`, `50-redhat.conf`, EPEL) no aplican a esta.
 - **Credenciales de la base** (`crm_app` / password real): están en
   `/opt/crm-backend/.env` en el servidor, y en `.env` local (gitignorado, no
   confundir con `.env.example` que sí está en git y no lleva secretos).
@@ -636,11 +601,12 @@ Lo que sí conviene dejar anotado (sin el secreto):
   solo en `.env`. `.env.example` documenta cuáles son obligatorias y por qué
   (ver los comentarios ahí — `check:skills` obliga a que `META_APP_SECRET` esté
   documentada si hay webhooks).
-- El repositorio de GitHub (`velasquezren/backend-crm-montalvo`) es accesible
-  sin credenciales desde el servidor (`git pull` funciona sin llave ni token
-  configurado para `crmapp`) — confirmar que esto es intencional; si el repo es
-  público, el código (no los secretos, que están en `.env` gitignorado) es
-  visible para cualquiera.
+- **Los tres repositorios de GitHub son públicos** (comprobado el 27/10:
+  backend, frontend y Resultados). Por eso `git pull` funciona en el servidor
+  sin llave. Consecuencia: nada de este archivo ni de `docs/` puede llevar
+  secretos, y el código y la topología (IP, rutas, puertos) son visibles para
+  cualquiera. Volverlos privados exige dar al servidor una llave de despliegue
+  de solo lectura antes del siguiente `git pull`.
 
 ## 7. Dónde mirar para rendimiento y escalabilidad
 
@@ -769,7 +735,7 @@ cierre de esta sección).
   | `POST /auth/login` | 21 | 336 ms | 498 ms |
   | `GET /conversaciones` | 242 | 108 ms | 910 ms |
 
-  El login a 336 ms es bcrypt en un solo núcleo: es su precio, no un bug.
+  El login a 336 ms es bcrypt (medido en la máquina anterior): es su coste deliberado, no un bug.
 
   **Y del lado de la base, nada.** Postgres tiene `log_min_duration_statement =
   500` desde antes, o sea que viene registrando toda query lenta: en el último
@@ -838,54 +804,27 @@ no ejecutar integración destructiva para corregir prosa.
   usan agentes reales sobre datos de pacientes reales, todos los días, sin red
   de staging debajo.
 
-## 9. Qué cambió en la máquina el 2026-09-02
+## 9. Endurecimiento de la máquina: qué quedó y qué no
 
-Una sesión de optimización sobre el servidor, no sobre el código. Se anota acá
-porque nada de esto vive en el repo: si no está escrito, el próximo que entre no
-tiene forma de enterarse. **Ningún cambio tocó el backend ni la base de datos**
-salvo un `ANALYZE` y el pool de conexiones.
+El 2026-09-02 se optimizó la máquina **anterior** (AlmaLinux, un núcleo,
+`107.172.193.34`), que dejó de usarse en la migración del 17/09. El detalle de
+aquella sesión —`/etc/httpd/…`, `firewalld`, MySQL, `webmin` y `vsftpd` en la
+misma máquina— está en el [historial de septiembre](../../../docs/historial/estado-2026-09.md)
+y **no describe este servidor**. Lo que vale hoy, comprobado el 2026-10-27:
 
-El punto de partida fue medir, y la medición cambió el plan: no había problema
-de rendimiento (§7), así que lo que se corrigió fue desperdicio, exposición y
-falta de red de seguridad.
+| Qué | En la máquina actual |
+|---|---|
+| SSH solo por llave y `fail2ban` | Sí (§6) |
+| Respaldos diarios locales y externo | Sí (§4) |
+| Pool de Prisma en 10 | Sí, `PrismaService` (§4, Prisma 7) |
+| Apache `MaxRequestWorkers 150` | Sí |
+| Firewall | `ufw`; no hay MySQL, `webmin` ni `vsftpd` en este servidor |
+| Tope al journal de systemd | **No**: sin `journald.conf.d`, ocupaba 557 MB el 27/10 |
 
-| Cambio | Dónde | Efecto medido |
-|---|---|---|
-| `fail2ban` instalado y activo | `/etc/fail2ban/jail.local` | ataque SSH ~100x menos (§6) |
-| Respaldo diario automático | `/usr/local/sbin/backup-crm.sh`, `/etc/cron.d/backup-crm` | cerró un hueco de 4 días (§4) |
-| Pool de Prisma 25 → 10 | `DATABASE_URL` en `.env` | 25 conexiones ociosas → 1, ~69 MB (§2) |
-| Techo de concurrencia a Apache | `/etc/httpd/conf.d/zz-limites-vps.conf` | 400 → 150 workers |
-| Tope al journal de systemd | `/etc/systemd/journald.conf.d/99-limite.conf` | `SystemMaxUse=200M` |
-| Rotado por tamaño de `secure`/`messages` | `/etc/logrotate.d/99-secure-tamano` | rota a los 50 MB |
-| `ANALYZE` de toda la base | — | `Lead` no tenía estadísticas completas |
-| `agenda-api` detenido y deshabilitado | — | tercer proyecto, decisión del dueño (§2) |
-| 1,7 GB de disco liberados | — | 56 % → 50 % de 30 GB |
-
-Tres detalles que valen para la próxima:
-
-- **`MaxRequestWorkers` estaba en el default de 400.** En 1.7 GB compartidos eso
-  no es capacidad disponible: es la forma en que un pico o un escáner consume
-  toda la RAM y se lleva puestas las tres aplicaciones. El techo nuevo, 150, es
-  un orden de magnitud más de lo que este servidor ha visto (§7).
-
-- **El `ANALYZE` no fue cosmético.** `Lead` (15.665 filas) nunca había tenido un
-  `autoanalyze` —el umbral es 50 + 10 % de las filas, y una tabla cargada de
-  golpe y luego casi quieta no lo cruza nunca— y `Cliente` traía estadísticas
-  del 1 de agosto. El planificador estaba eligiendo planes a ciegas sobre las
-  dos tablas más grandes. Vale re-correrlo después de cualquier importación
-  masiva; `autovacuum` solo no alcanza en tablas que se cargan de una vez.
-
-- **De los 1,7 GB liberados, 900 MB eran el log del ataque de fuerza bruta** y
-  731 MB un instalador de `scriptcase` en `/home` que nunca se había instalado
-  (verificado: sin rastro en el sistema, sin vhost ni servicio que lo
-  referenciara). El disco no era el problema, pero el log sí era un síntoma.
-
-Lo que se decidió NO tocar, y por qué: `webmin` y `vsftpd` quedan encendidos
-porque el dueño los usa para otro software (FTP/PDF), y **MySQL sigue escuchando
-en `0.0.0.0:3306` con el puerto abierto en `firewalld`** — se planteó como
-riesgo y el dueño resolvió dejarlo así. Queda anotado sin cerrar: el chequeo de
-usuarios remotos de MySQL quedó inconcluso (el cliente `mysql` no autenticó), o
-sea que **no hay evidencia de que esté a salvo, solo la decisión de no tocarlo**.
+Una lección de aquella sesión que sigue valiendo: **correr `ANALYZE` después de
+cualquier importación masiva**. `Lead` y `Cliente` llegaron a tener estadísticas
+viejas porque una tabla cargada de golpe y luego casi quieta no cruza nunca el
+umbral de `autoanalyze` (50 filas + 10 %), y el planificador elegía a ciegas.
 
 ## 10. Vínculos
 
