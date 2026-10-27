@@ -1918,17 +1918,25 @@ model HorarioMedico {
 }
 
 /// Días en que no atiende (vacaciones, congreso). Se publica para no ofrecer lo que no hay.
+/// Es de UNO de los dos (CHECK en la migración): del médico de la agenda o, si la
+/// ficha web no tiene médico de agenda, de la ficha.
 model AusenciaMedico {
-  id             String       @id @default(uuid())
-  perfilMedicoId String
-  perfilMedico   PerfilMedico @relation(fields: [perfilMedicoId], references: [id], onDelete: Cascade)
-  desde          DateTime     @db.Date
-  hasta          DateTime     @db.Date
+  id             String        @id @default(uuid())
+  /// Solo fichas web SIN médico de agenda. Una ficha con agenda usa `agendaMedicoId`.
+  perfilMedicoId String?
+  perfilMedico   PerfilMedico? @relation(fields: [perfilMedicoId], references: [id], onDelete: Cascade)
+  /// El médico de la AGENDA (`medicos.medico_pk`). Con esto la web, el Flow, el
+  /// asistente y el botón «Cupos» dejan de ofrecer esos días, y la reserva los rechaza.
+  /// No es una FK: el médico vive en MySQL. Sobrevive a que se borre la ficha web.
+  agendaMedicoId Int?
+  desde          DateTime      @db.Date
+  hasta          DateTime      @db.Date
   /// Lo que se dice al público, sin detalles personales: «Vacaciones».
-  motivoPublico  String?      @db.VarChar(120)
-  createdAt      DateTime     @default(now())
+  motivoPublico  String?       @db.VarChar(120)
+  createdAt      DateTime      @default(now())
 
   @@index([perfilMedicoId, hasta])
+  @@index([agendaMedicoId, hasta])
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -95,6 +95,8 @@ la representación informativa, no otra fuente de cupos. Ver [agenda](agenda.md)
   por día y sin solapes (`erroresDelHorario`). Se guarda entero. `resumenDelHorario` lo dice en
   una frase («Lunes a viernes, 08:00–12:00 · sábado, 09:00–12:00»); vacío = «Con cita a solicitud».
 - **Ausencias**: rangos de fechas con un motivo público («Vacaciones»), sin detalles personales.
+  En una ficha enlazada a la agenda son del médico de la agenda y además cierran
+  esos días para reservar: ver [agenda](agenda.md#vacaciones-y-ausencias).
 
 ## API pública (la landing)
 

@@ -5,9 +5,45 @@ import { disponibilidadDeAgenda, fechaConsultable, medicoDeAgenda, paginaAgenda,
 import { consultarAgendaSql, precioDelVps } from './agenda.sql';
 import { DirectorioService } from '../directorio/directorio.service';
 
-/** El directorio solo aporta fotos de fichas publicadas a la reserva web. */
-const directorio = (fotos: Map<number, string> = new Map()) =>
-  ({ fotosPublicasDeAgenda: jest.fn().mockResolvedValue(fotos) }) as unknown as DirectorioService;
+/** El directorio aporta fotos de fichas publicadas a la reserva web y las ausencias (vacaciones) de cada médico. */
+const directorio = (fotos: Map<number, string> = new Map(), ausencias: Map<number, { id: string; desde: string; hasta: string; motivo: string | null }[]> = new Map()) =>
+  ({ fotosPublicasDeAgenda: jest.fn().mockResolvedValue(fotos), ausenciasDeAgenda: jest.fn().mockResolvedValue(ausencias) }) as unknown as DirectorioService;
+
+/** Hoy en La Paz más `n` días, como AAAA-MM-DD. */
+const diaLaPaz = (n = 0) => {
+  const hoy = new Intl.DateTimeFormat('en-CA',{timeZone:'America/La_Paz',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
+  const d = new Date(`${hoy}T00:00:00Z`); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10);
+};
+
+describe('Agenda: vacaciones del médico (ausencias del CRM)', () => {
+  const vacaciones = new Map([[1, [{ id: 'x', desde: diaLaPaz(2), hasta: diaLaPaz(4), motivo: 'Vacaciones' }]]]);
+  const cliente = () => new AgendaVpsClient(new ConfigService({AGENDA_VPS_LECTURA:'on'}));
+
+  it('los días de vacaciones no se ofrecen y se dice desde cuándo vuelve', async () => {
+    const c = cliente();
+    jest.spyOn(c,'leer').mockResolvedValue({version:1,medicoId:'1',zonaHoraria:'America/La_Paz',fechas:[1,2,3,4,5].map(diaLaPaz)});
+    const r = await new AgendaService(c, directorio(new Map(), vacaciones)).dias({medicoId:'1'});
+    expect(r.fechas).toEqual([diaLaPaz(1), diaLaPaz(5)]);
+    expect(r.ausencias).toEqual([{ desde: diaLaPaz(2), hasta: diaLaPaz(4), motivo: 'Vacaciones', vuelve: diaLaPaz(5) }]);
+  });
+
+  it('un día de vacaciones sale SIN_ATENCION y sin horas, aunque la agenda las tenga libres', async () => {
+    const c = cliente();
+    const fecha = diaLaPaz(3);
+    jest.spyOn(c,'leer').mockResolvedValue({version:1,medicoId:'1',fecha,zonaHoraria:'America/La_Paz',consultadoEn:new Date().toISOString(),estado:'DISPONIBLE',horarios:[{id:'1_0900',hora:'09:00'}]});
+    const r = await new AgendaService(c, directorio(new Map(), vacaciones)).disponibilidad({medicoId:'1',fecha});
+    expect(r).toMatchObject({ estado: 'SIN_ATENCION', horarios: [], ausencia: { desde: diaLaPaz(2), hasta: diaLaPaz(4), vuelve: diaLaPaz(5) } });
+    /* El id interno de la ausencia no sale hacia la web ni el asistente. */
+    expect(r.ausencia).not.toHaveProperty('id');
+  });
+
+  it('sin vacaciones, la respuesta de la agenda sale tal cual', async () => {
+    const c = cliente();
+    const fechas = [1,2].map(diaLaPaz);
+    jest.spyOn(c,'leer').mockResolvedValue({version:1,medicoId:'1',zonaHoraria:'America/La_Paz',fechas});
+    expect(await new AgendaService(c, directorio()).dias({medicoId:'1'})).toEqual({medicoId:'1',zonaHoraria:'America/La_Paz',fechas});
+  });
+});
 
 describe('Agenda: límites, privacidad y fallos cerrados', () => {
   it('solo acepta hoy..hoy+29 en La Paz, incluido cambio de mes y año', () => {

@@ -606,3 +606,47 @@ describe('mi_agenda: la agenda del médico que escribe', () => {
     await expect(montar().ejecutar('mi_agenda', { fecha: '2026-10-12', detalle: 'LISTA' }, caida.contexto, NO)).rejects.toBeInstanceOf(ServiceUnavailableException);
   });
 });
+
+/* ── Vacaciones del médico (27/10): no se ofrecen esos días y el modelo sabe qué decir ── */
+describe('vacaciones del médico', () => {
+  const VACACIONES = { desde: '2026-11-10', hasta: '2026-11-21', motivo: 'Vacaciones', vuelve: '2026-11-22' };
+  const montalvo = {
+    medico: { id: '1', nombre: 'Dr. Juan Carlos Montalvo Doria Medina', especialidadId: 'g', modalidad: 'ONLINE', precio: null, horarioInformativo: 'Lunes 9:00', fotoUrl: null },
+    especialidad: { id: 'g', nombre: 'Ginecología' },
+  };
+  const conVacaciones = (extra: Partial<Record<keyof AgendaService, unknown>> = {}) => ({
+    todosLosMedicos: jest.fn().mockResolvedValue([montalvo]),
+    medico: jest.fn().mockResolvedValue(montalvo),
+    ausenciasProximas: jest.fn().mockResolvedValue(new Map([['1', [VACACIONES]]])),
+    ...extra,
+  }) as unknown as Partial<AgendaService>;
+
+  it('buscar_medico y ver_medico traen noAtiende con el día en que vuelve', async () => {
+    const buscado = await montar(conVacaciones()).ejecutar('buscar_medico', { nombre: 'montalvo' }, CONTEXTO, { permitirEscritura: false });
+    expect(buscado).toMatchObject({ ok: true, datos: [{ id: '1', noAtiende: [VACACIONES] }] });
+    const visto = await montar(conVacaciones()).ejecutar('ver_medico', { medicoId: '1' }, CONTEXTO, { permitirEscritura: false });
+    expect(visto).toMatchObject({ ok: true, datos: { id: '1', noAtiende: [VACACIONES] } });
+  });
+
+  it('enviar_horario manda la imagen de siempre, pero le dice al modelo que avise de las vacaciones', async () => {
+    const r = await montar(conVacaciones()).ejecutar('enviar_horario', { medicoId: '1' }, { ...CONTEXTO, solicitud: 'HORARIO' }, { permitirEscritura: false });
+    expect(r).toMatchObject({ ok: true, accion: { tipo: 'HORARIO' } });
+    if (r.ok) expect(r.datos).toContain('vuelve a atender desde el 2026-11-22');
+  });
+
+  it('si las ausencias no se pueden leer, la ficha sale igual (la agenda ya no ofrece esos días)', async () => {
+    const r = await montar(conVacaciones({ ausenciasProximas: jest.fn().mockRejectedValue(new Error('pg caído')) }))
+      .ejecutar('ver_medico', { medicoId: '1' }, CONTEXTO, { permitirEscritura: false });
+    expect(r).toMatchObject({ ok: true, datos: { id: '1' } });
+    if (r.ok) expect(r.datos).not.toHaveProperty('noAtiende');
+  });
+
+  it('reservar un día de vacaciones no queda como acción: dice desde cuándo ofrecer', async () => {
+    const agenda = conVacaciones({
+      disponibilidad: jest.fn().mockResolvedValue({ medicoId: '57', fecha: '2026-10-19', estado: 'SIN_ATENCION', horarios: [], ausencia: VACACIONES }),
+    });
+    const r = await montar(agenda).ejecutar('reservar', PEDIDO, { ...CONTEXTO, solicitud: 'AGENDAR', reservas: reservas() }, { permitirEscritura: true });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.motivo).toContain('desde el 2026-11-22');
+  });
+});

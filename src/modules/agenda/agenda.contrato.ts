@@ -1,6 +1,8 @@
 import { urlPublica } from '../../common/storage/imagen-publica';
 /** Contrato público de lectura v1 sobre el VPS auditado.
  * No representa tablas de ScriptCase ni autoriza reservas o pagos. */
+import type { AusenciaPublica } from '../directorio/ausencias';
+
 export interface EspecialidadAgenda { id: string; nombre: string }
 export interface MedicoAgenda {
   id: string;
@@ -15,8 +17,10 @@ export interface MedicoAgenda {
 export interface DiasAgenda {
   medicoId: string;
   zonaHoraria: 'America/La_Paz';
-  /** Fechas civiles con al menos una hora libre, en orden. */
+  /** Fechas civiles con al menos una hora libre, en orden. No trae días de ausencia del médico. */
   fechas: string[];
+  /** Vacaciones o congreso que tocan estos 30 días, con el día en que vuelve a atender. Solo si hay. */
+  ausencias?: (AusenciaPublica & { vuelve: string })[];
 }
 export interface DisponibilidadAgenda {
   medicoId: string;
@@ -25,6 +29,8 @@ export interface DisponibilidadAgenda {
   consultadoEn: string;
   estado: 'DISPONIBLE' | 'SIN_CUPOS' | 'SIN_ATENCION' | 'A_SOLICITUD';
   horarios: { id: string; hora: string }[];
+  /** Ese día no atiende (vacaciones, congreso): `SIN_ATENCION`, sin horarios, y hasta cuándo. */
+  ausencia?: AusenciaPublica & { vuelve: string };
 }
 
 export const ID_AGENDA = /^[A-Za-z0-9_-]{1,80}$/;

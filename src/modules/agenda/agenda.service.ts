@@ -1,10 +1,15 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { CacheMemoria } from '../../common/cache/cache-memoria';
 import { calcularPaginacion, PaginationDto, RespuestaPaginada } from '../../common/dto/pagination.dto';
+import { fechaCivilClinica, textoDeFechaCivil } from '../../common/fechas/zona-clinica';
+import { AusenciaPublica, ausenciaDelDia, ausenciasEnRango, sumarDias } from '../directorio/ausencias';
 import { DirectorioService } from '../directorio/directorio.service';
 import { AgendaVpsClient } from './agenda-vps.client';
-import { diasDeAgenda, disponibilidadDeAgenda, EspecialidadAgenda, especialidadDeAgenda, fechaConsultable, MedicoAgenda, medicoConEspecialidadDeAgenda, medicoDeAgenda, paginaAgenda, todosLosMedicosDeAgenda } from './agenda.contrato';
+import { DiasAgenda, diasDeAgenda, DisponibilidadAgenda, disponibilidadDeAgenda, EspecialidadAgenda, especialidadDeAgenda, fechaConsultable, MedicoAgenda, medicoConEspecialidadDeAgenda, medicoDeAgenda, paginaAgenda, todosLosMedicosDeAgenda } from './agenda.contrato';
 import { QueryDiasAgendaDto, QueryDisponibilidadAgendaDto, QueryMedicosAgendaDto } from './dto/query-agenda.dto';
+
+/** Sin el id interno: lo que sale hacia la web, el Flow y el asistente. */
+const publica = ({ desde, hasta, motivo }: AusenciaPublica): AusenciaPublica => ({ desde, hasta, motivo });
 
 @Injectable()
 export class AgendaService {
@@ -97,17 +102,53 @@ export class AgendaService {
     return fotos.size === 0 ? medicos : medicos.map(m => ({ ...m, fotoUrl: fotos.get(Number(m.id)) ?? m.fotoUrl }));
   }
 
-  async disponibilidad(query: QueryDisponibilidadAgendaDto) {
+  /**
+   * Las horas libres de un día. Si ese día el médico está de vacaciones (o en
+   * un congreso) no se ofrece ninguna, aunque la agenda las tenga libres: la
+   * agenda de ScriptCase no sabe de ausencias, las guarda el CRM.
+   */
+  async disponibilidad(query: QueryDisponibilidadAgendaDto): Promise<DisponibilidadAgenda> {
     if (!fechaConsultable(query.fecha)) throw new BadRequestException('Elige una fecha válida dentro de los próximos 30 días, incluido hoy.');
     const crudo = await this.vps.leer('disponibilidad', new URLSearchParams({ medicoId: query.medicoId, fecha: query.fecha }));
-    try { return disponibilidadDeAgenda(crudo, query.medicoId, query.fecha); }
+    let r: DisponibilidadAgenda;
+    try { r = disponibilidadDeAgenda(crudo, query.medicoId, query.fecha); }
     catch { throw this.vps.noDisponible(); }
+    const [ausencia] = ausenciasEnRango(await this.ausenciasDe(query.medicoId), query.fecha, query.fecha);
+    return ausencia ? { ...r, estado: 'SIN_ATENCION', horarios: [], ausencia } : r;
   }
 
-  /** Días con horas libres en los próximos 30: la web solo ofrece esos. Sin caché, como la disponibilidad. */
-  async dias(query: QueryDiasAgendaDto) {
+  /** Días con horas libres en los próximos 30, sin los de ausencia: la web solo ofrece esos. Sin caché, como la disponibilidad. */
+  async dias(query: QueryDiasAgendaDto): Promise<DiasAgenda> {
     const crudo = await this.vps.leer('dias', new URLSearchParams({ medicoId: query.medicoId }));
-    try { return diasDeAgenda(crudo, query.medicoId); }
+    let r: DiasAgenda;
+    try { r = diasDeAgenda(crudo, query.medicoId); }
     catch { throw this.vps.noDisponible(); }
+    const todas = await this.ausenciasDe(query.medicoId);
+    if (todas.length === 0) return r;
+    // Los 30 días que ofrece la agenda: hoy y los 29 siguientes (`fechaConsultable`).
+    const hoy = textoDeFechaCivil(fechaCivilClinica(new Date()));
+    const ausencias = ausenciasEnRango(todas, hoy, sumarDias(hoy, 29));
+    return { ...r, fechas: r.fechas.filter(f => !ausenciaDelDia(todas, f)), ...(ausencias.length ? { ausencias } : {}) };
+  }
+
+  /**
+   * Las ausencias que todavía no terminaron de cada médico (por su id de la
+   * agenda), para decírselas a la paciente. Un médico sin ausencias no está.
+   */
+  async ausenciasProximas(medicoIds: readonly string[]): Promise<Map<string, (AusenciaPublica & { vuelve: string })[]>> {
+    const ids = medicoIds.filter(id => /^\d{1,10}$/.test(id)).map(Number);
+    const porMedico = await this.directorio.ausenciasDeAgenda(ids);
+    const hoy = textoDeFechaCivil(fechaCivilClinica(new Date()));
+    return new Map([...porMedico].map(([id, lista]) => [String(id), ausenciasEnRango(lista.map(publica), hoy, '9999-12-31')]));
+  }
+
+  /** La ausencia que cubre ese día, si hay: la reserva no se registra en un día así. */
+  async ausenciaEnFecha(medicoId: string, fecha: string): Promise<AusenciaPublica | null> {
+    return ausenciaDelDia(await this.ausenciasDe(medicoId), fecha);
+  }
+
+  private async ausenciasDe(medicoId: string): Promise<AusenciaPublica[]> {
+    if (!/^\d{1,10}$/.test(medicoId)) return [];
+    return ((await this.directorio.ausenciasDeAgenda([Number(medicoId)])).get(Number(medicoId)) ?? []).map(publica);
   }
 }

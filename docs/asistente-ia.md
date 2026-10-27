@@ -22,6 +22,14 @@ la hubiera leído bien como VENTAS/AGENDAR.
   con eso, `pasar_a_persona` con motivo `CITA`.
 - `CITA` llega a «Por atender» como `SOLICITUD_CITA` («Pidió una cita»), igual que el Flow
   de solicitud, con un texto fijo (`TEXTO_SOLICITUD_CITA`) y la automatización en pausa.
+
+**Vacaciones del médico (27/10).** Los mismos tres traen `noAtiende` (desde, hasta,
+motivo público y `vuelve`) si el médico tiene una ausencia cargada; `enviar_horario`
+lo añade al texto para que el modelo lo diga junto con la imagen de siempre. El prompt
+le pide decirlo con las fechas en palabras y ofrecer días desde `vuelve` u otro médico.
+No depende de que el modelo obedezca: `dias_con_cupo` ya no trae esos días,
+`horas_libres` responde `SIN_ATENCION` con `ausencia`, y `reservar` y la agenda los
+rechazan. Ver [agenda](agenda.md#vacaciones-y-ausencias).
 - Recorrido real en el servidor (`asistente:caminos`, dos casos nuevos): pregunta los días
   sin inventar horas ni buscar cupos, y con la respuesta deja la solicitud.
 

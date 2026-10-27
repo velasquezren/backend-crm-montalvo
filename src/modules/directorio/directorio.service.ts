@@ -37,6 +37,7 @@ import {
   QueryMedicosSinFichaDto,
   QueryPerfilesMedicosDto,
 } from './dto/perfil-medico.dto';
+import { AusenciaPublica } from './ausencias';
 import { BloqueHorario, erroresDelHorario, horaDeMinutos, minutosDeHora, ordenarBloques, resumenDelHorario } from './horario';
 
 /** Ausencias futuras que se aceptan por médico: más es un error de carga. */
@@ -98,9 +99,23 @@ export interface ResumenWebDeAgenda {
 /** Ausencias que lleva cada médico en el listado público: la landing ofrece las próximas dos semanas. */
 const AUSENCIAS_EN_LISTADO = 5;
 
-const SELECT_AUSENCIA = { desde: true, hasta: true, motivoPublico: true } as const;
+const SELECT_AUSENCIA = { id: true, perfilMedicoId: true, agendaMedicoId: true, desde: true, hasta: true, motivoPublico: true } as const;
 
-function ausenciaPublica(a: { desde: Date; hasta: Date; motivoPublico: string | null }) {
+type FilaAusencia = Prisma.AusenciaMedicoGetPayload<{ select: typeof SELECT_AUSENCIA }>;
+
+/** De quién es una ausencia: del médico de la agenda o, si la ficha no tiene agenda, de la ficha. */
+type DuenoAusencia = { agendaMedicoId: number } | { perfilMedicoId: string };
+
+/** Las de una ficha: las suyas si no tiene agenda, las de su médico si la tiene. */
+function deLaFicha(f: { id: string; agendaMedicoId: number | null }): Prisma.AusenciaMedicoWhereInput {
+  return f.agendaMedicoId === null ? { perfilMedicoId: f.id } : { agendaMedicoId: f.agendaMedicoId };
+}
+
+function esDeLaFicha(a: FilaAusencia, f: { id: string; agendaMedicoId: number | null }): boolean {
+  return f.agendaMedicoId === null ? a.perfilMedicoId === f.id : a.agendaMedicoId === f.agendaMedicoId;
+}
+
+function ausenciaPublica(a: { desde: Date; hasta: Date; motivoPublico: string | null }): AusenciaPublica {
   return { desde: textoDeFechaCivil(a.desde), hasta: textoDeFechaCivil(a.hasta), motivo: a.motivoPublico };
 }
 
@@ -111,7 +126,8 @@ function bloquePublico(b: BloqueHorario) {
 /**
  * El directorio médico: especialidades, la ficha pública de cada médico y su
  * horario semanal informativo. Único dueño de `Especialidad`, `PerfilMedico`,
- * `PerfilMedicoEspecialidad`, `HorarioMedico` y `AusenciaMedico`. Lee `Medico`
+ * `PerfilMedicoEspecialidad`, `HorarioMedico` y `AusenciaMedico` (también las
+ * del médico de la agenda: el módulo `agenda` las pide aquí). Lee `Medico`
  * (de comisiones) para enlazar la ficha con su código de FileMaker; no lo escribe.
  *
  * Diseño: docs/promociones-y-directorio.md.
@@ -236,14 +252,14 @@ export class DirectorioService {
       include: {
         ...INCLUIR_FICHA,
         medico: { select: { id: true, codigo: true, nombre: true } },
-        ausencias: {
-          where: { hasta: { gte: fechaCivilClinica(new Date()) } },
-          orderBy: { desde: 'asc' },
-          select: { id: true, desde: true, hasta: true, motivoPublico: true },
-        },
       },
     });
     if (!f) throw new NotFoundException('Esa ficha no existe.');
+    const ausencias = await this.prisma.ausenciaMedico.findMany({
+      where: { ...deLaFicha(f), hasta: { gte: fechaCivilClinica(new Date()) } },
+      orderBy: { desde: 'asc' },
+      select: SELECT_AUSENCIA,
+    });
     return {
       id: f.id,
       nombrePublico: f.nombrePublico,
@@ -260,7 +276,7 @@ export class DirectorioService {
       especialidades: f.especialidades.map(e => e.especialidad),
       horario: ordenarBloques(f.horarios).map(bloquePublico),
       resumenHorario: resumenDelHorario(f.horarios),
-      ausencias: f.ausencias.map(a => ({ id: a.id, desde: textoDeFechaCivil(a.desde), hasta: textoDeFechaCivil(a.hasta), motivoPublico: a.motivoPublico })),
+      ausencias: ausencias.map(a => ({ id: a.id, desde: textoDeFechaCivil(a.desde), hasta: textoDeFechaCivil(a.hasta), motivoPublico: a.motivoPublico })),
       fotoUrl: f.fotoClave ? await this.r2.urlFirmada(f.fotoClave) : null,
       updatedAt: f.updatedAt,
     };
@@ -347,27 +363,80 @@ export class DirectorioService {
     return this.avisarSiPublicada(await this.obtenerFicha(id));
   }
 
+  /**
+   * Una ausencia desde la ficha web. Si la ficha presenta a un médico de la
+   * agenda, la ausencia es de ese médico (la ven también la agenda y el asistente).
+   */
   async agregarAusencia(id: string, dto: CrearAusenciaDto, usuarioId: string) {
+    const f = await this.prisma.perfilMedico.findUnique({ where: { id }, select: { agendaMedicoId: true } });
+    if (!f) throw new NotFoundException('Esa ficha no existe.');
+    const dueno: DuenoAusencia = f.agendaMedicoId === null ? { perfilMedicoId: id } : { agendaMedicoId: f.agendaMedicoId };
+    return this.crearAusencia(dueno, dto, { entidad: 'PerfilMedico', id }, usuarioId);
+  }
+
+  async quitarAusencia(id: string, ausenciaId: string, usuarioId: string) {
+    const f = await this.prisma.perfilMedico.findUnique({ where: { id }, select: { id: true, agendaMedicoId: true } });
+    if (!f) throw new NotFoundException('Esa ficha no existe.');
+    await this.borrarAusencia(deLaFicha(f), ausenciaId, { entidad: 'PerfilMedico', id }, usuarioId);
+  }
+
+  /**
+   * Vacaciones o congreso del médico de la AGENDA (`medicos.medico_pk`). Desde
+   * que se guarda, la web, el Flow, el asistente y el botón «Cupos» dejan de
+   * ofrecer esos días y la reserva los rechaza. Las citas que ya estaban no se
+   * tocan: las reprograma recepción en FileMaker. Quien llama comprueba que el
+   * médico existe en la agenda.
+   */
+  agregarAusenciaDeAgenda(agendaMedicoId: number, dto: CrearAusenciaDto, usuarioId: string) {
+    return this.crearAusencia({ agendaMedicoId }, dto, { entidad: 'MedicoAgenda', id: String(agendaMedicoId) }, usuarioId);
+  }
+
+  quitarAusenciaDeAgenda(agendaMedicoId: number, ausenciaId: string, usuarioId: string) {
+    return this.borrarAusencia({ agendaMedicoId }, ausenciaId, { entidad: 'MedicoAgenda', id: String(agendaMedicoId) }, usuarioId);
+  }
+
+  /**
+   * Las ausencias que todavía no terminaron de esos médicos de la agenda, en
+   * orden. Un médico sin ausencias no está en el mapa. Lo leen la agenda (para
+   * no ofrecer esos días), la reserva y el asistente.
+   */
+  async ausenciasDeAgenda(agendaMedicoIds: readonly number[]): Promise<Map<number, (AusenciaPublica & { id: string })[]>> {
+    const ids = [...new Set(agendaMedicoIds.filter(n => Number.isSafeInteger(n) && n > 0))];
+    if (ids.length === 0) return new Map();
+    const filas = await this.prisma.ausenciaMedico.findMany({
+      where: { agendaMedicoId: { in: ids }, hasta: { gte: fechaCivilClinica(new Date()) } },
+      orderBy: { desde: 'asc' },
+      select: SELECT_AUSENCIA,
+    });
+    const porMedico = new Map<number, (AusenciaPublica & { id: string })[]>();
+    for (const a of filas) {
+      const lista = porMedico.get(a.agendaMedicoId!) ?? [];
+      lista.push({ id: a.id, ...ausenciaPublica(a) });
+      porMedico.set(a.agendaMedicoId!, lista);
+    }
+    return porMedico;
+  }
+
+  private async crearAusencia(dueno: DuenoAusencia, dto: CrearAusenciaDto, auditoria: { entidad: string; id: string }, usuarioId: string) {
     const desde = fechaCivilDesdeTexto(dto.desde);
     const hasta = fechaCivilDesdeTexto(dto.hasta);
     if (!desde || !hasta) throw new BadRequestException('Alguna de las fechas no existe.');
     if (desde > hasta) throw new BadRequestException('La ausencia termina antes de empezar.');
     if (hasta < fechaCivilClinica(new Date())) throw new BadRequestException('Esa ausencia ya pasó.');
-    await this.fichaOFallar(id);
-    const futuras = await this.prisma.ausenciaMedico.count({ where: { perfilMedicoId: id, hasta: { gte: fechaCivilClinica(new Date()) } } });
+    const futuras = await this.prisma.ausenciaMedico.count({ where: { ...dueno, hasta: { gte: fechaCivilClinica(new Date()) } } });
     if (futuras >= AUSENCIAS_MAXIMAS) throw new BadRequestException(`Hay ${AUSENCIAS_MAXIMAS} ausencias cargadas; quita alguna antes.`);
     const creada = await this.prisma.ausenciaMedico.create({
-      data: { perfilMedicoId: id, desde, hasta, motivoPublico: dto.motivoPublico ?? null },
+      data: { ...dueno, desde, hasta, motivoPublico: dto.motivoPublico ?? null },
     });
-    await this.audit.registrar('PerfilMedico', id, 'AUSENCIA_MEDICO_CREADA', usuarioId, { desde: dto.desde, hasta: dto.hasta });
+    await this.audit.registrar(auditoria.entidad, auditoria.id, 'AUSENCIA_MEDICO_CREADA', usuarioId, { desde: dto.desde, hasta: dto.hasta, motivoPublico: creada.motivoPublico });
     this.landing.avisar('directorio');
     return { id: creada.id, desde: dto.desde, hasta: dto.hasta, motivoPublico: creada.motivoPublico };
   }
 
-  async quitarAusencia(id: string, ausenciaId: string, usuarioId: string) {
-    const { count } = await this.prisma.ausenciaMedico.deleteMany({ where: { id: ausenciaId, perfilMedicoId: id } });
+  private async borrarAusencia(dueno: Prisma.AusenciaMedicoWhereInput, ausenciaId: string, auditoria: { entidad: string; id: string }, usuarioId: string) {
+    const { count } = await this.prisma.ausenciaMedico.deleteMany({ where: { ...dueno, id: ausenciaId } });
     if (!count) throw new NotFoundException('Esa ausencia no existe.');
-    await this.audit.registrar('PerfilMedico', id, 'AUSENCIA_MEDICO_QUITADA', usuarioId, { ausenciaId });
+    await this.audit.registrar(auditoria.entidad, auditoria.id, 'AUSENCIA_MEDICO_QUITADA', usuarioId, { ausenciaId });
     this.landing.avisar('directorio');
   }
 
@@ -643,16 +712,16 @@ export class DirectorioService {
         orderBy: [{ orden: 'asc' }, { nombrePublico: 'asc' }],
         skip,
         take,
-        include: {
-          ...INCLUIR_FICHA,
-          // Las próximas, para que la landing no ofrezca un día en que el médico no está.
-          ausencias: { where: { hasta: { gte: hoy } }, orderBy: { desde: 'asc' }, take: AUSENCIAS_EN_LISTADO, select: SELECT_AUSENCIA },
-        },
+        include: INCLUIR_FICHA,
       }),
       this.prisma.perfilMedico.count({ where }),
     ]);
+    // Las próximas, para que la landing no ofrezca un día en que el médico no está.
+    const ausencias = filas.length
+      ? await this.prisma.ausenciaMedico.findMany({ where: { OR: filas.map(deLaFicha), hasta: { gte: hoy } }, orderBy: { desde: 'asc' }, select: SELECT_AUSENCIA })
+      : [];
     return paginar(
-      filas.map(f => ({ ...this.tarjetaPublica(f), ausencias: f.ausencias.map(ausenciaPublica) })),
+      filas.map(f => ({ ...this.tarjetaPublica(f), ausencias: ausencias.filter(a => esDeLaFicha(a, f)).slice(0, AUSENCIAS_EN_LISTADO).map(ausenciaPublica) })),
       total,
       query,
     );
@@ -662,17 +731,15 @@ export class DirectorioService {
     const hoy = fechaCivilClinica(new Date());
     const f = await this.prisma.perfilMedico.findFirst({
       where: { slug, publicado: true },
-      include: {
-        ...INCLUIR_FICHA,
-        ausencias: { where: { hasta: { gte: hoy } }, orderBy: { desde: 'asc' }, select: SELECT_AUSENCIA },
-      },
+      include: INCLUIR_FICHA,
     });
     if (!f) throw new NotFoundException('Ese médico no está en el directorio.');
+    const ausencias = await this.prisma.ausenciaMedico.findMany({ where: { ...deLaFicha(f), hasta: { gte: hoy } }, orderBy: { desde: 'asc' }, select: SELECT_AUSENCIA });
     return {
       ...this.tarjetaPublica(f),
       biografia: f.biografia,
       matricula: f.matricula,
-      ausencias: f.ausencias.map(ausenciaPublica),
+      ausencias: ausencias.map(ausenciaPublica),
     };
   }
 
@@ -720,11 +787,6 @@ export class DirectorioService {
     const f = await this.prisma.perfilMedico.findUnique({ where: { id }, select: { agendaMedicoId: true } });
     if (!f) throw new NotFoundException('Esa ficha no existe.');
     if (f.agendaMedicoId !== null) throw new BadRequestException(mensaje);
-  }
-
-  private async fichaOFallar(id: string) {
-    const f = await this.prisma.perfilMedico.findUnique({ where: { id }, select: { id: true } });
-    if (!f) throw new NotFoundException('Esa ficha no existe.');
   }
 
   /** Dentro de una transacción: la ficha existe y nadie la guardó desde que se leyó. */

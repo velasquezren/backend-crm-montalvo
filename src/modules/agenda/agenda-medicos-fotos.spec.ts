@@ -5,6 +5,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { DirectorioService } from '../directorio/directorio.service';
 import { AgendaAdminClient } from './agenda-admin.client';
 import { MedicoPorCodigo } from './agenda-admin.sql';
+import { AgendaMedicoCitasService } from './agenda-medico-citas.service';
 import { AgendaMedicosCrmService, fotoDelMedico } from './agenda-medicos-crm.service';
 import { AgendaReservasService } from './agenda-reservas.service';
 import { HorarioFilemakerService } from './horario-filemaker.service';
@@ -22,19 +23,21 @@ const ASISTENTE: UsuarioJwt = { sub: 'u-asis', email: 's@x', nombre: 'Asistente'
 const medico = (id: number, codigo: string, estado = 'ACTIVO', fotoVersion: string | null = VERSION): MedicoPorCodigo =>
   ({ id, codigo, nombre: `Dr. Médico ${id}`, especialidad: 'Pediatría', estado, fotoVersion });
 
-function armar(todos: MedicoPorCodigo[] = []) {
+function armar(todos: MedicoPorCodigo[] = [], citas: Partial<AgendaMedicoCitasService> = { disponible: () => false }) {
   const consultar = jest.fn(async () => todos);
   const directorio = {
     resumenDeAgenda: jest.fn(async () => new Map<number, { perfilId: string; publicado: boolean; fotoUrl: string | null }>()),
     fichaDeAgenda: jest.fn(async () => ({ id: 'perfil-1', fotoUrl: null })),
     subirFoto: jest.fn(async () => undefined),
     bytesDeFotoPublicaDeAgenda: jest.fn(async (): Promise<{ bytes: Buffer; tipo: string } | null> => null),
+    ausenciasDeAgenda: jest.fn(async () => new Map()),
   };
   const reservas = { fotoVigente: jest.fn(async (): Promise<{ bytes: Buffer; tipo: string } | null> => null) };
   const servicio = new AgendaMedicosCrmService(
     { consultar } as unknown as AgendaAdminClient, {} as PrismaService,
     directorio as unknown as DirectorioService, reservas as unknown as AgendaReservasService,
     { activo: () => false, detalle: async () => ({ origen: 'CRM', pendiente: false, sincronizadoEn: null }) } as unknown as HorarioFilemakerService,
+    citas as AgendaMedicoCitasService,
   );
   return { servicio, consultar, directorio, reservas };
 }
@@ -115,5 +118,35 @@ describe('la foto que va en la imagen del horario', () => {
 
     directorio.bytesDeFotoPublicaDeAgenda.mockRejectedValueOnce(new Error('R2 caído'));
     expect(await servicio.fotoParaImagen(7)).toBeNull();
+  });
+});
+
+describe('vacaciones del médico desde su ficha de la agenda', () => {
+  const VACACIONES = { id: 'a1', desde: '2026-11-10', hasta: '2026-11-21', motivo: 'Vacaciones' };
+
+  it('cada ausencia dice cuántas citas y reservas ya hay esos días: recepción las reprograma en FileMaker', async () => {
+    const citasEntre = jest.fn(async () => ({ citas: 14, reservas: 2 }));
+    const { servicio, directorio } = armar([], { disponible: () => true, citasEntre });
+    const agregar = jest.fn(async () => ({}));
+    Object.assign(directorio, { agregarAusenciaDeAgenda: agregar, ausenciasDeAgenda: jest.fn(async () => new Map([[7, [VACACIONES]]])) });
+    const dto = { desde: VACACIONES.desde, hasta: VACACIONES.hasta, motivoPublico: 'Vacaciones' };
+    expect(await servicio.agregarAusencia(7, dto, ADMIN)).toEqual({ ausencias: [{ ...VACACIONES, pendientes: { citas: 14, reservas: 2 } }] });
+    expect(agregar).toHaveBeenCalledWith(7, dto, 'u-admin');
+    expect(citasEntre).toHaveBeenCalledWith(7, '2026-11-10', '2026-11-21');
+  });
+
+  it('si la agenda no se puede leer, la ausencia vale igual y las citas quedan sin contar', async () => {
+    const { servicio, directorio } = armar([], { disponible: () => true, citasEntre: jest.fn(async () => { throw new Error('ETIMEDOUT'); }) });
+    Object.assign(directorio, { quitarAusenciaDeAgenda: jest.fn(async () => undefined), ausenciasDeAgenda: jest.fn(async () => new Map([[7, [VACACIONES]]])) });
+    expect(await servicio.quitarAusencia(7, 'otra', ADMIN)).toEqual({ ausencias: [{ ...VACACIONES, pendientes: null }] });
+  });
+
+  it('quien no edita la agenda no carga ni quita vacaciones', async () => {
+    const { servicio, directorio } = armar();
+    const agregar = jest.fn();
+    Object.assign(directorio, { agregarAusenciaDeAgenda: agregar, quitarAusenciaDeAgenda: agregar });
+    await expect(servicio.agregarAusencia(7, { desde: '2026-11-10', hasta: '2026-11-21' }, ASISTENTE)).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(servicio.quitarAusencia(7, 'a1', ASISTENTE)).rejects.toBeInstanceOf(ForbiddenException);
+    expect(agregar).not.toHaveBeenCalled();
   });
 });

@@ -7,9 +7,11 @@ import { calcularPaginacion, paginar, PaginationDto } from '../../common/dto/pag
 import { Prisma } from '../../prisma/prisma-client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ActualizarEspecialidadDto } from '../directorio/dto/especialidad.dto';
+import { CrearAusenciaDto } from '../directorio/dto/perfil-medico.dto';
 import { claveDeEspecialidad, DirectorioService } from '../directorio/directorio.service';
 import { AgendaAdminClient } from './agenda-admin.client';
 import { urlFotoDeAgenda } from './agenda.contrato';
+import { AgendaMedicoCitasService } from './agenda-medico-citas.service';
 import { AgendaReservasService } from './agenda-reservas.service';
 import {
   actualizarMedicoAgenda,
@@ -141,6 +143,7 @@ export class AgendaMedicosCrmService {
     private readonly directorio: DirectorioService,
     private readonly reservas: AgendaReservasService,
     private readonly horariosFilemaker: HorarioFilemakerService,
+    private readonly citas: AgendaMedicoCitasService,
   ) {}
 
   /**
@@ -213,7 +216,44 @@ export class AgendaMedicosCrmService {
     const ficha = await this.leerFicha(id);
     const presentacion = await this.directorio.fichaDeAgenda(id);
     const sincronizacionHorario = await this.horariosFilemaker.detalle(id);
-    return { ...ficha, medico: this.paraQuienVe(ficha.medico, usuario), presentacion, sincronizacionHorario, ...fotoDelMedico(ficha.medico, presentacion?.fotoUrl) };
+    const ausencias = await this.ausencias(id);
+    return { ...ficha, medico: this.paraQuienVe(ficha.medico, usuario), presentacion, sincronizacionHorario, ausencias, ...fotoDelMedico(ficha.medico, presentacion?.fotoUrl) };
+  }
+
+  /* ── Vacaciones y ausencias ─────────────────────────────────────────────── */
+
+  /**
+   * Las ausencias que todavía no terminaron, cada una con cuántas citas y
+   * reservas ya tiene el médico en esos días: la agenda deja de ofrecerlos,
+   * pero lo ya agendado lo reprograma recepción en FileMaker. `pendientes`
+   * es `null` si la agenda no se pudo leer (la ausencia vale igual).
+   */
+  private async ausencias(id: number) {
+    const lista = (await this.directorio.ausenciasDeAgenda([id])).get(id) ?? [];
+    return Promise.all(lista.map(async a => ({ ...a, pendientes: await this.pendientesEntre(id, a.desde, a.hasta) })));
+  }
+
+  private async pendientesEntre(id: number, desde: string, hasta: string): Promise<{ citas: number; reservas: number } | null> {
+    if (!this.citas.disponible()) return null;
+    try {
+      return await this.citas.citasEntre(id, desde, hasta);
+    } catch (error: unknown) {
+      this.logger.warn(`Citas del médico ${id} en su ausencia sin leer: ${error instanceof Error ? error.message : 'falló'}`);
+      return null;
+    }
+  }
+
+  async agregarAusencia(id: number, dto: CrearAusenciaDto, usuario: UsuarioJwt) {
+    this.exigirEditar(usuario);
+    await this.leerFicha(id);
+    await this.directorio.agregarAusenciaDeAgenda(id, dto, usuario.sub);
+    return { ausencias: await this.ausencias(id) };
+  }
+
+  async quitarAusencia(id: number, ausenciaId: string, usuario: UsuarioJwt) {
+    this.exigirEditar(usuario);
+    await this.directorio.quitarAusenciaDeAgenda(id, ausenciaId, usuario.sub);
+    return { ausencias: await this.ausencias(id) };
   }
 
   /**

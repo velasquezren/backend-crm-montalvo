@@ -5,6 +5,7 @@ import { CurrentUser, UsuarioJwt } from '../../common/decorators/current-user.de
 import { Roles } from '../../common/decorators/roles.decorator';
 import { PaginationDto } from '../../common/dto/pagination.dto';
 import { BYTES_MAXIMOS_IMAGEN } from '../../common/storage/imagen-publica';
+import { CrearAusenciaDto } from '../directorio/dto/perfil-medico.dto';
 import { AgendaMedicosCrmService } from './agenda-medicos-crm.service';
 import {
   ActualizarMedicoAgendaDto,
@@ -89,6 +90,18 @@ export class AgendaMedicosCrmController {
   @Put(':id/horario')
   guardarHorario(@Param('id', ParseIntPipe) id: number, @Body() dto: GuardarHorarioAgendaDto, @CurrentUser() usuario: UsuarioJwt) {
     return this.medicos.guardarHorario(id, dto, usuario);
+  }
+
+  /* ── Vacaciones y ausencias: esos días no se ofrecen ni se reservan ── */
+
+  @Post(':id/ausencias')
+  agregarAusencia(@Param('id', ParseIntPipe) id: number, @Body() dto: CrearAusenciaDto, @CurrentUser() usuario: UsuarioJwt) {
+    return this.medicos.agregarAusencia(id, dto, usuario);
+  }
+
+  @Delete(':id/ausencias/:ausenciaId')
+  quitarAusencia(@Param('id', ParseIntPipe) id: number, @Param('ausenciaId', ParseUUIDPipe) ausenciaId: string, @CurrentUser() usuario: UsuarioJwt) {
+    return this.medicos.quitarAusencia(id, ausenciaId, usuario);
   }
 
   /* ── Presentación web: foto, biografía y publicación ── */

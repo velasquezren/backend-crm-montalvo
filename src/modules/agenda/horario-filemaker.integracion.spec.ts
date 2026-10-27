@@ -6,6 +6,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { DirectorioService } from '../directorio/directorio.service';
 import { AgendaAdminClient } from './agenda-admin.client';
 import * as escritura from './agenda-admin.sql';
+import { AgendaMedicoCitasService } from './agenda-medico-citas.service';
 import { AgendaMedicosCrmService } from './agenda-medicos-crm.service';
 import { AgendaReservasService } from './agenda-reservas.service';
 import { AgendaService } from './agenda.service';
@@ -148,7 +149,7 @@ describe('FileMaker → horarios: HTTP y PostgreSQL real', () => {
     expect(guardar).toHaveBeenCalledTimes(1);
   });
   it('bloquea también la escritura directa del CRM mientras FileMaker es el origen', async () => {
-    const crm = new AgendaMedicosCrmService(agenda as unknown as AgendaAdminClient, prisma, directorio as unknown as DirectorioService, {} as AgendaReservasService, servicio);
+    const crm = new AgendaMedicosCrmService(agenda as unknown as AgendaAdminClient, prisma, directorio as unknown as DirectorioService, {} as AgendaReservasService, servicio, {} as AgendaMedicoCitasService);
     await expect(crm.guardarHorario(7, { version: 'a'.repeat(16), activas: [] }, { sub: 'admin-test', email: 'admin@test', nombre: 'Admin', rol: 'ADMIN' })).rejects.toMatchObject({ status: 403 });
     expect(guardar).not.toHaveBeenCalled();
   });

@@ -71,3 +71,25 @@ export async function reservasSinCargarDelMedico(db: Lector, medicoId: number, f
     hora: String(f.hora), paciente: texto(f.nombre_age), estado: String(f.estado ?? ''),
   }));
 }
+
+/**
+ * Cuántas citas vigentes y reservas sin cargar tiene el médico entre dos días
+ * (incluidos): lo que recepción tiene que reprogramar si el médico se va de
+ * vacaciones. Solo cantidades, sin pacientes. `COUNT(columna)` y no `COUNT(*)`:
+ * la cuenta tiene permiso por columna, no sobre la tabla entera.
+ */
+export async function citasEntreFechasDelMedico(db: Lector, medicoId: number, desde: string, hasta: string): Promise<{ citas: number; reservas: number }> {
+  const [citas] = await db.execute<RowDataPacket[]>(
+    `SELECT COUNT(a.agendam_pk) AS total
+       FROM agenda_med a JOIN medicos m ON m.codigo = a.cod_med
+      WHERE m.medico_pk = ? AND a.fecha BETWEEN ? AND ? AND a.estado = ?`,
+    [medicoId, desde, hasta, ESTADO_CITA_VIGENTE],
+  );
+  const [reservas] = await db.execute<RowDataPacket[]>(
+    `SELECT COUNT(p.para_age) AS total
+       FROM para_agendar p
+      WHERE p.medico_pk = ? AND p.fecha BETWEEN ? AND ? AND p.estado IN (${ESTADOS_RESERVA_SIN_CARGAR.map(() => '?').join(',')})`,
+    [medicoId, desde, hasta, ...ESTADOS_RESERVA_SIN_CARGAR],
+  );
+  return { citas: Number(citas[0]?.total ?? 0), reservas: Number(reservas[0]?.total ?? 0) };
+}

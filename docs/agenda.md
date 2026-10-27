@@ -70,6 +70,32 @@ Mantiene revisiones monotónicas y reintento de la última instantánea;
 conserva citas. No implementar reconsultas o traslado de reservas como parte
 de ese flujo. La aceptación pendiente se detalla en [FileMaker](filemaker-horarios.md).
 
+## Vacaciones y ausencias
+
+ScriptCase y FileMaker no tienen vacaciones: `horarios` es semanal y
+`vista_horas_libres` ofrece cualquier casilla sin cita. Las ausencias (vacaciones,
+congreso) las guarda el CRM en `AusenciaMedico.agendaMedicoId` (= `medicos.medico_pk`),
+las escribe `DirectorioService` y se cargan en Directorio → médico → pestaña
+«Horario» (`POST/DELETE /agenda/medicos/:id/ausencias`, quien edita la agenda).
+Desde que se guardan:
+
+- `AgendaService.dias` quita esos días y trae `ausencias` con `vuelve`;
+  `disponibilidad` de un día así responde `SIN_ATENCION` sin horas y con `ausencia`.
+  Lo usan la web, el Flow, el botón «Cupos» y el asistente.
+- `AgendaReservasService.reservar` rechaza la fecha con `HORA_NO_DISPONIBLE`
+  antes de abrir la transacción MySQL (el mismo código de una hora ocupada:
+  Flow y asistente ya saben ofrecer otra).
+- El asistente recibe `noAtiende` en `buscar_medico`, `listar_medicos` y
+  `ver_medico`, y la regla de no ofrecer esos días y decir cuándo vuelve.
+- La ficha muestra cuántas citas `CREADO` y reservas `PENDIENTE`/`PAGADO` caen
+  esos días (cuenta `crm_agenda_consulta`, solo cantidades). **No se mueven**:
+  recepción las reprograma en FileMaker. El CRM no escribe `agenda_med`.
+
+Límites: el formulario propio de ScriptCase y la carga en FileMaker no leen estas
+ausencias. Una ficha web sin médico de agenda conserva sus ausencias por
+`perfilMedicoId` (solo la landing); la migración `20261027150000` pasó las de
+fichas enlazadas a su médico.
+
 ## Evidencia y validación
 
 - Implementación: `src/modules/agenda/`; tests `agenda-cupos`,

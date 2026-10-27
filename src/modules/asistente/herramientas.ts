@@ -41,7 +41,7 @@
  * - Decidir que algo es una emergencia. La declarada la reconoce la ingesta; la
  *   posible la marca el filtro de entrada (`triaje.ts`), no el modelo que habla.
  */
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 
 import type { AgendaDelDia } from '../agenda/agenda-medico-citas';
 import type { MedicoAgenda } from '../agenda/agenda.contrato';
@@ -304,8 +304,8 @@ export const HERRAMIENTAS: readonly Herramienta[] = [
   {
     nombre: 'listar_medicos',
     descripcion:
-      'Los médicos de una especialidad, con su precio de consulta y si se reservan en línea o «a solicitud». ' +
-      'No nombres a un médico que no venga en el resultado.',
+      'Los médicos de una especialidad, con su precio de consulta y si se reservan en línea o «a solicitud» ' +
+      '(y sus vacaciones, si tiene: noAtiende). No nombres a un médico que no venga en el resultado.',
     parametros: {
       type: 'object',
       properties: { especialidadId: { type: 'string', description: 'El id que devolvió listar_especialidades.' } },
@@ -319,7 +319,8 @@ export const HERRAMIENTAS: readonly Herramienta[] = [
     descripcion:
       'Busca a un médico por su nombre o apellido en TODAS las especialidades a la vez («el doctor Montalvo», «la Dra. Azogue»). ' +
       'Úsala en vez de recorrer listar_medicos especialidad por especialidad. Devuelve los que coinciden, con su especialidad, ' +
-      'precio de consulta y modalidad (y, si quiere agendar y es uno solo, sus días con cupo); si no hay ninguno, no lo inventes.',
+      'precio de consulta y modalidad (y, si quiere agendar y es uno solo, sus días con cupo); si no hay ninguno, no lo inventes. ' +
+      'Si está de vacaciones o en un congreso, viene noAtiende con las fechas y el día en que vuelve.',
     parametros: {
       type: 'object',
       properties: { nombre: { type: 'string', description: 'El nombre o apellido como lo escribió la paciente, sin «Dr.».' } },
@@ -331,7 +332,7 @@ export const HERRAMIENTAS: readonly Herramienta[] = [
   {
     nombre: 'ver_medico',
     descripcion:
-      'Un médico por su número, con su especialidad, su precio de consulta y los días en que atiende. ' +
+      'Un médico por su número, con su especialidad, su precio de consulta, los días en que atiende y sus vacaciones (noAtiende). ' +
       'Para mostrarle el horario completo, usa enviar_horario: le llega como imagen.',
     parametros: MEDICO,
     efecto: 'lectura',
@@ -348,7 +349,8 @@ export const HERRAMIENTAS: readonly Herramienta[] = [
   {
     nombre: 'dias_con_cupo',
     descripcion:
-      'Los próximos días que tienen al menos una hora libre con ese médico. ' +
+      'Los próximos días que tienen al menos una hora libre con ese médico. Los días de vacaciones ya no vienen; ' +
+      'si las hay, vienen en ausencias con el día en que vuelve. ' +
       'Vacío significa que no hay cupos o que se atiende a solicitud: dilo, no ofrezcas una fecha.',
     parametros: MEDICO,
     efecto: 'lectura',
@@ -568,6 +570,14 @@ function comoSeAgenda(m: Pick<MedicoAgenda, 'modalidad'>): { comoSeAgenda?: stri
     : {};
 }
 
+/** Lo que el modelo necesita de unas vacaciones: cuándo, por qué (lo público) y desde cuándo vuelve a haber. */
+type NoAtiende = { desde: string; hasta: string; motivo: string | null; vuelve: string };
+
+/** Sus próximas ausencias, si tiene: el modelo no ofrece esos días y sabe qué decir. */
+function noAtiende(lista: readonly NoAtiende[] | undefined): { noAtiende?: NoAtiende[] } {
+  return lista?.length ? { noAtiende: lista.slice(0, 3).map(({ desde, hasta, motivo, vuelve }) => ({ desde, hasta, motivo, vuelve })) } : {};
+}
+
 /** Bs con dos decimales, como lo lee una paciente. */
 function bolivianos(centavos: number): string {
   return `Bs ${(centavos / 100).toFixed(2)}`;
@@ -575,7 +585,23 @@ function bolivianos(centavos: number): string {
 
 @Injectable()
 export class HerramientasAsistenteService {
+  private readonly logger = new Logger(HerramientasAsistenteService.name);
+
   constructor(private readonly agenda: AgendaService) {}
+
+  /**
+   * Las vacaciones de esos médicos, para que el modelo no los ofrezca esos días.
+   * Si no se pueden leer, las fichas salen sin eso: la agenda ya no ofrece esos
+   * días ni la reserva los acepta, así que no se ofrece algo que no hay.
+   */
+  private async ausencias(ids: readonly string[]): Promise<Map<string, NoAtiende[]>> {
+    try {
+      return await this.agenda.ausenciasProximas(ids);
+    } catch (error: unknown) {
+      this.logger.warn(`Ausencias de médicos sin leer: ${error instanceof Error ? error.message : 'falló'}`);
+      return new Map();
+    }
+  }
 
   /**
    * Ejecuta una herramienta por su nombre.
@@ -654,12 +680,13 @@ export class HerramientasAsistenteService {
       }
       case 'listar_medicos': {
         const r = await this.agenda.medicos({ especialidadId: a.especialidadId, pagina: 1, limite: 50 });
+        const ausencias = await this.ausencias(r.datos.map(m => m.id));
         return {
           ok: true,
           datos: r.datos.map(m => ({
             id: m.id, nombre: m.nombre, modalidad: m.modalidad,
             precioConsulta: m.precio ? bolivianos(m.precio.importeCentavos) : null, atiende: m.horarioInformativo,
-            ...comoSeAgenda(m),
+            ...comoSeAgenda(m), ...noAtiende(ausencias.get(m.id)),
           })),
         };
       }
@@ -672,13 +699,15 @@ export class HerramientasAsistenteService {
         const todos = (await this.agenda.todosLosMedicos()).map(({ medico, especialidad }) => ({
           m: medico, especialidad: especialidad.nombre, coincide: coincidenciaDeNombre(buscadas, medico.nombre),
         }));
+        /* Si alguien se llama así, solo esos: lo parecido es para cuando no hay nadie. */
+        const exactos = todos.filter(t => t.coincide === 'exacta');
+        const parecidos = exactos.length ? [] : todos.filter(t => t.coincide === 'parecida');
+        const ausencias = await this.ausencias([...exactos.slice(0, 10), ...parecidos.slice(0, 5)].map(t => t.m.id));
         const ficha = ({ m, especialidad }: (typeof todos)[number]) => ({
           id: m.id, nombre: m.nombre, especialidad, modalidad: m.modalidad,
           precioConsulta: m.precio ? bolivianos(m.precio.importeCentavos) : null, atiende: m.horarioInformativo,
-          ...comoSeAgenda(m),
+          ...comoSeAgenda(m), ...noAtiende(ausencias.get(m.id)),
         });
-        /* Si alguien se llama así, solo esos: lo parecido es para cuando no hay nadie. */
-        const exactos = todos.filter(t => t.coincide === 'exacta');
         /* Uno solo y quiere agendar: sus días con cupo van con él. Es la consulta que el
            modelo haría justo después, y cada vuelta del modelo son segundos (15/10). */
         if (exactos.length === 1 && contexto.solicitud === 'AGENDAR' && exactos[0].m.modalidad === 'ONLINE') {
@@ -686,7 +715,6 @@ export class HerramientasAsistenteService {
           return { ok: true, datos: [{ ...ficha(exactos[0]), ...(dias ? { diasConCupo: dias } : {}) }] };
         }
         if (exactos.length) return { ok: true, datos: exactos.slice(0, 10).map(ficha) };
-        const parecidos = todos.filter(t => t.coincide === 'parecida');
         if (parecidos.length) {
           return {
             ok: true,
@@ -703,21 +731,27 @@ export class HerramientasAsistenteService {
       }
       case 'ver_medico': {
         const { medico, especialidad } = await this.agenda.medico(Number(a.medicoId));
+        const ausencias = await this.ausencias([medico.id]);
         return {
           ok: true,
           datos: {
             id: medico.id, nombre: medico.nombre, especialidad: especialidad.nombre, modalidad: medico.modalidad,
             precioConsulta: medico.precio ? bolivianos(medico.precio.importeCentavos) : null, atiende: medico.horarioInformativo,
-            ...comoSeAgenda(medico),
+            ...comoSeAgenda(medico), ...noAtiende(ausencias.get(medico.id)),
           },
         };
       }
       case 'enviar_horario': {
         const { medico } = await this.agenda.medico(Number(a.medicoId));
         if (!medico.horarioInformativo) return { ok: false, motivo: 'Ese médico no tiene horario fijo cargado: atiende a solicitud. Dilo así.' };
+        /* La imagen es el horario de siempre: si está de vacaciones, que lo diga el texto. */
+        const [proxima] = (await this.ausencias([medico.id])).get(medico.id) ?? [];
         return {
           ok: true,
-          datos: `Se le enviará la imagen del horario de ${medico.nombre}.`,
+          datos: `Se le enviará la imagen del horario de ${medico.nombre}.` + (proxima
+            ? ` Ojo: no atiende del ${proxima.desde} al ${proxima.hasta}${proxima.motivo ? ` (${proxima.motivo})` : ''}; ` +
+              `vuelve a atender desde el ${proxima.vuelve}. Díselo en tu respuesta, con las fechas en palabras.`
+            : ''),
           accion: { tipo: 'HORARIO', medicoId: Number(medico.id), nombre: medico.nombre, horario: medico.horarioInformativo },
         };
       }
@@ -737,7 +771,15 @@ export class HerramientasAsistenteService {
         if (pendiente !== null) {
           return { ok: false, motivo: 'Ya tiene una reserva esperando su pago: recuérdaselo (sin números de reserva). Si quiere otra o cambiarla, pásala a una persona.' };
         }
-        const libres = (await this.agenda.disponibilidad({ medicoId: a.medicoId, fecha: a.fecha })).horarios.map(h => h.hora);
+        const disponible = await this.agenda.disponibilidad({ medicoId: a.medicoId, fecha: a.fecha });
+        if (disponible.ausencia) {
+          return {
+            ok: false,
+            motivo: `Ese día el médico no atiende (${disponible.ausencia.motivo ?? 'ausencia'} del ${disponible.ausencia.desde} al ${disponible.ausencia.hasta}). ` +
+              `Díselo y ofrécele un día desde el ${disponible.ausencia.vuelve} (dias_con_cupo).`,
+          };
+        }
+        const libres = disponible.horarios.map(h => h.hora);
         if (!libres.includes(a.hora)) {
           return {
             ok: false,

@@ -17,6 +17,12 @@ import { UsuariosService } from '../usuarios/usuarios.service';
 import { DirectorioPublicoController } from './directorio-publico.controller';
 import { DirectorioController } from './directorio.controller';
 import { DirectorioService } from './directorio.service';
+import { ConfigService } from '@nestjs/config';
+import { AgendaReservaClient } from '../agenda/agenda-reserva.client';
+import { AgendaReservasService } from '../agenda/agenda-reservas.service';
+import { AgendaTelegramService } from '../agenda/agenda-telegram.service';
+import { AgendaVpsClient } from '../agenda/agenda-vps.client';
+import { AvisosCajaService } from '../agenda/avisos-caja.service';
 
 /*
  * Directorio médico de punta a punta: HTTP con los guards reales, Postgres real
@@ -56,6 +62,9 @@ const landing: Pick<AvisoLandingService, 'avisar'> = { avisar: (...etiquetas) =>
 class ModuloDirectorioTest {}
 
 const SUFIJO = '@directorio.test';
+/** Médicos de la agenda (MySQL) inventados: ningún medico_pk real llega a estos números. */
+const MEDICO_AGENDA = 990_101;
+const OTRO_MEDICO_AGENDA = 990_102;
 const PREFIJO = 'Prueba Dir';
 let app: INestApplication;
 let base: string;
@@ -88,6 +97,8 @@ async function limpiar() {
   const ids = (await prisma.usuario.findMany({ where: { email: { endsWith: SUFIJO } }, select: { id: true } })).map(u => u.id);
   await prisma.auditLog.deleteMany({ where: { usuarioId: { in: ids } } });
   await prisma.perfilMedico.deleteMany({ where: { nombrePublico: { startsWith: PREFIJO } } });
+  /* Las del médico de la agenda no se van con la ficha: son del médico. */
+  await prisma.ausenciaMedico.deleteMany({ where: { agendaMedicoId: { in: [MEDICO_AGENDA, OTRO_MEDICO_AGENDA] } } });
   await prisma.especialidad.deleteMany({ where: { nombre: { startsWith: PREFIJO } } });
   await prisma.medico.deleteMany({ where: { codigo: { startsWith: 'PRUEBADIR' } } });
   await prisma.usuario.deleteMany({ where: { id: { in: ids } } });
@@ -207,6 +218,53 @@ describe('fichas de médicos', () => {
     expect(listado.find(m => m['slug'] === ficha['slug'])?.['ausencias']).toEqual([{ desde: dia(3), hasta: dia(9), motivo: 'Congreso' }]);
     expect((await http(`/directorio/medicos/${ficha['id']}/ausencias/${ausencia.body['id']}`, 'DELETE', usuarios.admin.token)).status).toBe(204);
     expect((await http(`/publico/directorio/medicos/${ficha['slug']}`)).body['ausencias']).toEqual([]);
+  });
+
+  it('vacaciones del médico de la AGENDA: salen en su ficha web, sobreviven a la ficha y son solo suyas', async () => {
+    const directorio = app.get(DirectorioService);
+    const esp = await especialidad('Urología');
+    const ficha = (await http('/directorio/medicos', 'POST', usuarios.admin.token, { nombrePublico: `${PREFIJO} Dr. De Agenda`, especialidadIds: [esp.id] })).body;
+    await prisma.perfilMedico.update({ where: { id: ficha['id'] as string }, data: { agendaMedicoId: MEDICO_AGENDA } });
+    await http(`/directorio/medicos/${ficha['id']}/publicacion`, 'PUT', usuarios.admin.token, { publicado: true });
+
+    const creada = await directorio.agregarAusenciaDeAgenda(MEDICO_AGENDA, { desde: dia(5), hasta: dia(12), motivoPublico: 'Vacaciones' }, usuarios.admin.id);
+    /* Desde la ficha web de un médico con agenda, la ausencia también es del médico. */
+    await http(`/directorio/medicos/${ficha['id']}/ausencias`, 'POST', usuarios.admin.token, { desde: dia(20), hasta: dia(21), motivoPublico: 'Congreso' });
+    const filas = await prisma.ausenciaMedico.findMany({ where: { agendaMedicoId: MEDICO_AGENDA }, orderBy: { desde: 'asc' } });
+    expect(filas.map(f => [f.perfilMedicoId, textoDeFechaCivil(f.desde)])).toEqual([[null, dia(5)], [null, dia(20)]]);
+
+    expect((await http(`/publico/directorio/medicos/${ficha['slug']}`)).body['ausencias']).toEqual([
+      { desde: dia(5), hasta: dia(12), motivo: 'Vacaciones' }, { desde: dia(20), hasta: dia(21), motivo: 'Congreso' },
+    ]);
+    const deAgenda = await directorio.ausenciasDeAgenda([MEDICO_AGENDA, OTRO_MEDICO_AGENDA]);
+    expect(deAgenda.get(MEDICO_AGENDA)?.map(a => a.desde)).toEqual([dia(5), dia(20)]);
+    expect(deAgenda.has(OTRO_MEDICO_AGENDA)).toBe(false);
+
+    /* Otro médico no puede quitarla; el suyo sí, y deja constancia. */
+    await expect(directorio.quitarAusenciaDeAgenda(OTRO_MEDICO_AGENDA, creada.id, usuarios.admin.id)).rejects.toMatchObject({ status: 404 });
+    expect(await prisma.auditLog.count({ where: { entidad: 'MedicoAgenda', entidadId: String(MEDICO_AGENDA), accion: 'AUSENCIA_MEDICO_CREADA' } })).toBe(1);
+
+    /* Borrar la ficha web no le borra las vacaciones al médico. */
+    await prisma.perfilMedico.delete({ where: { id: ficha['id'] as string } });
+    expect((await directorio.ausenciasDeAgenda([MEDICO_AGENDA])).get(MEDICO_AGENDA)).toHaveLength(2);
+    await directorio.quitarAusenciaDeAgenda(MEDICO_AGENDA, creada.id, usuarios.admin.id);
+    expect((await directorio.ausenciasDeAgenda([MEDICO_AGENDA])).get(MEDICO_AGENDA)?.map(a => a.motivo)).toEqual(['Congreso']);
+  });
+
+  it('una reserva en un día de vacaciones se rechaza antes de tocar la agenda de MySQL', async () => {
+    await app.get(DirectorioService).agregarAusenciaDeAgenda(OTRO_MEDICO_AGENDA, { desde: dia(2), hasta: dia(4), motivoPublico: 'Vacaciones' }, usuarios.admin.id);
+    const enTransaccion = jest.fn();
+    const reservas = new AgendaReservasService(
+      new ConfigService({ AGENDA_RESERVA_SECRETO: 's'.repeat(40) }),
+      { habilitada: () => true, enTransaccion } as unknown as AgendaReservaClient,
+      {} as AgendaVpsClient, {} as AgendaTelegramService, {} as R2Service, {} as AvisosCajaService,
+      app.get(DirectorioService),
+    );
+    const pedido = { medicoId: String(OTRO_MEDICO_AGENDA), hora: '09:00', nombre: 'Paciente Sintética', telefono: '70000000', ci: '1234567' };
+    await expect(reservas.reservar({ ...pedido, fecha: dia(3) })).rejects.toMatchObject({ status: 409, response: { codigo: 'HORA_NO_DISPONIBLE' } });
+    /* El último día también es de vacaciones. */
+    await expect(reservas.reservar({ ...pedido, fecha: dia(4) })).rejects.toMatchObject({ status: 409 });
+    expect(enTransaccion).not.toHaveBeenCalled();
   });
 
   it('foto: se valida, se sirve solo si la ficha está publicada y reemplazarla borra la anterior', async () => {

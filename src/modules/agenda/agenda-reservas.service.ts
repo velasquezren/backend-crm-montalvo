@@ -15,6 +15,8 @@ import { ArchivoSubido } from '../../common/archivos/archivo-subido';
 import { CacheMemoria } from '../../common/cache/cache-memoria';
 import { validarImagenPublica } from '../../common/storage/imagen-publica';
 import { R2Service } from '../../common/storage/r2.service';
+import { ausenciaDelDia } from '../directorio/ausencias';
+import { DirectorioService } from '../directorio/directorio.service';
 import { fechaConsultable } from './agenda.contrato';
 import { ARCHIVO_IMAGEN_AGENDA, precioDelVps, versionDeFoto } from './agenda.sql';
 import { registrarPagoEnAgenda, reservarEnAgenda } from './agenda-reserva.sql';
@@ -63,6 +65,7 @@ export class AgendaReservasService {
     private readonly telegram: AgendaTelegramService,
     private readonly r2: R2Service,
     private readonly avisosCaja: AvisosCajaService,
+    private readonly directorio: DirectorioService,
   ) {
     const secreto = config.get<string>('AGENDA_RESERVA_SECRETO')?.trim() ?? '';
     this.secreto = secreto.length >= 32 ? secreto : null;
@@ -87,6 +90,13 @@ export class AgendaReservasService {
       observaciones: limpiar(dto.observaciones ?? ''),
     };
     if (datos.nombre.length < 3) throw new BadRequestException('Escribe el nombre completo.');
+    /* Vacaciones o congreso: la agenda de ScriptCase no lo sabe y tendría la hora
+       libre. Mismo código que una hora ocupada: el Flow y el asistente ya ofrecen
+       otra, y sus días y horas libres ya vienen sin los de ausencia. */
+    const ausencias = (await this.directorio.ausenciasDeAgenda([datos.medicoId])).get(datos.medicoId) ?? [];
+    if (ausenciaDelDia(ausencias, datos.fecha)) {
+      throw new ConflictException({ codigo: 'HORA_NO_DISPONIBLE', message: 'Ese día el profesional no atiende. Elija otra fecha, por favor.' });
+    }
 
     const resultado = await this.reservas.enTransaccion(conexion => reservarEnAgenda(conexion, datos));
     if (!resultado.ok) {
