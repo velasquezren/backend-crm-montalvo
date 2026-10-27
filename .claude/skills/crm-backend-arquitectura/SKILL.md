@@ -313,6 +313,57 @@ la contraseña cambia ahí, sigue funcionando), y **aborta si el dump pesa menos
 despliegue. Existía un hueco real: antes de esto el respaldo más reciente era del
 29 de agosto, cuatro días viejo, sobre datos de pacientes reales y sin staging.
 
+**Desde el 2026-10-26 hay respaldo externo** en Google Cloud Storage, para el
+caso que los locales no cubren: perder el VPS entero. Versión en el repo:
+`scripts/respaldo-externo/` (script, servicio y temporizador; copiarlos al
+servidor si cambian).
+
+```
+/usr/local/sbin/respaldo-externo.sh        # el script
+respaldo-externo.timer                     # 04:30 hora del VPS, tras los locales de 03:15
+journalctl -u respaldo-externo             # «OK en N s: …» o «FALLO: …»
+/var/lib/respaldo-externo/ultimo-ok        # fecha UTC del último respaldo completo
+/etc/respaldos-externos/                   # clave pública age, llave de la cuenta, rclone.conf
+gs://crm-clinica-montalvo-respaldos        # proyecto crm-clinica-montalvo, us-east1
+```
+
+| Prefijo | Qué | Vida (ciclo del bucket) |
+| --- | --- | --- |
+| `crm/diario/` | `crm-*.dump.age` (pg_dump -Fc) y `config-*.tar.age` (.env, /etc/montalvo-resultados, unidades, Apache) | 35 días |
+| `resultados/diario/` | `resultados-*.dump.age` | 35 días |
+| `*/mensual/` | el primer volcado de cada mes | Archive a los 30 días, se borra a los 400 |
+| `resultados/archivos/` | PDF y adjuntos, ya cifrados por la app (MNTV1/2); incremental | Coldline a 90 días, Archive al año |
+| `r2/` | copia de R2 cifrada con rclone crypt (nombres incluidos); incremental | Coldline a 90 días, Archive al año |
+
+Decisiones:
+
+- **Cifrado con la clave PÚBLICA de `age`.** El servidor cifra pero no puede
+  descifrar: la clave privada y las contraseñas de `r2cifrado` las guarda el
+  dueño fuera del VPS (gestor de contraseñas). Sin ellas los respaldos no sirven;
+  sin la `STORAGE_ENCRYPTION_KEY` que va en `config-*`, tampoco los PDF.
+- **La cuenta `respaldos-vps` solo crea y lee** (`objectCreator` + `objectViewer`
+  en el bucket) y el bucket tiene **retención de 30 días**: ni el VPS ni el dueño
+  pueden borrar o sobrescribir un respaldo antes. Por eso las copias usan
+  `--ignore-existing` y nombres con sello de tiempo. La papelera retiene 7 días más.
+- Cada volcado se comprueba con `pg_restore --list` y un mínimo de tamaño antes
+  de cifrarse; al final `rclone check` confirma que no falta ningún archivo.
+- Alerta de presupuesto de $5/mes en Cloud Storage (sin contar créditos).
+  El proyecto es el mismo de Vertex: si la cuenta de prueba de Google vence sin
+  pasar a pago, se detienen el bucket Y la IA.
+
+Restaurar (desde una máquina con la clave privada, `age` y `rclone`):
+
+```bash
+gcloud storage cp gs://crm-clinica-montalvo-respaldos/crm/diario/crm-<sello>.dump.age .
+age -d -i clave-privada-age.txt crm-<sello>.dump.age > crm.dump
+pg_restore --list crm.dump            # índice; restaurar con pg_restore -d <base> sobre una base vacía
+# R2: un remote crypt con las dos contraseñas sobre gcs:crm-clinica-montalvo-respaldos/r2
+```
+
+Probado el 2026-10-26: los dos volcados se descifraron y `pg_restore` los leyó
+(67 y 10 tablas con datos), la configuración trae 30 entradas, y seis archivos al
+azar de R2 y Resultados restaurados resultaron idénticos al original.
+
 **Por qué el backup se verifica y no se asume**: la primera vez que desplegué
 así, `pg_dump -U postgres crm` sin la contraseña correcta falló en silencio
 (`2>/dev/null` se come el error) y el gzip resultante tenía **20 bytes** — un

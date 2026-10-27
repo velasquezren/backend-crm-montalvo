@@ -1,0 +1,13 @@
+[Unit]
+Description=Respaldo externo a Google Cloud Storage (CRM y Resultados)
+Documentation=file:///usr/local/sbin/respaldo-externo.sh
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/respaldo-externo.sh
+Nice=19
+IOSchedulingClass=idle
+TimeoutStartSec=3h
+PrivateTmp=true

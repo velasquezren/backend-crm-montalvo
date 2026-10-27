@@ -51,7 +51,8 @@ justificar reabrirlos; una lista antigua de pendientes, por sí sola, no.
 
 ## Pendientes con alcance explícito
 
-- **Desplegar lo del 23/10:** tres migraciones aditivas (`contacto_whatsapp_bsuid`, `pgboss_trabajos`, `conversiones_meta`) y `npm ci` con NestJS 11. Al publicar, subir en el CI del frontend el `ref:` fijo del backend al commit nuevo (el enum `EstadoConversionMeta` hace fallar `check:tipos` contra el SHA viejo). Después, encender por separado `TRABAJOS_PGBOSS`, `SENTRY_DSN` y `LATIDO_URL`. Respaldo externo y red (Cloudflare/WireGuard) quedan para una tarea con gcloud.
+- **Banderas del 23/10** (desplegado el 25/10): encender por separado `TRABAJOS_PGBOSS`, `SENTRY_DSN` y `LATIDO_URL`. Cada cambio de enum en el backend exige subir el `ref:` fijo del CI del frontend.
+- **Respaldo externo:** activo desde el 26/10 en `gs://crm-clinica-montalvo-respaldos`, con restauración probada ([arquitectura §4](../.claude/skills/crm-backend-arquitectura/SKILL.md)). Las copias locales de Resultados (`/root/backups-resultados`) retienen 7 días desde el 26/10. Red (Cloudflare/WireGuard) sigue pendiente.
 - **FileMaker:** reenviar el horario 08:30–11:45 de `DR2435`; soporte 15/30 ya desplegado. El envío individual ya funciona; carga colectiva y activador automático todavía requieren aceptación dentro de FileMaker.
 - **Clínica:** conocimiento y criterio de derivación por línea, orientación de
   emergencia y contenidos públicos. Las guías describen requisitos; no prueban

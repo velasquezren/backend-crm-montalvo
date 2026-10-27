@@ -1,0 +1,11 @@
+[Unit]
+Description=Respaldo externo nocturno a Google Cloud Storage
+
+[Timer]
+# Después de los respaldos locales de las 03:15 (hora del VPS, America/New_York).
+OnCalendar=*-*-* 04:30:00
+RandomizedDelaySec=10m
+Persistent=true
+
+[Install]
+WantedBy=timers.target
