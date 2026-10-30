@@ -31,7 +31,7 @@ describe('la constancia de reserva', () => {
 
   it('la imagen lleva lo mismo que el texto, el logo y la dirección de la clínica', () => {
     const svg = svgDeConstancia(DATOS);
-    for (const esperado of ['Con Dra. Claudia Azogue', '>OCT<', '>15<', '09:30', 'María Fernanda López Quispe', 'Dra. Claudia Azogue', 'Bs 150', 'Clínica Montalvo', 'Universo 641']) {
+    for (const esperado of ['Su reserva está registrada', '>OCT<', '>15<', '09:30', 'María Fernanda López Quispe', 'Dra. Claudia Azogue', 'Bs 150', 'Clínica Montalvo', 'Universo 641']) {
       expect(svg).toContain(esperado);
     }
   });
@@ -47,6 +47,21 @@ describe('la constancia de reserva', () => {
   it('sin monto no inventa uno', () => {
     expect(textoConstancia({ ...DATOS, montoBs: null })).not.toContain('Pago enviado');
     expect(svgDeConstancia({ ...DATOS, montoBs: null })).not.toContain('Bs ');
+  });
+
+  it('lo que no se sabe no deja una fila vacía, y la imagen se acorta', () => {
+    const completa = svgDeConstancia(DATOS);
+    const sinDatos = svgDeConstancia({ ...DATOS, especialidad: null, montoBs: null });
+    expect(sinDatos).not.toMatch(/Especialidad|Pago enviado|—/);
+    const alto = (svg: string) => Number(/height="(\d+)"/.exec(svg)?.[1]);
+    expect(alto(sinDatos)).toBe(alto(completa) - 2 * 84);
+  });
+
+  it('un nombre muy largo se achica o se corta: no pisa la etiqueta de su fila', () => {
+    const svg = svgDeConstancia({ ...DATOS, paciente: 'María Fernanda de los Ángeles López Quispe de Gutiérrez Mamani' });
+    const tamano = Number(/font-size="(\d+)" fill="#1F2937" text-anchor="end">María/.exec(svg)?.[1]);
+    const texto = /text-anchor="end">(María[^<]*)</.exec(svg)?.[1] ?? '';
+    expect(texto.length * tamano * 0.6).toBeLessThanOrEqual(640);
   });
 
   it('un nombre con caracteres de XML no rompe ni inyecta nada en la imagen', () => {

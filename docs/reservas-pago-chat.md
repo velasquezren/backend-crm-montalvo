@@ -36,10 +36,12 @@ Menú CITA → Flow cifrado → especialidad → médico → fecha → hora y da
 ### La constancia de reserva (12/10/2026)
 
 Cuando el comprobante queda registrado en la agenda (`PAGO_REGISTRADO`), la paciente
-recibe una **constancia en imagen**: número de reserva, día y hora en grande, médico,
+recibe una **constancia en imagen**: día y hora en grande, paciente, médico,
 especialidad, lo que pagó y la dirección de la clínica, con el estado **«Pago recibido:
-en verificación»** —nunca «confirmada»: ver el párrafo siguiente—. Pie con el mismo
-resumen en texto; sin R2, sale el texto solo. [Muestra](imagenes-whatsapp/constancia-reserva.png).
+en verificación»** —nunca «confirmada»: ver el párrafo siguiente—. Sin número de reserva
+desde el 16/10. Desde el 28/10 es una hoja blanca de comprobante (logo, estado en una
+línea, datos en filas; lo que no se sabe no ocupa fila), no la franja verde del horario.
+Pie con el mismo resumen en texto; sin R2, sale el texto solo. [Muestra](imagenes-whatsapp/constancia-reserva.png).
 
 - La manda `ConstanciaReservaService` desde el trabajador de comprobantes, solo en la
   pasada que registró el pago. **Una por reserva**: `clientMessageId` estable
