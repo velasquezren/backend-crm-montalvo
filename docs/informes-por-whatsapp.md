@@ -28,8 +28,11 @@ No depende de Flows ni requiere publicar una plantilla. Una petición textual fu
 La cola del CRM incluye `aviso.codigoErrorEnvio` para un mensaje `FALLIDO`;
 en otros estados es `null`. Resultados muestra la explicación del último intento
 y la repite antes de reenviar, usando el mismo texto que Conversaciones. No cambia
-los permisos, los reintentos ni la reserva única de un aviso. Preparado localmente
-el 30/10/2026; esta nota no acredita despliegue.
+los permisos, los reintentos ni la reserva única de un aviso. Publicado el
+30/10/2026: backend `37b07a0` y frontend `f85b026`. Se verificaron salud del backend,
+validación y permisos por HTTP, despliegue de Vercel y sello de versión en el
+JavaScript público. No había migraciones pendientes. Las comprobaciones de código
+y pruebas no sustituyen una revisión visual de la interfaz.
 
 El formato del teléfono se valida con los helpers existentes. Eso no certifica
 que tenga WhatsApp: `131026` requiere confirmar el número y contactar por otro

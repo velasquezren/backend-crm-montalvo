@@ -963,22 +963,32 @@ describe('Conversaciones contra Postgres real', () => {
       const linea = '00000000-0000-4000-8000-000000000001';
       const plantilla = (name: string) => ({ name, status: 'APPROVED', category: 'UTILITY', language: 'es', components: [{ type: 'BODY', text: name }] });
       const reloj = jest.spyOn(Date, 'now');
+      let completarConsulta!: (plantillas: ReturnType<typeof plantilla>[]) => void;
+      const respuestaMeta = new Promise<ReturnType<typeof plantilla>[]>(resolve => { completarConsulta = resolve; });
       try {
         consulta.mockResolvedValue([plantilla('vieja')]);
         await plantillas.listarPlantillas(true, linea);
         consulta.mockClear();
-        consulta.mockResolvedValue([plantilla('nueva')]);
+        consulta.mockReturnValue(respuestaMeta);
         /* Dos horas después: la entrada venció (dura una). */
         const despues = Date.now() + 2 * 3_600_000;
         reloj.mockReturnValue(despues);
         const [a, b] = await Promise.all([plantillas.listarPlantillas(false, linea), plantillas.listarPlantillas(false, linea)]);
-        /* La primera no espera a Meta; la segunda, según el orden, recibe la vieja o la recién renovada. */
+        /* Meta sigue pendiente: ambas lecturas deben devolver la caché sin esperar,
+           independientemente del orden en que terminen las consultas de la línea. */
         expect(a.map(p => p.nombre)).toEqual(['vieja']);
-        expect([['vieja'], ['nueva']]).toContainEqual(b.map(p => p.nombre));
-        await new Promise(r => setImmediate(r));
+        expect(b.map(p => p.nombre)).toEqual(['vieja']);
         expect(consulta).toHaveBeenCalledTimes(1);
+        completarConsulta([plantilla('nueva')]);
+        await new Promise(r => setImmediate(r));
         expect((await plantillas.listarPlantillas(false, linea)).map(p => p.nombre)).toEqual(['nueva']);
-      } finally { consulta.mockRestore(); reloj.mockRestore(); }
+        expect(consulta).toHaveBeenCalledTimes(1);
+      } finally {
+        completarConsulta([plantilla('nueva')]);
+        await new Promise(r => setImmediate(r));
+        consulta.mockRestore();
+        reloj.mockRestore();
+      }
     });
   });
 
