@@ -1,4 +1,4 @@
-import { datosNoDichos, reservaEnCurso, reservasDelAsistenteEn, resumenDeReserva, textoHoraOcupada } from './reserva-asistente';
+import { datosNoDichos, numeroDeCarnet, reservaEnCurso, reservasDelAsistenteEn, resumenDeReserva, textoHoraOcupada } from './reserva-asistente';
 
 /* El chat real del 15/10 que terminó derivado sin QR: los datos llegaron en tres líneas. */
 const CHAT = '[Nota de voz, transcrita] Quiero agendar\nLunes 19\nreservar a mas 12\nrene velasquez\n11340617\n73605150';
@@ -40,6 +40,20 @@ describe('nombre y carnet: solo los que ella escribió', () => {
     expect(datosNoDichos('René Velásquez', '1134061', CHAT)).toContain('carnet');
     expect(datosNoDichos('René Velásquez', '99999999', CHAT)).toContain('no es el que ella escribió');
     expect(datosNoDichos('René Velásquez', 'LP', CHAT)).toContain('Falta el número de carnet');
+  });
+});
+
+/* Los pagos de la agenda de FileMaker esperan solo el número (28/10/2026). */
+describe('el carnet que va a la agenda', () => {
+  it.each([
+    ['11340617 SC', '11340617'],
+    ['11340617SC', '11340617'],
+    ['SC 11340617', '11340617'],
+    ['11.340.617', '11340617'],
+    [' 4567890 lp ', '4567890'],
+    ['11340617', '11340617'],
+  ])('«%s» va como «%s»', (escrito, numero) => {
+    expect(numeroDeCarnet(escrito)).toBe(numero);
   });
 });
 

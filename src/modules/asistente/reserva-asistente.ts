@@ -37,6 +37,16 @@ function numerosDe(texto: string): Set<string> {
 }
 
 /**
+ * El carnet que va a la agenda: solo sus dígitos. «11340617 SC», «11.340.617» y
+ * «LP 11340617» quedan en «11340617»: los pagos de la agenda de FileMaker esperan
+ * solo el número (28/10/2026). Son los mismos dígitos que `datosNoDichos` comprueba
+ * contra lo que ella escribió.
+ */
+export function numeroDeCarnet(ci: string): string {
+  return ci.replace(/\D/g, '');
+}
+
+/**
  * `null` si el nombre y el CI salen de lo que ELLA escribió; si no, lo que el
  * modelo tiene que hacer (se le devuelve tal cual, para que se corrija).
  *
@@ -51,7 +61,7 @@ export function datosNoDichos(nombre: string, ci: string, textoDeLaPaciente: str
   if (palabras.some(p => !dichas.has(p))) {
     return 'Ese nombre no es el que ella escribió en el chat. Usa exactamente el que te dio; si no te lo dio, pídeselo.';
   }
-  const digitos = ci.replace(/\D/g, '');
+  const digitos = numeroDeCarnet(ci);
   if (digitos.length < 5) return 'Falta el número de carnet (CI) de quien viene a la consulta: pídeselo.';
   if (!numerosDe(textoDeLaPaciente).has(digitos)) {
     return 'Ese carnet no es el que ella escribió en el chat. Usa exactamente el que te dio; si no te lo dio, pídeselo.';

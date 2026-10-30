@@ -225,6 +225,14 @@ describe('reservar desde el asistente', () => {
     expect(agenda.disponibilidad).toHaveBeenCalledWith({ medicoId: '57', fecha: '2026-10-19' });
   });
 
+  it('el carnet va a la agenda solo con el número, sin la extensión', async () => {
+    const r = await montar(agendaConLibres(['12:00'])).ejecutar(
+      'reservar', { ...PEDIDO, ci: '11340617 SC' },
+      { ...CONTEXTO, solicitud: 'AGENDAR', reservas: reservas({ textoDeLaPaciente: 'rene velasquez\n11340617 SC' }) }, { permitirEscritura: true },
+    );
+    expect(r).toMatchObject({ ok: true, accion: { tipo: 'RESERVA', ci: '11340617' } });
+  });
+
   it.each([
     ['un nombre que no escribió', { nombre: 'René Vargas' }, 'no es el que ella escribió'],
     ['solo el nombre de pila', { nombre: 'René' }, 'nombre completo'],

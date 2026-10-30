@@ -47,7 +47,7 @@ import type { AgendaDelDia } from '../agenda/agenda-medico-citas';
 import type { MedicoAgenda } from '../agenda/agenda.contrato';
 import { AgendaService } from '../agenda/agenda.service';
 import type { DeclaracionHerramienta, SolicitudPaciente } from './modelo.port';
-import { datosNoDichos } from './reserva-asistente';
+import { datosNoDichos, numeroDeCarnet } from './reserva-asistente';
 
 /** Una propiedad del esquema de parámetros (JSON Schema). */
 interface PropiedadEsquema {
@@ -793,7 +793,7 @@ export class HerramientasAsistenteService {
           ok: true,
           datos: 'Comprobado. Al terminar tu respuesta el sistema registra la reserva y le manda la confirmación y, si corresponde, ' +
             'el QR para pagar. Ese mensaje ya lo dice todo: no escribas nada más.',
-          accion: { tipo: 'RESERVA', medicoId: a.medicoId, medico: medico.nombre, fecha: a.fecha, hora: a.hora, nombre: a.nombre, ci: a.ci },
+          accion: { tipo: 'RESERVA', medicoId: a.medicoId, medico: medico.nombre, fecha: a.fecha, hora: a.hora, nombre: a.nombre, ci: numeroDeCarnet(a.ci) },
         };
       }
       case 'mi_agenda': {
