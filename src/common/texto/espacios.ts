@@ -1,9 +1,9 @@
 /**
  * Un nombre que se va a mostrar, con los espacios normalizados.
  *
- * Los nombres de la agenda ScriptCase vienen tecleados a mano y 15 de los 90
- * traen espacio de sobra: cinco en medio («Dr.  Iraldo Perez Exposito») y el
- * resto al final («Dr. Carlos Daniel Flores de la Riva »). Armar el nombre
+ * Los nombres de la agenda ScriptCase vienen tecleados a mano y, medido el
+ * 2026-10-09, 15 de los 90 traen espacio de sobra: cinco en medio («Dr.  Nombre
+ * Apellido») y el resto al final («Dr. Nombre Apellido »). Armar el nombre
  * público con `[sigla, nombre].join(' ')` arrastra ese espacio a la ficha web,
  * que es una página pública.
  *

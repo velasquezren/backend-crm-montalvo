@@ -1,27 +1,28 @@
 import { nombreLimpio } from './espacios';
 
 /*
- * Los casos son nombres REALES de la agenda (90 médicos, 15 con espacio de
- * sobra el 2026-10-10). Se fijan así para que la prueba falle si alguien
- * «simplifica» a un `trim()`, que deja el espacio doble del medio.
+ * Los casos reproducen los defectos de espaciado REALES de la agenda (90
+ * médicos, 15 con espacio de sobra el 2026-10-09) con nombres sintéticos. Se
+ * fijan así para que la prueba falle si alguien «simplifica» a un `trim()`,
+ * que deja el espacio doble del medio.
  */
 describe('nombreLimpio', () => {
   it('quita el espacio del final, que es el caso más común', () => {
-    expect(nombreLimpio('Dr. Carlos Daniel Flores de la Riva ')).toBe('Dr. Carlos Daniel Flores de la Riva');
-    expect(nombreLimpio('Lic. Laura Ximena Angulo Montalvo ')).toBe('Lic. Laura Ximena Angulo Montalvo');
+    expect(nombreLimpio('Dr. San Roman Pedro ')).toBe('Dr. San Roman Pedro');
+    expect(nombreLimpio('Lic. Paola Sintetica Vargas ')).toBe('Lic. Paola Sintetica Vargas');
   });
 
   it('colapsa el espacio doble del medio: un `trim()` solo no basta', () => {
-    expect(nombreLimpio('Dr.  Iraldo Perez Exposito')).toBe('Dr. Iraldo Perez Exposito');
-    expect('Dr.  Iraldo Perez Exposito'.trim()).not.toBe('Dr. Iraldo Perez Exposito');
+    expect(nombreLimpio('Dr.  San Roman Pedro')).toBe('Dr. San Roman Pedro');
+    expect('Dr.  San Roman Pedro'.trim()).not.toBe('Dr. San Roman Pedro');
   });
 
   it('un nombre que ya estaba bien no se toca', () => {
-    expect(nombreLimpio('Dra. Ana Karina Torrico Espinoza')).toBe('Dra. Ana Karina Torrico Espinoza');
+    expect(nombreLimpio('Dra. Paola Sintetica')).toBe('Dra. Paola Sintetica');
   });
 
   it('salto de línea y tabulación también son espacio', () => {
-    expect(nombreLimpio('Dra.\tVirna\nSeveriche')).toBe('Dra. Virna Severiche');
+    expect(nombreLimpio('Dra.\tPaola\nSintetica')).toBe('Dra. Paola Sintetica');
   });
 
   it('una cadena de solo espacios queda vacía, no con un espacio', () => {

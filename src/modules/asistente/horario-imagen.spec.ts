@@ -7,7 +7,7 @@ import { escaparXml, iniciales } from './marca-imagen';
 import { fotoEmbebible, ImagenHorarioService } from './imagen-horario.service';
 
 const DATOS = {
-  medico: 'Dra. Argentina Ruiz Ames',
+  medico: 'Dra. Paola Sintetica',
   especialidad: 'Ginecología y Obstetricia',
   bloques: [
     { diaSemana: 2, inicioMinuto: 600, finMinuto: 750 },
@@ -20,7 +20,7 @@ const DATOS = {
 describe('el SVG del horario', () => {
   it('lleva el nombre, la especialidad y cada bloque con su hora de fin', () => {
     const svg = svgDelHorario(DATOS);
-    expect(svg).toContain('Dra. Argentina Ruiz Ames');
+    expect(svg).toContain('Dra. Paola Sintetica');
     expect(svg).toContain('Ginecología y Obstetricia');
     expect(svg).toContain('10:00 – 12:30');
     expect(svg).toContain('15:00 – 18:00');
@@ -102,7 +102,7 @@ describe('la foto del médico en el horario', () => {
     const con = svgDelHorario({ ...DATOS, foto });
     expect(con).toContain('clip-path="url(#retrato)"');
     expect(con).toContain(`href="data:image/png;base64,${foto!.base64}"`);
-    expect(con).toContain('>AR<');
+    expect(con).toContain('>PS<');
     const sin = svgDelHorario(DATOS);
     expect(sin).not.toContain('<image');
     expect(sin).not.toContain('retrato');
