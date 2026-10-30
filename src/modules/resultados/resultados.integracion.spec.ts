@@ -293,9 +293,9 @@ describe('entrega de resultados contra Postgres real', () => {
     await prisma.mensaje.update({ where: { id: mensajeId }, data: { estadoEnvio: 'INCIERTO' } });
     await expect(service.enviar(INFORME, asistente)).rejects.toThrow(/ya se le envió/);
 
-    await prisma.mensaje.update({ where: { id: mensajeId }, data: { estadoEnvio: 'FALLIDO' } });
+    await prisma.mensaje.update({ where: { id: mensajeId }, data: { estadoEnvio: 'FALLIDO', codigoErrorEnvio: 131026 } });
     const cola = await service.pendientes({}, asistente);
-    expect(cola.datos[0].aviso?.estadoMensaje).toBe('FALLIDO');
+    expect(cola.datos[0].aviso).toMatchObject({ estadoMensaje: 'FALLIDO', codigoErrorEnvio: 131026 });
 
     await expect(service.enviar(INFORME, asistente)).resolves.toMatchObject({ enviado: true });
     expect(plantillasEnviadas).toHaveLength(2);

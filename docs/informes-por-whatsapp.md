@@ -23,6 +23,32 @@ Paciente: «Mis informes» / menú / intención reconocida por IA
 
 No depende de Flows ni requiere publicar una plantilla. Una petición textual funciona también con el menú general apagado, siempre que la línea esté habilitada para informes. La consulta ocurre dentro de la ventana de atención existente de 24 horas. Los avisos manuales con plantilla y enlace del módulo Resultados siguen funcionando igual.
 
+## Diagnóstico de avisos fallidos
+
+La cola del CRM incluye `aviso.codigoErrorEnvio` para un mensaje `FALLIDO`;
+en otros estados es `null`. Resultados muestra la explicación del último intento
+y la repite antes de reenviar, usando el mismo texto que Conversaciones. No cambia
+los permisos, los reintentos ni la reserva única de un aviso. Preparado localmente
+el 30/10/2026; esta nota no acredita despliegue.
+
+El formato del teléfono se valida con los helpers existentes. Eso no certifica
+que tenga WhatsApp: `131026` requiere confirmar el número y contactar por otro
+medio o pedir que el paciente escriba a la clínica. No clasificarlo automáticamente
+como «sin WhatsApp». `130497` señala una restricción de país y `131042`, facturación
+de la cuenta; no se solucionan cambiando arbitrariamente el teléfono del paciente.
+El diagnóstico corresponde al intento anterior, incluso si después se corrigió
+la ficha. No se envían mensajes de prueba para comprobar números.
+
+En la interfaz, **Enviar aviso** corresponde a un informe pendiente;
+**Reintentar aviso**, a un intento `FALLIDO`. Un aviso en proceso, `INCIERTO`,
+`ENVIADO` o entregado no ofrece reenvío. Un informe abierto tampoco ofrece
+«Renovar y enviar» aunque su enlace haya vencido; el paciente ya lo consultó.
+**Corregir teléfono** se mantiene separado: cambia la ficha en todo el CRM,
+guarda **sin enviar**, conserva el estado anterior y no retira el mensaje ni
+revoca el enlace ya entregado. Si el destinatario anterior era incorrecto,
+administración debe revisar el acceso en el portal de Resultados. No usar otra
+ficha ni un teléfono de prueba para saltarse el control de entrega única.
+
 ## Identidad y límites reales
 
 - La identidad procede de la ficha asociada al teléfono del webhook firmado. El PAC debe existir en el CRM y coincidir exactamente en Resultados. El paciente y el modelo no pueden aportar un PAC, un CI ni un informe para elegir a otra persona.

@@ -39,7 +39,7 @@ export interface FilaEntrega {
   /** Cómo figura el paciente en el portal de resultados. */
   pacientePortal: { nombre: string; pac: string | null; ci: string | null };
   /** Ya avisado: cuándo y en qué estado quedó el mensaje. */
-  aviso: { enviadoEn: Date; estadoMensaje: string | null } | null;
+  aviso: { enviadoEn: Date; estadoMensaje: string | null; codigoErrorEnvio: number | null } | null;
   /** Primera vez que el paciente abrió su informe. Es lo que importa: entregado no es visto. */
   abiertoEn: string | null;
   /** Su chat en la línea de resultados, si ya existe: a donde contestará. */
@@ -151,7 +151,7 @@ export class ResultadosService {
       this.clientes.reconocerPacientes(informes.map(informe => informe.paciente)),
       this.prisma.avisoResultado.findMany({
         where: { informeId: { in: informes.map(informe => informe.informeId) } },
-        select: { informeId: true, enviadoEn: true, mensaje: { select: { estadoEnvio: true } } },
+        select: { informeId: true, enviadoEn: true, mensaje: { select: { estadoEnvio: true, codigoErrorEnvio: true } } },
       }),
     ]);
     const porInforme = new Map(avisos.map(aviso => [aviso.informeId, aviso]));
@@ -179,7 +179,11 @@ export class ResultadosService {
         vinculo: via,
         sinFicha: motivo,
         pacientePortal: informe.paciente,
-        aviso: aviso ? { enviadoEn: aviso.enviadoEn, estadoMensaje: aviso.mensaje?.estadoEnvio ?? null } : null,
+        aviso: aviso ? {
+          enviadoEn: aviso.enviadoEn,
+          estadoMensaje: aviso.mensaje?.estadoEnvio ?? null,
+          codigoErrorEnvio: aviso.mensaje?.estadoEnvio === 'FALLIDO' ? aviso.mensaje.codigoErrorEnvio : null,
+        } : null,
         abiertoEn: informe.abiertoEn,
         conversacionId: cliente ? (chats.get(cliente.id) ?? null) : null,
       };
