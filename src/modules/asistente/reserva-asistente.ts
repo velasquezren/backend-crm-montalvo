@@ -37,8 +37,8 @@ function numerosDe(texto: string): Set<string> {
 }
 
 /**
- * El carnet que va a la agenda: solo sus dígitos. «11340617 SC», «11.340.617» y
- * «LP 11340617» quedan en «11340617»: los pagos de la agenda de FileMaker esperan
+ * El carnet que va a la agenda: solo sus dígitos. «12345678 SC», «12.345.678» y
+ * «LP 12345678» quedan en «12345678»: los pagos de la agenda de FileMaker esperan
  * solo el número (28/10/2026). Son los mismos dígitos que `datosNoDichos` comprueba
  * contra lo que ella escribió.
  */

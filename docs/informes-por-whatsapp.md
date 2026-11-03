@@ -202,11 +202,23 @@ El portal permite crear/listar estos tipos; su integración FileMaker usa una cl
 siguen perteneciendo a Resultados, sin joins ni escritura cruzada desde CRM.
 
 No se alteran roles ni línea de entrega, plantilla, automatizaciones o IA. Laboratorio
-no pasa automáticamente a CLIMON. Los guiones de Papanicolau y laboratorio todavía
-requieren los campos y la captura del módulo FileMaker que entregará René.
+no pasa automáticamente a CLIMON. Papanicolau sigue pendiente de ejecución en FileMaker. Laboratorio quedó
+configurado el 26/10; ver la comprobación y sus límites al final de esta guía.
 
 Orden de publicación: API Resultados y su migración primero; después CRM backend y
 ambos frontends. **Desplegado así el 25/10/2026**: Resultados `4cb6ada`, CRM
 `d22ef19`, Angular `7893a4e` (Vercel). En el servidor: panorama y listado
 filtran por `tipo` (las 225 vigentes son ecografías; laboratorio, 0) y un tipo
 desconocido devuelve 400. No se enviaron avisos ni se abrieron informes.
+
+### Guion de laboratorio en FileMaker (26/10/2026)
+
+`generar PDF al CRM` quedó configurado en el archivo alojado Labtrio, con
+verificación de estado `FINALIZO`, PDF completo y referencia estable `LAB:pk`.
+La generación local produjo un PDF válido de dos páginas; una prueba sintética
+separada verificó publicación, sustitución sin duplicado, presencia en la cola y
+descarga. La prueba fue retirada y no envió WhatsApp. Falta registrar la aceptación
+del primer envío clínico desde el botón. La configuración del botón fue mostrada
+por René; el guion se conserva en FileMaker, no se instala mediante Git.
+
+[Guía de uso, campos y límites de la comprobación](https://github.com/velasquezren/backend-resultados-montalvo/blob/main/docs/filemaker-laboratorio.md).

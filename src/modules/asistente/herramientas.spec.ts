@@ -227,10 +227,10 @@ describe('reservar desde el asistente', () => {
 
   it('el carnet va a la agenda solo con el número, sin la extensión', async () => {
     const r = await montar(agendaConLibres(['12:00'])).ejecutar(
-      'reservar', { ...PEDIDO, ci: '11340617 SC' },
-      { ...CONTEXTO, solicitud: 'AGENDAR', reservas: reservas({ textoDeLaPaciente: 'rene velasquez\n11340617 SC' }) }, { permitirEscritura: true },
+      'reservar', { ...PEDIDO, nombre: 'Paciente Prueba', ci: '12345678 SC' },
+      { ...CONTEXTO, solicitud: 'AGENDAR', reservas: reservas({ textoDeLaPaciente: 'paciente prueba\n12345678 SC' }) }, { permitirEscritura: true },
     );
-    expect(r).toMatchObject({ ok: true, accion: { tipo: 'RESERVA', ci: '11340617' } });
+    expect(r).toMatchObject({ ok: true, accion: { tipo: 'RESERVA', ci: '12345678' } });
   });
 
   it.each([

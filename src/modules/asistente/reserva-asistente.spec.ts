@@ -46,12 +46,12 @@ describe('nombre y carnet: solo los que ella escribió', () => {
 /* Los pagos de la agenda de FileMaker esperan solo el número (28/10/2026). */
 describe('el carnet que va a la agenda', () => {
   it.each([
-    ['11340617 SC', '11340617'],
-    ['11340617SC', '11340617'],
-    ['SC 11340617', '11340617'],
-    ['11.340.617', '11340617'],
+    ['12345678 SC', '12345678'],
+    ['12345678SC', '12345678'],
+    ['SC 12345678', '12345678'],
+    ['12.345.678', '12345678'],
     [' 4567890 lp ', '4567890'],
-    ['11340617', '11340617'],
+    ['12345678', '12345678'],
   ])('«%s» va como «%s»', (escrito, numero) => {
     expect(numeroDeCarnet(escrito)).toBe(numero);
   });
