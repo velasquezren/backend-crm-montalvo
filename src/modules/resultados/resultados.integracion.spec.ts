@@ -144,7 +144,7 @@ beforeEach(async () => {
   await prisma.cliente.deleteMany({
     where: { OR: [{ pac: { in: ['PAC33009', 'PAC99999'] } }, { telefono: { in: ['+59170000001', '+59170000091', '+59170000092', '+59170000093', '+59170000094'] } }] },
   });
-  await prisma.usuario.deleteMany({ where: { email: { in: ['asistente@test.local', 'agente@test.local', 'recepcion@test.local'] } } });
+  await prisma.usuario.deleteMany({ where: { email: { in: ['asistente@test.local', 'agente@test.local', 'recepcion@test.local', 'filemaker@test.local'] } } });
 
   await prisma.lineaWhatsapp.create({
     data: { id: LINEA, nombre: 'Resultados', tokenEnv: 'TOKEN_X', activa: true, comercial: false },
@@ -605,5 +605,107 @@ describe('la cola por pestañas', () => {
     await prisma.mensaje.deleteMany({ where: { conversacion: { lineaId: LINEA } } });
     await prisma.conversacion.deleteMany({ where: { lineaId: LINEA } });
     expect((await service.pendientes({}, asistente)).datos[0].conversacionId).toBeNull();
+  });
+});
+
+/* El botón de WhatsApp de FileMaker (decisión de René, 04/11/2026): mismo
+   envío que el del CRM, remitente fijo «FileMaker» y solo por PAC exacto. */
+describe('aviso pedido desde FileMaker', () => {
+  const CUENTA_FILEMAKER = 'a0000000-0000-4000-8000-000000000009';
+
+  beforeEach(async () => {
+    await prisma.usuario.create({
+      data: { id: CUENTA_FILEMAKER, nombre: 'FileMaker', email: 'filemaker@test.local', passwordHash: 'x', rol: 'ASISTENTE' },
+    });
+    await prisma.accesoLineaWhatsapp.create({ data: { usuarioId: CUENTA_FILEMAKER, lineaId: LINEA } });
+    process.env.RESULTADOS_FILEMAKER_USUARIO_ID = CUENTA_FILEMAKER;
+  });
+
+  afterEach(() => {
+    delete process.env.RESULTADOS_FILEMAKER_USUARIO_ID;
+  });
+
+  it('envía con la cuenta FileMaker como remitente y deja en la auditoría quién lo pidió', async () => {
+    const respuesta = await service.avisarDesdeFilemaker(INFORME, 'recepcion2');
+    expect(respuesta).toMatchObject({ enviado: true, codigo: 'ENVIADO', telefono: '+59170000001', paciente: 'Paciente Vinculado' });
+    expect(plantillasEnviadas).toEqual([{ conversacionId: expect.any(String), boton: ACCESO, plantilla: 'montalvo_informe_disponible' }]);
+
+    const aviso = await prisma.avisoResultado.findUniqueOrThrow({ where: { informeId: INFORME } });
+    expect(aviso.enviadoPorId).toBe(CUENTA_FILEMAKER);
+    const auditoria = await prisma.auditLog.findFirstOrThrow({ where: { accion: 'RESULTADO_ENVIADO', entidadId: aviso.id } });
+    expect(auditoria.usuarioId).toBe(CUENTA_FILEMAKER);
+    expect(auditoria.cambios).toMatchObject({ informeId: INFORME, origen: 'FILEMAKER', usuarioFilemaker: 'recepcion2' });
+
+    /* Ya avisado: sale de «Por avisar» del CRM como cualquier otro aviso. */
+    expect((await service.pendientes({}, asistente)).contadores).toMatchObject({ POR_AVISAR: 0, ESPERANDO: 1 });
+  });
+
+  it('pulsar dos veces, o FileMaker y el CRM a la vez, deja UN solo WhatsApp', async () => {
+    const resultados = await Promise.all([
+      service.avisarDesdeFilemaker(INFORME, 'recepcion2'),
+      service.avisarDesdeFilemaker(INFORME, 'recepcion2'),
+      service.enviar(INFORME, asistente).catch((error: Error) => error),
+    ]);
+    expect(plantillasEnviadas).toHaveLength(1);
+    expect(await prisma.avisoResultado.count()).toBe(1);
+    const deFilemaker = resultados.slice(0, 2) as Array<{ enviado: boolean; codigo: string }>;
+    expect(deFilemaker.filter(r => r.codigo === 'YA_ENVIADO').length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('ya enviado: lo dice con la fecha y el número del aviso anterior, sin volver a mandar', async () => {
+    await service.enviar(INFORME, asistente);
+    const respuesta = await service.avisarDesdeFilemaker(INFORME, 'recepcion2');
+    expect(respuesta).toMatchObject({ enviado: false, codigo: 'YA_ENVIADO', telefono: '+59170000001', enviadoEn: expect.any(Date) });
+    expect(plantillasEnviadas).toHaveLength(1);
+  });
+
+  it('reconocido solo por CI: no envía y lo deja para la asistente del CRM', async () => {
+    await prisma.cliente.create({ data: { nombre: 'Paciente por CI', telefono: '+59170000091', ci: '4.567.890-lp' } });
+    informesDelPortal[0].paciente = { nombre: 'Paciente Por Ci', pac: null, ci: '4567890 LP' };
+    const respuesta = await service.avisarDesdeFilemaker(INFORME, 'recepcion2');
+    expect(respuesta).toMatchObject({ enviado: false, codigo: 'NO_ENVIADO', mensaje: expect.stringMatching(/CI y no por su PAC/) });
+    expect(plantillasEnviadas).toHaveLength(0);
+    expect(await prisma.avisoResultado.count()).toBe(0);
+    /* La asistente del CRM sí puede, comparando nombres en la cola. */
+    await expect(service.enviar(INFORME, asistente)).resolves.toMatchObject({ enviado: true });
+  });
+
+  it('sin ficha o con el enlace vencido: explica el motivo y no reserva', async () => {
+    informesDelPortal[0].paciente = { nombre: 'Nadie', pac: 'PAC99999', ci: null };
+    expect(await service.avisarDesdeFilemaker(INFORME, 'recepcion2')).toMatchObject({ enviado: false, mensaje: expect.stringMatching(/no tiene ficha/) });
+
+    informesDelPortal[0].paciente = { nombre: 'Paciente Vinculado', pac: 'PAC33009', ci: null };
+    informesDelPortal[0].accesoVigente = false;
+    expect(await service.avisarDesdeFilemaker(INFORME, 'recepcion2')).toMatchObject({ enviado: false, mensaje: expect.stringMatching(/venció/) });
+
+    expect(plantillasEnviadas).toHaveLength(0);
+    expect(await prisma.avisoResultado.count()).toBe(0);
+    expect(await prisma.conversacion.count({ where: { lineaId: LINEA } })).toBe(0);
+  });
+
+  /* Una ficha puede tener solo el nombre de usuario de WhatsApp (BSUID): se
+     avisa igual que desde el CRM, y FileMaker recibe el teléfono vacío. */
+  it('una ficha sin teléfono pero con usuario de WhatsApp también recibe el aviso', async () => {
+    await prisma.cliente.update({ where: { pac: 'PAC33009' }, data: { waUsuarioId: 'BO.usuario-de-prueba', telefono: null } });
+    expect(await service.avisarDesdeFilemaker(INFORME, 'recepcion2')).toMatchObject({ enviado: true, telefono: null });
+    expect(plantillasEnviadas).toHaveLength(1);
+  });
+
+  it('una cuenta sin la línea, desactivada o sin configurar corta la integración', async () => {
+    await prisma.accesoLineaWhatsapp.deleteMany({ where: { usuarioId: CUENTA_FILEMAKER } });
+    await expect(service.avisarDesdeFilemaker(INFORME, 'recepcion2')).rejects.toThrow(/línea de resultados/);
+
+    await prisma.accesoLineaWhatsapp.create({ data: { usuarioId: CUENTA_FILEMAKER, lineaId: LINEA } });
+    await prisma.usuario.update({ where: { id: CUENTA_FILEMAKER }, data: { activo: false } });
+    await expect(service.avisarDesdeFilemaker(INFORME, 'recepcion2')).rejects.toThrow(/desactivada/);
+
+    /* Un agente de ventas como remitente tampoco: el rol tiene que entregar. */
+    process.env.RESULTADOS_FILEMAKER_USUARIO_ID = 'a0000000-0000-4000-8000-000000000002';
+    await prisma.accesoLineaWhatsapp.create({ data: { usuarioId: 'a0000000-0000-4000-8000-000000000002', lineaId: LINEA } });
+    await expect(service.avisarDesdeFilemaker(INFORME, 'recepcion2')).rejects.toThrow(/línea de resultados/);
+
+    delete process.env.RESULTADOS_FILEMAKER_USUARIO_ID;
+    await expect(service.avisarDesdeFilemaker(INFORME, 'recepcion2')).rejects.toThrow(/RESULTADOS_FILEMAKER_USUARIO_ID/);
+    expect(plantillasEnviadas).toHaveLength(0);
   });
 });

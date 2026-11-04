@@ -5,6 +5,7 @@ import { ConversacionesModule } from '../conversaciones/conversaciones.module';
 import { LineasWhatsappModule } from '../lineas-whatsapp/lineas-whatsapp.module';
 import { PortalResultadosModule } from './portal-resultados.module';
 import { ResultadosController } from './resultados.controller';
+import { ResultadosFilemakerController } from './resultados-filemaker.controller';
 import { ResultadosService } from './resultados.service';
 
 /**
@@ -18,7 +19,7 @@ import { ResultadosService } from './resultados.service';
  */
 @Module({
   imports: [ClientesModule, ConversacionesModule, LineasWhatsappModule, PortalResultadosModule],
-  controllers: [ResultadosController],
+  controllers: [ResultadosController, ResultadosFilemakerController],
   providers: [ResultadosService],
 })
 export class ResultadosModule {}

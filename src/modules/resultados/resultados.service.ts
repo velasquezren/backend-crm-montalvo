@@ -65,6 +65,32 @@ const SIN_FICHA = {
   SIN_COINCIDENCIA: 'El paciente del informe no tiene ficha en el CRM con ese PAC o CI. Revísalo antes de avisarle.',
 } as const;
 
+/**
+ * Desde FileMaker solo se avisa por PAC exacto. Con CI la pantalla del CRM le
+ * enseña a la asistente los dos nombres para que los compare; FileMaker no.
+ */
+const SOLO_POR_CI =
+  'El CRM reconoció al paciente por su CI y no por su PAC. Compara el nombre y envíalo desde Resultados del CRM.';
+const YA_ENVIADO = 'Este informe ya se le envió al paciente.';
+
+/**
+ * Lo que recibe el guion de FileMaker. `enviado: false` no es un fallo del
+ * sistema: es un informe que la asistente tiene que resolver, y `mensaje` le
+ * dice cómo.
+ */
+export type RespuestaAvisoFilemaker =
+  /** `telefono` nulo: la ficha solo tiene nombre de usuario de WhatsApp (BSUID). */
+  | { enviado: true; codigo: 'ENVIADO'; mensajeId: string; telefono: string | null; paciente: string; enviadoEn: Date }
+  | { enviado: false; codigo: 'YA_ENVIADO'; mensaje: string; telefono: string | null; enviadoEn: Date | null }
+  | { enviado: false; codigo: 'NO_ENVIADO'; mensaje: string };
+
+/** Opciones del envío común que solo usa la entrada desde FileMaker. */
+interface OpcionesEntrega {
+  soloPorPac?: boolean;
+  /** Se suma al detalle de la auditoría `RESULTADO_ENVIADO`. */
+  auditoria?: Record<string, string>;
+}
+
 @Injectable()
 export class ResultadosService {
   private readonly logger = new Logger(ResultadosService.name);
@@ -216,7 +242,75 @@ export class ResultadosService {
        sondear qué informes existen y qué PAC está en el CRM por el código de
        error que recibe. */
     const linea = await this.permitirLinea(usuario);
-    return this.entregar(await this.revalidar(informeId), linea, usuario);
+    const { mensajeId } = await this.entregar(await this.revalidar(informeId), linea, usuario);
+    return { enviado: true, mensajeId };
+  }
+
+  /**
+   * El botón de WhatsApp del guion de ecografía de FileMaker.
+   *
+   * Envía por el mismo camino que el botón del CRM, con dos diferencias:
+   *
+   * - El remitente es la cuenta fija del CRM `RESULTADOS_FILEMAKER_USUARIO_ID`
+   *   (decisión de René, 04/11/2026), que pasa el mismo permiso que una
+   *   asistente: rol que entrega y acceso a la línea. Quitarle la línea o
+   *   desactivarla corta la integración sin tocar código. La cuenta de
+   *   FileMaker de quien pulsó queda en la auditoría.
+   * - Solo por PAC exacto (`SOLO_POR_CI`).
+   *
+   * Lo que no se envía vuelve con `enviado: false` y el motivo, y el informe
+   * sigue en «Por avisar» del CRM como si nadie lo hubiera intentado.
+   */
+  async avisarDesdeFilemaker(informeId: string, usuarioFilemaker: string): Promise<RespuestaAvisoFilemaker> {
+    const remitente = await this.remitenteFilemaker();
+    const linea = await this.permitirLinea(remitente).catch((error: unknown) => {
+      if (error instanceof NotFoundException) {
+        throw new ServiceUnavailableException(
+          'La cuenta FileMaker del CRM no puede entregar resultados: revisa que sea asistente, esté activa y tenga la línea de resultados.',
+        );
+      }
+      throw error;
+    });
+    try {
+      const informe = await this.revalidar(informeId);
+      const enviado = await this.entregar(informe, linea, remitente, {
+        soloPorPac: true,
+        auditoria: { origen: 'FILEMAKER', usuarioFilemaker },
+      });
+      return {
+        enviado: true,
+        codigo: 'ENVIADO',
+        mensajeId: enviado.mensajeId,
+        telefono: enviado.cliente.telefono,
+        paciente: enviado.cliente.nombre,
+        enviadoEn: enviado.enviadoEn,
+      };
+    } catch (error) {
+      if (error instanceof ConflictException && error.message === YA_ENVIADO) {
+        const previo = await this.prisma.avisoResultado.findUnique({
+          where: { informeId },
+          select: { enviadoEn: true, cliente: { select: { telefono: true } } },
+        });
+        return { enviado: false, codigo: 'YA_ENVIADO', mensaje: YA_ENVIADO, telefono: previo?.cliente.telefono ?? null, enviadoEn: previo?.enviadoEn ?? null };
+      }
+      if (error instanceof NotFoundException || error instanceof ConflictException) {
+        return { enviado: false, codigo: 'NO_ENVIADO', mensaje: error.message };
+      }
+      throw error;
+    }
+  }
+
+  /** La cuenta del CRM que figura como remitente de los avisos de FileMaker. */
+  private async remitenteFilemaker(): Promise<UsuarioJwt> {
+    const id = this.variable('RESULTADOS_FILEMAKER_USUARIO_ID');
+    const cuenta = await this.prisma.usuario.findUnique({
+      where: { id },
+      select: { id: true, email: true, nombre: true, rol: true, activo: true },
+    });
+    if (!cuenta?.activo) {
+      throw new ServiceUnavailableException('La cuenta FileMaker del CRM no existe o está desactivada.');
+    }
+    return { sub: cuenta.id, email: cuenta.email, nombre: cuenta.nombre, rol: cuenta.rol };
   }
 
   /**
@@ -238,14 +332,20 @@ export class ResultadosService {
     }
     await this.portal.renovarAcceso(informeId);
     await this.prisma.avisoResultado.deleteMany({ where: { informeId, enviadoEn: { lt: new Date(previo.accesoExpiraEn) } } });
-    return this.entregar(await this.revalidar(informeId), linea, usuario);
+    const { mensajeId } = await this.entregar(await this.revalidar(informeId), linea, usuario);
+    return { enviado: true, mensajeId };
   }
 
-  private async entregar(informe: InformePublicado, linea: string, usuario: UsuarioJwt): Promise<{ enviado: true; mensajeId: string }> {
+  private async entregar(
+    informe: InformePublicado,
+    linea: string,
+    usuario: UsuarioJwt,
+    opciones: OpcionesEntrega = {},
+  ): Promise<{ mensajeId: string; enviadoEn: Date; cliente: { nombre: string; telefono: string | null } }> {
     const informeId = informe.informeId;
     /* Se reconoce de nuevo aquí, no se confía en la fila que vio la
        asistente: entre la cola y el clic alguien pudo corregir un CI. */
-    const cliente = await this.fichaDe(informe);
+    const cliente = await this.fichaDe(informe, opciones.soloPorPac);
 
     const reserva = await this.reservar(informeId, cliente.id, usuario.sub);
     try {
@@ -274,8 +374,9 @@ export class ResultadosService {
         informeId,
         clienteId: cliente.id,
         estudio: informe.estudio,
+        ...opciones.auditoria,
       });
-      return { enviado: true, mensajeId: mensaje.id };
+      return { mensajeId: mensaje.id, enviadoEn: reserva.enviadoEn, cliente: { nombre: cliente.nombre, telefono: cliente.telefono } };
     } catch (error) {
       /* La reserva sin mensaje sería un informe que nadie puede volver a
          enviar. Se libera para que reaparezca en la cola. */
@@ -380,9 +481,10 @@ export class ResultadosService {
    * confía en la fila de la pantalla: entre la cola y el clic alguien pudo
    * corregir un CI.
    */
-  private async fichaDe(informe: InformePublicado) {
-    const [{ cliente, motivo }] = await this.clientes.reconocerPacientes([informe.paciente]);
+  private async fichaDe(informe: InformePublicado, soloPorPac = false) {
+    const [{ cliente, via, motivo }] = await this.clientes.reconocerPacientes([informe.paciente]);
     if (!cliente) throw new NotFoundException(motivo === 'CI_REPETIDO' ? SIN_FICHA.CI_REPETIDO : SIN_FICHA.SIN_COINCIDENCIA);
+    if (soloPorPac && via !== 'PAC') throw new ConflictException(SOLO_POR_CI);
     return cliente;
   }
 
@@ -416,7 +518,7 @@ export class ResultadosService {
       return await this.prisma.avisoResultado.create({ data: { informeId, clienteId, enviadoPorId } });
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
-        throw new ConflictException('Este informe ya se le envió al paciente.');
+        throw new ConflictException(YA_ENVIADO);
       }
       throw error;
     }

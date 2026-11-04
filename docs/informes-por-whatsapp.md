@@ -1,5 +1,7 @@
 # Mis informes por WhatsApp
 
+> El aviso pedido desde el botón de FileMaker (04/11/2026) tiene su guía: [filemaker-avisos-ecografia.md](filemaker-avisos-ecografia.md).
+
 Estado: desplegado el 13/10/2026 en las líneas de prueba y Recepción, por petición de René. CRM `ed7f204`, API Resultados `1604ded`. Apagado por defecto en otras instalaciones. Sin envíos reales de prueba ni cambios de esquema propios de esta función. Respaldos y comprobaciones en [ESTADO_ACTUAL](ESTADO_ACTUAL.md).
 
 ## Decisión: menú primero, IA como entrada opcional
