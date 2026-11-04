@@ -28,3 +28,19 @@ export class AvisoFilemakerDto {
   @Matches(/^\+?[0-9]*$/, { message: 'telefonoConfirmado solo admite dígitos y un + inicial' })
   telefonoConfirmado?: string;
 }
+
+/** «Cambiar número» desde FileMaker: el número que escribió la asistente. */
+export class TelefonoFilemakerDto {
+  @Transform(({ value }: { value: unknown }) => (typeof value === 'string' ? value.trim() : value))
+  @IsString()
+  @Length(1, 80)
+  @Matches(/^[^\u0000-\u001f\u007f]+$/, { message: 'usuario no puede llevar caracteres de control' })
+  usuario!: string;
+
+  /** Tal como lo escribió: `70012345`, `+591 700 12345`… El servidor lo normaliza. */
+  @Transform(({ value }: { value: unknown }) => (typeof value === 'string' ? value.trim() : value))
+  @IsString()
+  @Length(6, 30)
+  @Matches(/^[+0-9 ()-]+$/, { message: 'telefono solo admite dígitos, espacios, guiones, paréntesis y un +' })
+  telefono!: string;
+}

@@ -807,4 +807,66 @@ describe('aviso pedido desde FileMaker', () => {
       await expect(service.destinoParaFilemaker(INFORME)).rejects.toThrow(/RESULTADOS_FILEMAKER_USUARIO_ID/);
     });
   });
+
+  /* «Cambiar número» desde la pregunta de FileMaker (René, 04/11/2026). */
+  describe('cambiar número desde FileMaker', () => {
+    it('corrige el teléfono de la ficha por PAC; acepta 8 dígitos y queda auditado', async () => {
+      expect(await service.cambiarTelefonoDesdeFilemaker(INFORME, '7000 0095', 'recepcion2')).toEqual({
+        actualizado: true, accion: 'TELEFONO_CORREGIDO', paciente: 'Paciente Vinculado', telefono: '+59170000095',
+      });
+      expect(await service.destinoParaFilemaker(INFORME)).toMatchObject({ puedeEnviar: true, telefono: '+59170000095' });
+      const ficha = await prisma.cliente.findUniqueOrThrow({ where: { pac: 'PAC33009' } });
+      expect(await prisma.auditLog.count({ where: { accion: 'TELEFONO_DESDE_FILEMAKER', entidadId: ficha.id } })).toBe(1);
+      expect(plantillasEnviadas).toHaveLength(0);
+      await prisma.cliente.update({ where: { pac: 'PAC33009' }, data: { telefono: '+59170000001' } });
+    });
+
+    it('sin ficha: la consulta lo marca y «Cambiar número» crea la ficha con el PAC del informe', async () => {
+      informesDelPortal[0].paciente = { nombre: 'Paciente Nueva', pac: 'PAC99999', ci: null };
+      expect(await service.destinoParaFilemaker(INFORME)).toMatchObject({ puedeEnviar: false, sinFicha: true });
+      expect(await service.cambiarTelefonoDesdeFilemaker(INFORME, '70000094', 'recepcion2')).toMatchObject({
+        actualizado: true, accion: 'FICHA_CREADA', telefono: '+59170000094',
+      });
+      expect(await prisma.cliente.findUniqueOrThrow({ where: { pac: 'PAC99999' } })).toMatchObject({ nombre: 'Paciente Nueva', telefono: '+59170000094' });
+      expect(await service.destinoParaFilemaker(INFORME)).toMatchObject({ puedeEnviar: true, paciente: 'Paciente Nueva' });
+    });
+
+    it('un número de otra ficha no se toma: ni al corregir ni al crear', async () => {
+      await prisma.cliente.create({ data: { nombre: 'Otra persona', telefono: '+59170000094', pac: 'PAC-OTRA', ci: '1234567' } });
+      try {
+        const corregir = await service.cambiarTelefonoDesdeFilemaker(INFORME, '70000094', 'recepcion2');
+        expect(corregir).toMatchObject({ actualizado: false });
+        expect(await prisma.cliente.findUniqueOrThrow({ where: { pac: 'PAC33009' } })).toMatchObject({ telefono: '+59170000001' });
+
+        informesDelPortal[0].paciente = { nombre: 'Paciente Nueva', pac: 'PAC99999', ci: null };
+        expect(await service.cambiarTelefonoDesdeFilemaker(INFORME, '70000094', 'recepcion2')).toMatchObject({
+          actualizado: false, mensaje: expect.stringMatching(/ya es de otra ficha/),
+        });
+        expect(await prisma.cliente.count({ where: { pac: 'PAC99999' } })).toBe(0);
+      } finally {
+        await prisma.cliente.deleteMany({ where: { pac: 'PAC-OTRA' } });
+      }
+    });
+
+    it('si el número es de una ficha sin PAC, manda a «Vincular» en el CRM y no crea nada', async () => {
+      await prisma.cliente.create({ data: { nombre: 'WhatsApp +59170000093', telefono: '+59170000093' } });
+      informesDelPortal[0].paciente = { nombre: 'Paciente Nueva', pac: 'PAC99999', ci: null };
+      expect(await service.cambiarTelefonoDesdeFilemaker(INFORME, '70000093', 'recepcion2')).toMatchObject({
+        actualizado: false, mensaje: expect.stringMatching(/Vincular/),
+      });
+      expect(await prisma.cliente.count({ where: { pac: 'PAC99999' } })).toBe(0);
+    });
+
+    it('número inválido o paciente reconocido solo por CI: no cambia nada', async () => {
+      expect(await service.cambiarTelefonoDesdeFilemaker(INFORME, '123', 'recepcion2')).toMatchObject({
+        actualizado: false, mensaje: expect.stringMatching(/no es un número de teléfono válido/),
+      });
+      await prisma.cliente.create({ data: { nombre: 'Paciente por CI', telefono: '+59170000091', ci: '4.567.890-lp' } });
+      informesDelPortal[0].paciente = { nombre: 'Paciente Por Ci', pac: null, ci: '4567890 LP' };
+      expect(await service.cambiarTelefonoDesdeFilemaker(INFORME, '70000092', 'recepcion2')).toMatchObject({
+        actualizado: false, mensaje: expect.stringMatching(/CI y no por su PAC/),
+      });
+      expect(await prisma.cliente.findFirstOrThrow({ where: { telefono: '+59170000091' } })).toMatchObject({ nombre: 'Paciente por CI' });
+    });
+  });
 });

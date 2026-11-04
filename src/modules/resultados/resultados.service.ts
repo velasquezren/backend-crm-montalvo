@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   HttpStatus,
   Injectable,
@@ -13,6 +14,7 @@ import { calcularPaginacion, paginar, RespuestaPaginada } from '../../common/dto
 import { Prisma } from '../../prisma/prisma-client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../../common/audit/audit.service';
+import { normalizarTelefono } from '../../common/telefono/telefono';
 import { ClientesService } from '../clientes/clientes.service';
 import { obtenerOCrearConversacion } from '../conversaciones/acceso-conversacion';
 import { EnvioPlantillasService } from '../conversaciones/envio-plantillas.service';
@@ -95,7 +97,20 @@ export type RespuestaAvisoFilemaker =
 export type DestinoAvisoFilemaker =
   | { puedeEnviar: true; codigo: 'LISTO'; paciente: string; telefono: string | null; estudio: string }
   | { puedeEnviar: false; codigo: 'YA_ENVIADO'; mensaje: string; telefono: string | null; enviadoEn: Date | null }
-  | { puedeEnviar: false; codigo: 'NO_ENVIADO'; mensaje: string };
+  /** `sinFicha`: el paciente no tiene ficha en el CRM; FileMaker ofrece crearla con un número. */
+  | { puedeEnviar: false; codigo: 'NO_ENVIADO'; mensaje: string; sinFicha: boolean };
+
+/**
+ * Resultado de «Cambiar número» en FileMaker. `actualizado: false` es algo que
+ * la asistente tiene que resolver (número inválido, de otra ficha…), con el
+ * porqué en `mensaje`.
+ */
+export type CambioTelefonoFilemaker =
+  | { actualizado: true; accion: 'TELEFONO_CORREGIDO' | 'FICHA_CREADA'; paciente: string; telefono: string }
+  | { actualizado: false; mensaje: string };
+
+const VINCULABLE_DESDE_FILEMAKER =
+  'Ese número ya tiene una ficha sin PAC en el CRM. Si es la misma paciente, vincúlala desde Resultados del CRM («Vincular»).';
 
 const TELEFONO_CAMBIADO =
   'El número de la ficha cambió después de la confirmación. No se envió: vuelve a pulsar el botón para ver el número nuevo.';
@@ -368,7 +383,54 @@ export class ResultadosService {
       return { puedeEnviar: true, codigo: 'LISTO', paciente: cliente.nombre, telefono: cliente.telefono, estudio: informe.estudio };
     } catch (error) {
       if (error instanceof NotFoundException || error instanceof ConflictException) {
-        return { puedeEnviar: false, codigo: 'NO_ENVIADO', mensaje: error.message };
+        return { puedeEnviar: false, codigo: 'NO_ENVIADO', mensaje: error.message, sinFicha: error.message === SIN_FICHA.SIN_COINCIDENCIA };
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * «Cambiar número» de la pregunta de FileMaker: corrige el teléfono de la
+   * ficha del paciente de este informe o, si no tiene ficha, la crea con ese
+   * número. Es lo mismo que «Corregir teléfono» y «Crear ficha» de la pantalla
+   * Resultados, con las mismas reglas:
+   *
+   * - La ficha la decide el servidor por el PAC del informe, nunca FileMaker.
+   *   Solo por PAC exacto (por CI la asistente compara nombres en el CRM).
+   * - Un número que ya es de otra ficha no se toma: puede ser un familiar.
+   *   Si es de una ficha sin PAC que podría ser la misma paciente, se manda al
+   *   CRM a «Vincular», que exige que una persona lo confirme viendo el nombre.
+   * - `70012345` se entiende como Bolivia (`+59170012345`).
+   *
+   * No envía nada: después FileMaker vuelve a preguntar con el número nuevo.
+   */
+  async cambiarTelefonoDesdeFilemaker(informeId: string, telefonoEscrito: string, usuarioFilemaker: string): Promise<CambioTelefonoFilemaker> {
+    const remitente = await this.remitenteFilemaker();
+    await this.lineaDeFilemaker(remitente);
+    const telefono = normalizarTelefono(telefonoEscrito);
+    if (!telefono) return { actualizado: false, mensaje: `«${telefonoEscrito}» no es un número de teléfono válido. Escríbelo con 8 dígitos (70012345) o con +591.` };
+    try {
+      const informe = await this.publicado(informeId);
+      const [{ cliente, via, motivo }] = await this.clientes.reconocerPacientes([informe.paciente]);
+      if (cliente) {
+        if (via !== 'PAC') throw new ConflictException(SOLO_POR_CI);
+        if (cliente.telefono !== telefono) {
+          await this.clientes.telefonoDesdeResultados(cliente.id, telefono, remitente.sub);
+          await this.audit.registrar('Cliente', cliente.id, 'TELEFONO_DESDE_FILEMAKER', remitente.sub, { informeId, usuarioFilemaker });
+        }
+        return { actualizado: true, accion: 'TELEFONO_CORREGIDO', paciente: cliente.nombre, telefono };
+      }
+      if (motivo === 'CI_REPETIDO') throw new ConflictException(SIN_FICHA.CI_REPETIDO);
+      if (!informe.paciente.pac) throw new ConflictException(SOLO_POR_CI);
+      const delTelefono = await this.clientes.fichaDelTelefono(telefono, informe.paciente);
+      if (delTelefono.estado === 'VINCULABLE') throw new ConflictException(VINCULABLE_DESDE_FILEMAKER);
+      if (delTelefono.estado === 'OCUPADO') throw new ConflictException(OCUPADO);
+      const ficha = await this.clientes.altaDesdeResultados(informe.paciente, telefono);
+      await this.audit.registrar('Cliente', ficha.id, 'FICHA_DESDE_RESULTADOS', remitente.sub, { informeId, origen: 'FILEMAKER', usuarioFilemaker });
+      return { actualizado: true, accion: 'FICHA_CREADA', paciente: informe.paciente.nombre, telefono };
+    } catch (error) {
+      if (error instanceof NotFoundException || error instanceof ConflictException || error instanceof BadRequestException) {
+        return { actualizado: false, mensaje: error.message };
       }
       throw error;
     }

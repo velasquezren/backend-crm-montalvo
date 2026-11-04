@@ -57,12 +57,34 @@ ficha por PAC exacto, aviso previo) sin reservar ni enviar nada. Responde 200:
 | --- | --- | --- |
 | `LISTO` | `true` | `paciente` (nombre de la FICHA del CRM, para ver si el número es de otra persona), `telefono` (nulo si solo usuario de WhatsApp), `estudio` |
 | `YA_ENVIADO` | `false` | `mensaje`, `telefono` y `enviadoEn` del aviso anterior. Un aviso FALLIDO no cuenta |
-| `NO_ENVIADO` | `false` | `mensaje`: sin ficha, CI repetido, solo por CI, enlace vencido o no publicado |
+| `NO_ENVIADO` | `false` | `mensaje`: sin ficha, CI repetido, solo por CI, enlace vencido o no publicado. `sinFicha: true` si el paciente no tiene ficha (FileMaker ofrece crearla) |
+
+### «Cambiar número»: `…/telefono`
+
+```
+POST /integraciones/filemaker/resultados/:informeId/telefono
+Authorization: Bearer <FILEMAKER_AVISOS_TOKEN>
+Content-Type: application/json
+
+{ "usuario": "<Get ( AccountName )>", "telefono": "70012345" }
+```
+
+Corrige el teléfono de la ficha del paciente del informe (por PAC exacto) o, si
+no tiene ficha, la crea con nombre y PAC del portal: lo mismo que «Corregir
+teléfono» y «Crear ficha» de Resultados. `70012345` se entiende como Bolivia.
+No envía nada. Responde 200 `{ actualizado: true, accion: TELEFONO_CORREGIDO |
+FICHA_CREADA, paciente, telefono }` o `{ actualizado: false, mensaje }`: número
+inválido, número de otra ficha (un familiar; no se toma), número de una ficha sin
+PAC (hay que «Vincular» en el CRM, viendo el nombre), CI repetido o solo por CI.
+Auditoría: `TELEFONO_DESDE_FILEMAKER` o `FICHA_DESDE_RESULTADOS` con
+`usuarioFilemaker`.
 
 Agregado el 04/11/2026 a pedido de René: el botón enviaba sin mostrar el número,
 y un aviso que llega a un número equivocado no se puede reenviar (la reserva
-única lo impide). Si el número está mal, la asistente pulsa «No enviar», lo
-corrige en Resultados del CRM («Corregir teléfono») y vuelve a pulsar.
+única lo impide). La pregunta tiene tres botones: «Enviar», «Cambiar número»
+(escribe el número, el CRM corrige la ficha y vuelve a preguntar) y «No enviar».
+Sin ficha en el CRM ofrece «Escribir número» para crearla. El número se escribe
+en `telefono_envio`; si el CRM no lo acepta, el campo vuelve a su valor.
 
 Responde **200** también cuando no envía, para que el guion lea un solo JSON:
 
@@ -92,8 +114,8 @@ integración apagada, cuenta FileMaker sin configurar, desactivada o sin la
 línea, o portal caído. Límite: 30 llamadas por minuto.
 
 Código: `modules/resultados/resultados-filemaker.controller.ts`,
-`avisos-filemaker.guard.ts`, `ResultadosService.avisarDesdeFilemaker` y
-`destinoParaFilemaker`.
+`avisos-filemaker.guard.ts`, `ResultadosService.avisarDesdeFilemaker`,
+`destinoParaFilemaker` y `cambiarTelefonoDesdeFilemaker`.
 Pruebas: `resultados.integracion.spec.ts` («aviso pedido desde FileMaker»,
 contra Postgres real) y `avisos-filemaker.guard.spec.ts`.
 
@@ -141,12 +163,17 @@ manual). Los guiones anteriores quedaron como `ENVIAR PDF AL PORTAL Copia` y
 
 ### Confirmación del número: orden de puesta en marcha
 
-1. Desplegar el backend del CRM con `…/destino` (antes de esto la ruta da 404).
+1. Desplegar el backend del CRM con `…/destino` y `…/telefono` (antes de esto
+   las rutas dan 404). `…/destino` está desplegada desde `97f700c`.
 2. Recién entonces pegar en FileMaker la versión del guion con la pregunta
    ([texto](filemaker/enviar-pdf-al-portal.txt)). Pegarla antes deja el botón
    sin enviar: diría «no se pudo consultar al CRM» en cada ecografía.
 3. Probar con la ficha de prueba: la pregunta muestra nombre y número; «No
-   enviar» deja `PUBLICADO`; «Enviar» deja `ENVIADO`.
+   enviar» deja `PUBLICADO`; «Enviar» deja `ENVIADO`; «Cambiar número» vuelve a
+   preguntar con el número nuevo.
+
+Estado al 04/11: en FileMaker está pegada la versión con la pregunta (Enviar /
+No enviar). La de «Cambiar número» se pega cuando esté desplegado `…/telefono`.
 
 ## Revisión de los guiones de CARPETA ECOGRAFIA (04/11/2026)
 

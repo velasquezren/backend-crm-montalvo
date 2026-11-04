@@ -3,7 +3,7 @@ import { Throttle } from '@nestjs/throttler';
 
 import { Public } from '../../common/decorators/public.decorator';
 import { AvisosFilemakerGuard } from './avisos-filemaker.guard';
-import { AvisoFilemakerDto } from './dto/aviso-filemaker.dto';
+import { AvisoFilemakerDto, TelefonoFilemakerDto } from './dto/aviso-filemaker.dto';
 import { ResultadosService } from './resultados.service';
 
 /**
@@ -47,5 +47,19 @@ export class ResultadosFilemakerController {
   @Throttle({ default: { limit: 30, ttl: 60_000 } })
   destino(@Param('informeId', ParseUUIDPipe) informeId: string) {
     return this.service.destinoParaFilemaker(informeId);
+  }
+
+  /**
+   * «Cambiar número» de la pregunta de FileMaker: corrige el teléfono de la
+   * ficha del paciente del informe, o la crea si no existe. No envía nada.
+   */
+  @Post(':informeId/telefono')
+  @HttpCode(200)
+  @Public()
+  @UseGuards(AvisosFilemakerGuard)
+  @Throttle({ default: { limit: 30, ttl: 60_000 } })
+  @UsePipes(new ValidationPipe({ whitelist: true, transform: true, forbidNonWhitelisted: true }))
+  cambiarTelefono(@Param('informeId', ParseUUIDPipe) informeId: string, @Body() dto: TelefonoFilemakerDto) {
+    return this.service.cambiarTelefonoDesdeFilemaker(informeId, dto.telefono, dto.usuario);
   }
 }
