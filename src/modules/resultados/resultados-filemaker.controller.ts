@@ -32,6 +32,20 @@ export class ResultadosFilemakerController {
   @Throttle({ default: { limit: 30, ttl: 60_000 } })
   @UsePipes(new ValidationPipe({ whitelist: true, transform: true, forbidNonWhitelisted: true }))
   avisar(@Param('informeId', ParseUUIDPipe) informeId: string, @Body() dto: AvisoFilemakerDto) {
-    return this.service.avisarDesdeFilemaker(informeId, dto.usuario);
+    return this.service.avisarDesdeFilemaker(informeId, dto.usuario, dto.telefonoConfirmado);
+  }
+
+  /**
+   * La pregunta antes de enviar: a qué ficha del CRM y a qué número iría el
+   * aviso. No envía ni reserva nada; el guion se lo muestra a la asistente y
+   * solo si acepta llama a `avisar` con ese número en `telefonoConfirmado`.
+   */
+  @Post(':informeId/destino')
+  @HttpCode(200)
+  @Public()
+  @UseGuards(AvisosFilemakerGuard)
+  @Throttle({ default: { limit: 30, ttl: 60_000 } })
+  destino(@Param('informeId', ParseUUIDPipe) informeId: string) {
+    return this.service.destinoParaFilemaker(informeId);
   }
 }

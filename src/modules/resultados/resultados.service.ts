@@ -86,9 +86,28 @@ export type RespuestaAvisoFilemaker =
   | { enviado: false; codigo: 'YA_ENVIADO'; mensaje: string; telefono: string | null; enviadoEn: Date | null }
   | { enviado: false; codigo: 'NO_ENVIADO'; mensaje: string };
 
+/**
+ * A quién iría el aviso, para que la asistente lo confirme en FileMaker antes
+ * de enviar. Mismas comprobaciones que el envío, sin reservar ni mandar nada.
+ * `paciente` es el nombre de la FICHA DEL CRM, no el del informe: así se ve si
+ * el número es de otra persona (madre e hija comparten WhatsApp).
+ */
+export type DestinoAvisoFilemaker =
+  | { puedeEnviar: true; codigo: 'LISTO'; paciente: string; telefono: string | null; estudio: string }
+  | { puedeEnviar: false; codigo: 'YA_ENVIADO'; mensaje: string; telefono: string | null; enviadoEn: Date | null }
+  | { puedeEnviar: false; codigo: 'NO_ENVIADO'; mensaje: string };
+
+const TELEFONO_CAMBIADO =
+  'El número de la ficha cambió después de la confirmación. No se envió: vuelve a pulsar el botón para ver el número nuevo.';
+
 /** Opciones del envío común que solo usa la entrada desde FileMaker. */
 interface OpcionesEntrega {
   soloPorPac?: boolean;
+  /**
+   * El número que la asistente confirmó (`''` = sin teléfono). Si la ficha ya
+   * tiene otro, no se envía. `undefined` = no se pidió confirmación.
+   */
+  telefonoConfirmado?: string;
   /** Se suma al detalle de la auditoría `RESULTADO_ENVIADO`. */
   auditoria?: Record<string, string>;
 }
@@ -269,20 +288,18 @@ export class ResultadosService {
    * Lo que no se envía vuelve con `enviado: false` y el motivo, y el informe
    * sigue en «Por avisar» del CRM como si nadie lo hubiera intentado.
    */
-  async avisarDesdeFilemaker(informeId: string, usuarioFilemaker: string): Promise<RespuestaAvisoFilemaker> {
+  async avisarDesdeFilemaker(
+    informeId: string,
+    usuarioFilemaker: string,
+    telefonoConfirmado?: string,
+  ): Promise<RespuestaAvisoFilemaker> {
     const remitente = await this.remitenteFilemaker();
-    const linea = await this.permitirLinea(remitente).catch((error: unknown) => {
-      if (error instanceof NotFoundException) {
-        throw new ServiceUnavailableException(
-          'La cuenta FileMaker del CRM no puede entregar resultados: revisa que sea asistente, esté activa y tenga la línea de resultados.',
-        );
-      }
-      throw error;
-    });
+    const linea = await this.lineaDeFilemaker(remitente);
     try {
       const informe = await this.revalidar(informeId);
       const enviado = await this.entregar(informe, linea, remitente, {
         soloPorPac: true,
+        telefonoConfirmado,
         auditoria: { origen: 'FILEMAKER', usuarioFilemaker },
       });
       /* El registro no es el envío: Meta lo recibe en segundo plano y puede
@@ -325,6 +342,48 @@ export class ResultadosService {
       }
       throw error;
     }
+  }
+
+  /**
+   * La pregunta previa del botón de FileMaker: a qué ficha y a qué número iría
+   * el aviso de este informe. Mismas comprobaciones que `avisarDesdeFilemaker`
+   * (cuenta, línea, informe publicado y vigente, ficha por PAC exacto, aviso
+   * previo), sin reservar ni enviar nada. La asistente ve el número y decide.
+   */
+  async destinoParaFilemaker(informeId: string): Promise<DestinoAvisoFilemaker> {
+    const remitente = await this.remitenteFilemaker();
+    await this.lineaDeFilemaker(remitente);
+    try {
+      const informe = await this.revalidar(informeId);
+      const cliente = await this.fichaDe(informe, true);
+      /* Un aviso FALLIDO no cuenta (se puede reenviar); una reserva sin
+         mensaje sí, porque hay un envío en vuelo. */
+      const previo = await this.prisma.avisoResultado.findUnique({
+        where: { informeId },
+        select: { enviadoEn: true, mensaje: { select: { estadoEnvio: true } }, cliente: { select: { telefono: true } } },
+      });
+      if (previo && previo.mensaje?.estadoEnvio !== 'FALLIDO') {
+        return { puedeEnviar: false, codigo: 'YA_ENVIADO', mensaje: YA_ENVIADO, telefono: previo.cliente.telefono, enviadoEn: previo.enviadoEn };
+      }
+      return { puedeEnviar: true, codigo: 'LISTO', paciente: cliente.nombre, telefono: cliente.telefono, estudio: informe.estudio };
+    } catch (error) {
+      if (error instanceof NotFoundException || error instanceof ConflictException) {
+        return { puedeEnviar: false, codigo: 'NO_ENVIADO', mensaje: error.message };
+      }
+      throw error;
+    }
+  }
+
+  /** La línea de resultados, con el permiso de la cuenta FileMaker como asistente. */
+  private async lineaDeFilemaker(remitente: UsuarioJwt): Promise<string> {
+    return this.permitirLinea(remitente).catch((error: unknown) => {
+      if (error instanceof NotFoundException) {
+        throw new ServiceUnavailableException(
+          'La cuenta FileMaker del CRM no puede entregar resultados: revisa que sea asistente, esté activa y tenga la línea de resultados.',
+        );
+      }
+      throw error;
+    });
   }
 
   /** La cuenta del CRM que figura como remitente de los avisos de FileMaker. */
@@ -373,6 +432,9 @@ export class ResultadosService {
     /* Se reconoce de nuevo aquí, no se confía en la fila que vio la
        asistente: entre la cola y el clic alguien pudo corregir un CI. */
     const cliente = await this.fichaDe(informe, opciones.soloPorPac);
+    if (opciones.telefonoConfirmado !== undefined && (cliente.telefono ?? '') !== opciones.telefonoConfirmado) {
+      throw new ConflictException(TELEFONO_CAMBIADO);
+    }
 
     const reserva = await this.reservar(informeId, cliente.id, usuario.sub);
     try {

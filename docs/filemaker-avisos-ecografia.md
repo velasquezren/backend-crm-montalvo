@@ -16,8 +16,12 @@ revalida el informe en el portal, cruza la ficha, reserva contra el doble envío
    → genera el PDF → `ENVIAR PDF AL PORTAL` (archivo Ecografía, ServidorFM19).
 2. `ENVIAR PDF AL PORTAL` sube y publica el PDF en Resultados
    (`POST /v1/integraciones/filemaker/informe`, referencia `FM-Ecografia-<RecordID>`).
-3. Si su variable `$tokenCRM` tiene la credencial, pide el aviso al CRM:
-   `POST https://crm.107.175.132.15.nip.io/integraciones/filemaker/resultados/<informeId>/avisar`.
+3. Si su variable `$tokenCRM` tiene la credencial, pregunta al CRM a quién iría
+   el aviso (`…/<informeId>/destino`) y se lo muestra a la asistente: nombre de
+   la ficha del CRM, número y nombre de la ecografía. Solo si pulsa «Enviar» pide
+   el aviso (`…/<informeId>/avisar`) con ese número en `telefonoConfirmado`.
+   Base: `https://crm.107.175.132.15.nip.io/integraciones/filemaker/resultados`.
+   Guion completo en texto: [filemaker/enviar-pdf-al-portal.txt](filemaker/enviar-pdf-al-portal.txt).
 4. Llena `estado`, `fecha_envio`, `hora_envio`, `usu_envio` y `telefono_envio`
    y le dice a la asistente qué pasó.
 
@@ -31,8 +35,34 @@ POST /integraciones/filemaker/resultados/:informeId/avisar
 Authorization: Bearer <FILEMAKER_AVISOS_TOKEN>
 Content-Type: application/json
 
-{ "usuario": "<Get ( AccountName )>" }
+{ "usuario": "<Get ( AccountName )>", "telefonoConfirmado": "<lo que dio /destino>" }
 ```
+
+`telefonoConfirmado` es opcional (un guion viejo no lo manda). Con él, si la
+ficha tiene otro número que el confirmado, responde `NO_ENVIADO` («El número de
+la ficha cambió después de la confirmación») y no envía. Vacío = la ficha no
+tenía teléfono, solo usuario de WhatsApp.
+
+### Antes de enviar: `…/destino`
+
+```
+POST /integraciones/filemaker/resultados/:informeId/destino
+Authorization: Bearer <FILEMAKER_AVISOS_TOKEN>
+```
+
+Mismas comprobaciones que `avisar` (cuenta, línea, informe publicado y vigente,
+ficha por PAC exacto, aviso previo) sin reservar ni enviar nada. Responde 200:
+
+| `codigo` | `puedeEnviar` | Trae |
+| --- | --- | --- |
+| `LISTO` | `true` | `paciente` (nombre de la FICHA del CRM, para ver si el número es de otra persona), `telefono` (nulo si solo usuario de WhatsApp), `estudio` |
+| `YA_ENVIADO` | `false` | `mensaje`, `telefono` y `enviadoEn` del aviso anterior. Un aviso FALLIDO no cuenta |
+| `NO_ENVIADO` | `false` | `mensaje`: sin ficha, CI repetido, solo por CI, enlace vencido o no publicado |
+
+Agregado el 04/11/2026 a pedido de René: el botón enviaba sin mostrar el número,
+y un aviso que llega a un número equivocado no se puede reenviar (la reserva
+única lo impide). Si el número está mal, la asistente pulsa «No enviar», lo
+corrige en Resultados del CRM («Corregir teléfono») y vuelve a pulsar.
 
 Responde **200** también cuando no envía, para que el guion lea un solo JSON:
 
@@ -62,7 +92,8 @@ integración apagada, cuenta FileMaker sin configurar, desactivada o sin la
 línea, o portal caído. Límite: 30 llamadas por minuto.
 
 Código: `modules/resultados/resultados-filemaker.controller.ts`,
-`avisos-filemaker.guard.ts`, `ResultadosService.avisarDesdeFilemaker`.
+`avisos-filemaker.guard.ts`, `ResultadosService.avisarDesdeFilemaker` y
+`destinoParaFilemaker`.
 Pruebas: `resultados.integracion.spec.ts` («aviso pedido desde FileMaker»,
 contra Postgres real) y `avisos-filemaker.guard.spec.ts`.
 
@@ -78,8 +109,15 @@ contra Postgres real) y `avisos-filemaker.guard.spec.ts`.
 `Eco.Intro.New` crea el registro con `estado = CREADO` y `telefono_envio` del
 teléfono del paciente en FileMaker. Si otra persona tiene abierto el registro,
 los campos no se guardan: el envío ya está hecho y el guion lo advierte.
-`envio_pdf`, `envio_pdf_hr` y `envio_pdf_usu` (botón `btn_enviado` de
-`lista_eco_envios`) no se tocan.
+Con el WhatsApp enviado (o ya enviado) el guion también llena `envio_pdf`,
+`envio_pdf_hr` y `envio_pdf_usu` si estaban vacíos: es la marca que muestra
+`lista_eco_envios` y la misma que pone a mano el botón `btn_enviado`.
+
+Cada presentación de ecografía muestra en la cabecera, junto al botón de
+WhatsApp, el texto combinado `WhatsApp: <<estado>> <<fecha_envio>>
+<<hora_envio>> <<usu_envio>> <<telefono_envio>>` (blanco, negrita, 9 pt).
+Puesto el 04/11 en Obst 15-40, Obst 15-40 Gemelar, eco.Abdominal y eco.renal;
+René completa las demás.
 
 ## Activación (la hace René; producción)
 
@@ -101,6 +139,15 @@ pudo pedir el WhatsApp) o vaciar `$tokenCRM` (vuelve exactamente al flujo
 manual). Los guiones anteriores quedaron como `ENVIAR PDF AL PORTAL Copia` y
 `Print mama.nueva.ver Copia 2 Copia`.
 
+### Confirmación del número: orden de puesta en marcha
+
+1. Desplegar el backend del CRM con `…/destino` (antes de esto la ruta da 404).
+2. Recién entonces pegar en FileMaker la versión del guion con la pregunta
+   ([texto](filemaker/enviar-pdf-al-portal.txt)). Pegarla antes deja el botón
+   sin enviar: diría «no se pudo consultar al CRM» en cada ecografía.
+3. Probar con la ficha de prueba: la pregunta muestra nombre y número; «No
+   enviar» deja `PUBLICADO`; «Enviar» deja `ENVIADO`.
+
 ## Revisión de los guiones de CARPETA ECOGRAFIA (04/11/2026)
 
 Los 11 guiones `Print … 2` generan el PDF en `Escritorio/digital/<PAC>-<Nombre>.pdf`
@@ -112,18 +159,35 @@ y, con `"PORTAL"`, llaman a `ENVIAR PDF AL PORTAL`. Corregido en FileMaker:
 - `Print mama.nueva.ver Copia 2` buscaba con `$$PK` dentro de una petición de
   búsqueda guardada; ahora usa `Establecer campo` en modo Buscar, como cadera.
 
+Corregido también el 04/11, a pedido de René:
+
+- `MANDAR API` (prueba anterior rota, con la credencial del portal escrita)
+  quedó eliminado; nadie lo llamaba.
+- `imp eco cadera pediatrica Digital 2` guardaba el PDF dos veces en la misma
+  ruta y solo comprobaba el error del primero; ahora lo guarda una vez.
+- La credencial del CRM está en `$tokenCRM` de `ENVIAR PDF AL PORTAL`.
+
+Credenciales en los guiones: se quedan ahí a propósito. Solo las ven las cuentas
+con acceso total y la de dirección (`dir`); los demás conjuntos de privilegios
+(`asi`, `rec`, `med`, `enf`, `caj`, `adm`, `inv`, `lab`, `coo`) tienen los
+guiones como «solo ejecutables». Esos mismos conjuntos leen todos los registros
+de todas las tablas, así que una tabla de configuración las expondría a cientos
+de cuentas salvo que se rehagan nueve conjuntos de privilegios.
+
 Sin cambiar, a decidir:
 
-- La credencial del portal está escrita en `ENVIAR PDF AL PORTAL` y también en
-  `MANDAR API`, un guion de prueba anterior que no funciona (cálculos comentados,
-  presentación vacía) y nadie llama. Conviene borrarlo y rotar la credencial.
+- Rotar la credencial del portal (`FILEMAKER_API_TOKEN`): estuvo escrita en
+  `MANDAR API`. La del CRM se pegó en un chat al pasarla; conviene rotarla también.
+- No se manda `medico`: el portal tiene una sola cuenta de médico y con otro
+  correo la subida fallaría (404) y no se publicaría. Hace falta crear antes las
+  cuentas de los médicos en el portal.
 - La referencia es `Get ( RecordID )`. Es estable mientras no se reimporte la
   tabla; cambiarla a `Ecografia::pk` duplicaría los ~225 informes ya enviados.
-- No se manda `medico`: todos los informes caen en `FILEMAKER_MEDICO_POR_DEFECTO`.
-- `imp eco cadera pediatrica Digital 2` guarda el PDF dos veces seguidas en la
-  misma ruta; solo comprueba el error del primero.
 - `Print Ginecologico SAVE 2` y `Print Obstet 15-40 SAVE 2` escriben `"Si"` en
   `imp.con imagen` cada vez que imprimen.
 - Si la ecografía no tiene datos medidos, el guion muestra su aviso y después
   «No se puede / Error de FileMaker:» vacío; no envía nada.
 - Falta `Require ip` en la ruta de FileMaker de Resultados en Apache.
+- Respaldos que conservan la versión anterior (y la credencial vieja del
+  portal): `ENVIAR PDF AL PORTAL Copia` y `Print mama.nueva.ver Copia 2 Copia`.
+  Borrarlos después de la prueba con el número de René.

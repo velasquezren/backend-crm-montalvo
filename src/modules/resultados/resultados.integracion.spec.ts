@@ -746,4 +746,65 @@ describe('aviso pedido desde FileMaker', () => {
     await expect(service.avisarDesdeFilemaker(INFORME, 'recepcion2')).rejects.toThrow(/RESULTADOS_FILEMAKER_USUARIO_ID/);
     expect(plantillasEnviadas).toHaveLength(0);
   });
+
+  /* La confirmación de FileMaker (René, 04/11/2026): antes de enviar, la
+     asistente ve a qué ficha y a qué número va el aviso. */
+  describe('confirmación del número antes de enviar', () => {
+    it('dice a qué ficha y número iría, sin reservar ni enviar nada', async () => {
+      expect(await service.destinoParaFilemaker(INFORME)).toEqual({
+        puedeEnviar: true, codigo: 'LISTO', paciente: 'Paciente Vinculado', telefono: '+59170000001', estudio: 'Ecografía abdominal',
+      });
+      expect(plantillasEnviadas).toHaveLength(0);
+      expect(await prisma.avisoResultado.count()).toBe(0);
+      expect(await prisma.conversacion.count({ where: { lineaId: LINEA } })).toBe(0);
+    });
+
+    it('con el número confirmado envía; si la ficha cambió de número entretanto, no', async () => {
+      const { telefono } = (await service.destinoParaFilemaker(INFORME)) as { telefono: string };
+      await prisma.cliente.update({ where: { pac: 'PAC33009' }, data: { telefono: '+59170000091' } });
+      expect(await service.avisarDesdeFilemaker(INFORME, 'recepcion2', telefono)).toMatchObject({
+        enviado: false, codigo: 'NO_ENVIADO', mensaje: expect.stringMatching(/cambió después de la confirmación/),
+      });
+      expect(plantillasEnviadas).toHaveLength(0);
+      expect(await prisma.avisoResultado.count()).toBe(0);
+
+      const nuevo = (await service.destinoParaFilemaker(INFORME)) as { telefono: string };
+      expect(nuevo.telefono).toBe('+59170000091');
+      expect(await service.avisarDesdeFilemaker(INFORME, 'recepcion2', nuevo.telefono)).toMatchObject({ enviado: true, telefono: '+59170000091' });
+    });
+
+    it('ficha sin teléfono (solo usuario de WhatsApp): se confirma con el número vacío', async () => {
+      await prisma.cliente.update({ where: { pac: 'PAC33009' }, data: { waUsuarioId: 'BO.usuario-de-prueba', telefono: null } });
+      expect(await service.destinoParaFilemaker(INFORME)).toMatchObject({ puedeEnviar: true, telefono: null });
+      expect(await service.avisarDesdeFilemaker(INFORME, 'recepcion2', '')).toMatchObject({ enviado: true, telefono: null });
+    });
+
+    it('ya enviado, sin ficha, solo por CI o enlace vencido: lo dice antes de preguntar', async () => {
+      await service.enviar(INFORME, asistente);
+      expect(await service.destinoParaFilemaker(INFORME)).toMatchObject({ puedeEnviar: false, codigo: 'YA_ENVIADO', telefono: '+59170000001' });
+      await prisma.avisoResultado.deleteMany();
+
+      informesDelPortal[0].paciente = { nombre: 'Nadie', pac: 'PAC99999', ci: null };
+      expect(await service.destinoParaFilemaker(INFORME)).toMatchObject({ puedeEnviar: false, codigo: 'NO_ENVIADO', mensaje: expect.stringMatching(/no tiene ficha/) });
+
+      await prisma.cliente.create({ data: { nombre: 'Paciente por CI', telefono: '+59170000092', ci: '4.567.890-lp' } });
+      informesDelPortal[0].paciente = { nombre: 'Paciente Por Ci', pac: null, ci: '4567890 LP' };
+      expect(await service.destinoParaFilemaker(INFORME)).toMatchObject({ puedeEnviar: false, mensaje: expect.stringMatching(/CI y no por su PAC/) });
+
+      informesDelPortal[0].paciente = { nombre: 'Paciente Vinculado', pac: 'PAC33009', ci: null };
+      informesDelPortal[0].accesoVigente = false;
+      expect(await service.destinoParaFilemaker(INFORME)).toMatchObject({ puedeEnviar: false, mensaje: expect.stringMatching(/venció/) });
+    });
+
+    it('un aviso FALLIDO no bloquea: se puede volver a confirmar y enviar', async () => {
+      const { mensajeId } = await service.enviar(INFORME, asistente);
+      await prisma.mensaje.update({ where: { id: mensajeId }, data: { estadoEnvio: 'FALLIDO', codigoErrorEnvio: 131026 } });
+      expect(await service.destinoParaFilemaker(INFORME)).toMatchObject({ puedeEnviar: true, codigo: 'LISTO' });
+    });
+
+    it('sin la cuenta FileMaker configurada no responde nada del paciente', async () => {
+      delete process.env.RESULTADOS_FILEMAKER_USUARIO_ID;
+      await expect(service.destinoParaFilemaker(INFORME)).rejects.toThrow(/RESULTADOS_FILEMAKER_USUARIO_ID/);
+    });
+  });
 });
