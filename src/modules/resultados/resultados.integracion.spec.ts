@@ -1,5 +1,6 @@
 import { ConflictException, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { randomUUID } from 'node:crypto';
 import { createServer, Server } from 'node:http';
 import { AddressInfo } from 'node:net';
 
@@ -37,6 +38,9 @@ let portalHttp: Server;
 let informesDelPortal: Array<Record<string, unknown>> = [];
 const plantillasEnviadas: Array<{ conversacionId: string; boton?: string; plantilla: string; imagenCabecera?: string }> = [];
 let fallarEnvio = false;
+/** Lo que Meta contesta después, como el webhook de `statuses`: el código de un rechazo, o nada. */
+let rechazoDeMeta: number | null = null;
+let retrasoDeMeta = 5;
 let renovaciones = 0;
 
 const LINEA = '11111111-1111-4111-8111-111111111111';
@@ -53,6 +57,14 @@ const conversacionesStub = {
     const mensaje = await prisma.mensaje.create({
       data: { conversacionId, direccion: 'SALIENTE', contenido: dto.contenido, estadoEnvio: 'ENVIADO' },
     });
+    /* Como el despachador real: Meta acepta en segundo plano y deja su id, o lo rechaza. */
+    const codigo = rechazoDeMeta;
+    setTimeout(() => {
+      void prisma.mensaje.updateMany({
+        where: { id: mensaje.id },
+        data: codigo ? { estadoEnvio: 'FALLIDO', codigoErrorEnvio: codigo } : { whatsappMsgId: `wamid.${randomUUID()}` },
+      }).catch(() => undefined);
+    }, retrasoDeMeta);
     return mensaje;
   },
 } as unknown as EnvioPlantillasService;
@@ -129,6 +141,8 @@ afterAll(async () => {
 beforeEach(async () => {
   plantillasEnviadas.length = 0;
   fallarEnvio = false;
+  rechazoDeMeta = null;
+  retrasoDeMeta = 5;
   renovaciones = 0;
   /* Limpieza ACOTADA a las filas propias. Un `deleteMany()` a secas sobre
      líneas o usuarios se lleva por delante la línea comercial inicial y deja
@@ -619,6 +633,7 @@ describe('aviso pedido desde FileMaker', () => {
     });
     await prisma.accesoLineaWhatsapp.create({ data: { usuarioId: CUENTA_FILEMAKER, lineaId: LINEA } });
     process.env.RESULTADOS_FILEMAKER_USUARIO_ID = CUENTA_FILEMAKER;
+    Object.assign(service.esperaMeta, { plazoMs: 1_000, graciaMs: 40, cadaMs: 10 });
   });
 
   afterEach(() => {
@@ -638,6 +653,29 @@ describe('aviso pedido desde FileMaker', () => {
 
     /* Ya avisado: sale de «Por avisar» del CRM como cualquier otro aviso. */
     expect((await service.pendientes({}, asistente)).contadores).toMatchObject({ POR_AVISAR: 0, ESPERANDO: 1 });
+  });
+
+  /* FileMaker anota ENVIADO con lo que le contesta el CRM: no puede decirlo si Meta lo rechazó. */
+  it('Meta rechaza el aviso: FileMaker lo sabe y el CRM ofrece reintentarlo', async () => {
+    rechazoDeMeta = 131026;
+    const respuesta = await service.avisarDesdeFilemaker(INFORME, 'recepcion2');
+    expect(respuesta).toMatchObject({ enviado: false, codigo: 'NO_ENVIADO', mensaje: expect.stringMatching(/no pudo entregarlo a ese número/) });
+    const fila = (await service.pendientes({}, asistente)).datos[0];
+    expect(fila.aviso).toMatchObject({ estadoMensaje: 'FALLIDO', codigoErrorEnvio: 131026 });
+
+    /* Corregido el número, otra pulsación lo vuelve a mandar. */
+    rechazoDeMeta = null;
+    expect(await service.avisarDesdeFilemaker(INFORME, 'recepcion2')).toMatchObject({ enviado: true, codigo: 'ENVIADO' });
+    expect(plantillasEnviadas).toHaveLength(2);
+  });
+
+  it('Meta no contesta a tiempo: no dice que salió ni que no, y no manda otro', async () => {
+    retrasoDeMeta = 400;
+    Object.assign(service.esperaMeta, { plazoMs: 60 });
+    const respuesta = await service.avisarDesdeFilemaker(INFORME, 'recepcion2');
+    expect(respuesta).toMatchObject({ enviado: false, codigo: 'NO_ENVIADO', mensaje: expect.stringMatching(/puede que sí haya salido/) });
+    expect(await service.avisarDesdeFilemaker(INFORME, 'recepcion2')).toMatchObject({ codigo: 'YA_ENVIADO' });
+    expect(plantillasEnviadas).toHaveLength(1);
   });
 
   it('pulsar dos veces, o FileMaker y el CRM a la vez, deja UN solo WhatsApp', async () => {

@@ -38,9 +38,20 @@ Responde **200** también cuando no envía, para que el guion lea un solo JSON:
 
 | `codigo` | `enviado` | Significado |
 | --- | --- | --- |
-| `ENVIADO` | `true` | Salió la plantilla. `telefono` es el número de la ficha (nulo si solo tiene usuario de WhatsApp) |
+| `ENVIADO` | `true` | Meta aceptó la plantilla y no la rechazó en los 5 s siguientes. `entregado: true` si además ya llegó al teléfono. `telefono` es el número de la ficha (nulo si solo tiene usuario de WhatsApp) |
 | `YA_ENVIADO` | `false` | Ya tenía aviso (desde FileMaker o el CRM). Trae `enviadoEn` y `telefono` del anterior. No sale otro |
-| `NO_ENVIADO` | `false` | `mensaje` explica: sin ficha, CI repetido, reconocido solo por CI, enlace vencido o no publicado |
+| `NO_ENVIADO` | `false` | `mensaje` explica: sin ficha, CI repetido, reconocido solo por CI, enlace vencido, no publicado, **Meta lo rechazó** (p. ej. 131026, número sin WhatsApp) o **Meta no confirmó a tiempo** |
+
+**El CRM espera a Meta antes de contestar** (desde el 04/11/2026). La plantilla
+sale a Meta en segundo plano, así que el registro del aviso no prueba que salió:
+antes FileMaker anotaba ENVIADO aunque Meta lo rechazara después. Ahora el CRM
+lee el mensaje hasta que Meta lo acepta (y espera 5 s más un rechazo, que llega
+por el webhook) o lo rechaza, con un tope de 15 s; el guion corta a los 60 s.
+La respuesta tarda unos 5 s. Un rechazo deja el aviso FALLIDO en la cola del CRM
+con «Reintentar aviso», y volver a pulsar en FileMaker lo reenvía. Si Meta no
+confirma en 15 s, responde `NO_ENVIADO` diciendo que pudo haber salido: volver a
+pulsar devuelve `YA_ENVIADO`, nunca un segundo WhatsApp. Lógica en
+`modules/resultados/confirmacion-aviso.ts`.
 
 Desde FileMaker solo se avisa por **PAC exacto**. Si el CRM reconoce al
 paciente solo por CI, responde `NO_ENVIADO`: en la pantalla del CRM la

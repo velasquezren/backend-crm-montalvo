@@ -18,6 +18,7 @@ import { obtenerOCrearConversacion } from '../conversaciones/acceso-conversacion
 import { EnvioPlantillasService } from '../conversaciones/envio-plantillas.service';
 import { LineasWhatsappService } from '../lineas-whatsapp/lineas-whatsapp.service';
 import { RESPUESTA_PDF_AVISO } from './aviso-informe-pdf';
+import { AVISO_SIN_CONFIRMAR, EsperaConfirmacion, esperarConfirmacion, motivoAvisoRechazado } from './confirmacion-aviso';
 import { InformePublicado, PortalResultadosClient } from './portal-resultados.client';
 import { EstadoCola, QueryResultadosDto } from './dto/query-resultados.dto';
 import { TipoInforme } from './tipo-informe';
@@ -80,7 +81,8 @@ const YA_ENVIADO = 'Este informe ya se le envió al paciente.';
  */
 export type RespuestaAvisoFilemaker =
   /** `telefono` nulo: la ficha solo tiene nombre de usuario de WhatsApp (BSUID). */
-  | { enviado: true; codigo: 'ENVIADO'; mensajeId: string; telefono: string | null; paciente: string; enviadoEn: Date }
+  /** Meta lo aceptó sin rechazarlo; `entregado` si además ya llegó al teléfono. */
+  | { enviado: true; codigo: 'ENVIADO'; mensajeId: string; telefono: string | null; paciente: string; enviadoEn: Date; entregado: boolean }
   | { enviado: false; codigo: 'YA_ENVIADO'; mensaje: string; telefono: string | null; enviadoEn: Date | null }
   | { enviado: false; codigo: 'NO_ENVIADO'; mensaje: string };
 
@@ -94,6 +96,12 @@ interface OpcionesEntrega {
 @Injectable()
 export class ResultadosService {
   private readonly logger = new Logger(ResultadosService.name);
+  /**
+   * Cuánto espera el aviso de FileMaker la respuesta de Meta antes de
+   * contestar. Muy por debajo de los 60 s con que corta el guion. Las pruebas
+   * lo acortan.
+   */
+  readonly esperaMeta: EsperaConfirmacion = { plazoMs: 15_000, graciaMs: 5_000, cadaMs: 400 };
 
   constructor(
     private readonly prisma: PrismaService,
@@ -277,6 +285,24 @@ export class ResultadosService {
         soloPorPac: true,
         auditoria: { origen: 'FILEMAKER', usuarioFilemaker },
       });
+      /* El registro no es el envío: Meta lo recibe en segundo plano y puede
+         rechazarlo. FileMaker anota ENVIADO con esta respuesta, así que se
+         espera a saber qué contestó Meta. Un rechazo deja el aviso FALLIDO en
+         la cola del CRM, con «Reintentar aviso», como desde la pantalla. */
+      const confirmacion = await esperarConfirmacion(
+        () => this.prisma.mensaje.findUnique({
+          where: { id: enviado.mensajeId },
+          select: { estadoEnvio: true, whatsappMsgId: true, codigoErrorEnvio: true },
+        }),
+        this.esperaMeta,
+      );
+      if (confirmacion.tipo === 'RECHAZADO') {
+        return { enviado: false, codigo: 'NO_ENVIADO', mensaje: motivoAvisoRechazado(confirmacion.codigo) };
+      }
+      if (confirmacion.tipo === 'SIN_CONFIRMAR') {
+        this.logger.warn(`Aviso de FileMaker ${enviado.mensajeId}: Meta no confirmó en ${this.esperaMeta.plazoMs} ms`);
+        return { enviado: false, codigo: 'NO_ENVIADO', mensaje: AVISO_SIN_CONFIRMAR };
+      }
       return {
         enviado: true,
         codigo: 'ENVIADO',
@@ -284,6 +310,7 @@ export class ResultadosService {
         telefono: enviado.cliente.telefono,
         paciente: enviado.cliente.nombre,
         enviadoEn: enviado.enviadoEn,
+        entregado: confirmacion.tipo === 'ENTREGADO',
       };
     } catch (error) {
       if (error instanceof ConflictException && error.message === YA_ENVIADO) {
