@@ -10,6 +10,12 @@ mismo código que el botón «Enviar aviso» de Resultados (`ResultadosService.e
 revalida el informe en el portal, cruza la ficha, reserva contra el doble envío
 (`AvisoResultado.informeId` único) y audita `RESULTADO_ENVIADO`.
 
+> **Laboratorio (04/11/2026):** el botón de WhatsApp de `Res.Intro` en Labtrio
+> ejecuta «generar PDF al CRM», que ahora hace el mismo recorrido (publicar →
+> pregunta con [Enviar] [Cambiar número] [No enviar] → aviso) con los campos
+> `estado_envio`, `fecha_envio`, `hora_envio`, `usu_envio` y `telf_envio` de
+> Labtrio. Mismas rutas del CRM; ver `docs/filemaker-laboratorio.md` de Resultados.
+
 ## Recorrido
 
 1. Botón de WhatsApp de la ecografía → guion `Print … 2` con parámetro `"PORTAL"`
@@ -172,8 +178,8 @@ manual). Los guiones anteriores quedaron como `ENVIAR PDF AL PORTAL Copia` y
    enviar» deja `PUBLICADO`; «Enviar» deja `ENVIADO`; «Cambiar número» vuelve a
    preguntar con el número nuevo.
 
-Estado al 04/11: en FileMaker está pegada la versión con la pregunta (Enviar /
-No enviar). La de «Cambiar número» se pega cuando esté desplegado `…/telefono`.
+Estado al 04/11: `4544ae0` desplegado y la versión con «Cambiar número» pegada
+en Ecografía (`ENVIAR PDF AL PORTAL`) y en Labtrio («generar PDF al CRM»).
 
 ## Revisión de los guiones de CARPETA ECOGRAFIA (04/11/2026)
 
