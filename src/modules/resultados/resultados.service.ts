@@ -142,6 +142,12 @@ interface OpcionesEntrega {
 /** Lo que el envío necesita de la ficha que recibe el aviso. */
 interface FichaAviso { id: string; nombre: string; telefono: string | null }
 
+/** Por qué línea, con qué plantilla y a qué página del portal va un aviso. */
+interface CanalAviso { linea: string; plantilla: string; idioma: string; imagenCabecera?: string; portal: string }
+
+const SIN_LINEA_LABORATORIO =
+  'Los resultados de laboratorio salen por la línea de Laboratorio CLIMON y esta cuenta no tiene acceso a ella. Pide que te la asignen en Usuarios.';
+
 @Injectable()
 export class ResultadosService {
   private readonly logger = new Logger(ResultadosService.name);
@@ -169,7 +175,7 @@ export class ResultadosService {
    * además el asistente necesita ver qué ya salió.
    */
   async pendientes(query: QueryResultadosDto, usuario: UsuarioJwt): Promise<ColaEntrega> {
-    const linea = await this.permitirLinea(usuario);
+    await this.permitirLinea(usuario);
     const { skip, take } = calcularPaginacion(query);
     const estado = query.estado ?? 'POR_AVISAR';
 
@@ -217,18 +223,19 @@ export class ResultadosService {
       total = cola.total;
     }
 
-    return { ...paginar(await this.filas(informes, linea), total, query), contadores, truncado: panorama.truncado };
+    return { ...paginar(await this.filas(informes), total, query), contadores, truncado: panorama.truncado };
   }
 
   /**
    * Cada informe con su ficha del CRM, su aviso y su chat. Consultas en lote,
    * no por fila.
    *
-   * El chat es el de la línea de RESULTADOS, buscado por (ficha, línea): con
-   * «ir al chat por teléfono», a un admin se le podía abrir el chat comercial
-   * de la misma paciente, que no es donde está el aviso.
+   * El chat es el de la línea por la que sale el aviso de ESE informe
+   * (`lineaDe`), buscado por (ficha, línea): con «ir al chat por teléfono», a
+   * un admin se le podía abrir el chat comercial de la misma paciente, que no
+   * es donde está el aviso.
    */
-  private async filas(informes: InformePublicado[], linea: string): Promise<FilaEntrega[]> {
+  private async filas(informes: InformePublicado[]): Promise<FilaEntrega[]> {
     if (!informes.length) return [];
     const [reconocidos, avisos] = await Promise.all([
       this.clientes.reconocerPacientes(informes.map(informe => informe.paciente)),
@@ -239,13 +246,14 @@ export class ResultadosService {
     ]);
     const porInforme = new Map(avisos.map(aviso => [aviso.informeId, aviso]));
     const fichas = reconocidos.flatMap(r => (r.cliente ? [r.cliente.id] : []));
+    const lineas = [...new Set(informes.map(informe => this.lineaDe(informe.tipo)))];
     const chats = new Map(
       (
         await this.prisma.conversacion.findMany({
-          where: { lineaId: linea, clienteId: { in: fichas } },
-          select: { id: true, clienteId: true },
+          where: { lineaId: { in: lineas }, clienteId: { in: fichas } },
+          select: { id: true, clienteId: true, lineaId: true },
         })
-      ).map(chat => [chat.clienteId, chat.id]),
+      ).map(chat => [`${chat.clienteId} ${chat.lineaId}`, chat.id]),
     );
 
     return informes.map((informe, i): FilaEntrega => {
@@ -268,7 +276,7 @@ export class ResultadosService {
           codigoErrorEnvio: aviso.mensaje?.estadoEnvio === 'FALLIDO' ? aviso.mensaje.codigoErrorEnvio : null,
         } : null,
         abiertoEn: informe.abiertoEn,
-        conversacionId: cliente ? (chats.get(cliente.id) ?? null) : null,
+        conversacionId: cliente ? (chats.get(`${cliente.id} ${this.lineaDe(informe.tipo)}`) ?? null) : null,
       };
     });
   }
@@ -298,8 +306,8 @@ export class ResultadosService {
     /* Autorizar ANTES de consultar nada: si no, quien no tiene permiso puede
        sondear qué informes existen y qué PAC está en el CRM por el código de
        error que recibe. */
-    const linea = await this.permitirLinea(usuario);
-    const { mensajeId } = await this.entregar(await this.revalidar(informeId), linea, usuario);
+    await this.permitirLinea(usuario);
+    const { mensajeId } = await this.entregar(await this.revalidar(informeId), usuario);
     return { enviado: true, mensajeId };
   }
 
@@ -324,11 +332,11 @@ export class ResultadosService {
     telefonoConfirmado?: string,
   ): Promise<RespuestaAvisoFilemaker> {
     const remitente = await this.remitenteFilemaker();
-    const linea = await this.lineaDeFilemaker(remitente);
+    await this.lineaDeFilemaker(remitente);
     try {
       const informe = await this.revalidar(informeId);
       const destino = await this.destinoElegido(informeId);
-      const enviado = await this.entregar(informe, linea, remitente, {
+      const enviado = await this.entregar(informe, remitente, {
         soloPorPac: true,
         telefonoConfirmado,
         destinatario: destino ?? undefined,
@@ -387,6 +395,7 @@ export class ResultadosService {
     await this.lineaDeFilemaker(remitente);
     try {
       const informe = await this.revalidar(informeId);
+      await this.canalPermitido(informe, remitente);
       const destino = await this.destinoElegido(informeId);
       const cliente = destino ?? await this.fichaDe(informe, true);
       /* Un aviso FALLIDO no cuenta (se puede reenviar); una reserva sin
@@ -531,24 +540,24 @@ export class ResultadosService {
    * único sigue dejando pasar un solo WhatsApp.
    */
   async renovarYEnviar(informeId: string, usuario: UsuarioJwt): Promise<{ enviado: true; mensajeId: string }> {
-    const linea = await this.permitirLinea(usuario);
+    await this.permitirLinea(usuario);
     const previo = await this.publicado(informeId);
     if (previo.accesoVigente) {
       throw new ConflictException('El enlace de este informe sigue activo: no hace falta renovarlo.');
     }
     await this.portal.renovarAcceso(informeId);
     await this.prisma.avisoResultado.deleteMany({ where: { informeId, enviadoEn: { lt: new Date(previo.accesoExpiraEn) } } });
-    const { mensajeId } = await this.entregar(await this.revalidar(informeId), linea, usuario);
+    const { mensajeId } = await this.entregar(await this.revalidar(informeId), usuario);
     return { enviado: true, mensajeId };
   }
 
   private async entregar(
     informe: InformePublicado,
-    linea: string,
     usuario: UsuarioJwt,
     opciones: OpcionesEntrega = {},
   ): Promise<{ mensajeId: string; enviadoEn: Date; cliente: { nombre: string; telefono: string | null } }> {
     const informeId = informe.informeId;
+    const canal = await this.canalPermitido(informe, usuario);
     /* Se reconoce de nuevo aquí, no se confía en la fila que vio la
        asistente: entre la cola y el clic alguien pudo corregir un CI. */
     const cliente = opciones.destinatario ?? await this.fichaDe(informe, opciones.soloPorPac);
@@ -559,22 +568,22 @@ export class ResultadosService {
     const reserva = await this.reservar(informeId, cliente.id, usuario.sub);
     try {
       /* Resultados no es tráfico comercial: la conversación no reserva lead. */
-      const conversacion = await obtenerOCrearConversacion(this.prisma, cliente.id, linea, false);
+      const conversacion = await obtenerOCrearConversacion(this.prisma, cliente.id, canal.linea, false);
       const mensaje = await this.plantillas.enviarPlantillaDelSistema(
         conversacion.id,
         {
-          plantilla: this.variable('RESULTADOS_PLANTILLA'),
-          idioma: process.env.RESULTADOS_PLANTILLA_IDIOMA ?? 'es',
+          plantilla: canal.plantilla,
+          idioma: canal.idioma,
           /* La variable del botón URL: identifica el acceso, no lo autoriza. */
           boton: informe.accesoId,
           /* Solo si la plantilla aprobada tiene cabecera de imagen: pasar a
              una con imagen es cambiar dos variables, no el código. Ver
              `docs/plantillas-whatsapp.md`. */
-          ...(process.env.RESULTADOS_PLANTILLA_IMAGEN ? { imagenCabecera: process.env.RESULTADOS_PLANTILLA_IMAGEN } : {}),
+          ...(canal.imagenCabecera ? { imagenCabecera: canal.imagenCabecera } : {}),
           /* «Recibir PDF», si la plantilla aprobada lo tiene: el toque manda el
              PDF de este informe por el chat (`InformesChatService`). */
           respuestaRapida: RESPUESTA_PDF_AVISO,
-          contenido: this.textoParaHistorial(informe),
+          contenido: this.textoParaHistorial(informe, canal),
         },
         usuario.sub,
       );
@@ -754,6 +763,59 @@ export class ResultadosService {
     return linea;
   }
 
+  /**
+   * La línea por la que sale el aviso de un informe de este tipo. Los análisis
+   * de laboratorio los entrega Laboratorio Climon, que es otra empresa
+   * (06/11/2026): con `RESULTADOS_LAB_LINEA_ID` salen por su número. Sin esa
+   * variable, por Recepción como hasta ahora: encenderlo es configurar el
+   * servidor, no desplegar.
+   */
+  private lineaDe(tipo: TipoInforme | undefined): string {
+    const laboratorio = tipo === 'LABORATORIO' ? process.env.RESULTADOS_LAB_LINEA_ID : undefined;
+    return laboratorio || this.variable('RESULTADOS_LINEA_ID');
+  }
+
+  /**
+   * Línea, plantilla y página del aviso. El laboratorio tiene su plantilla en
+   * su propia WABA (`climon_resultado_laboratorio`, `docs/plantillas-whatsapp.md`
+   * §7), sin imagen de cabecera, y su página `/laboratorio/` del portal.
+   */
+  private canalDe(tipo: TipoInforme | undefined): CanalAviso {
+    const linea = this.lineaDe(tipo);
+    const base = (process.env.PORTAL_RESULTADOS_PUBLICO ?? '').replace(/\/$/, '');
+    if (linea !== this.variable('RESULTADOS_LINEA_ID')) {
+      return {
+        linea,
+        plantilla: this.variable('RESULTADOS_LAB_PLANTILLA'),
+        idioma: process.env.RESULTADOS_LAB_PLANTILLA_IDIOMA ?? 'es',
+        portal: base ? `${new URL(base).origin}/laboratorio` : '',
+      };
+    }
+    return {
+      linea,
+      plantilla: this.variable('RESULTADOS_PLANTILLA'),
+      idioma: process.env.RESULTADOS_PLANTILLA_IDIOMA ?? 'es',
+      ...(process.env.RESULTADOS_PLANTILLA_IMAGEN ? { imagenCabecera: process.env.RESULTADOS_PLANTILLA_IMAGEN } : {}),
+      portal: base,
+    };
+  }
+
+  /**
+   * El canal del aviso de este informe, si quien envía puede usarlo. La línea
+   * de Recepción ya la comprobó `permitirLinea`; la del laboratorio se exige
+   * aparte, con un motivo que la asistente y FileMaker puedan leer.
+   */
+  private async canalPermitido(informe: InformePublicado, usuario: UsuarioJwt): Promise<CanalAviso> {
+    const canal = this.canalDe(informe.tipo);
+    if (canal.linea !== this.variable('RESULTADOS_LINEA_ID')) {
+      await this.lineas.porId(canal.linea, alcanceAgente(usuario)).catch((error: unknown) => {
+        if (error instanceof NotFoundException) throw new ConflictException(SIN_LINEA_LABORATORIO);
+        throw error;
+      });
+    }
+    return canal;
+  }
+
   private variable(nombre: string): string {
     const valor = process.env[nombre];
     if (!valor) {
@@ -769,13 +831,8 @@ export class ResultadosService {
    * paciente —eso lo fija la plantilla aprobada en Meta— sino el registro de
    * qué se envió y a qué informe apunta.
    */
-  private textoParaHistorial(informe: InformePublicado): string {
-    return `Aviso de resultado disponible — ${informe.estudio}. Enlace enviado: ${this.enlaceDe(informe.accesoId)}`;
-  }
-
-  /** El enlace del paciente. Una sola definición: la usan la cola y el historial. */
-  private enlaceDe(accesoId: string): string {
-    const base = (process.env.PORTAL_RESULTADOS_PUBLICO ?? '').replace(/\/$/, '');
-    return base ? `${base}/${accesoId}` : `acceso ${accesoId}`;
+  private textoParaHistorial(informe: InformePublicado, canal: CanalAviso): string {
+    const enlace = canal.portal ? `${canal.portal}/${informe.accesoId}` : `acceso ${informe.accesoId}`;
+    return `Aviso de resultado disponible — ${informe.estudio}. Enlace enviado: ${enlace}`;
   }
 }

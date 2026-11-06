@@ -923,3 +923,98 @@ describe('aviso pedido desde FileMaker', () => {
     });
   });
 });
+
+/**
+ * Los análisis de laboratorio los entrega Laboratorio Climon, otra empresa
+ * (06/11/2026): con `RESULTADOS_LAB_LINEA_ID` su aviso sale por el número del
+ * laboratorio, con su plantilla y su página `/laboratorio/`. El resto de
+ * informes sigue saliendo por Recepción.
+ */
+describe('el laboratorio avisa por su propia línea', () => {
+  const LINEA_LAB = '55555555-5555-4555-8555-555555555555';
+  const INFORME_LAB = '66666666-6666-4666-8666-666666666666';
+  const ACCESO_LAB = '77777777-7777-4777-8777-777777777777';
+  const CUENTA_FILEMAKER = 'a0000000-0000-4000-8000-000000000009';
+  const antes = { ...process.env };
+
+  const limpiarLab = async () => {
+    await prisma.avisoResultado.deleteMany();
+    await prisma.mensaje.deleteMany({ where: { conversacion: { lineaId: LINEA_LAB } } });
+    await prisma.conversacion.deleteMany({ where: { lineaId: LINEA_LAB } });
+    await prisma.accesoLineaWhatsapp.deleteMany({ where: { lineaId: LINEA_LAB } });
+    await prisma.lineaWhatsapp.deleteMany({ where: { id: LINEA_LAB } });
+  };
+
+  beforeEach(async () => {
+    await limpiarLab();
+    await prisma.lineaWhatsapp.create({ data: { id: LINEA_LAB, nombre: 'Laboratorio', tokenEnv: 'TOKEN_LAB', activa: true, comercial: false } });
+    await prisma.accesoLineaWhatsapp.create({ data: { usuarioId: 'a0000000-0000-4000-8000-000000000001', lineaId: LINEA_LAB } });
+    informesDelPortal.push({
+      ...informesDelPortal[0], informeId: INFORME_LAB, accesoId: ACCESO_LAB, tipo: 'LABORATORIO', estudio: 'Hemograma completo',
+    });
+    Object.assign(process.env, {
+      RESULTADOS_LAB_LINEA_ID: LINEA_LAB,
+      RESULTADOS_LAB_PLANTILLA: 'climon_resultado_laboratorio',
+      PORTAL_RESULTADOS_PUBLICO: 'https://portal.prueba/resultados',
+      RESULTADOS_PLANTILLA_IMAGEN: 'https://portal.prueba/resultados/imagen-aviso',
+    });
+  });
+
+  afterEach(async () => {
+    for (const nombre of ['RESULTADOS_LAB_LINEA_ID', 'RESULTADOS_LAB_PLANTILLA', 'PORTAL_RESULTADOS_PUBLICO', 'RESULTADOS_PLANTILLA_IMAGEN', 'RESULTADOS_FILEMAKER_USUARIO_ID']) {
+      if (antes[nombre] === undefined) delete process.env[nombre]; else process.env[nombre] = antes[nombre];
+    }
+    await limpiarLab();
+  });
+
+  it('el informe de laboratorio sale por la línea del laboratorio, con su plantilla y su página', async () => {
+    await service.enviar(INFORME_LAB, asistente);
+
+    const chat = await prisma.conversacion.findFirstOrThrow({ where: { lineaId: LINEA_LAB }, select: { id: true } });
+    /* Sin la imagen de cabecera de la plantilla de Recepción: la del laboratorio no la tiene. */
+    expect(plantillasEnviadas).toEqual([{ conversacionId: chat.id, boton: ACCESO_LAB, plantilla: 'climon_resultado_laboratorio' }]);
+    const mensaje = await prisma.mensaje.findFirstOrThrow({ where: { conversacionId: chat.id }, select: { contenido: true } });
+    expect(mensaje.contenido).toContain(`https://portal.prueba/laboratorio/${ACCESO_LAB}`);
+    expect(await prisma.conversacion.count({ where: { lineaId: LINEA } })).toBe(0);
+
+    /* La cola lleva a la asistente al chat del laboratorio, que es donde contestará el paciente. */
+    const fila = (await service.pendientes({ estado: 'TODOS', tipo: 'LABORATORIO' }, asistente)).datos[0];
+    expect(fila.conversacionId).toBe(chat.id);
+  });
+
+  it('la ecografía sigue saliendo por Recepción', async () => {
+    await service.enviar(INFORME, asistente);
+    const chat = await prisma.conversacion.findFirstOrThrow({ where: { lineaId: LINEA }, select: { id: true } });
+    expect(plantillasEnviadas).toEqual([{
+      conversacionId: chat.id, boton: ACCESO, plantilla: 'montalvo_informe_disponible', imagenCabecera: 'https://portal.prueba/resultados/imagen-aviso',
+    }]);
+  });
+
+  it('sin la línea del laboratorio, la asistente lee por qué y no se envía ni se reserva nada', async () => {
+    await prisma.accesoLineaWhatsapp.deleteMany({ where: { lineaId: LINEA_LAB } });
+    await expect(service.enviar(INFORME_LAB, asistente)).rejects.toThrow(/Laboratorio CLIMON/);
+    expect(plantillasEnviadas).toHaveLength(0);
+    expect(await prisma.avisoResultado.count()).toBe(0);
+  });
+
+  it('FileMaker lo sabe ya en la pregunta previa si su cuenta no tiene la línea', async () => {
+    await prisma.usuario.create({
+      data: { id: CUENTA_FILEMAKER, nombre: 'FileMaker', email: 'filemaker@test.local', passwordHash: 'x', rol: 'ASISTENTE' },
+    });
+    await prisma.accesoLineaWhatsapp.create({ data: { usuarioId: CUENTA_FILEMAKER, lineaId: LINEA } });
+    process.env.RESULTADOS_FILEMAKER_USUARIO_ID = CUENTA_FILEMAKER;
+
+    await expect(service.destinoParaFilemaker(INFORME_LAB)).resolves.toMatchObject({ puedeEnviar: false, codigo: 'NO_ENVIADO', mensaje: expect.stringMatching(/Laboratorio CLIMON/) });
+    await expect(service.avisarDesdeFilemaker(INFORME_LAB, 'laboratorio1')).resolves.toMatchObject({ enviado: false, codigo: 'NO_ENVIADO' });
+
+    await prisma.accesoLineaWhatsapp.create({ data: { usuarioId: CUENTA_FILEMAKER, lineaId: LINEA_LAB } });
+    await expect(service.destinoParaFilemaker(INFORME_LAB)).resolves.toMatchObject({ puedeEnviar: true, codigo: 'LISTO' });
+  });
+
+  it('sin RESULTADOS_LAB_LINEA_ID, el laboratorio sale por Recepción como hasta ahora', async () => {
+    delete process.env.RESULTADOS_LAB_LINEA_ID;
+    await service.enviar(INFORME_LAB, asistente);
+    expect(plantillasEnviadas[0]).toMatchObject({ plantilla: 'montalvo_informe_disponible' });
+    expect(await prisma.conversacion.count({ where: { lineaId: LINEA } })).toBe(1);
+  });
+});

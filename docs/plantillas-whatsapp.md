@@ -269,10 +269,26 @@ botón abre la página de Climon del portal (`/laboratorio/`, desplegada el 06/1
   2. Respuesta rápida · «Recibir PDF»
 
 **Estado:** sin crear en Meta (se hará con el MCP *WhatsApp Business Tools*).
-**Al aprobarse** falta el cambio del CRM: los informes `LABORATORIO` salen de la
-línea de Laboratorio CLIMON con esta plantilla (hoy todos salen de
-`RESULTADOS_LINEA_ID` = Recepción), con «Recibir PDF» habilitado en esa línea
-(`RESULTADOS_AUTOSERVICIO_LINEAS`, interacciones) y la cuenta FileMaker con
-acceso a ella; y el «Pedir ayuda» del portal (`portal/lib/marcas.ts`) al número
-del laboratorio.
+
+**El CRM ya lo sabe hacer** (06/11/2026): los informes `LABORATORIO` salen por
+`RESULTADOS_LAB_LINEA_ID` con `RESULTADOS_LAB_PLANTILLA`, sin imagen de
+cabecera, y el historial del chat guarda el enlace `/laboratorio/`. Sin esa
+variable salen por Recepción como hasta ahora. Quien envía —la asistente en
+Resultados y la cuenta de FileMaker— necesita acceso a la línea del laboratorio
+además de a la de Recepción; sin ella el envío se rechaza con un motivo que
+FileMaker muestra tal cual, antes de reservar nada.
+
+**Al aprobarse**, para encenderlo:
+
+1. Desplegar el backend con este cambio.
+2. En `/opt/crm-backend/.env`: `RESULTADOS_LAB_LINEA_ID=<id de la línea
+   Laboratorio CLIMON>` y `RESULTADOS_LAB_PLANTILLA=climon_resultado_laboratorio`;
+   sumar esa línea a `RESULTADOS_AUTOSERVICIO_LINEAS` y a
+   `WHATSAPP_INTERACCIONES_LINEAS` para que «Recibir PDF» responda en ella.
+3. En Usuarios, dar la línea Laboratorio CLIMON a la cuenta de FileMaker y a
+   quien envíe laboratorio desde el CRM. Reiniciar.
+4. Desplegar el portal con `portal/lib/marcas.ts` apuntando «Pedir ayuda» de
+   Climon a +591 62140323.
+
+Volver atrás es vaciar `RESULTADOS_LAB_LINEA_ID` y reiniciar.
 
