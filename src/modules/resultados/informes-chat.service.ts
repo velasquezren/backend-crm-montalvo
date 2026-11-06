@@ -38,6 +38,13 @@ export class InformesChatService {
    * chat o la automatización pausada no lo frenan; todo lo demás sí.
    */
   private async ficha(conversacionId: string, telefono: string, { aunqueAtiendan = false } = {}) {
+    const chat = await this.chat(conversacionId, telefono, { aunqueAtiendan });
+    if (!chat.identidad) throw new IdentificacionInformePendiente();
+    return { ...chat, identidad: chat.identidad };
+  }
+
+  /** El chat validado; `identidad` nula si su ficha no tiene PAC. */
+  private async chat(conversacionId: string, telefono: string, { aunqueAtiendan = false } = {}) {
     const c = await this.prisma.conversacion.findUnique({ where: { id: conversacionId }, select: {
       clienteId: true, lineaId: true, cerradaEn: true, automatizacionPausadaEn: true, atencionTomadaEn: true,
       cliente: { select: { telefono: true, pac: true, ci: true } }, linea: { select: { activa: true } },
@@ -48,8 +55,8 @@ export class InformesChatService {
       throw new NotFoundException('Recepción debe verificar la solicitud de informes.');
     // Solo tras validar el chat: nunca pedir identificación para un teléfono ajeno
     // o una sesión cerrada, pausada o fuera de la ventana de atención.
-    if (!c.cliente.pac) throw new IdentificacionInformePendiente();
-    return { clienteId: c.clienteId, identidad: { pac: c.cliente.pac, ...(c.cliente.ci ? { ci: c.cliente.ci } : {}) }, lineaId: c.lineaId };
+    const identidad: IdentidadInformeChat | null = c.cliente.pac ? { pac: c.cliente.pac, ...(c.cliente.ci ? { ci: c.cliente.ci } : {}) } : null;
+    return { clienteId: c.clienteId, identidad, lineaId: c.lineaId };
   }
 
   async validarOferta(conversacionId: string, telefono: string, oferta: OfertaInteraccion): Promise<void> {
@@ -98,8 +105,14 @@ export class InformesChatService {
   /**
    * El informe del aviso al que respondió «Recibir PDF». El aviso tiene que ser
    * de este chat y de esta ficha, y el informe tiene que seguir en la lista que
-   * Resultados le da a ESTE PAC: publicado, con acceso vigente y no revocado.
+   * Resultados le da a su PAC: publicado, con acceso vigente y no revocado.
    * Vencido el enlace, ya no está ahí y lo resuelve una persona.
+   *
+   * El aviso que FileMaker mandó a propósito al WhatsApp de un familiar
+   * (`DestinoAvisoResultado` de ESTA ficha, 06/11/2026) se busca con el PAC del
+   * paciente del informe: ese chat no tiene por qué tener PAC ni ser suyo. Sin
+   * esa elección expresa, solo vale el PAC de la ficha del chat: si cambió
+   * desde el aviso, el PDF no sale.
    */
   private async informeDelAviso(conversacionId: string, telefono: string, avisoMensajeId: string) {
     const aviso = await this.prisma.avisoResultado.findFirst({
@@ -107,15 +120,31 @@ export class InformesChatService {
       select: { informeId: true, clienteId: true },
     });
     if (!aviso) throw new NotFoundException('Aviso no encontrado.');
-    const ficha = await this.ficha(conversacionId, telefono, { aunqueAtiendan: true });
-    if (ficha.clienteId !== aviso.clienteId) throw new NotFoundException('La ficha cambió desde el aviso.');
-    for (let pagina = 1; pagina <= PAGINAS_MAXIMAS_AVISO; pagina++) {
-      const datos = await this.portal.informesDelPaciente(ficha.identidad, pagina);
-      const informe = datos.datos.find(i => i.id === aviso.informeId);
-      if (informe) return { informe, pagina: null, identidad: ficha.identidad };
-      if (pagina * datos.limite >= datos.total) break;
+    const chat = await this.chat(conversacionId, telefono, { aunqueAtiendan: true });
+    if (chat.clienteId !== aviso.clienteId) throw new NotFoundException('La ficha cambió desde el aviso.');
+    if (chat.identidad) {
+      const informe = await this.buscarInforme(chat.identidad, aviso.informeId);
+      if (informe) return { informe, pagina: null, identidad: chat.identidad };
+    }
+    const aOtraFicha = await this.prisma.destinoAvisoResultado.count({ where: { informeId: aviso.informeId, clienteId: aviso.clienteId } });
+    const paciente = aOtraFicha ? (await this.portal.informes({ informeId: aviso.informeId, limite: 1 })).datos[0]?.paciente : undefined;
+    if (paciente?.pac && paciente.pac !== chat.identidad?.pac) {
+      const identidad: IdentidadInformeChat = { pac: paciente.pac, ...(paciente.ci ? { ci: paciente.ci } : {}) };
+      const informe = await this.buscarInforme(identidad, aviso.informeId);
+      if (informe) return { informe, pagina: null, identidad };
     }
     throw new NotFoundException('El informe del aviso ya no está disponible.');
+  }
+
+  /** El informe entre los vigentes de esa identidad, o `null`. */
+  private async buscarInforme(identidad: IdentidadInformeChat, informeId: string): Promise<InformeParaChat | null> {
+    for (let pagina = 1; pagina <= PAGINAS_MAXIMAS_AVISO; pagina++) {
+      const datos = await this.portal.informesDelPaciente(identidad, pagina);
+      const informe = datos.datos.find(i => i.id === informeId);
+      if (informe) return informe;
+      if (pagina * datos.limite >= datos.total) break;
+    }
+    return null;
   }
 
   async pdf(conversacionId: string, telefono: string, key: string): Promise<Buffer> {

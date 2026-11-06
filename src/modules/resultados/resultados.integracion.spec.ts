@@ -148,6 +148,7 @@ beforeEach(async () => {
      líneas o usuarios se lleva por delante la línea comercial inicial y deja
      al resto de la suite sin claves foráneas — pasó, y tumbó seis specs. */
   await prisma.avisoResultado.deleteMany();
+  await prisma.destinoAvisoResultado.deleteMany();
   await prisma.mensaje.deleteMany({ where: { conversacion: { lineaId: LINEA } } });
   await prisma.conversacion.deleteMany({ where: { lineaId: LINEA } });
   await prisma.accesoLineaWhatsapp.deleteMany({ where: { lineaId: LINEA } });
@@ -831,30 +832,82 @@ describe('aviso pedido desde FileMaker', () => {
       expect(await service.destinoParaFilemaker(INFORME)).toMatchObject({ puedeEnviar: true, paciente: 'Paciente Nueva' });
     });
 
-    it('un número de otra ficha no se toma: ni al corregir ni al crear', async () => {
-      await prisma.cliente.create({ data: { nombre: 'Otra persona', telefono: '+59170000094', pac: 'PAC-OTRA', ci: '1234567' } });
+    /* Madre e hija comparten WhatsApp: recepción escribe el número de la madre
+       (René, 06/11/2026). Sale a ese WhatsApp y ninguna ficha cambia. */
+    it('el número de otra ficha: el aviso va a ese WhatsApp y ninguna ficha cambia', async () => {
+      const madre = await prisma.cliente.create({ data: { nombre: 'Madre sintética', telefono: '+59170000094', pac: 'PAC-OTRA', ci: '1234567' } });
       try {
-        const corregir = await service.cambiarTelefonoDesdeFilemaker(INFORME, '70000094', 'recepcion2');
-        expect(corregir).toMatchObject({ actualizado: false });
-        expect(await prisma.cliente.findUniqueOrThrow({ where: { pac: 'PAC33009' } })).toMatchObject({ telefono: '+59170000001' });
-
-        informesDelPortal[0].paciente = { nombre: 'Paciente Nueva', pac: 'PAC99999', ci: null };
-        expect(await service.cambiarTelefonoDesdeFilemaker(INFORME, '70000094', 'recepcion2')).toMatchObject({
-          actualizado: false, mensaje: expect.stringMatching(/ya es de otra ficha/),
+        expect(await service.cambiarTelefonoDesdeFilemaker(INFORME, '70000094', 'recepcion2')).toEqual({
+          actualizado: true, accion: 'OTRA_FICHA', paciente: 'Paciente Vinculado', titular: 'Madre sintética', telefono: '+59170000094',
+          mensaje: expect.stringMatching(/ficha de Madre sintética.*ninguna ficha cambia/),
         });
-        expect(await prisma.cliente.count({ where: { pac: 'PAC99999' } })).toBe(0);
+        expect(await prisma.cliente.findUniqueOrThrow({ where: { pac: 'PAC33009' } })).toMatchObject({ telefono: '+59170000001' });
+        expect(await prisma.cliente.findUniqueOrThrow({ where: { id: madre.id } })).toMatchObject({ telefono: '+59170000094', pac: 'PAC-OTRA' });
+        expect(await prisma.auditLog.count({ where: { accion: 'DESTINO_AVISO_DESDE_FILEMAKER', entidadId: madre.id } })).toBe(1);
+
+        /* La pregunta muestra a quién va de verdad. */
+        const destino = await service.destinoParaFilemaker(INFORME);
+        expect(destino).toEqual({
+          puedeEnviar: true, codigo: 'LISTO', paciente: 'Madre sintética', telefono: '+59170000094', estudio: 'Ecografía abdominal',
+          otraFicha: true, pacienteInforme: 'Paciente Vinculado',
+        });
+        expect(plantillasEnviadas).toHaveLength(0);
+
+        expect(await service.avisarDesdeFilemaker(INFORME, 'recepcion2', '+59170000094')).toMatchObject({
+          enviado: true, telefono: '+59170000094', paciente: 'Madre sintética',
+        });
+        const chatMadre = await prisma.conversacion.findFirstOrThrow({ where: { clienteId: madre.id, lineaId: LINEA } });
+        expect(plantillasEnviadas).toEqual([expect.objectContaining({ conversacionId: chatMadre.id, boton: ACCESO })]);
+        const aviso = await prisma.avisoResultado.findUniqueOrThrow({ where: { informeId: INFORME } });
+        expect(aviso.clienteId).toBe(madre.id);
+        const auditoria = await prisma.auditLog.findFirstOrThrow({ where: { accion: 'RESULTADO_ENVIADO', entidadId: aviso.id } });
+        expect(auditoria.cambios).toMatchObject({ origen: 'FILEMAKER', destino: 'OTRA_FICHA' });
+        expect(await prisma.conversacion.count({ where: { cliente: { pac: 'PAC33009' }, lineaId: LINEA } })).toBe(0);
+      } finally {
+        await prisma.avisoResultado.deleteMany();
+        await prisma.cliente.deleteMany({ where: { pac: 'PAC-OTRA' } });
+      }
+    });
+
+    it('volver a escribir un número del paciente deshace la elección: el aviso vuelve a su ficha', async () => {
+      await prisma.cliente.create({ data: { nombre: 'Madre sintética', telefono: '+59170000094', pac: 'PAC-OTRA' } });
+      try {
+        await service.cambiarTelefonoDesdeFilemaker(INFORME, '70000094', 'recepcion2');
+        expect(await service.destinoParaFilemaker(INFORME)).toMatchObject({ paciente: 'Madre sintética', otraFicha: true });
+        expect(await service.cambiarTelefonoDesdeFilemaker(INFORME, '70000001', 'recepcion2')).toMatchObject({ actualizado: true, accion: 'TELEFONO_CORREGIDO' });
+        const destino = await service.destinoParaFilemaker(INFORME);
+        expect(destino).toEqual({ puedeEnviar: true, codigo: 'LISTO', paciente: 'Paciente Vinculado', telefono: '+59170000001', estudio: 'Ecografía abdominal' });
+        expect(await prisma.destinoAvisoResultado.count()).toBe(0);
       } finally {
         await prisma.cliente.deleteMany({ where: { pac: 'PAC-OTRA' } });
       }
     });
 
-    it('si el número es de una ficha sin PAC, manda a «Vincular» en el CRM y no crea nada', async () => {
-      await prisma.cliente.create({ data: { nombre: 'WhatsApp +59170000093', telefono: '+59170000093' } });
+    it('sin ficha del paciente: tampoco se crea una; el aviso va a la ficha dueña del número', async () => {
+      const madre = await prisma.cliente.create({ data: { nombre: 'Madre sintética', telefono: '+59170000094', pac: 'PAC-OTRA', ci: '1234567' } });
+      try {
+        informesDelPortal[0].paciente = { nombre: 'Paciente Nueva', pac: 'PAC99999', ci: null };
+        expect(await service.cambiarTelefonoDesdeFilemaker(INFORME, '70000094', 'recepcion2')).toMatchObject({
+          actualizado: true, accion: 'OTRA_FICHA', paciente: 'Paciente Nueva', titular: 'Madre sintética',
+        });
+        expect(await prisma.cliente.count({ where: { pac: 'PAC99999' } })).toBe(0);
+        expect(await service.destinoParaFilemaker(INFORME)).toMatchObject({ puedeEnviar: true, paciente: 'Madre sintética', pacienteInforme: 'Paciente Nueva' });
+        expect(await service.avisarDesdeFilemaker(INFORME, 'recepcion2', '+59170000094')).toMatchObject({ enviado: true, telefono: '+59170000094' });
+        expect((await prisma.avisoResultado.findUniqueOrThrow({ where: { informeId: INFORME } })).clienteId).toBe(madre.id);
+      } finally {
+        await prisma.avisoResultado.deleteMany();
+        await prisma.cliente.deleteMany({ where: { pac: 'PAC-OTRA' } });
+      }
+    });
+
+    it('un número de una ficha sin PAC también vale: sale a ese WhatsApp y no se vincula nada', async () => {
+      const provisional = await prisma.cliente.create({ data: { nombre: 'WhatsApp +59170000093', telefono: '+59170000093' } });
       informesDelPortal[0].paciente = { nombre: 'Paciente Nueva', pac: 'PAC99999', ci: null };
       expect(await service.cambiarTelefonoDesdeFilemaker(INFORME, '70000093', 'recepcion2')).toMatchObject({
-        actualizado: false, mensaje: expect.stringMatching(/Vincular/),
+        actualizado: true, accion: 'OTRA_FICHA', titular: 'WhatsApp +59170000093',
       });
       expect(await prisma.cliente.count({ where: { pac: 'PAC99999' } })).toBe(0);
+      expect(await prisma.cliente.findUniqueOrThrow({ where: { id: provisional.id } })).toMatchObject({ pac: null });
     });
 
     it('número inválido o paciente reconocido solo por CI: no cambia nada', async () => {

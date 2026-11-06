@@ -52,7 +52,7 @@ const prisma = new PrismaService('postgresql://crm_app@127.0.0.1:5433/crm_test')
 const secretoSintetico = 'firma-sintetica-aviso-pdf';
 const config = new ConfigService({ META_APP_SECRET: secretoSintetico, UBICACION_AUTOMATICA: 'off', TOKEN_AVISO_PDF: 'sintetico' });
 const transporte = { enviar: jest.fn<Promise<ResultadoEnvio>, unknown[]>(), subirPdf: jest.fn(), listarPlantillas: jest.fn() };
-const portal = { informesDelPaciente: jest.fn(), pdfDelPaciente: jest.fn() };
+const portal = { informesDelPaciente: jest.fn(), pdfDelPaciente: jest.fn(), informes: jest.fn() };
 const telefono = '+59170005911';
 const correo = 'asistente-aviso-pdf@test.local';
 const informe = { id: '5b0e3a9e-7a51-4c55-9a0e-6f1d2f6a0b11', archivoId: '5b0e3a9e-7a51-4c55-9a0e-6f1d2f6a0b12', estudio: 'Estudio sintético', fechaEstudio: '2026-10-01T00:00:00.000Z' };
@@ -143,6 +143,7 @@ beforeEach(async () => {
   transporte.listarPlantillas.mockReset().mockResolvedValue([plantillaMeta(true)]);
   portal.informesDelPaciente.mockReset().mockResolvedValue({ datos: [informe], total: 1, pagina: 1, limite: 7 });
   portal.pdfDelPaciente.mockReset().mockResolvedValue(Buffer.from('%PDF-sintetico'));
+  portal.informes.mockReset().mockResolvedValue({ datos: [{ informeId: informe.id, paciente: { nombre: 'Paciente sintético', pac: 'PAC-AVISO', ci: 'CI-AVISO' } }], total: 1 });
   linea = (await prisma.lineaWhatsapp.create({ data: { nombre: 'AVISO-PDF-TEST', telefono: '+59170005998', phoneNumberId: 'meta-aviso-pdf-test', tokenEnv: 'TOKEN_AVISO_PDF', comercial: false, activa: true } })).id;
   process.env.RESULTADOS_AUTOSERVICIO_LINEAS = linea;
   asistente = (await prisma.usuario.create({ data: { nombre: 'Asistente sintética', email: correo, passwordHash: 'x', rol: 'ASISTENTE' } })).id;
@@ -233,6 +234,28 @@ it('si la ficha cambió de PAC desde el aviso, no sale el PDF', async () => {
   await webhook(toque(contexto));
   await esperar(terminado);
   expect(enviadosDeTipo('document')).toHaveLength(0);
+});
+
+/* FileMaker mandó el aviso al WhatsApp de la madre (René, 06/11/2026): el chat
+   es de ella, sin PAC, y el informe es de la hija. */
+it('aviso mandado desde FileMaker al WhatsApp de un familiar: «Recibir PDF» entrega el informe del paciente', async () => {
+  await prisma.cliente.update({ where: { id: paciente }, data: { nombre: 'Madre sintética', pac: null, ci: null } });
+  const contexto = await avisar();
+  await prisma.destinoAvisoResultado.create({ data: { informeId: informe.id, clienteId: paciente, usuarioFilemaker: 'recepcion2' } });
+  portal.informesDelPaciente.mockImplementation(async (identidad: { pac: string }) =>
+    identidad.pac === 'PAC-AVISO' ? { datos: [informe], total: 1, pagina: 1, limite: 7 } : { datos: [], total: 0, pagina: 1, limite: 7 });
+  await webhook(toque(contexto));
+  await esperar(async () => (await documentos())[0]?.estadoEnvio === 'ENVIADO');
+  expect(portal.pdfDelPaciente).toHaveBeenCalledWith({ pac: 'PAC-AVISO', ci: 'CI-AVISO' }, informe);
+  expect(enviadosDeTipo('document')).toHaveLength(1);
+});
+
+it('sin esa elección de FileMaker, un chat sin PAC no recibe el PDF del aviso', async () => {
+  await prisma.cliente.update({ where: { id: paciente }, data: { pac: null, ci: null } });
+  await webhook(toque(await avisar()));
+  await esperar(terminado);
+  expect(enviadosDeTipo('document')).toHaveLength(0);
+  expect(portal.informes).not.toHaveBeenCalled();
 });
 
 it('«Recibir PDF» sobre un mensaje que no es un aviso no autoriza nada', async () => {

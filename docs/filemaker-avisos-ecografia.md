@@ -61,7 +61,7 @@ ficha por PAC exacto, aviso previo) sin reservar ni enviar nada. Responde 200:
 
 | `codigo` | `puedeEnviar` | Trae |
 | --- | --- | --- |
-| `LISTO` | `true` | `paciente` (nombre de la FICHA del CRM, para ver si el número es de otra persona), `telefono` (nulo si solo usuario de WhatsApp), `estudio` |
+| `LISTO` | `true` | `paciente` (nombre de la FICHA del CRM, para ver si el número es de otra persona), `telefono` (nulo si solo usuario de WhatsApp), `estudio`; con número de otra ficha, `otraFicha: true` y `pacienteInforme` |
 | `YA_ENVIADO` | `false` | `mensaje`, `telefono` y `enviadoEn` del aviso anterior. Un aviso FALLIDO no cuenta |
 | `NO_ENVIADO` | `false` | `mensaje`: sin ficha, CI repetido, solo por CI, enlace vencido o no publicado. `sinFicha: true` si el paciente no tiene ficha (FileMaker ofrece crearla) |
 
@@ -79,11 +79,34 @@ Corrige el teléfono de la ficha del paciente del informe (por PAC exacto) o, si
 no tiene ficha, la crea con nombre y PAC del portal: lo mismo que «Corregir
 teléfono» y «Crear ficha» de Resultados. `70012345` se entiende como Bolivia.
 No envía nada. Responde 200 `{ actualizado: true, accion: TELEFONO_CORREGIDO |
-FICHA_CREADA, paciente, telefono }` o `{ actualizado: false, mensaje }`: número
-inválido, número de otra ficha (un familiar; no se toma), número de una ficha sin
-PAC (hay que «Vincular» en el CRM, viendo el nombre), CI repetido o solo por CI.
-Auditoría: `TELEFONO_DESDE_FILEMAKER` o `FICHA_DESDE_RESULTADOS` con
-`usuarioFilemaker`.
+FICHA_CREADA | OTRA_FICHA, paciente, telefono }` o `{ actualizado: false, mensaje }`:
+número inválido, CI repetido o solo por CI.
+Auditoría: `TELEFONO_DESDE_FILEMAKER`, `FICHA_DESDE_RESULTADOS` o
+`DESTINO_AVISO_DESDE_FILEMAKER` con `usuarioFilemaker`.
+
+### Enviar a un número de otra ficha (06/11/2026)
+
+René: «que se pueda enviar al número que ellos coloquen», aunque sea de otro
+paciente (madre e hija comparten WhatsApp). El CRM admite una ficha por número,
+así que antes «Cambiar número» lo rechazaba. Ahora, si el número escrito ya es
+de **otra ficha** (con PAC o sin él):
+
+- No se cambia ninguna ficha ni se le quita el número a nadie. Se guarda como
+  destino del aviso de ESE informe (`DestinoAvisoResultado`) y responde
+  `accion: OTRA_FICHA` con `titular` (nombre de esa ficha) y un `mensaje`.
+- `…/destino` muestra esa ficha: `paciente` = nombre del titular del número,
+  `telefono` = su número, más `otraFicha: true` y `pacienteInforme`. La
+  asistente ve a quién le llega antes de pulsar «Enviar».
+- `…/avisar` manda la plantilla al chat de esa ficha; la auditoría
+  `RESULTADO_ENVIADO` lleva `destino: OTRA_FICHA`. «Recibir PDF» en ese chat
+  entrega el informe del paciente (`InformesChatService.informeDelAviso`), solo
+  porque FileMaker eligió esa ficha; sin esa elección sigue valiendo el PAC del chat.
+- Escribir después un número del paciente, o uno libre, borra la elección y el
+  aviso vuelve a la ficha del paciente.
+
+El guion de FileMaker no cambia: «Cambiar número» ya vuelve a preguntar y la
+pregunta ya muestra el nombre que manda el CRM. Solo desde FileMaker: el botón
+«Enviar aviso» del CRM sigue avisando a la ficha del paciente.
 
 Agregado el 04/11/2026 a pedido de René: el botón enviaba sin mostrar el número,
 y un aviso que llega a un número equivocado no se puede reenviar (la reserva

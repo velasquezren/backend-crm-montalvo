@@ -220,6 +220,7 @@ model Cliente {
   // Prisma no puede expresar un WHERE: vive solo en el SQL de la migración. Prisma
   // no lo ve y por eso tampoco intenta borrarlo.
   avisosResultado AvisoResultado[]
+  destinosAvisoResultado DestinoAvisoResultado[]
 
   @@index([categoria])
   @@index([nombre])
@@ -1711,6 +1712,25 @@ model AvisoResultado {
   enviadoEn    DateTime @default(now())
 
   @@index([clienteId, enviadoEn])
+}
+
+/// El WhatsApp al que FileMaker pidió mandar el aviso de un informe cuando ese
+/// número es de OTRA ficha: un familiar que comparte el teléfono (06/11/2026,
+/// René). La ficha del paciente no se toca ni se le quita el número a nadie: el
+/// aviso sale al chat de la ficha dueña del número, y su «Recibir PDF» entrega
+/// el informe de este aviso. Uno por informe; elegir otro número lo reemplaza y
+/// volver a un número del paciente lo borra. Solo lo usa la entrada desde
+/// FileMaker (`ResultadosService`); el botón del CRM avisa a la ficha del paciente.
+model DestinoAvisoResultado {
+  /// Id del informe en el portal, opaco como en `AvisoResultado`.
+  informeId        String   @id @db.VarChar(64)
+  cliente          Cliente  @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  clienteId        String
+  /// La cuenta de FileMaker que escribió el número (`Get ( AccountName )`).
+  usuarioFilemaker String   @db.VarChar(100)
+  elegidoEn        DateTime @default(now())
+
+  @@index([clienteId])
 }
 
 /// En qué punto está una campaña. Ver `modules/campanas`.

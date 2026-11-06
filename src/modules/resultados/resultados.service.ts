@@ -95,7 +95,11 @@ export type RespuestaAvisoFilemaker =
  * el número es de otra persona (madre e hija comparten WhatsApp).
  */
 export type DestinoAvisoFilemaker =
-  | { puedeEnviar: true; codigo: 'LISTO'; paciente: string; telefono: string | null; estudio: string }
+  /**
+   * `otraFicha`: el número lo eligió FileMaker y es de otra ficha (un familiar):
+   * `paciente` es el nombre de ESA ficha y `pacienteInforme` el del informe.
+   */
+  | { puedeEnviar: true; codigo: 'LISTO'; paciente: string; telefono: string | null; estudio: string; otraFicha?: true; pacienteInforme?: string }
   | { puedeEnviar: false; codigo: 'YA_ENVIADO'; mensaje: string; telefono: string | null; enviadoEn: Date | null }
   /** `sinFicha`: el paciente no tiene ficha en el CRM; FileMaker ofrece crearla con un número. */
   | { puedeEnviar: false; codigo: 'NO_ENVIADO'; mensaje: string; sinFicha: boolean };
@@ -107,10 +111,13 @@ export type DestinoAvisoFilemaker =
  */
 export type CambioTelefonoFilemaker =
   | { actualizado: true; accion: 'TELEFONO_CORREGIDO' | 'FICHA_CREADA'; paciente: string; telefono: string }
+  /**
+   * El número es de otra ficha (`titular`): el aviso irá a ese WhatsApp y
+   * ninguna ficha cambia. `mensaje` se lo explica a la asistente.
+   */
+  | { actualizado: true; accion: 'OTRA_FICHA'; paciente: string; titular: string; telefono: string; mensaje: string }
   | { actualizado: false; mensaje: string };
 
-const VINCULABLE_DESDE_FILEMAKER =
-  'Ese número ya tiene una ficha sin PAC en el CRM. Si es la misma paciente, vincúlala desde Resultados del CRM («Vincular»).';
 
 const TELEFONO_CAMBIADO =
   'El número de la ficha cambió después de la confirmación. No se envió: vuelve a pulsar el botón para ver el número nuevo.';
@@ -125,7 +132,15 @@ interface OpcionesEntrega {
   telefonoConfirmado?: string;
   /** Se suma al detalle de la auditoría `RESULTADO_ENVIADO`. */
   auditoria?: Record<string, string>;
+  /**
+   * La ficha a la que va el aviso cuando FileMaker eligió el número de otra
+   * (`DestinoAvisoResultado`). Sin esto, la del paciente del informe.
+   */
+  destinatario?: FichaAviso;
 }
+
+/** Lo que el envío necesita de la ficha que recibe el aviso. */
+interface FichaAviso { id: string; nombre: string; telefono: string | null }
 
 @Injectable()
 export class ResultadosService {
@@ -312,10 +327,12 @@ export class ResultadosService {
     const linea = await this.lineaDeFilemaker(remitente);
     try {
       const informe = await this.revalidar(informeId);
+      const destino = await this.destinoElegido(informeId);
       const enviado = await this.entregar(informe, linea, remitente, {
         soloPorPac: true,
         telefonoConfirmado,
-        auditoria: { origen: 'FILEMAKER', usuarioFilemaker },
+        destinatario: destino ?? undefined,
+        auditoria: { origen: 'FILEMAKER', usuarioFilemaker, ...(destino ? { destino: 'OTRA_FICHA' } : {}) },
       });
       /* El registro no es el envío: Meta lo recibe en segundo plano y puede
          rechazarlo. FileMaker anota ENVIADO con esta respuesta, así que se
@@ -370,7 +387,8 @@ export class ResultadosService {
     await this.lineaDeFilemaker(remitente);
     try {
       const informe = await this.revalidar(informeId);
-      const cliente = await this.fichaDe(informe, true);
+      const destino = await this.destinoElegido(informeId);
+      const cliente = destino ?? await this.fichaDe(informe, true);
       /* Un aviso FALLIDO no cuenta (se puede reenviar); una reserva sin
          mensaje sí, porque hay un envío en vuelo. */
       const previo = await this.prisma.avisoResultado.findUnique({
@@ -380,7 +398,10 @@ export class ResultadosService {
       if (previo && previo.mensaje?.estadoEnvio !== 'FALLIDO') {
         return { puedeEnviar: false, codigo: 'YA_ENVIADO', mensaje: YA_ENVIADO, telefono: previo.cliente.telefono, enviadoEn: previo.enviadoEn };
       }
-      return { puedeEnviar: true, codigo: 'LISTO', paciente: cliente.nombre, telefono: cliente.telefono, estudio: informe.estudio };
+      return {
+        puedeEnviar: true, codigo: 'LISTO', paciente: cliente.nombre, telefono: cliente.telefono, estudio: informe.estudio,
+        ...(destino ? { otraFicha: true as const, pacienteInforme: informe.paciente.nombre } : {}),
+      };
     } catch (error) {
       if (error instanceof NotFoundException || error instanceof ConflictException) {
         return { puedeEnviar: false, codigo: 'NO_ENVIADO', mensaje: error.message, sinFicha: error.message === SIN_FICHA.SIN_COINCIDENCIA };
@@ -397,9 +418,10 @@ export class ResultadosService {
    *
    * - La ficha la decide el servidor por el PAC del informe, nunca FileMaker.
    *   Solo por PAC exacto (por CI la asistente compara nombres en el CRM).
-   * - Un número que ya es de otra ficha no se toma: puede ser un familiar.
-   *   Si es de una ficha sin PAC que podría ser la misma paciente, se manda al
-   *   CRM a «Vincular», que exige que una persona lo confirme viendo el nombre.
+   * - **Un número que ya es de otra ficha** (un familiar que comparte el
+   *   WhatsApp, 06/11/2026) no se le quita a nadie ni cambia la ficha del
+   *   paciente: queda como destino de ESTE aviso (`DestinoAvisoResultado`) y la
+   *   pregunta siguiente muestra el nombre de esa ficha antes de enviar.
    * - `70012345` se entiende como Bolivia (`+59170012345`).
    *
    * No envía nada: después FileMaker vuelve a preguntar con el número nuevo.
@@ -412,19 +434,22 @@ export class ResultadosService {
     try {
       const informe = await this.publicado(informeId);
       const [{ cliente, via, motivo }] = await this.clientes.reconocerPacientes([informe.paciente]);
+      if (cliente && via !== 'PAC') throw new ConflictException(SOLO_POR_CI);
+      if (!cliente && motivo === 'CI_REPETIDO') throw new ConflictException(SIN_FICHA.CI_REPETIDO);
+      if (!cliente && !informe.paciente.pac) throw new ConflictException(SOLO_POR_CI);
+      const titular = await this.prisma.cliente.findUnique({ where: { telefono }, select: { id: true, nombre: true } });
+      if (titular && titular.id !== cliente?.id) {
+        return this.elegirOtraFicha(informeId, informe, titular, telefono, usuarioFilemaker, remitente);
+      }
+      /* El número es del paciente o de nadie: el aviso vuelve a su ficha. */
+      await this.prisma.destinoAvisoResultado.deleteMany({ where: { informeId } });
       if (cliente) {
-        if (via !== 'PAC') throw new ConflictException(SOLO_POR_CI);
         if (cliente.telefono !== telefono) {
           await this.clientes.telefonoDesdeResultados(cliente.id, telefono, remitente.sub);
           await this.audit.registrar('Cliente', cliente.id, 'TELEFONO_DESDE_FILEMAKER', remitente.sub, { informeId, usuarioFilemaker });
         }
         return { actualizado: true, accion: 'TELEFONO_CORREGIDO', paciente: cliente.nombre, telefono };
       }
-      if (motivo === 'CI_REPETIDO') throw new ConflictException(SIN_FICHA.CI_REPETIDO);
-      if (!informe.paciente.pac) throw new ConflictException(SOLO_POR_CI);
-      const delTelefono = await this.clientes.fichaDelTelefono(telefono, informe.paciente);
-      if (delTelefono.estado === 'VINCULABLE') throw new ConflictException(VINCULABLE_DESDE_FILEMAKER);
-      if (delTelefono.estado === 'OCUPADO') throw new ConflictException(OCUPADO);
       const ficha = await this.clientes.altaDesdeResultados(informe.paciente, telefono);
       await this.audit.registrar('Cliente', ficha.id, 'FICHA_DESDE_RESULTADOS', remitente.sub, { informeId, origen: 'FILEMAKER', usuarioFilemaker });
       return { actualizado: true, accion: 'FICHA_CREADA', paciente: informe.paciente.nombre, telefono };
@@ -434,6 +459,39 @@ export class ResultadosService {
       }
       throw error;
     }
+  }
+
+  /**
+   * El número de otra ficha como destino de este aviso. Se reemplaza si ya
+   * había uno: vale el último número que escribió la asistente.
+   */
+  private async elegirOtraFicha(
+    informeId: string,
+    informe: InformePublicado,
+    titular: { id: string; nombre: string },
+    telefono: string,
+    usuarioFilemaker: string,
+    remitente: UsuarioJwt,
+  ): Promise<CambioTelefonoFilemaker> {
+    await this.prisma.destinoAvisoResultado.upsert({
+      where: { informeId },
+      create: { informeId, clienteId: titular.id, usuarioFilemaker },
+      update: { clienteId: titular.id, usuarioFilemaker, elegidoEn: new Date() },
+    });
+    await this.audit.registrar('Cliente', titular.id, 'DESTINO_AVISO_DESDE_FILEMAKER', remitente.sub, { informeId, usuarioFilemaker });
+    return {
+      actualizado: true, accion: 'OTRA_FICHA', paciente: informe.paciente.nombre, titular: titular.nombre, telefono,
+      mensaje: `Ese número es de la ficha de ${titular.nombre}. El aviso irá a ese WhatsApp; ninguna ficha cambia.`,
+    };
+  }
+
+  /** La ficha que FileMaker eligió para el aviso de este informe, si es otra que la del paciente. */
+  private async destinoElegido(informeId: string): Promise<FichaAviso | null> {
+    const destino = await this.prisma.destinoAvisoResultado.findUnique({
+      where: { informeId },
+      select: { cliente: { select: { id: true, nombre: true, telefono: true } } },
+    });
+    return destino?.cliente ?? null;
   }
 
   /** La línea de resultados, con el permiso de la cuenta FileMaker como asistente. */
@@ -493,7 +551,7 @@ export class ResultadosService {
     const informeId = informe.informeId;
     /* Se reconoce de nuevo aquí, no se confía en la fila que vio la
        asistente: entre la cola y el clic alguien pudo corregir un CI. */
-    const cliente = await this.fichaDe(informe, opciones.soloPorPac);
+    const cliente = opciones.destinatario ?? await this.fichaDe(informe, opciones.soloPorPac);
     if (opciones.telefonoConfirmado !== undefined && (cliente.telefono ?? '') !== opciones.telefonoConfirmado) {
       throw new ConflictException(TELEFONO_CAMBIADO);
     }
