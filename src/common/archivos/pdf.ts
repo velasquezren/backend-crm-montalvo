@@ -8,5 +8,14 @@
  */
 export const BYTES_MAXIMOS_PDF = 15 * 1024 * 1024;
 
+/**
+ * 40 MB por informe de Resultados que pide el paciente («Recibir PDF», «Mis
+ * informes»). Es el mismo tope que el portal acepta desde FileMaker (06/11/2026:
+ * las ecografías con muchas fotos pasaban de 10 MB y no se publicaban). Va el
+ * ORIGINAL, como siempre; WhatsApp acepta documentos de hasta 100 MB. Lo que
+ * adjuntan las agentes en el chat sigue en `BYTES_MAXIMOS_PDF`.
+ */
+export const BYTES_MAXIMOS_INFORME = 40 * 1024 * 1024;
+
 /** Lo que lee la agente cuando se pasa. */
 export const AVISO_PDF_GRANDE = 'El PDF pesa más de 15 MB.';

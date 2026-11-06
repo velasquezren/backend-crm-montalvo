@@ -1,5 +1,5 @@
 import { ConflictException, Injectable, Logger, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
-import { BYTES_MAXIMOS_PDF } from '../../common/archivos/pdf';
+import { BYTES_MAXIMOS_INFORME } from '../../common/archivos/pdf';
 import { TipoInforme } from './tipo-informe';
 
 /** Una fila de la cola del portal de resultados. Contrato de su API, no nuestro. */
@@ -82,7 +82,7 @@ export class PortalResultadosClient {
     const { base, token } = this.configuracion();
     const r = await fetch(`${base}/v1/integraciones/crm/paciente/informes/${encodeURIComponent(informe.id)}/pdf`, {
       method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...identidad, archivoId: informe.archivoId }), signal: AbortSignal.timeout(15_000), redirect: 'error',
+      body: JSON.stringify({ ...identidad, archivoId: informe.archivoId }), signal: AbortSignal.timeout(60_000), redirect: 'error',
     });
     if (!r.ok || !r.body || !r.headers.get('content-type')?.startsWith('application/pdf')) {
       await r.body?.cancel();
@@ -96,7 +96,7 @@ export class PortalResultadosClient {
         const p = await lector.read();
         if (p.done) break;
         bytes += p.value.byteLength;
-        if (bytes > BYTES_MAXIMOS_PDF) throw new ServiceUnavailableException('Informe demasiado grande.');
+        if (bytes > BYTES_MAXIMOS_INFORME) throw new ServiceUnavailableException('Informe demasiado grande.');
         partes.push(p.value);
       }
       const pdf = Buffer.concat(partes);

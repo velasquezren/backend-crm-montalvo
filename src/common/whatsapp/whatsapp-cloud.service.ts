@@ -2,7 +2,7 @@ import { ErrorMedia, errorHttpMedia, sanitizarErrorMedia } from '../fiabilidad/e
 import { Injectable, Logger } from '@nestjs/common';
 import { codigoErrorWhatsapp } from './error-envio';
 import { campoDestino } from './destino';
-import { BYTES_MAXIMOS_PDF } from '../archivos/pdf';
+import { BYTES_MAXIMOS_INFORME } from '../archivos/pdf';
 
 /**
  * Único punto del CRM que habla con la Cloud API de Meta.
@@ -38,7 +38,8 @@ const BASE = `https://graph.facebook.com/${VERSION_API}`;
  * indefinido. La media va aparte porque descarga archivos, no JSON.
  */
 const ESPERA_MS = 10_000;
-const ESPERA_MEDIA_MS = 30_000;
+/** Subir a Meta un informe de hasta 40 MB desde el VPS: holgado. */
+const ESPERA_MEDIA_MS = 90_000;
 
 /**
  * Qué pasó con un envío, que NO es lo mismo que si tenemos su id.
@@ -74,9 +75,9 @@ export interface CredencialesWhatsapp { token: string; phoneId: string; wabaId?:
 export class WhatsappCloudService {
   private readonly logger = new Logger(WhatsappCloudService.name);
 
-  /** PDF solicitado expresamente: se sube a Meta, sin URL pública ni copia en R2. */
+  /** El informe que pidió el paciente: se sube a Meta, sin URL pública ni copia en R2. */
   async subirPdf(bytes: Buffer, cuenta: CredencialesWhatsapp | null): Promise<string | null> {
-    if (!cuenta || bytes.length > BYTES_MAXIMOS_PDF || bytes.subarray(0, 5).toString() !== '%PDF-') return null;
+    if (!cuenta || bytes.length > BYTES_MAXIMOS_INFORME || bytes.subarray(0, 5).toString() !== '%PDF-') return null;
     try {
       const form = new FormData();
       form.set('messaging_product', 'whatsapp');

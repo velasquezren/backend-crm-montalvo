@@ -177,7 +177,7 @@ describe('WhatsappCloudService', () => {
 
 describe('PDF privado solicitado', () => {
   it('sube multipart y devuelve media ID, sin URL pública ni nombre del paciente', async () => {
-    const f = jest.spyOn(global, 'fetch').mockReset().mockResolvedValue(new Response(JSON.stringify({ id: '123456' }), { status: 200 }));
+    const f = jest.spyOn(global, 'fetch').mockReset().mockImplementation(async () => new Response(JSON.stringify({ id: '123456' }), { status: 200 }));
     expect(await servicio().subirPdf(Buffer.from('%PDF-sintetico'), CUENTA)).toBe('123456');
     const [url, opciones] = f.mock.calls[0];
     expect(url).toBe('https://graph.facebook.com/v25.0/123/media');
@@ -185,11 +185,14 @@ describe('PDF privado solicitado', () => {
     expect(form.get('messaging_product')).toBe('whatsapp'); expect(form.get('type')).toBe('application/pdf');
     expect((form.get('file') as File).name).toBe('informe.pdf');
     expect(opciones!.redirect).toBe('error');
+    /* Una ecografía con fotos de 20 MB también sube: el tope del chat (15 MB) no aplica al informe. */
+    expect(await servicio().subirPdf(Buffer.concat([Buffer.from('%PDF-'), Buffer.alloc(20 * 1024 * 1024)]), CUENTA)).toBe('123456');
   });
   it('archivo inválido o demasiado grande no sale; error de Meta no revela su respuesta', async () => {
     const f = jest.spyOn(global, 'fetch').mockReset().mockResolvedValue(new Response('error sintético', { status: 500 }));
     expect(await servicio().subirPdf(Buffer.from('no pdf'), CUENTA)).toBeNull();
-    expect(await servicio().subirPdf(Buffer.alloc(15 * 1024 * 1024 + 1), CUENTA)).toBeNull();
+    /* Más de 40 MB no sale (el tope del informe; WhatsApp admite 100). */
+    expect(await servicio().subirPdf(Buffer.concat([Buffer.from('%PDF-'), Buffer.alloc(40 * 1024 * 1024)]), CUENTA)).toBeNull();
     expect(f).not.toHaveBeenCalled();
     expect(await servicio().subirPdf(Buffer.from('%PDF-sintetico'), CUENTA)).toBeNull();
     expect(f).toHaveBeenCalledTimes(1);
