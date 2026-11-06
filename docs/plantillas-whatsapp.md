@@ -248,3 +248,31 @@ revalida: [informes por WhatsApp](informes-por-whatsapp.md#recibir-pdf-desde-el-
 `RESULTADOS_PLANTILLA=montalvo_informe_pdf` en `/opt/crm-backend/.env` y
 reiniciar. Volver atrás es poner de nuevo `montalvo_informe_disponible`: el
 código manda el `payload` del botón solo si la plantilla aprobada lo tiene.
+
+## 7. `climon_resultado_laboratorio` — aviso de laboratorio desde la línea de Climon
+
+Aprobada por René el 06/11/2026 para enviarla a revisión de Meta, **en la WABA
+de Laboratorio CLIMON** (`1682165280209026`, línea «Laboratorio CLIMON» del
+CRM), no en la de Recepción: Laboratorio Climon es otra empresa y sus resultados
+los envía el laboratorio. Misma forma que `montalvo_informe_pdf` (mismo orden de
+botones), para que el CRM la mande sin cambiar cómo arma los componentes. El
+botón abre la página de Climon del portal (`/laboratorio/`, desplegada el 06/11).
+
+- **Categoría:** Utility · **Idioma:** `es`
+- **Cuerpo:**
+  > Laboratorio Climon: su resultado de laboratorio ya está disponible.
+  >
+  > Toque «Ver mi resultado» para abrirlo en línea, o «Recibir PDF» y se lo enviamos por este chat.
+- **Pie:** `Enlace personal. No lo reenvíe.`
+- **Botones** (en este orden):
+  1. URL · «Ver mi resultado» · `https://resultados.107.175.132.15.nip.io/laboratorio/{{1}}`
+  2. Respuesta rápida · «Recibir PDF»
+
+**Estado:** sin crear en Meta (se hará con el MCP *WhatsApp Business Tools*).
+**Al aprobarse** falta el cambio del CRM: los informes `LABORATORIO` salen de la
+línea de Laboratorio CLIMON con esta plantilla (hoy todos salen de
+`RESULTADOS_LINEA_ID` = Recepción), con «Recibir PDF» habilitado en esa línea
+(`RESULTADOS_AUTOSERVICIO_LINEAS`, interacciones) y la cuenta FileMaker con
+acceso a ella; y el «Pedir ayuda» del portal (`portal/lib/marcas.ts`) al número
+del laboratorio.
+
