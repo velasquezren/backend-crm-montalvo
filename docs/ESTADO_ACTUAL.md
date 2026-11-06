@@ -15,6 +15,18 @@ locales al comenzar; una modificación sin commit puede pertenecer a otra tarea.
 4. Diferencie **implementado**, **probado localmente**, **despliegue registrado**
    y **comprobado en vivo**. Ni un build ni este documento prueban los cuatro.
 
+### Desde otra máquina
+
+- Clonar con SSH (`git@github.com:velasquezren/...`): backend y frontend del CRM y
+  `backend-resultados-montalvo`. La clave SSH de la máquina nueva tiene que estar
+  en GitHub y, para desplegar, en `authorized_keys` de root en `107.175.132.15`.
+- `.env` no está en Git: crearlo desde `.env.example` (local) y nunca copiar el
+  de producción. Postgres local en `:5433` con `crm` y `crm_test`
+  (`npm run test:integracion:preparar`).
+- Conectores de Meta para Claude Code (se configuran por máquina):
+  `claude mcp add --transport http whatsapp_business_tools https://mcp.facebook.com/whatsapp_business_tools`
+  y autorizar con `/mcp`. Es el que crea plantillas.
+
 ## Capacidades recientes que ya existen
 
 | Tema | Estado comprobable y dónde continuar |
@@ -32,6 +44,8 @@ locales al comenzar; una modificación sin commit puede pertenecer a otra tarea.
 | Horarios FileMaker | René confirmó envíos individuales; `DR1110` se verificó sincronizado. Soporte 15/30 min desplegado el 16/10: backend `1439106`, frontend `120400b`, migración MySQL y permisos comprobados. `DR2435` aún sin envío recibido; falta pulsar su botón en FileMaker. [Procedimiento y evidencia](filemaker-horarios.md). |
 | Aviso de ecografía desde FileMaker | **Sin desplegar** (04/11): ruta `integraciones/filemaker/resultados/:id/avisar`, apagada por `FILEMAKER_AVISOS_ACTIVO`. En FileMaker ya está el guion `ENVIAR PDF AL PORTAL` nuevo con `$tokenCRM` vacío: publica como antes y llena los campos `_envio`. [Activación y revisión de guiones](filemaker-avisos-ecografia.md). |
 | Aviso a un número de otra ficha (FileMaker) | **Desplegado el 06/11 13:22** (`be77c20`, respaldo `/root/backup-crm-20261106-132007.sql.gz`, `dist.anterior` como vuelta atrás): «Cambiar número» con el WhatsApp de otra ficha (un familiar) manda el aviso a ese chat sin tocar fichas; migración `destino_aviso_resultado`. [Contrato](filemaker-avisos-ecografia.md#enviar-a-un-número-de-otra-ficha-06112026). |
+| «Recibir PDF» hasta 40 MB | **Sin desplegar** (`ac38454`, 06/11): el CRM baja y sube a Meta informes de hasta 40 MB (antes 15). El portal de Resultados ya acepta 40 MB (desplegado 06/11 14:15). Sin esto, el «Recibir PDF» de un informe de más de 15 MB queda en REVISIÓN. Desplegar cuando René lo pida. |
+| Laboratorio avisa desde su línea | **Sin desplegar** (`ff41118`, 06/11): con `RESULTADOS_LAB_LINEA_ID` los informes LABORATORIO salen por la línea Laboratorio CLIMON (+591 62140323) con `climon_resultado_laboratorio`. Falta crear esa plantilla en la WABA `1682165280209026` (texto aprobado por René) y que Meta la apruebe; luego desplegar y encender. [Pasos](plantillas-whatsapp.md#7-climon_resultado_laboratorio--aviso-de-laboratorio-desde-la-línea-de-climon). |
 | Mis informes | Implementado; despliegue del 13/10 registrado para prueba y Recepción (`ed7f204`, Resultados `1604ded`). [Contrato, permisos y banderas](informes-por-whatsapp.md). No tratarlo como preparación sin desplegar. |
 | Promociones y directorio | Pantallas Angular, API pública, tarjetas y reconocimiento PRM implementados. El directorio está enlazado a la agenda; [guía](promociones-y-directorio.md). |
 | PDF y autor del mensaje | Límite de PDF 15 MB (`f599547`, frontend `a57f9a6`); autor humano incorporado en `ee0806f`. Columnas nuevas requieren sus migraciones versionadas. |
