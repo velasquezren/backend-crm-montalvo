@@ -6,7 +6,7 @@ import { ConversionesMetaService } from '../conversiones-meta/conversiones-meta.
 import { LeadsService } from '../leads/leads.service';
 import { AvisoLandingService } from '../../common/landing/aviso-landing.service';
 import { MenuAtencionService } from '../menu-atencion/menu-atencion.service';
-import { INestApplication, Module, ValidationPipe } from '@nestjs/common';
+import { INestApplication, Module, ServiceUnavailableException, ValidationPipe } from '@nestjs/common';
 import { APP_GUARD, NestFactory } from '@nestjs/core';
 import { ConfigService } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
@@ -248,6 +248,42 @@ it('aviso mandado desde FileMaker al WhatsApp de un familiar: «Recibir PDF» en
   await esperar(async () => (await documentos())[0]?.estadoEnvio === 'ENVIADO');
   expect(portal.pdfDelPaciente).toHaveBeenCalledWith({ pac: 'PAC-AVISO', ci: 'CI-AVISO' }, informe);
   expect(enviadosDeTipo('document')).toHaveLength(1);
+});
+
+it('el familiar autorizado tiene un PAC propio que no existe en el portal: recibe el PAP del aviso', async () => {
+  await prisma.cliente.update({ where: { id: paciente }, data: { pac: 'PAC-FAMILIAR', ci: 'CI-FAMILIAR' } });
+  const contexto = await avisar();
+  await prisma.destinoAvisoResultado.create({ data: { informeId: informe.id, clienteId: paciente, usuarioFilemaker: 'recepcion-test' } });
+  portal.informesDelPaciente.mockImplementation(async (identidad: { pac: string }) => {
+    if (identidad.pac !== 'PAC-AVISO') throw new ServiceUnavailableException('Identidad no resuelta por el portal.');
+    return { datos: [{ ...informe, estudio: 'Papanicolau' }], total: 1, pagina: 1, limite: 7 };
+  });
+  await webhook(toque(contexto));
+  await esperar(terminado);
+  expect((await documentos())[0]?.estadoEnvio).toBe('ENVIADO');
+  expect(portal.informesDelPaciente).not.toHaveBeenCalledWith(expect.objectContaining({ pac: 'PAC-FAMILIAR' }), expect.anything());
+  expect(portal.pdfDelPaciente).toHaveBeenCalledWith({ pac: 'PAC-AVISO', ci: 'CI-AVISO' }, { ...informe, estudio: 'Papanicolau' });
+  expect(enviadosDeTipo('document')).toHaveLength(1);
+});
+
+it('sin destino autorizado, un PAC propio rechazado por el portal no permite buscar otra identidad', async () => {
+  await prisma.cliente.update({ where: { id: paciente }, data: { pac: 'PAC-FAMILIAR', ci: 'CI-FAMILIAR' } });
+  portal.informesDelPaciente.mockRejectedValue(new ServiceUnavailableException('Identidad no resuelta por el portal.'));
+  await webhook(toque(await avisar()));
+  await esperar(terminado);
+  expect(enviadosDeTipo('document')).toHaveLength(0);
+  expect(portal.informes).not.toHaveBeenCalled();
+  expect(portal.pdfDelPaciente).not.toHaveBeenCalled();
+});
+
+it('un destino autorizado del mismo PAC no ignora un conflicto de carnet', async () => {
+  const contexto = await avisar();
+  await prisma.destinoAvisoResultado.create({ data: { informeId: informe.id, clienteId: paciente, usuarioFilemaker: 'recepcion-test' } });
+  portal.informesDelPaciente.mockRejectedValue(new ServiceUnavailableException('Carnet contradictorio.'));
+  await webhook(toque(contexto));
+  await esperar(terminado);
+  expect(enviadosDeTipo('document')).toHaveLength(0);
+  expect(portal.pdfDelPaciente).not.toHaveBeenCalled();
 });
 
 it('sin esa elección de FileMaker, un chat sin PAC no recibe el PDF del aviso', async () => {

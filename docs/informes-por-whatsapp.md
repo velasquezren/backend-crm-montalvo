@@ -168,6 +168,11 @@ Diferencias con «Mis informes», a propósito:
   paciente pide el informe del aviso que la clínica misma le mandó. Siguen
   frenándolo la línea sin autoservicio, el chat cerrado, el teléfono o la ficha
   cambiados y un informe que ya no está vigente para ese PAC.
+- Si FileMaker eligió expresamente un número de otra ficha, se consulta primero
+  el paciente de ese informe. El PAC propio del destinatario puede no existir en
+  Resultados; su 404 no debe impedir recibir el informe autorizado. La elección
+  debe seguir asociada a ese informe y a la ficha del aviso. Sin ella se exige la
+  identidad del chat; con el mismo PAC se conserva también la comprobación del CI.
 - **Dos toques en 10 minutos mandan un PDF.** El segundo queda DUPLICADO, sin
   pedir a una persona. Pasado ese rato, otro toque lo vuelve a mandar.
 - Si no puede salir (enlace vencido, informe retirado, PAC cambiado), el

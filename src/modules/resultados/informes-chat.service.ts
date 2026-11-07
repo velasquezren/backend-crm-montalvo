@@ -122,16 +122,20 @@ export class InformesChatService {
     if (!aviso) throw new NotFoundException('Aviso no encontrado.');
     const chat = await this.chat(conversacionId, telefono, { aunqueAtiendan: true });
     if (chat.clienteId !== aviso.clienteId) throw new NotFoundException('La ficha cambió desde el aviso.');
-    if (chat.identidad) {
-      const informe = await this.buscarInforme(chat.identidad, aviso.informeId);
-      if (informe) return { informe, pagina: null, identidad: chat.identidad };
-    }
+    // La elección expresa del destinatario determina qué identidad consultar.
+    // El PAC propio de un familiar puede no existir en Resultados: consultar
+    // primero ese PAC produciría un 404 antes de validar el paciente autorizado.
     const aOtraFicha = await this.prisma.destinoAvisoResultado.count({ where: { informeId: aviso.informeId, clienteId: aviso.clienteId } });
     const paciente = aOtraFicha ? (await this.portal.informes({ informeId: aviso.informeId, limite: 1 })).datos[0]?.paciente : undefined;
     if (paciente?.pac && paciente.pac !== chat.identidad?.pac) {
       const identidad: IdentidadInformeChat = { pac: paciente.pac, ...(paciente.ci ? { ci: paciente.ci } : {}) };
       const informe = await this.buscarInforme(identidad, aviso.informeId);
       if (informe) return { informe, pagina: null, identidad };
+    } else if (chat.identidad) {
+      // Si es el mismo PAC se conserva también el CI del chat: un conflicto de
+      // identidad no se resuelve sustituyéndolo por el CI que dice el portal.
+      const informe = await this.buscarInforme(chat.identidad, aviso.informeId);
+      if (informe) return { informe, pagina: null, identidad: chat.identidad };
     }
     throw new NotFoundException('El informe del aviso ya no está disponible.');
   }
