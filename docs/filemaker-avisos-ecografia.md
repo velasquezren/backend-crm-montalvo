@@ -104,6 +104,19 @@ de **otra ficha** (con PAC o sin él):
 - Escribir después un número del paciente, o uno libre, borra la elección y el
   aviso vuelve a la ficha del paciente.
 
+Corrección del 07/11: si el destinatario tiene su propio PAC, pero ese PAC no
+existe en Resultados, la consulta devuelve 404. Se valida ahora la elección
+expresa de FileMaker antes de consultar informes: se usa el paciente del aviso
+cuando corresponde a otra ficha, sin intentar primero el PAC del familiar.
+Sin esa elección se conserva la identidad del chat; si es el mismo PAC, también
+se comprueba su CI. No se ignoran errores de identidad ni se permite elegir
+informes ajenos por el texto del botón.
+
+Comprobación posterior al despliegue `16cb16f`: el aviso que había fallado
+resolvió el informe esperado y descargó internamente un PDF válido de 972844
+bytes. No se subió a Meta ni se envió un mensaje durante esa comprobación;
+queda la confirmación de recepción al volver a pulsar el botón.
+
 El guion de FileMaker no cambia: «Cambiar número» ya vuelve a preguntar y la
 pregunta ya muestra el nombre que manda el CRM. Solo desde FileMaker: el botón
 «Enviar aviso» del CRM sigue avisando a la ficha del paciente.
