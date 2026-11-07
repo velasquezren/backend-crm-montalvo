@@ -268,7 +268,7 @@ botón abre la página de Climon del portal (`/laboratorio/`, desplegada el 06/1
   1. URL · «Ver mi resultado» · `https://resultados.107.175.132.15.nip.io/laboratorio/{{1}}`
   2. Respuesta rápida · «Recibir PDF»
 
-**Estado:** sin crear en Meta (se hará con el MCP *WhatsApp Business Tools*).
+**Estado:** creada el 07/11/2026 en la WABA `1682165280209026` (número +591 77385889, «Laboratorio Climon», CONNECTED), id **`28725450153822938`**, Utility, **PENDING** de revisión de Meta. Se creó desde el servidor con `WHATSAPP_RECEPCION_TOKEN` (el MCP seguía sin autorizar).
 
 **El CRM ya lo sabe hacer** (06/11/2026): los informes `LABORATORIO` salen por
 `RESULTADOS_LAB_LINEA_ID` con `RESULTADOS_LAB_PLANTILLA`, sin imagen de
@@ -288,7 +288,7 @@ FileMaker muestra tal cual, antes de reservar nada.
 3. En Usuarios, dar la línea Laboratorio CLIMON a la cuenta de FileMaker y a
    quien envíe laboratorio desde el CRM. Reiniciar.
 4. Desplegar el portal con `portal/lib/marcas.ts` apuntando «Pedir ayuda» de
-   Climon a +591 62140323.
+   Climon a +591 77385889 (número real de la WABA, comprobado el 07/11).
 
 Volver atrás es vaciar `RESULTADOS_LAB_LINEA_ID` y reiniciar.
 

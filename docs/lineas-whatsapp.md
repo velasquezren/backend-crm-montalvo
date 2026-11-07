@@ -7,7 +7,7 @@ la conectividad actual. Despliegues posteriores en el [historial](historial/esta
 | Canal | Número | Estado inicial |
 | --- | --- | --- |
 | Ventas y publicidad Montalvo | Número existente del servidor | Conserva las credenciales actuales |
-| Laboratorio CLIMON | +591 62140323 | Pendiente de conexión |
+| Laboratorio CLIMON | +591 62140323 (hoy **+591 77385889**, comprobado en Meta el 07/11/2026) | Pendiente de conexión |
 | Recepción Clínica Montalvo Corporativo | +591 75031306 | Pendiente de conexión |
 | Centro Médico Montalvo | +591 76065490 | Pendiente de conexión |
 
