@@ -268,7 +268,7 @@ botón abre la página de Climon del portal (`/laboratorio/`, desplegada el 06/1
   1. URL · «Ver mi resultado» · `https://resultados.107.175.132.15.nip.io/laboratorio/{{1}}`
   2. Respuesta rápida · «Recibir PDF»
 
-**Estado:** creada el 07/11/2026 en la WABA `1682165280209026` (número +591 77385889, «Laboratorio Climon», CONNECTED), id **`28725450153822938`**, Utility, **PENDING** de revisión de Meta. Se creó desde el servidor con `WHATSAPP_RECEPCION_TOKEN` (el MCP seguía sin autorizar).
+**Estado:** creada el 07/11/2026 en la WABA `1682165280209026` (número +591 77385889, «Laboratorio Climon», CONNECTED), id **`28725450153822938`**, Utility, **APPROVED**. **Encendida en el CRM el 09/11/2026** (ver `docs/ESTADO_ACTUAL.md`). Se creó desde el servidor con `WHATSAPP_RECEPCION_TOKEN` (el MCP seguía sin autorizar).
 
 **El CRM ya lo sabe hacer** (06/11/2026): los informes `LABORATORIO` salen por
 `RESULTADOS_LAB_LINEA_ID` con `RESULTADOS_LAB_PLANTILLA`, sin imagen de
