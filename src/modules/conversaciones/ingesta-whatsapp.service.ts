@@ -1084,7 +1084,7 @@ export class IngestaWhatsappService {
       this.gateway.emitirActividad(conversacionId);
       return true;
     }
-    return this.responderTexto(conversacionId, telefono, textoReservaSinPago(resumen), { respetaPausa: false, noRepetir: false, asistente: true });
+    return this.responderTexto(conversacionId, telefono, textoReservaSinPago(resumen, cierre.medicoId), { respetaPausa: false, noRepetir: false, asistente: true });
   }
 
   /** «Ubicación» del menú: una línea opcional y el mapa. Pedida, no detectada. */

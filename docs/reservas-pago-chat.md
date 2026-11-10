@@ -57,6 +57,15 @@ Pie con el mismo resumen en texto; sin R2, sale el texto solo. [Muestra](imagene
   **`CONSTANCIA_RESERVA=todas`** la manda en todas las líneas; **`CONSTANCIA_RESERVA=off`** la
   apaga. Las dos, sin desplegar.
 
+### Recordatorio del carnet, solo con el Dr. Montalvo (10/11/2026)
+
+Con el Dr. Montalvo (`medicos.medico_pk` 1), el texto del QR al reservar (Flow o asistente),
+la confirmación del asistente sin cobro y el pie de la constancia al pagar terminan con
+«Por favor, traiga su carnet de identidad el día de la consulta.». Con cualquier otro médico,
+nada cambia. La lista y el texto están en `conversaciones/recordatorio-carnet.ts`; el médico
+viaja en el cierre del Flow (`CierreReserva.medicoId`) y la constancia lo lee de la agenda.
+La imagen de la constancia no cambia (sigue sin carnet: se guarda y se reenvía).
+
 ### Lectura del comprobante con IA (22/10/2026)
 
 Con **Leer los comprobantes** encendido en la línea (Líneas WhatsApp → Asistente; Ventas lo

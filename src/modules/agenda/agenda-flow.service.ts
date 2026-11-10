@@ -234,7 +234,7 @@ export class AgendaFlowService {
       const qrClave = precio && bancoId !== null ? await this.qrATiempo(bancoId) : null;
       /* El chat cobra solo con monto Y QR: uno sin el otro no se puede pagar. */
       const pago = sellarCierreReserva({
-        telefono, reserva: reserva.codigo, montoCentavos: qrClave && precio ? precio.importeCentavos : null, qrClave,
+        telefono, reserva: reserva.codigo, montoCentavos: qrClave && precio ? precio.importeCentavos : null, qrClave, medicoId: Number(dto.medicoId),
       }, flowToken);
       return {
         screen: 'SUCCESS',

@@ -15,6 +15,7 @@ import { DatosConstancia, svgDeConstancia, textoConstancia, VERSION_DISENO_CONST
 import { ConversacionesGateway } from './conversaciones.gateway';
 import { DespachadorSalienteService } from './despachador-saliente.service';
 import { uuidEstable } from './pagos-chat';
+import { pideCarnet } from './recordatorio-carnet';
 import { destinoWhatsapp } from '../../common/whatsapp/destino';
 
 /** Fuera de la ventana de 24 h de Meta un mensaje libre no sale: ni se intenta. */
@@ -33,6 +34,7 @@ export function datosDeConstancia(fila: FilaReservaAgenda, monto: Prisma.Decimal
     medico: fila.medico.trim() || 'Médico de la clínica',
     especialidad: fila.especialidad,
     montoBs: montoBs !== null && Number.isFinite(montoBs) && montoBs > 0 ? montoBs : null,
+    recordarCarnet: pideCarnet(fila.medicoId),
   };
 }
 

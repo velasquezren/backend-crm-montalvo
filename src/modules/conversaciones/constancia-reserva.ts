@@ -15,6 +15,7 @@
 import { abrirSvg, ajustar, ANCHO_IMAGEN, COLOR, escaparXml, fechaLarga, logo, MARGEN, partesDeFecha } from '../asistente/marca-imagen';
 import { NOMBRE_CLINICA } from '../asistente/prompt-sistema';
 import { textoBolivianos } from '../asistente/horario-imagen';
+import { RECORDATORIO_CARNET } from './recordatorio-carnet';
 import { UBICACION_CLINICA } from './ubicacion-clinica';
 
 export interface DatosConstancia {
@@ -29,6 +30,8 @@ export interface DatosConstancia {
   readonly especialidad: string | null;
   /** Lo que se le pidió pagar con el QR, en bolivianos. */
   readonly montoBs: number | null;
+  /** Consulta con un médico que pide el carnet (`recordatorio-carnet.ts`). */
+  readonly recordarCarnet?: boolean;
 }
 
 /**
@@ -56,6 +59,7 @@ export function textoConstancia(d: DatosConstancia): string {
     ...(d.montoBs ? [`💳 Pago enviado: ${textoBolivianos(d.montoBs)}`] : []),
     '',
     `_${ESTADO_CONSTANCIA}._ ${AVISO_CONSTANCIA}`,
+    ...(d.recordarCarnet ? ['', RECORDATORIO_CARNET] : []),
   ].join('\n');
 }
 

@@ -3,6 +3,7 @@ import { CierreReserva } from '../../common/whatsapp/flows/token-flow';
 import { interaccionesEnLinea } from './interacciones-integracion';
 import { CANDADO_AUTOMATICOS } from './atencion-humana';
 import { HORAS_ESPERA_COMPROBANTE, uuidEstable } from './pagos-chat';
+import { pideCarnet, RECORDATORIO_CARNET } from './recordatorio-carnet';
 
 /*
  * Las reservas que una paciente hizo con el Flow de WhatsApp, vistas desde su
@@ -38,14 +39,16 @@ export function textoBs(centavos: number): string {
  * (Reservas, Actividades, la traza del asistente).
  */
 /** `resumen` («con Dr. …, lunes 19 de octubre a las 12:00»): el Flow ya lo mostró en su pantalla; el asistente lo dice aquí. */
-export function textoPagoDeReserva(centavos: number, resumen?: string): string {
-  return `Su reserva${resumen ? ` ${resumen}` : ''} quedó registrada. Para asegurarla, pague ${textoBs(centavos)} con este QR y envíenos por aquí la foto o captura del comprobante. Recepción confirmará su cita por este chat.`;
+export function textoPagoDeReserva(centavos: number, resumen?: string, medicoId?: number): string {
+  return conCarnet(`Su reserva${resumen ? ` ${resumen}` : ''} quedó registrada. Para asegurarla, pague ${textoBs(centavos)} con este QR y envíenos por aquí la foto o captura del comprobante. Recepción confirmará su cita por este chat.`, medicoId);
 }
 
 /** La reserva del asistente cuando el médico no cobra por el chat (sin precio o sin QR vigente). */
-export function textoReservaSinPago(resumen: string): string {
-  return `Su reserva ${resumen} quedó registrada. Recepción le confirmará la cita y cómo pagarla por este chat.`;
+export function textoReservaSinPago(resumen: string, medicoId?: number): string {
+  return conCarnet(`Su reserva ${resumen} quedó registrada. Recepción le confirmará la cita y cómo pagarla por este chat.`, medicoId);
 }
+
+const conCarnet = (texto: string, medicoId?: number) => pideCarnet(medicoId) ? `${texto}\n\n${RECORDATORIO_CARNET}` : texto;
 
 /* «Su imagen», no «su comprobante»: con la lectura de la IA encendida todavía no se
    sabe si lo es, y si no, el aviso siguiente le diría lo contrario (22/10/2026). */
@@ -84,7 +87,7 @@ export async function registrarReservaDeChat(
   });
   if (count === 0 || !cobra) return null;
   const mime = MIME_QR[qrClave.slice(qrClave.lastIndexOf('.') + 1)] ?? 'image/png';
-  const texto = textoPagoDeReserva(montoCentavos, delAsistente?.resumen);
+  const texto = textoPagoDeReserva(montoCentavos, delAsistente?.resumen, cierre.medicoId);
   // Intención durable EN LA MISMA transacción que el webhook y ReservaChat.
   // El despachador existente reclama el envío; los inciertos nunca se repiten.
   const mensaje = await tx.mensaje.create({ data: {

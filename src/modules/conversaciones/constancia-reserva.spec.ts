@@ -78,7 +78,7 @@ describe('la constancia de reserva', () => {
       nit: null, razonSocial: null, tieneComprobante: true, registradaEl: null, registradaA: null,
     };
     const d = datosDeConstancia(fila, new Prisma.Decimal('150.00'));
-    expect(d).toEqual({ reserva: 48213, fecha: '2026-10-15', hora: '09:30', paciente: 'Sin nombre registrado', medico: 'Dra. Claudia Azogue', especialidad: null, montoBs: 150 });
+    expect(d).toEqual({ reserva: 48213, fecha: '2026-10-15', hora: '09:30', paciente: 'Sin nombre registrado', medico: 'Dra. Claudia Azogue', especialidad: null, montoBs: 150, recordarCarnet: false });
     expect(JSON.stringify(svgDeConstancia(d))).not.toMatch(/70012345|1234567/);
     expect(datosDeConstancia(fila, null).montoBs).toBeNull();
   });

@@ -654,7 +654,7 @@ export class AsistenteChatService implements ProgramadorAsistente, OnModuleInit,
     const qrClave = precio && bancoId !== null ? await this.qrATiempo(bancoId) : null;
     const resumen = resumenDeReserva(a);
     await this.ingesta.reservaDesdeAsistente(e.conversacionId, e.telefono, {
-      telefono, reserva: reserva.codigo, montoCentavos: qrClave && precio ? precio.importeCentavos : null, qrClave,
+      telefono, reserva: reserva.codigo, montoCentavos: qrClave && precio ? precio.importeCentavos : null, qrClave, medicoId: Number(a.medicoId),
     }, resumen);
     return { resultado: 'RESPONDIO', motivo: `Reservó la N.º ${reserva.codigo} ${resumen}${qrClave ? ' y le mandó el QR' : ', sin cobro por el chat'}.` };
   }

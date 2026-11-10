@@ -84,6 +84,13 @@ it('cierres duplicados y simultáneos guardan un solo QR con clientMessageId rec
   expect(mensajes).toHaveLength(1);
   expect(mensajes[0]).toMatchObject({estadoEnvio:'FALLIDO',clientMessageId:expect.any(String),proximoIntento:expect.any(Date),mediaKey:datos.qrClave});
 });
+it('con el Dr. Montalvo, el texto guardado del QR recuerda el carnet; con otro médico, no', async () => {
+  const montalvo=await db.$transaction(tx=>registrarReservaDeChat(tx,chat,{...cierre(),medicoId:1}));
+  const otra=await db.$transaction(tx=>registrarReservaDeChat(tx,chat,{...cierre(),medicoId:47}));
+  const guardado=async(id:string)=>(await db.mensaje.findUniqueOrThrow({where:{id}})).contenido;
+  expect(await guardado(montalvo!.mensajeId)).toContain('traiga su carnet de identidad');
+  expect(await guardado(otra!.mensajeId)).not.toContain('carnet');
+});
 it('la línea apagada y el teléfono incorrecto no crean cobros', async () => {
   expect(await db.$transaction(tx=>registrarReservaDeChat(tx,otroChat,cierre()))).toBeNull();
   expect(await db.$transaction(tx=>registrarReservaDeChat(tx,chat,{...cierre(),telefono:'59170001122'}))).toBeNull();

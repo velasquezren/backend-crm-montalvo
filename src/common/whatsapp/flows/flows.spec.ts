@@ -81,5 +81,10 @@ describe('cierre de reserva sellado', () => {
     const incoherente = sellarCierreReserva({...cierre,qrClave:null},token);
     expect(abrirCierreReserva(incoherente,token)).toBeNull();
     expect(abrirTokenFlow(token)?.lineaId).toBe('linea-piloto');
+    /* El médico viaja en el cierre (recordatorio del carnet); sin él, como antes. */
+    const conMedico = sellarCierreReserva({ ...cierre, medicoId: 1 }, token);
+    expect(conMedico.length).toBeLessThanOrEqual(500);
+    expect(abrirCierreReserva(conMedico, token)).toEqual({ ...cierre, medicoId: 1 });
+    expect(abrirCierreReserva(sellarCierreReserva({ ...cierre, medicoId: -1 }, token), token)).toBeNull();
   });
 });

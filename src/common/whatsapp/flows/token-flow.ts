@@ -81,6 +81,8 @@ export interface CierreReserva {
   montoCentavos: number | null;
   /** La imagen del QR del médico en R2, o `null`. */
   qrClave: string | null;
+  /** `medicos.medico_pk`. Opcional: los cierres sellados antes del 10/11/2026 no lo traen. */
+  medicoId?: number;
 }
 
 const PREFIJO_CIERRE = 'c1';
@@ -108,7 +110,8 @@ export function abrirCierreReserva(sello: unknown, flowToken: string, ahora = Da
     if (monto !== null && (typeof monto !== 'number' || !Number.isSafeInteger(monto) || monto <= 0 || monto > 100_000_000)) return null;
     if (qr !== null && (typeof qr !== 'string' || !CLAVE_QR_AGENDA.test(qr))) return null;
     if ((monto === null) !== (qr === null)) return null;
-    return { telefono: d.telefono, reserva: d.reserva, montoCentavos: monto ?? null, qrClave: qr ?? null };
+    if (d.medicoId !== undefined && (typeof d.medicoId !== 'number' || !Number.isSafeInteger(d.medicoId) || d.medicoId <= 0)) return null;
+    return { telefono: d.telefono, reserva: d.reserva, montoCentavos: monto ?? null, qrClave: qr ?? null, ...(d.medicoId !== undefined ? { medicoId: d.medicoId } : {}) };
   } catch {
     return null;
   }
