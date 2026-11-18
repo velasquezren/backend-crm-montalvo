@@ -230,12 +230,16 @@ por René; el guion se conserva en FileMaker, no se instala mediante Git.
 
 [Guía de uso, campos y límites de la comprobación](https://github.com/velasquezren/backend-resultados-montalvo/blob/main/docs/filemaker-laboratorio.md).
 
-## Constancia mensual de entregas (18/11/2026)
+## Constancia mensual de entregas (desplegada el 18/11/2026)
 
 La clínica imprime cada mes, para notariarla, la lista de avisos de resultado
 enviados: a quién, a qué número, qué informe, cuándo, qué dijo WhatsApp y qué
-hizo el paciente con el enlace. Pantalla `/imprimir/constancia-resultados?mes=AAAA-MM`
+hizo el paciente con el enlace. Pantalla `/imprimir/constancia-resultados?mes=AAAA-MM&tipo=`
 del frontend (botón «Constancia mensual» en Resultados, solo administración).
+Va separada por tipo de informe (`ECOGRAFIA`, `PAPANICOLAU`, `LABORATORIO`,
+`OTRO` y, al final, los informes que ya no están en el portal), con un reparto
+por tipo arriba; en papel cada tipo empieza en hoja nueva. `tipo=` imprime uno
+solo: el laboratorio lo entrega Laboratorio Climon, otra empresa.
 
 `GET /resultados/constancia?mes=2026-11&pagina=&limite=` — `@Roles('ADMIN')`
 (cubre SUPER_ADMIN); son todos los pacientes del mes de las dos líneas, no la
@@ -249,6 +253,7 @@ auditoría `CONSTANCIA_RESULTADOS_GENERADA` (quién y cuándo).
 | Número | El `telefono` de la auditoría. En avisos anteriores al 18/11 no existe: se muestra el número ACTUAL de la ficha y la constancia lo marca. |
 | Paciente, estudio, médico | El portal: `POST /v1/integraciones/crm/informes/constancia` (hasta 100 ids, incluye retirados). Un informe borrado del portal sale con el estudio de la auditoría. |
 | WhatsApp | `Mensaje` del aviso: enviado, entregado y leído con su hora (webhook de Meta). |
+| Línea | `linea` = la `LineaWhatsapp` de la conversación del aviso (nombre y número). LABORATORIO sale por la de Laboratorio Climon desde el 09/11; antes, por Recepción. |
 | Portal | `abiertoEn` y las descargas de la auditoría del portal (`PDF_DESCARGADO_PACIENTE` = visto en el teléfono, `…_ORIGINAL_…` = guardado, `ADJUNTO_…`). La primera apertura es la más temprana de todas. Cuenta cualquier uso del enlace del paciente: si alguien del equipo lo abre desde el chat, también cuenta. |
 | PDF por WhatsApp | Toques «Recibir PDF» (`InteraccionMensaje` con `contextoId` = mensaje del aviso) o un informe de «Mis informes» (`INFORME_<id>`, se asigna al último aviso de ese informe en ese chat), con el documento que salió (`mediaKey informe-chat/<toque>`). Solo los `CORRELACIONADA`. |
 

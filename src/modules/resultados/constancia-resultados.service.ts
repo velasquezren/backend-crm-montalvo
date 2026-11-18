@@ -43,6 +43,11 @@ export interface FilaConstancia {
   /** El aviso por WhatsApp. `null` = aviso antiguo cuyo mensaje ya no se puede ubicar. */
   whatsapp: EntregaWhatsapp | null;
   /**
+   * La línea de WhatsApp por la que salió: no siempre es la de la clínica
+   * (LABORATORIO sale por la de Laboratorio Climon). `null` si no hay mensaje.
+   */
+  linea: { nombre: string; telefono: string | null } | null;
+  /**
    * Lo que hizo el paciente con el enlace del portal. `primera` es la más
    * temprana entre abrir la página y ver o guardar el PDF. `null` = el
    * informe ya no existe en el portal.
@@ -191,7 +196,10 @@ export class ConstanciaResultadosService {
     const [mensajes, clientes, usuarios, portal] = await Promise.all([
       this.prisma.mensaje.findMany({
         where: { id: { in: unicos(envios.map(e => e.mensajeId)) } },
-        select: { id: true, conversacionId: true, createdAt: true, estadoEnvio: true, entregadoEn: true, leidoEn: true, codigoErrorEnvio: true },
+        select: {
+          id: true, conversacionId: true, createdAt: true, estadoEnvio: true, entregadoEn: true, leidoEn: true, codigoErrorEnvio: true,
+          conversacion: { select: { linea: { select: { nombre: true, telefono: true } } } },
+        },
       }),
       this.prisma.cliente.findMany({ where: { id: { in: unicos(envios.map(e => e.clienteId)) } }, select: { id: true, nombre: true, telefono: true } }),
       this.prisma.usuario.findMany({ where: { id: { in: unicos(envios.map(e => e.enviadoPorId)) } }, select: { id: true, nombre: true } }),
@@ -223,6 +231,7 @@ export class ConstanciaResultadosService {
               retiradoEn: informe.retiradoEn, paciente: informe.paciente, medico: informe.medico }
           : null,
         whatsapp: mensaje ? entrega(mensaje) : null,
+        linea: mensaje ? { nombre: mensaje.conversacion.linea.nombre, telefono: mensaje.conversacion.linea.telefono } : null,
         portal: informe
           ? { primera: primeraApertura(informe.acceso?.abiertoEn ?? null, informe.descargas), ...informe.descargas }
           : null,

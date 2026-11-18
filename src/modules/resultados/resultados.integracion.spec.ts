@@ -1015,6 +1015,17 @@ describe('el laboratorio avisa por su propia línea', () => {
     }]);
   });
 
+  it('la constancia dice por qué línea salió cada aviso: laboratorio por la suya, ecografía por Recepción', async () => {
+    await service.enviar(INFORME, asistente);
+    await service.enviar(INFORME_LAB, asistente);
+    const mes = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/La_Paz', year: 'numeric', month: '2-digit' }).format(new Date());
+    const admin = { sub: 'a0000000-0000-4000-8000-000000000001', rol: 'ADMIN' } as never;
+    const constancia = new ConstanciaResultadosService(prisma, new PortalResultadosClient(), new AuditService(prisma));
+
+    const { datos } = await constancia.mensual({ mes }, admin);
+    expect(datos.map(f => [f.informe?.tipo, f.linea?.nombre])).toEqual([['ECOGRAFIA', 'Resultados'], ['LABORATORIO', 'Laboratorio']]);
+  });
+
   it('sin la línea del laboratorio, la asistente lee por qué y no se envía ni se reserva nada', async () => {
     await prisma.accesoLineaWhatsapp.deleteMany({ where: { lineaId: LINEA_LAB } });
     await expect(service.enviar(INFORME_LAB, asistente)).rejects.toThrow(/Laboratorio CLIMON/);
@@ -1090,6 +1101,8 @@ describe('constancia mensual de entregas', () => {
       destinatario: { nombre: 'Paciente Vinculado', telefono: '+59170000001', telefonoAlEnviar: true, otraFicha: false },
       informe: { paciente: { nombre: 'Paciente Vinculado', pac: 'PAC33009' }, medico: 'Dra. Sintética', estado: 'PUBLICADO' },
       whatsapp: { estado: 'LEIDO', entregadoEn: entregado, leidoEn: entregado, codigoError: null },
+      /* La línea por la que salió: en la constancia consta desde qué número escribió la clínica. */
+      linea: { nombre: 'Resultados', telefono: null },
       /* La primera vez es la más temprana: vio el PDF un minuto antes de que se registrara la página. */
       portal: { primera: '2026-11-03T14:59:00.000Z', pdf: { veces: 2 }, original: null },
       pdfPorWhatsapp: [],
