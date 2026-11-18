@@ -38,6 +38,7 @@ import { REABRIR } from './estado-conversacion';
 import { auditarResolucion, bloquearSolicitudViva, contextoDeAtencion, ESPERANDO_HUMANO, ORDEN_ATENCION } from './atencion-humana';
 import { ultimosMensajesDeInbox } from './lectura-mensajes-inbox';
 import { motivoParaNoReenviar, reclamarReenvio } from './reenvio-manual';
+import { enOrdenPorChat } from './orden-por-chat';
 import { destinoWhatsapp } from '../../common/whatsapp/destino';
 
 /** Mensajes que trae el detalle inicial de una conversación (más recientes primero, luego se reordenan).
@@ -759,15 +760,16 @@ export class ConversacionesService {
        agente no debe esperar el round-trip a Meta (300-900ms típico, a veces
        más) para ver su mensaje como enviado. El resultado (Meta ID o FALLIDO)
        se corrige en segundo plano y empuja un segundo aviso por WebSocket
-       para actualizar el tick sin que el agente tenga que refrescar. */
-    void enSegundoPlano(`envío del mensaje ${mensaje.id} a Meta`, this.logger, () =>
+       para actualizar el tick sin que el agente tenga que refrescar.
+       En la cola del chat: varias fotos seguidas llegan en el orden en que se mandaron. */
+    void enSegundoPlano(`envío del mensaje ${mensaje.id} a Meta`, this.logger, () => enOrdenPorChat(conversacionId, () =>
       oferta ? this.despachador.interaccion({ mensajeId: mensaje.id, conversacionId, telefono: destinoWhatsapp(conversacion.cliente) }) : this.despachador.texto(
         { mensajeId: mensaje.id, conversacionId, telefono: destinoWhatsapp(conversacion.cliente) },
         contenido,
         adjunto?.mediaKey
           ? { key: adjunto.mediaKey, mime: adjunto.mediaMime ?? null, nombre: adjunto.mediaNombre ?? null }
           : undefined,
-      ),
+      )),
     );
 
     return { ...mensaje, clienteTelefono: conversacion.cliente.telefono };
@@ -845,7 +847,7 @@ export class ConversacionesService {
 
     this.gateway.emitirActividad(conversacionId);
     const destino = { mensajeId: mensaje.id, conversacionId, telefono: destinoWhatsapp(conversacion.cliente) };
-    void enSegundoPlano(`reenvío del mensaje ${mensaje.id} a Meta`, this.logger, () =>
+    void enSegundoPlano(`reenvío del mensaje ${mensaje.id} a Meta`, this.logger, () => enOrdenPorChat(conversacionId, () =>
       mensaje.contenido === CONTENIDO_PIN && !mensaje.mediaKey
         ? this.despachador.ubicacion(destino, UBICACION_CLINICA, CONTENIDO_PIN)
         : this.despachador.texto(
@@ -853,7 +855,7 @@ export class ConversacionesService {
           mensaje.contenido,
           mensaje.mediaKey ? { key: mensaje.mediaKey, mime: mensaje.mediaMime, nombre: mensaje.mediaNombre } : undefined,
         ),
-    );
+    ));
 
     return { id: mensaje.id, estadoEnvio: 'INCIERTO' as const };
   }
