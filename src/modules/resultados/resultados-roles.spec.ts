@@ -44,3 +44,14 @@ describe('la asistente y el guard de roles', () => {
     expect(() => guard.canActivate(contexto(ClientesController, metodo, Rol.ASISTENTE))).toThrow(ForbiddenException);
   });
 });
+
+/* La constancia mensual son todos los pacientes avisados del mes, de las dos
+   líneas: es de administración, no de quien entrega. */
+describe('la constancia mensual de entregas', () => {
+  it.each([Rol.ADMIN, Rol.SUPER_ADMIN])('la saca %s', rol => {
+    expect(guard.canActivate(contexto(ResultadosController, 'constanciaMensual', rol))).toBe(true);
+  });
+  it.each([Rol.ASISTENTE, Rol.RECEPCION, Rol.AGENTE])('no la saca %s', rol => {
+    expect(() => guard.canActivate(contexto(ResultadosController, 'constanciaMensual', rol))).toThrow(ForbiddenException);
+  });
+});

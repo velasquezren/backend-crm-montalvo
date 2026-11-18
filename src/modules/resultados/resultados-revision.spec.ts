@@ -1,6 +1,7 @@
 import { INestApplication, Module } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 
+import { ConstanciaResultadosService } from './constancia-resultados.service';
 import { ResultadosController } from './resultados.controller';
 import { ResultadosService } from './resultados.service';
 
@@ -16,7 +17,10 @@ const ENLACE = { url: 'https://resultados.example/revision/firma', expiraEn: '20
 
 @Module({
   controllers: [ResultadosController],
-  providers: [{ provide: ResultadosService, useValue: { enlaceRevision: async () => ENLACE } }],
+  providers: [
+    { provide: ResultadosService, useValue: { enlaceRevision: async () => ENLACE } },
+    { provide: ConstanciaResultadosService, useValue: {} },
+  ],
 })
 class ModuloRevision {}
 

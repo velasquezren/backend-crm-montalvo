@@ -396,6 +396,21 @@ it('retención elimina el original cifrado y no permite degradar una oferta a te
   await prisma.mensaje.update({ where: { id: m.id }, data: { estadoEnvio: 'FALLIDO', proximoIntento: new Date(0) } });
   await app.get(ReintentoSalienteService).barrerEnviosPendientes(); expect(transporte.enviar).toHaveBeenCalledTimes(1);
 });
+it('la purga conserva los toques a informes —son la constancia de entrega— y sigue borrando los demás', async () => {
+  const viejo = new Date(Date.now() - 31 * 86_400_000);
+  const crear = async (vista: Record<string, string>) => {
+    const m = await prisma.mensaje.create({ data: { conversacionId: chat, direccion: 'ENTRANTE', contenido: 'toque sintético' } });
+    await prisma.interaccionMensaje.create({ data: { mensajeId: m.id, estado: 'CORRELACIONADA', vista, privado: 'cifrado-sintetico', venceEn: viejo, purgarEn: viejo } });
+    return m.id;
+  };
+  const informes = await crear({ tipo: 'seleccion', proposito: 'INFORMES', seleccionId: 'AVISO_INFORME_PDF', contextoId: 'aviso' });
+  const sinProposito = await crear({ tipo: 'seleccion', seleccionId: 'HORARIOS' });
+  const reserva = await crear({ tipo: 'respuesta_flow', proposito: 'RESERVA_CITA' });
+  await purgarInteracciones(prisma);
+  expect(await prisma.interaccionMensaje.findUnique({ where: { mensajeId: informes } })).toMatchObject({ privado: null, vista: { seleccionId: 'AVISO_INFORME_PDF' } });
+  expect(await prisma.interaccionMensaje.findUnique({ where: { mensajeId: sinProposito } })).toBeNull();
+  expect(await prisma.interaccionMensaje.findUnique({ where: { mensajeId: reserva } })).toBeNull();
+});
 it('error parcial del lote: lo correcto persiste, el reintento no duplica', async () => {
   const raw = respuesta('sin-origen');
   const ingesta = app.get(IngestaWhatsappService);

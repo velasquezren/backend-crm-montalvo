@@ -74,7 +74,7 @@ El CRM transporta el PDF original en memoria, con tope de 10 MiB y tiempo máxim
 
 Los agentes autorizados a esa conversación ven la lista, la selección y un registro documental; no reciben un enlace privilegiado al PDF desde el historial. Para revisar documentos clínicos se mantiene la autorización del módulo Resultados. La IA no recibe las interacciones marcadas `proposito: INFORMES` al construir su historial; tampoco recibe el cuerpo del PDF. Esto no elimina datos clínicos que un paciente escriba espontáneamente en otro mensaje.
 
-La intención privada usa el cifrado y la purga existentes de `InteraccionMensaje`: detalle privado 7 días y proyección 30 días. El historial conserva el título seleccionado y la marca del documento según la retención general del CRM. No se añade otra política de borrado ni se afirma que todo desaparezca en 30 días. Resultados registra `PDF_PREPARADO_WHATSAPP`, no `abiertoEn`: preparar un archivo no prueba lectura ni entrega.
+La intención privada usa el cifrado y la purga existentes de `InteraccionMensaje`: detalle privado 7 días y proyección 30 días, **salvo la de los toques a informes** (`vista.proposito = INFORMES`), que desde el 18/11/2026 se conserva sin el detalle privado porque es la constancia de que el paciente pidió el PDF ([constancia mensual](#constancia-mensual-de-entregas-18112026)). El historial conserva el título seleccionado y la marca del documento según la retención general del CRM. No se añade otra política de borrado ni se afirma que todo desaparezca en 30 días. Resultados registra `PDF_PREPARADO_WHATSAPP`, no `abiertoEn`: preparar un archivo no prueba lectura ni entrega.
 
 La subida a Meta crea un activo en ese proveedor. Si el envío se bloquea después de subir, puede quedar un activo sin mensaje; esta fase no añade un proceso de eliminación de activos remotos. No se almacena su ID para acceso público ni se incorpora al contexto del modelo.
 
@@ -229,3 +229,39 @@ del primer envío clínico desde el botón. La configuración del botón fue mos
 por René; el guion se conserva en FileMaker, no se instala mediante Git.
 
 [Guía de uso, campos y límites de la comprobación](https://github.com/velasquezren/backend-resultados-montalvo/blob/main/docs/filemaker-laboratorio.md).
+
+## Constancia mensual de entregas (18/11/2026)
+
+La clínica imprime cada mes, para notariarla, la lista de avisos de resultado
+enviados: a quién, a qué número, qué informe, cuándo, qué dijo WhatsApp y qué
+hizo el paciente con el enlace. Pantalla `/imprimir/constancia-resultados?mes=AAAA-MM`
+del frontend (botón «Constancia mensual» en Resultados, solo administración).
+
+`GET /resultados/constancia?mes=2026-11&pagina=&limite=` — `@Roles('ADMIN')`
+(cubre SUPER_ADMIN); son todos los pacientes del mes de las dos líneas, no la
+cola de quien entrega. Paginada como todo listado (tope 100); la pantalla pide
+todas las páginas y solo entonces deja imprimir. La primera página deja la
+auditoría `CONSTANCIA_RESULTADOS_GENERADA` (quién y cuándo).
+
+| Columna | De dónde sale |
+| --- | --- |
+| Envío | Auditoría `RESULTADO_ENVIADO` del mes (hora de La Paz). **No** `AvisoResultado`: esa fila se borra al renovar un enlace o reintentar un fallido. Se suman los avisos sin auditoría (es best-effort). Desde el 18/11 la auditoría guarda `mensajeId` y `telefono`. |
+| Número | El `telefono` de la auditoría. En avisos anteriores al 18/11 no existe: se muestra el número ACTUAL de la ficha y la constancia lo marca. |
+| Paciente, estudio, médico | El portal: `POST /v1/integraciones/crm/informes/constancia` (hasta 100 ids, incluye retirados). Un informe borrado del portal sale con el estudio de la auditoría. |
+| WhatsApp | `Mensaje` del aviso: enviado, entregado y leído con su hora (webhook de Meta). |
+| Portal | `abiertoEn` y las descargas de la auditoría del portal (`PDF_DESCARGADO_PACIENTE` = visto en el teléfono, `…_ORIGINAL_…` = guardado, `ADJUNTO_…`). La primera apertura es la más temprana de todas. Cuenta cualquier uso del enlace del paciente: si alguien del equipo lo abre desde el chat, también cuenta. |
+| PDF por WhatsApp | Toques «Recibir PDF» (`InteraccionMensaje` con `contextoId` = mensaje del aviso) o un informe de «Mis informes» (`INFORME_<id>`, se asigna al último aviso de ese informe en ese chat), con el documento que salió (`mediaKey informe-chat/<toque>`). Solo los `CORRELACIONADA`. |
+
+Si el portal no responde, la constancia falla entera (503): no se imprime a medias.
+
+Los toques a informes anteriores al despliegue se purgan a los 30 días del
+toque: los de octubre y noviembre se conservan solo si este cambio llega a
+producción antes de que cumplan 30 días.
+
+Pruebas: «constancia mensual de entregas» en `resultados.integracion.spec.ts`,
+la purga en `interacciones.integracion.spec.ts`, el permiso en
+`resultados-roles.spec.ts`; en Resultados, «constancia del CRM» en
+`test/integration.test.ts`.
+
+**Orden de despliegue:** Resultados primero (ruta nueva, sin migración), después
+el backend del CRM (sin migración) y al final el frontend.

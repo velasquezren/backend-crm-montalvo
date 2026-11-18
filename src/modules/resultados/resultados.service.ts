@@ -75,6 +75,8 @@ const SIN_FICHA = {
 const SOLO_POR_CI =
   'El CRM reconoció al paciente por su CI y no por su PAC. Compara el nombre y envíalo desde Resultados del CRM.';
 const YA_ENVIADO = 'Este informe ya se le envió al paciente.';
+/** La auditoría de cada aviso enviado. La constancia mensual se arma sobre ella. */
+export const ACCION_AVISO_ENVIADO = 'RESULTADO_ENVIADO';
 
 /**
  * Lo que recibe el guion de FileMaker. `enviado: false` no es un fallo del
@@ -588,10 +590,15 @@ export class ResultadosService {
         usuario.sub,
       );
       await this.prisma.avisoResultado.update({ where: { id: reserva.id }, data: { mensajeId: mensaje.id } });
-      await this.audit.registrar('AvisoResultado', reserva.id, 'RESULTADO_ENVIADO', usuario.sub, {
+      /* `mensajeId` y `telefono` son para la constancia mensual: la fila de
+         `AvisoResultado` se borra al renovar o reintentar un aviso, y la ficha
+         puede cambiar de número después. Esto dice a qué número salió. */
+      await this.audit.registrar('AvisoResultado', reserva.id, ACCION_AVISO_ENVIADO, usuario.sub, {
         informeId,
         clienteId: cliente.id,
         estudio: informe.estudio,
+        mensajeId: mensaje.id,
+        telefono: cliente.telefono,
         ...opciones.auditoria,
       });
       return { mensajeId: mensaje.id, enviadoEn: reserva.enviadoEn, cliente: { nombre: cliente.nombre, telefono: cliente.telefono } };

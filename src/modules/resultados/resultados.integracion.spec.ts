@@ -10,6 +10,7 @@ import { ClientesService } from '../clientes/clientes.service';
 import { ServiciosService } from '../servicios/servicios.service';
 import { EnvioPlantillasService } from '../conversaciones/envio-plantillas.service';
 import { LineasWhatsappService } from '../lineas-whatsapp/lineas-whatsapp.service';
+import { ConstanciaResultadosService } from './constancia-resultados.service';
 import { PortalResultadosClient } from './portal-resultados.client';
 import { ResultadosService } from './resultados.service';
 import { categoriasDePrueba } from '../clientes/categorias.de-prueba';
@@ -42,6 +43,9 @@ let fallarEnvio = false;
 let rechazoDeMeta: number | null = null;
 let retrasoDeMeta = 5;
 let renovaciones = 0;
+/** Si la constancia del portal falla, y qué ids le pidió el CRM. */
+let constanciaCaida = false;
+const constanciasPedidas: string[][] = [];
 
 const LINEA = '11111111-1111-4111-8111-111111111111';
 const INFORME = '22222222-2222-4222-8222-222222222222';
@@ -75,6 +79,25 @@ beforeAll(async () => {
     const url = new URL(req.url ?? '/', 'http://local');
     if (req.headers.authorization !== 'Bearer token-de-prueba-integracion') {
       res.writeHead(401).end('{}');
+      return;
+    }
+    /* La constancia: como el portal real, lo que sabe de cada id que exista. */
+    if (req.method === 'POST' && url.pathname.endsWith('/informes/constancia')) {
+      let cuerpo = '';
+      req.on('data', (parte: Buffer) => { cuerpo += parte.toString(); });
+      req.on('end', () => {
+        const { ids } = JSON.parse(cuerpo) as { ids: string[] };
+        constanciasPedidas.push(ids);
+        if (constanciaCaida) { res.writeHead(503).end('{}'); return; }
+        const datos = informesDelPortal.filter(i => ids.includes(i.informeId as string)).map(i => ({
+          informeId: i.informeId, tipo: i.tipo ?? 'ECOGRAFIA', estudio: i.estudio, fechaEstudio: i.fechaEstudio,
+          estado: i.estado ?? 'PUBLICADO', publicadoEn: i.publicadoEn, retiradoEn: null, paciente: i.paciente, medico: 'Dra. Sintética',
+          acceso: { abiertoEn: i.abiertoEn ?? null, expiraEn: i.accesoExpiraEn, revocadoEn: null },
+          descargas: i.descargas ?? { pdf: null, original: null, adjuntos: null },
+        }));
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ datos }));
+      });
       return;
     }
     /* Renovar: como el portal real, extiende el mismo acceso 30 días. */
@@ -144,6 +167,8 @@ beforeEach(async () => {
   rechazoDeMeta = null;
   retrasoDeMeta = 5;
   renovaciones = 0;
+  constanciaCaida = false;
+  constanciasPedidas.length = 0;
   /* Limpieza ACOTADA a las filas propias. Un `deleteMany()` a secas sobre
      líneas o usuarios se lleva por delante la línea comercial inicial y deja
      al resto de la suite sin claves foráneas — pasó, y tumbó seis specs. */
@@ -153,7 +178,7 @@ beforeEach(async () => {
   await prisma.conversacion.deleteMany({ where: { lineaId: LINEA } });
   await prisma.accesoLineaWhatsapp.deleteMany({ where: { lineaId: LINEA } });
   await prisma.lineaWhatsapp.deleteMany({ where: { id: LINEA } });
-  await prisma.auditLog.deleteMany({ where: { OR: [{ entidad: 'AvisoResultado' }, { usuarioId: 'a0000000-0000-4000-8000-000000000001' }] } });
+  await prisma.auditLog.deleteMany({ where: { OR: [{ entidad: { in: ['AvisoResultado', 'ConstanciaResultados'] } }, { usuarioId: 'a0000000-0000-4000-8000-000000000001' }] } });
   /* Por PAC y por teléfono: otra suite puede haber dejado una ficha con el
      mismo número de prueba y el índice único de `telefono` rebotaría. */
   await prisma.cliente.deleteMany({
@@ -1016,5 +1041,134 @@ describe('el laboratorio avisa por su propia línea', () => {
     await service.enviar(INFORME_LAB, asistente);
     expect(plantillasEnviadas[0]).toMatchObject({ plantilla: 'montalvo_informe_disponible' });
     expect(await prisma.conversacion.count({ where: { lineaId: LINEA } })).toBe(1);
+  });
+});
+
+/**
+ * La constancia mensual que la clínica imprime para notariar. Lo que importa:
+ * no pierde un envío (renovar borra la fila del aviso), dice a qué número
+ * salió, ata el «Recibir PDF» a su aviso y corta el mes en hora de La Paz.
+ */
+describe('constancia mensual de entregas', () => {
+  const admin = { sub: 'a0000000-0000-4000-8000-000000000001', rol: 'ADMIN' } as never;
+  const mesActual = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/La_Paz', year: 'numeric', month: '2-digit' }).format(new Date());
+  let constancia: ConstanciaResultadosService;
+  beforeEach(() => {
+    constancia = new ConstanciaResultadosService(prisma, new PortalResultadosClient(), new AuditService(prisma));
+  });
+
+  /** Un aviso «de antes»: fila, mensaje y auditoría escritos a mano con la fecha que se quiera. */
+  async function avisoAntiguo(informeId: string, en: Date, cambios: Record<string, unknown> | null) {
+    const cliente = await prisma.cliente.findFirstOrThrow({ where: { pac: 'PAC33009' } });
+    const chat = await prisma.conversacion.upsert({
+      where: { clienteId_lineaId: { clienteId: cliente.id, lineaId: LINEA } }, update: {},
+      create: { clienteId: cliente.id, lineaId: LINEA },
+    });
+    const mensaje = await prisma.mensaje.create({ data: { conversacionId: chat.id, direccion: 'SALIENTE', contenido: 'Aviso', estadoEnvio: 'LEIDO', createdAt: en, entregadoEn: en, leidoEn: en } });
+    const aviso = await prisma.avisoResultado.create({ data: { informeId, clienteId: cliente.id, enviadoPorId: 'a0000000-0000-4000-8000-000000000001', mensajeId: mensaje.id, enviadoEn: en } });
+    if (cambios) {
+      await prisma.auditLog.create({ data: { entidad: 'AvisoResultado', entidadId: aviso.id, accion: 'RESULTADO_ENVIADO', usuarioId: 'a0000000-0000-4000-8000-000000000001', cambios: { informeId, clienteId: cliente.id, ...cambios } as never, createdAt: en } });
+    }
+    return { aviso, mensaje, chat };
+  }
+
+  it('cada aviso del mes con su número, el informe, lo que dijo WhatsApp y lo que hizo el paciente en el portal', async () => {
+    Object.assign(informesDelPortal[0], {
+      abiertoEn: '2026-11-03T15:00:00.000Z',
+      descargas: { pdf: { veces: 2, primera: '2026-11-03T14:59:00.000Z', ultima: '2026-11-04T10:00:00.000Z' }, original: null, adjuntos: null },
+    });
+    const { mensajeId } = await service.enviar(INFORME, asistente);
+    const entregado = new Date();
+    await prisma.mensaje.update({ where: { id: mensajeId }, data: { estadoEnvio: 'LEIDO', entregadoEn: entregado, leidoEn: entregado } });
+
+    const r = await constancia.mensual({ mes: mesActual }, admin);
+    expect(r.total).toBe(1);
+    expect(r.datos[0]).toMatchObject({
+      informeId: INFORME,
+      estudio: 'Ecografía abdominal',
+      enviadoPor: { nombre: 'Asistente', usuarioFilemaker: null },
+      destinatario: { nombre: 'Paciente Vinculado', telefono: '+59170000001', telefonoAlEnviar: true, otraFicha: false },
+      informe: { paciente: { nombre: 'Paciente Vinculado', pac: 'PAC33009' }, medico: 'Dra. Sintética', estado: 'PUBLICADO' },
+      whatsapp: { estado: 'LEIDO', entregadoEn: entregado, leidoEn: entregado, codigoError: null },
+      /* La primera vez es la más temprana: vio el PDF un minuto antes de que se registrara la página. */
+      portal: { primera: '2026-11-03T14:59:00.000Z', pdf: { veces: 2 }, original: null },
+      pdfPorWhatsapp: [],
+    });
+    /* Queda quién la sacó, una vez por constancia. */
+    expect(await prisma.auditLog.count({ where: { entidad: 'ConstanciaResultados', accion: 'CONSTANCIA_RESULTADOS_GENERADA' } })).toBe(1);
+    await constancia.mensual({ mes: mesActual, pagina: 2 }, admin);
+    expect(await prisma.auditLog.count({ where: { entidad: 'ConstanciaResultados' } })).toBe(1);
+  });
+
+  it('renovar borra la fila del aviso pero la constancia conserva los dos envíos, y el número con el que salió cada uno', async () => {
+    const primero = await service.enviar(INFORME, asistente);
+    /* La ficha cambia de número después del primer aviso. */
+    await prisma.cliente.update({ where: { pac: 'PAC33009' }, data: { telefono: '+59170000091' } });
+    Object.assign(informesDelPortal[0], { accesoVigente: false, accesoExpiraEn: new Date(Date.now() + 1000).toISOString() });
+    const segundo = await service.renovarYEnviar(INFORME, asistente);
+    expect(await prisma.avisoResultado.count({ where: { informeId: INFORME } })).toBe(1);
+
+    const r = await constancia.mensual({ mes: mesActual }, admin);
+    expect(r.total).toBe(2);
+    expect(r.datos.map(f => [f.whatsapp?.estado, f.destinatario?.telefono])).toEqual([['ENVIADO', '+59170000001'], ['ENVIADO', '+59170000091']]);
+    expect(r.datos.map(f => f.avisoId)).toHaveLength(2);
+    expect(primero.mensajeId).not.toBe(segundo.mensajeId);
+  });
+
+  it('el «Recibir PDF» del paciente queda en su aviso, con el PDF que salió; un segundo toque duplicado no cuenta', async () => {
+    const { mensajeId } = await service.enviar(INFORME, asistente);
+    const aviso = await prisma.mensaje.findUniqueOrThrow({ where: { id: mensajeId } });
+    const toque = async (estado: string) => {
+      const entrante = await prisma.mensaje.create({ data: { conversacionId: aviso.conversacionId, direccion: 'ENTRANTE', contenido: 'Recibir PDF' } });
+      await prisma.interaccionMensaje.create({ data: { mensajeId: entrante.id, estado, venceEn: new Date(), purgarEn: new Date(),
+        vista: { tipo: 'seleccion', cuerpo: 'Recibir PDF', estado, contextoId: mensajeId, seleccionId: 'AVISO_INFORME_PDF', proposito: 'INFORMES' } } });
+      return entrante;
+    };
+    const pedido = await toque('CORRELACIONADA');
+    await toque('DUPLICADA');
+    const llegada = new Date();
+    await prisma.mensaje.create({ data: { conversacionId: aviso.conversacionId, direccion: 'SALIENTE', tipo: 'DOCUMENTO', automatico: true,
+      contenido: 'Informe solicitado por el paciente.', mediaKey: `informe-chat/${pedido.id}`, estadoEnvio: 'ENTREGADO', entregadoEn: llegada } });
+
+    const [fila] = (await constancia.mensual({ mes: mesActual }, admin)).datos;
+    expect(fila.pdfPorWhatsapp).toEqual([
+      { solicitadoEn: pedido.createdAt, envio: expect.objectContaining({ estado: 'ENTREGADO', entregadoEn: llegada }) },
+    ]);
+  });
+
+  it('un aviso anterior al cambio (sin número en la auditoría) muestra el número ACTUAL y lo marca', async () => {
+    const en = new Date(Date.UTC(2025, 2, 10, 15));
+    await avisoAntiguo('55555555-5555-4555-8555-555555555555', en, { estudio: 'Estudio que ya no está en el portal' });
+    const [fila] = (await constancia.mensual({ mes: '2025-03' }, admin)).datos;
+    expect(fila).toMatchObject({
+      estudio: 'Estudio que ya no está en el portal', informe: null, portal: null,
+      destinatario: { telefono: '+59170000001', telefonoAlEnviar: false },
+      whatsapp: { estado: 'LEIDO' },
+    });
+  });
+
+  it('un aviso sin auditoría (falló al escribirla) no se pierde, y el mes se corta en hora de La Paz', async () => {
+    /* 31 de marzo a las 23:59:59 en La Paz es 1 de abril en UTC: va en marzo. */
+    await avisoAntiguo('66666666-6666-4666-8666-666666666666', new Date('2025-04-01T03:59:59.000Z'), null);
+    await avisoAntiguo('77777777-7777-4777-8777-777777777777', new Date('2025-04-01T04:00:00.000Z'), { mensajeId: undefined });
+    expect((await constancia.mensual({ mes: '2025-03' }, admin)).datos.map(f => f.informeId)).toEqual(['66666666-6666-4666-8666-666666666666']);
+    expect((await constancia.mensual({ mes: '2025-04' }, admin)).datos.map(f => f.informeId)).toEqual(['77777777-7777-4777-8777-777777777777']);
+  });
+
+  it('pagina como todo listado, ordenada por envío, y pide al portal solo los informes de la página', async () => {
+    await avisoAntiguo('88888888-8888-4888-8888-888888888888', new Date(Date.UTC(2025, 5, 2, 15)), {});
+    await avisoAntiguo('99999999-9999-4999-8999-999999999999', new Date(Date.UTC(2025, 5, 1, 15)), {});
+    const p1 = await constancia.mensual({ mes: '2025-06', limite: 1 }, admin);
+    const p2 = await constancia.mensual({ mes: '2025-06', limite: 1, pagina: 2 }, admin);
+    expect([p1.total, p1.totalPaginas]).toEqual([2, 2]);
+    expect([p1.datos[0].informeId, p2.datos[0].informeId]).toEqual(['99999999-9999-4999-8999-999999999999', '88888888-8888-4888-8888-888888888888']);
+    expect(constanciasPedidas).toEqual([['99999999-9999-4999-8999-999999999999'], ['88888888-8888-4888-8888-888888888888']]);
+    expect((await constancia.mensual({ mes: '2024-01' }, admin))).toMatchObject({ total: 0, datos: [] });
+  });
+
+  it('con el portal caído no entrega una constancia a medias', async () => {
+    await service.enviar(INFORME, asistente);
+    constanciaCaida = true;
+    await expect(constancia.mensual({ mes: mesActual }, admin)).rejects.toThrow(/portal de resultados/i);
   });
 });

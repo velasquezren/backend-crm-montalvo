@@ -38,6 +38,8 @@ export function interaccionesEnLinea(lineaId: string | null | undefined): boolea
   return !!lineaId && piloto.includes(lineaId);
 }
 const DIA = 86_400_000;
+/** `vista.proposito` de un toque a informes. Lo lee la constancia de Resultados y la purga lo respeta. */
+export const PROPOSITO_INFORMES = 'INFORMES';
 function clave(): Buffer {
   const key = Buffer.from(process.env['WHATSAPP_INTERACCIONES_KEY'] ?? '', 'base64');
   if (key.length !== 32) throw new ServiceUnavailableException('Falta configurar la protección de interacciones');
@@ -334,7 +336,7 @@ export async function guardarRespuesta(
   }
   await tx.interaccionMensaje.create({ data: {
     mensajeId, estado, privado: cifrarInteraccion(raw, mensajeId),
-    vista: { tipo: r.seleccion?.tipo === 'nfm_reply' ? 'respuesta_flow' : r.seleccion ? 'seleccion' : 'error', cuerpo, estado, ...(contextoId ? { contextoId } : {}), ...(seleccionId ? { seleccionId } : {}), ...(versionFlow ? { versionFlow } : {}), ...(origenOferta === 'INFORMES' ? { proposito: 'INFORMES' } : propositoFlow ? { proposito: propositoFlow } : {}), ...(datosFlow?.length ? { datos: datosFlow } : {}) },
+    vista: { tipo: r.seleccion?.tipo === 'nfm_reply' ? 'respuesta_flow' : r.seleccion ? 'seleccion' : 'error', cuerpo, estado, ...(contextoId ? { contextoId } : {}), ...(seleccionId ? { seleccionId } : {}), ...(versionFlow ? { versionFlow } : {}), ...(origenOferta === 'INFORMES' ? { proposito: PROPOSITO_INFORMES } : propositoFlow ? { proposito: propositoFlow } : {}), ...(datosFlow?.length ? { datos: datosFlow } : {}) },
     venceEn: new Date(), purgarEn: new Date(Date.now() + 7 * DIA),
   } });
   await tx.mensaje.update({ where: { id: mensajeId }, data: { contenido: cuerpo } });
@@ -368,7 +370,22 @@ export async function proyectarInteracciones<T extends { id: string }>(prisma: P
 export async function purgarInteracciones(prisma: PrismaService): Promise<void> {
   // Privado se borra a los 7 días; metadatos/proyección a los 30. Mensaje sigue el historial existente.
   await prisma.interaccionMensaje.updateMany({ where: { purgarEn: { lte: new Date() }, privado: { not: null } }, data: { privado: null } });
-  await prisma.interaccionMensaje.deleteMany({ where: { purgarEn: { lte: new Date(Date.now() - 23 * DIA) }, mensaje: { direccion: 'ENTRANTE' } } });
+  /* Un toque a informes («Recibir PDF» de un aviso o un informe de «Mis
+     informes») NO se borra: su proyección es lo único que ata el PDF enviado
+     al informe y al aviso, y es la constancia de que el paciente lo pidió
+     (`ConstanciaResultadosService`, 18/11/2026). No guarda datos clínicos: el
+     rótulo del botón, el id del aviso o del informe y el estado. El original
+     cifrado cae a los 7 días como todos. */
+  /* En SQL y con `IS DISTINCT FROM`: el `NOT` de Prisma sobre una ruta JSON
+     da NULL cuando la vista no tiene `proposito` —casi todas—, y entonces no
+     se borraba ninguna. */
+  const corte = new Date(Date.now() - 23 * DIA).toISOString();
+  await prisma.$executeRaw`
+    DELETE FROM "InteraccionMensaje" i
+     USING "Mensaje" m
+     WHERE m.id = i."mensajeId" AND m.direccion = 'ENTRANTE'
+       AND i."purgarEn" <= (${corte}::timestamptz AT TIME ZONE 'UTC')
+       AND (i.vista ->> 'proposito') IS DISTINCT FROM ${PROPOSITO_INFORMES}`;
   // Ofertas conservan una lápida para impedir que un reintento se degrade a texto.
   await prisma.interaccionMensaje.updateMany({ where: { purgarEn: { lte: new Date(Date.now() - 23 * DIA) }, estado: { not: 'RETENIDA' }, mensaje: { direccion: 'SALIENTE' } }, data: { estado: 'RETENIDA', consumidaPor: null, vista: { tipo: 'error', cuerpo: 'Detalle de interacción caducado.' } } });
 }

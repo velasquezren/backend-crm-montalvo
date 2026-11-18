@@ -3,6 +3,7 @@ import { Module } from '@nestjs/common';
 import { ClientesModule } from '../clientes/clientes.module';
 import { ConversacionesModule } from '../conversaciones/conversaciones.module';
 import { LineasWhatsappModule } from '../lineas-whatsapp/lineas-whatsapp.module';
+import { ConstanciaResultadosService } from './constancia-resultados.service';
 import { PortalResultadosModule } from './portal-resultados.module';
 import { ResultadosController } from './resultados.controller';
 import { ResultadosFilemakerController } from './resultados-filemaker.controller';
@@ -20,6 +21,6 @@ import { ResultadosService } from './resultados.service';
 @Module({
   imports: [ClientesModule, ConversacionesModule, LineasWhatsappModule, PortalResultadosModule],
   controllers: [ResultadosController, ResultadosFilemakerController],
-  providers: [ResultadosService],
+  providers: [ResultadosService, ConstanciaResultadosService],
 })
 export class ResultadosModule {}

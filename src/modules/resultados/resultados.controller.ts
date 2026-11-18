@@ -2,6 +2,8 @@ import { Body, Controller, Get, Param, ParseUUIDPipe, Patch, Post, Query } from 
 
 import { CurrentUser, UsuarioJwt } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { ConstanciaResultadosService } from './constancia-resultados.service';
+import { QueryConstanciaDto } from './dto/query-constancia.dto';
 import { QueryResultadosDto } from './dto/query-resultados.dto';
 import { TelefonoPacienteDto } from './dto/telefono-paciente.dto';
 import { ResultadosService } from './resultados.service';
@@ -18,12 +20,29 @@ import { ResultadosService } from './resultados.service';
 @Roles('RECEPCION')
 @Controller('resultados')
 export class ResultadosController {
-  constructor(private readonly service: ResultadosService) {}
+  constructor(
+    private readonly service: ResultadosService,
+    private readonly constancia: ConstanciaResultadosService,
+  ) {}
 
   /** Cola de entrega: informes publicados, con el paciente y si ya se avisó. */
   @Get('pendientes')
   pendientes(@Query() query: QueryResultadosDto, @CurrentUser() usuario: UsuarioJwt) {
     return this.service.pendientes(query, usuario);
+  }
+
+  /**
+   * Constancia mensual de entregas para notariar: cada aviso enviado en el mes
+   * con su número, informe, entrega por WhatsApp y apertura en el portal.
+   *
+   * Solo administración (ADMIN cubre a SUPER_ADMIN): son todos los pacientes
+   * del mes, de las dos líneas —Recepción y Laboratorio—, no la cola de quien
+   * entrega. Paginada; la pantalla de impresión trae todas las páginas.
+   */
+  @Roles('ADMIN')
+  @Get('constancia')
+  constanciaMensual(@Query() query: QueryConstanciaDto, @CurrentUser() usuario: UsuarioJwt) {
+    return this.constancia.mensual(query, usuario);
   }
 
   /**

@@ -46,8 +46,9 @@ function montar(opciones: {
     /* Lo usa `purgarInteracciones`, que el barrido llama antes de reintentar. */
     interaccionMensaje: {
       updateMany: jest.fn().mockResolvedValue({ count: 0 }),
-      deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
     },
+    /* El borrado de las entrantes va en SQL: respeta los toques a informes. */
+    $executeRaw: jest.fn().mockResolvedValue(0),
   };
   const despachador = { texto: jest.fn().mockResolvedValue(undefined) };
   const servicio = new ReintentoSalienteService(prisma as never, despachador as never);
@@ -267,7 +268,7 @@ describe('purga de retención con las interacciones apagadas', () => {
     await servicio.barrerEnviosPendientes();
 
     expect(prisma.interaccionMensaje.updateMany).not.toHaveBeenCalled();
-    expect(prisma.interaccionMensaje.deleteMany).not.toHaveBeenCalled();
+    expect(prisma.$executeRaw).not.toHaveBeenCalled();
   });
 
   it('con `WHATSAPP_INTERACCIONES_RETENCION=on`, sigue purgando', async () => {
@@ -277,8 +278,8 @@ describe('purga de retención con las interacciones apagadas', () => {
     await servicio.barrerEnviosPendientes();
 
     /* Dos `updateMany` (borrar `privado`, poner la lápida RETENIDA) y un
-       `deleteMany` (los metadatos de las entrantes). */
+       borrado en SQL (los metadatos de las entrantes, salvo los de informes). */
     expect(prisma.interaccionMensaje.updateMany).toHaveBeenCalledTimes(2);
-    expect(prisma.interaccionMensaje.deleteMany).toHaveBeenCalledTimes(1);
+    expect(prisma.$executeRaw).toHaveBeenCalledTimes(1);
   });
 });

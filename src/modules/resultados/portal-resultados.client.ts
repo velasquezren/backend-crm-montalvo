@@ -51,6 +51,26 @@ export interface InformePublicado {
   abiertoEn: string | null;
 }
 
+/** Cuántas veces hizo algo el paciente con su enlace, y cuándo la primera y la última. */
+export interface UsoPortal { veces: number; primera: string; ultima: string }
+
+/** Un informe en la constancia del portal (`POST …/informes/constancia`). */
+export interface InformeConstancia {
+  informeId: string;
+  tipo: TipoInforme;
+  estudio: string;
+  fechaEstudio: string;
+  estado: 'BORRADOR' | 'PUBLICADO' | 'RETIRADO';
+  publicadoEn: string | null;
+  retiradoEn: string | null;
+  paciente: { nombre: string; pac: string | null; ci: string | null };
+  medico: string;
+  /** `abiertoEn`: la primera vez que se abrió la página del informe con el enlace del paciente. */
+  acceso: { abiertoEn: string | null; expiraEn: string; revocadoEn: string | null } | null;
+  /** `pdf`: el PDF visto en el teléfono; `original`: guardado en máxima calidad; `adjuntos`: videos o imágenes guardados. */
+  descargas: { pdf: UsoPortal | null; original: UsoPortal | null; adjuntos: UsoPortal | null };
+}
+
 interface ColaInformes {
   datos: InformePublicado[];
   total: number;
@@ -161,6 +181,15 @@ export class PortalResultadosClient {
     if (buscar) query.set('buscar', buscar);
     if (tipo) query.set('tipo', tipo);
     return this.pedir<PanoramaCola>(`/v1/integraciones/crm/informes/panorama${query.size ? `?${query}` : ''}`, 'GET');
+  }
+
+  /**
+   * Lo que el portal sabe de hasta 100 informes para la constancia mensual:
+   * paciente, estudio, médico, primera apertura y descargas. Incluye los
+   * retirados; un informe borrado del portal no vuelve.
+   */
+  constancia(ids: string[]): Promise<{ datos: InformeConstancia[] }> {
+    return this.pedir('/v1/integraciones/crm/informes/constancia', 'POST', { ids });
   }
 
   /** Extiende 30 días el acceso de un informe publicado; el enlace no cambia. */
