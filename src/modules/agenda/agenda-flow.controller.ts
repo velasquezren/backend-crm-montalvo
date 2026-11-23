@@ -1,6 +1,6 @@
 import { Body, Controller, Header, HttpCode, HttpException, Logger, Post, ServiceUnavailableException, UseGuards } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { SkipThrottle } from '@nestjs/throttler';
+import { SinLimite } from '../../common/limites/limites';
 import { createPrivateKey, KeyObject } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { Public } from '../../common/decorators/public.decorator';
@@ -23,7 +23,7 @@ import { PeticionFlowCifradaDto } from './dto/flow-agenda.dto';
  * (el cliente cierra el Flow).
  */
 @Public()
-@SkipThrottle()
+@SinLimite()
 @Controller('whatsapp/flows/agenda')
 export class AgendaFlowController {
   private readonly logger = new Logger(AgendaFlowController.name);

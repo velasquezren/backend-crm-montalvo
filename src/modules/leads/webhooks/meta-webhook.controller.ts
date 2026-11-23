@@ -10,7 +10,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { SkipThrottle } from '@nestjs/throttler';
+import { SinLimite } from '../../../common/limites/limites';
 
 import { Public } from '../../../common/decorators/public.decorator';
 import { enSegundoPlano } from '../../../common/fiabilidad/en-segundo-plano';
@@ -31,10 +31,10 @@ import { MetaWebhookDto } from './dto/meta-webhook.dto';
  */
 /* Igual que el de WhatsApp: sin forbidNonWhitelisted, el payload de Meta
    trae campos que no modelamos y rechazarlo desactivaría la suscripción.
-   Y por el mismo motivo, `@SkipThrottle()`: las ráfagas de Meta no deben
+   Y por el mismo motivo, `@SinLimite()`: las ráfagas de Meta no deben
    chocar contra el rate-limit global. Lo que sostiene el endpoint es la
    firma (`MetaSignatureGuard`), no el límite de peticiones. */
-@SkipThrottle()
+@SinLimite()
 @Controller('webhooks/meta')
 export class MetaWebhookController {
   private readonly logger = new Logger(MetaWebhookController.name);

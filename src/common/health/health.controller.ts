@@ -1,5 +1,5 @@
 import { Controller, Get, HttpCode, HttpStatus, Logger, ServiceUnavailableException } from '@nestjs/common';
-import { SkipThrottle } from '@nestjs/throttler';
+import { SinLimite } from '../limites/limites';
 
 import { Public } from '../decorators/public.decorator';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -12,12 +12,12 @@ import { PrismaService } from '../../prisma/prisma.service';
  * que el ValidationPipe y el guard siguen vivos. Este prueba que el proceso
  * responde y que la base está alcanzable.
  *
- * `@Public()` + `@SkipThrottle()`: un monitor externo (o systemd) lo llama sin
+ * `@Public()` + `@SinLimite()`: un monitor externo (o systemd) lo llama sin
  * sesión y con más frecuencia que el límite general de 120/min.
  */
 @Controller('health')
 @Public()
-@SkipThrottle()
+@SinLimite()
 export class HealthController {
   private readonly logger = new Logger(HealthController.name);
 

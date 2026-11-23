@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
+import { LIMITES_GLOBALES } from './common/limites/limites';
 
 import { AuditModule } from './common/audit/audit.module';
 import { HealthModule } from './common/health/health.module';
@@ -36,7 +37,7 @@ import { PrismaModule } from './prisma/prisma.module';
     ConfigModule.forRoot({ isGlobal: true }),
     /* Límite de peticiones global (RNF-01). El login lo endurece aún más
        con su propio @Throttle — ver auth.controller.ts. */
-    ThrottlerModule.forRoot([{ name: 'general', ttl: 60_000, limit: 120 }]),
+    ThrottlerModule.forRoot(LIMITES_GLOBALES),
     PrismaModule,
     AuditModule,
     HealthModule,

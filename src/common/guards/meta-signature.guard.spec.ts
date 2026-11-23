@@ -6,7 +6,7 @@ import { ConfigService } from '@nestjs/config';
 import { MetaSignatureGuard } from './meta-signature.guard';
 
 /**
- * El webhook de WhatsApp es `@Public()` y `@SkipThrottle()`, y escribe en base:
+ * El webhook de WhatsApp es `@Public()` y `@SinLimite()`, y escribe en base:
  * da de alta pacientes, crea leads y mete mensajes en el hilo de cualquier
  * paciente. Lo único que separa eso de internet es esta firma. Si estas pruebas
  * se ponen en verde de más (un `return true` de más, un secreto vacío que pasa),

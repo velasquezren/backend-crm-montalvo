@@ -11,7 +11,7 @@ const CACHE_LISTADO = 'public, max-age=60, stale-while-revalidate=300';
 /**
  * El directorio que lee la landing. Sin sesión, de solo lectura y solo con lo
  * PUBLICADO: ni fichas ocultas, ni códigos internos, ni datos de pacientes.
- * Mantiene el rate-limit general (no lleva `@SkipThrottle`): es público.
+ * Mantiene el rate-limit general (no lleva `@SinLimite`): es público.
  */
 @Public()
 @Controller('publico/directorio')

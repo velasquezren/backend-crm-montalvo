@@ -3,7 +3,7 @@ import type { CookieOptions, Request, Response } from 'express';
 import { Body, Controller, Get, HttpCode, HttpStatus, Patch, Post, Req, Res } from '@nestjs/common';
 
 import { CurrentUser, UsuarioJwt } from '../../common/decorators/current-user.decorator';
-import { Throttle } from '@nestjs/throttler';
+import { Limite } from '../../common/limites/limites';
 
 import { Public } from '../../common/decorators/public.decorator';
 import { AuthService } from './auth.service';
@@ -53,7 +53,7 @@ export class AuthController {
    * Emite la cookie HttpOnly con o sin maxAge según rememberMe.
    */
   @Public()
-  @Throttle({ general: { ttl: 60_000, limit: 5 } })
+  @Limite(5, 60_000)
   @Post('login')
   async login(
     @Body() dto: LoginDto,

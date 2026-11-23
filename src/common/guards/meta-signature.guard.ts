@@ -22,7 +22,7 @@ import type { Request } from 'express';
  * `@UseGuards(MetaSignatureGuard)` sobre el POST y nada más.
  *
  * Sin esto el endpoint era la puerta más abierta del CRM: `@Public()` (sin JWT),
- * `@SkipThrottle()` (sin rate-limit) y escribiendo en base. Cualquiera que
+ * `@SinLimite()` (sin rate-limit) y escribiendo en base. Cualquiera que
  * conociera la URL —que es pública por necesidad, Meta tiene que alcanzarla—
  * podía dar de alta pacientes y leads sin límite, inyectar mensajes falsos en el
  * hilo de cualquier paciente, y marcar mensajes como entregados/leídos.

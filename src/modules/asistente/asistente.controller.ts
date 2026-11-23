@@ -1,5 +1,5 @@
 import { Body, Controller, Get, HttpCode, Param, ParseUUIDPipe, Post, Put } from '@nestjs/common';
-import { Throttle } from '@nestjs/throttler';
+import { Limite } from '../../common/limites/limites';
 
 import { CurrentUser, UsuarioJwt } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -18,7 +18,7 @@ export class AsistenteController {
    */
   @Post('probar')
   @HttpCode(200)
-  @Throttle({ general: { ttl: 60_000, limit: 5 } })
+  @Limite(5, 60_000)
   probar() {
     return this.service.probarConexion();
   }

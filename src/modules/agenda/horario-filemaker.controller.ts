@@ -1,5 +1,5 @@
 import { Body, Controller, HttpCode, Post, UseGuards, UsePipes, ValidationPipe } from '@nestjs/common';
-import { Throttle } from '@nestjs/throttler';
+import { Limite } from '../../common/limites/limites';
 import { Public } from '../../common/decorators/public.decorator';
 import { HorarioFilemakerDto } from './dto/horario-filemaker.dto';
 import { HorarioFilemakerGuard } from './horario-filemaker.guard';
@@ -13,7 +13,7 @@ export class HorarioFilemakerController {
   @HttpCode(200)
   @Public()
   @UseGuards(HorarioFilemakerGuard)
-  @Throttle({ default: { limit: 60, ttl: 60_000 } })
+  @Limite(60, 60_000)
   @UsePipes(new ValidationPipe({ whitelist: true, transform: true, forbidNonWhitelisted: true }))
   sincronizar(@Body() dto: HorarioFilemakerDto) { return this.horarios.recibir(dto); }
 }

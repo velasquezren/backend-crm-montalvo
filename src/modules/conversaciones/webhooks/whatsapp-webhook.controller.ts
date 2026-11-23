@@ -17,7 +17,7 @@ import type { Request } from 'express';
 import { interaccionesEnLinea, interaccionesHabilitadas } from '../interacciones-integracion';
 import { objeto } from '../../../common/whatsapp/interacciones/respuesta-interactiva';
 import { ConfigService } from '@nestjs/config';
-import { SkipThrottle } from '@nestjs/throttler';
+import { SinLimite } from '../../../common/limites/limites';
 
 import { TipoMensaje } from '../../../prisma/prisma-client';
 
@@ -116,7 +116,7 @@ function extraerReferral(mensaje: WhatsappMessageDto) {
  * resto del payload de Meta sin rechazarlo (ver main.ts: `forbidNonWhitelisted`
  * está desactivado justo por estos webhooks).
  *
- * `@SkipThrottle()`: las ráfagas de Meta (varios mensajes juntos, o reintentos
+ * `@SinLimite()`: las ráfagas de Meta (varios mensajes juntos, o reintentos
  * masivos tras una caída) no deben chocar contra el rate-limit global — tras
  * varios 429 Meta desactiva la suscripción. No se puede limitar por IP de
  * forma útil (todo llega de los rangos de Meta) y el endpoint ya es idempotente
@@ -124,7 +124,7 @@ function extraerReferral(mensaje: WhatsappMessageDto) {
  * sostiene al endpoint no es el rate-limit sino la firma: ver
  * `MetaSignatureGuard` sobre el POST.
  */
-@SkipThrottle()
+@SinLimite()
 @Controller('webhooks/whatsapp')
 export class WhatsappWebhookController {
   private readonly logger = new Logger(WhatsappWebhookController.name);

@@ -768,13 +768,19 @@ de Apache/nginx en loopback, sin configurar `trust proxy` Express ve siempre
 todos bloqueados). En `main.ts`: `app.set('trust proxy', 'loopback')` — toma
 la IP real del `X-Forwarded-For` que agrega el proxy, y `loopback` (no `true`)
 evita que un cliente externo falsifique su IP. Los webhooks de proveedores
-(Meta) van con `@SkipThrottle()`: sus ráfagas y reintentos no deben chocar
+(Meta) van con `@SinLimite()`: sus ráfagas y reintentos no deben chocar
 contra el límite —tras varios 429 Meta desactiva la suscripción— y son
 idempotentes de todos modos.
 
+**Nunca** `@SkipThrottle()` ni `@Throttle({ default: … })` de la librería: se
+aplican por nombre de throttler y el global se llama `general`, así que no hacen
+nada (así estuvieron los webhooks hasta 2026-11). Usar `SinLimite()` y
+`Limite(limit, ttl)` de `common/limites/limites.ts`; `limites.spec.ts` rechaza
+el uso directo.
+
 ## Un webhook `@Public()` se sostiene con la FIRMA, no con el rate-limit
 
-`@SkipThrottle()` + `@Public()` + escritura en base es la combinación más peligrosa del
+`@SinLimite()` + `@Public()` + escritura en base es la combinación más peligrosa del
 backend, y es exactamente lo que necesita un webhook. Lo único que separa ese endpoint de
 internet es verificar la firma del proveedor. Meta firma cada POST con HMAC-SHA256 del
 cuerpo en `X-Hub-Signature-256`; sin comprobarlo, cualquiera que conociera la URL —pública
@@ -1024,7 +1030,7 @@ registrada'` y nada más: sabías que pasó, no de qué número.
   o el hijo se vacía igual. `check:skills` falla si encuentra un DTO sin ningún decorador.
 - Rate limit 120/min general; **login 5/min** contra fuerza bruta — **por IP real**
   gracias a `trust proxy` (ver sección de rate-limit arriba); el webhook de WhatsApp
-  va con `@SkipThrottle()`
+  va con `@SinLimite()`
 - HTTP/2 en el vhost de Apache (`Protocols h2 http/1.1`); WebSocket proxyado en `/socket.io/`
 - Contraseñas con bcrypt; el JWT nunca lleva datos sensibles
 
