@@ -366,11 +366,21 @@ if (!existsSync(HERMANO)) {
    para que un skill PROPIO no se salte la verificación por accidente. */
 const TERCEROS = new Set(['prisma-client-api', 'supabase-postgres-best-practices']);
 
+/* Una skill es su SKILL.md más sus `references/*.md` (divulgación progresiva):
+   todo se contrasta con el código igual, esté en el índice o en una referencia. */
+function leerSkill(carpeta) {
+  const refs = join(carpeta, 'references');
+  const extra = existsSync(refs)
+    ? readdirSync(refs).filter(f => f.endsWith('.md')).sort().map(f => readFileSync(join(refs, f), 'utf8'))
+    : [];
+  return [readFileSync(join(carpeta, 'SKILL.md'), 'utf8'), ...extra].join('\n\n');
+}
+
 for (const nombre of readdirSync(SKILLS)) {
   const archivo = join(SKILLS, nombre, 'SKILL.md');
   if (!existsSync(archivo) || TERCEROS.has(nombre)) continue;
 
-  const texto = readFileSync(archivo, 'utf8');
+  const texto = leerSkill(join(SKILLS, nombre));
   verificarRutas(nombre, texto);
   verificarRoles(nombre, texto);
   verificarHelpers(nombre, texto);

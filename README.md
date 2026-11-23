@@ -33,7 +33,7 @@ Meta, R2 y VAPID son opcionales para levantar/verificar localmente; sin sus
 credenciales las integraciones externas quedan deshabilitadas. La plantilla
 `.env.example` contiene sus nombres, nunca credenciales reales. Los tests
 sintéticos usan exclusivamente `crm_test` local; la receta descartable está en
-[crm-backend-arquitectura §8](.claude/skills/crm-backend-arquitectura/SKILL.md).
+[crm-backend-arquitectura §8](.claude/skills/crm-backend-arquitectura/references/verificacion-segun-el-cambio.md).
 `test:integracion:preparar` **borra crm_test**: solo ejecutarlo sobre el servidor
 descartable propio, nunca sobre una base con datos que se quieran conservar.
 
@@ -78,6 +78,6 @@ Los casos que requieren Excel privados pueden omitir sus aserciones: declarar
 esa limitación aunque el runner cuente el caso como aprobado.
 
 Para operar el VPS, conservar el procedimiento completo de
-[despliegue](.claude/skills/crm-backend-arquitectura/SKILL.md#4-cómo-desplegar):
+[despliegue](.claude/skills/crm-backend-arquitectura/references/como-desplegar.md):
 respaldo verificado, migración revisada, build, reinicio y salud/autorización.
 No ejecutar ese procedimiento como parte de la preparación local.
