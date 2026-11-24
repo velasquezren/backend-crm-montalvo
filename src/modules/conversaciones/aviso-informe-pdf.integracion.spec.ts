@@ -211,9 +211,12 @@ it('si el informe ya no está vigente para ese PAC, no manda nada y lo ve una pe
   portal.informesDelPaciente.mockResolvedValue({ datos: [], total: 0, pagina: 1, limite: 7 });
   await webhook(toque(contexto));
   await esperar(terminado);
+  /* El despachador deja el PDF en FALLIDO y DESPUÉS, en otra transacción, pide
+     la revisión (despachador-saliente.service): en una máquina lenta la
+     aserción caía entre las dos escrituras (CI 2026-11-24). Se espera el final. */
+  await esperar(async () => (await prisma.conversacion.findUniqueOrThrow({ where: { id: chat } })).atencionMotivo === 'REVISION');
   expect(enviadosDeTipo('document')).toHaveLength(0);
   expect(portal.pdfDelPaciente).not.toHaveBeenCalled();
-  expect((await prisma.conversacion.findUniqueOrThrow({ where: { id: chat } })).atencionMotivo).toBe('REVISION');
 });
 
 it('el aviso de un informe que está en otra página del portal también se encuentra', async () => {
