@@ -46,7 +46,7 @@ interface Firmado {
 function montar(
   opciones: {
     usuario?: UsuarioFalso | null;
-    errorAlReleer?: unknown;
+    errorAlReleer?: Error;
   } = {},
 ) {
   const usuario = opciones.usuario === undefined ? BASE : opciones.usuario;
@@ -107,7 +107,7 @@ describe('AuthService · login', () => {
     const { servicio } = montar({ usuario: null });
 
     await expect(
-      servicio.login({ email: 'nadie@x.com', password: 'x' } as never),
+      servicio.login({ email: 'nadie@x.com', password: 'x' }),
     ).rejects.toThrow(UnauthorizedException);
   });
 
@@ -116,7 +116,7 @@ describe('AuthService · login', () => {
     const { servicio } = montar({ usuario });
 
     await expect(
-      servicio.login({ email: usuario.email, password: 'correcta' } as never),
+      servicio.login({ email: usuario.email, password: 'correcta' }),
     ).rejects.toThrow(UnauthorizedException);
   });
 
@@ -125,7 +125,7 @@ describe('AuthService · login', () => {
     const { servicio } = montar({ usuario });
 
     await expect(
-      servicio.login({ email: usuario.email, password: 'otra-cosa' } as never),
+      servicio.login({ email: usuario.email, password: 'otra-cosa' }),
     ).rejects.toThrow(UnauthorizedException);
   });
 
@@ -138,7 +138,7 @@ describe('AuthService · login', () => {
     const resultado = await servicio.login({
       email: usuario.email,
       password: 'correcta',
-    } as never);
+    });
 
     expect(resultado.access_token).toBe('access-token-firmado');
     expect(resultado.refresh_token).toBe('refresh-token-firmado');
@@ -155,7 +155,7 @@ describe('AuthService · login', () => {
     const usuario = await usuarioConPassword('correcta');
     const { servicio, firmados } = montar({ usuario });
 
-    await servicio.login({ email: usuario.email, password: 'correcta' } as never);
+    await servicio.login({ email: usuario.email, password: 'correcta' });
 
     const refresh = firmados.find(f => f.expiresIn === '30d');
     expect(refresh?.payload).toMatchObject({ sub: usuario.id, type: 'refresh' });

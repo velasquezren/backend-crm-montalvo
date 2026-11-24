@@ -309,7 +309,7 @@ describe('F06-R1: PostgreSQL real y transportes externos controlados', () => {
       const t = await estado(mensaje.id);
       expect(t.intentos).toBe(n);
       if (n < 8) {
-        expect(t.proximoIntento!.getTime() - reloj.getTime()).toBe(esperas[n - 1]! * 60_000);
+        expect(t.proximoIntento!.getTime() - reloj.getTime()).toBe(esperas[n - 1] * 60_000);
         await habilitarReintento(mensaje.id);
       }
     }
@@ -438,7 +438,7 @@ describe('F06-R1: PostgreSQL real y transportes externos controlados', () => {
           AND query LIKE '%pg_try_advisory_xact_lock%' AND pid <> pg_backend_pid()
       `;
       expect(conexion).toBeDefined();
-      await otroPrisma.$queryRaw`SELECT pg_terminate_backend(${conexion!.pid})`;
+      await otroPrisma.$queryRaw`SELECT pg_terminate_backend(${conexion.pid})`;
       reloj = new Date(reloj.getTime() + 120_000);
       puerta = undefined; // solo el primer fetch conserva la promesa pausada
       expect(await worker(otroPrisma).procesarUno(mensaje.id)).toBe(true);

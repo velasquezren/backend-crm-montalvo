@@ -176,7 +176,7 @@ export class ExportacionWordService {
       ],
     });
 
-    return Packer.toBuffer(doc) as unknown as Promise<Buffer>;
+    return Packer.toBuffer(doc);
   }
 
   /* ── Encabezado ─────────────────────────────────────────────────────── */

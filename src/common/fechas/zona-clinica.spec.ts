@@ -108,7 +108,6 @@ describe('desplazarEnCalendarioClinica', () => {
 });
 
 describe('fecha civil de La Paz (columnas @db.Date)', () => {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { fechaCivilClinica, fechaCivilDesdeTexto, textoDeFechaCivil } = require('./zona-clinica') as typeof import('./zona-clinica');
 
   it('a las 21:00 de La Paz sigue siendo el mismo día, aunque en UTC ya sea mañana', () => {

@@ -905,7 +905,7 @@ export class ClientesService {
          de `$transaction` como `unknown[]`, y con eso `update` devolvía
          `unknown` a quien lo llamara. Va primera, así que es la posición 0. */
       const [resultado] = await this.prisma.$transaction([principal, ...extras]);
-      return resultado as T;
+      return resultado;
     } catch (error: unknown) {
       await this.traducirChoqueUnico(error, valores, visor);
       throw error;

@@ -135,7 +135,7 @@ function datosCampana(elegiblesVistas: number, extra: Partial<CrearCampanaDto> =
     tarifaUsd: 0.055,
     elegiblesVistas,
     ...extra,
-  } as CrearCampanaDto;
+  };
 }
 
 describe('crear una campaña', () => {

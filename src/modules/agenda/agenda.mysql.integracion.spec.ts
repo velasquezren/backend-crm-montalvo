@@ -95,13 +95,13 @@ ejecutar('Agenda HTTP → adaptador TLS → MySQL real descartable', () => {
     const lector = app.get(AgendaConsultaClient);
     const primera = await lector.ejecutar(db => reservasParaSeguimiento(db, fecha(0), 0, 1));
     expect(primera).toHaveLength(1);
-    const siguiente = await lector.ejecutar(db => reservasParaSeguimiento(db, fecha(0), primera[0]!.id, 1));
+    const siguiente = await lector.ejecutar(db => reservasParaSeguimiento(db, fecha(0), primera[0].id, 1));
     expect(siguiente).toHaveLength(1);
-    expect(siguiente[0]!.id).toBeGreaterThan(primera[0]!.id);
-    const ids = [primera[0]!.id, siguiente[0]!.id];
+    expect(siguiente[0].id).toBeGreaterThan(primera[0].id);
+    const ids = [primera[0].id, siguiente[0].id];
     const releidas = await lector.ejecutar(db => reservasPorIds(db, ids));
     expect(releidas.map(r => r.id)).toEqual(ids);
-    expect(releidas[0]!.estado).toBe(primera[0]!.estado);
+    expect(releidas[0].estado).toBe(primera[0].estado);
     expect(await lector.ejecutar(db => reservasPorIds(db, [9999999]))).toEqual([]);
   });
 

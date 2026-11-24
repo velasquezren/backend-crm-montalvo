@@ -101,7 +101,7 @@ describe('ActividadesService — escopado por agente', () => {
     const resultado = await service.findAll({}, yo.id);
 
     expect(resultado.datos).toHaveLength(1);
-    expect(resultado.datos[0]!.titulo).toBe('Mío');
+    expect(resultado.datos[0].titulo).toBe('Mío');
   });
 
   it('un ADMIN (sin soloAgenteId) ve las de todos', async () => {

@@ -331,7 +331,7 @@ function enviosDelMes(desde: Date, hasta: Date): Prisma.Sql {
 /** El detalle JSON de la auditoría, leído campo a campo: lo viejo puede no tener todo. */
 function detalle(cambios: Prisma.JsonValue): DetalleAuditoria {
   if (!cambios || typeof cambios !== 'object' || Array.isArray(cambios)) return {};
-  const texto = (clave: string) => (typeof cambios[clave] === 'string' ? (cambios[clave] as string) : undefined);
+  const texto = (clave: string) => (typeof cambios[clave] === 'string' ? (cambios[clave]) : undefined);
   return {
     informeId: texto('informeId'),
     clienteId: texto('clienteId'),

@@ -158,7 +158,7 @@ describe('TipoCambioService — corregirManual()', () => {
 
 describe('TipoCambioService — sincronizarAutomatico()', () => {
   it('guarda el valor del espejo cuando no hay nada para ese día', async () => {
-    global.fetch = jest.fn().mockResolvedValue(respuestaEspejo(11.54, '2026-08-25')) as unknown as typeof fetch;
+    global.fetch = jest.fn().mockResolvedValue(respuestaEspejo(11.54, '2026-08-25'));
 
     const resultado = await service.sincronizarAutomatico();
     expect(resultado).toEqual({ actualizado: true, motivo: 'ok', fecha: '2026-08-25', valor: 11.54 });
@@ -170,7 +170,7 @@ describe('TipoCambioService — sincronizarAutomatico()', () => {
 
   it('no pisa un valor ya corregido a mano ese mismo día', async () => {
     await service.corregirManual('2026-08-25', 11.6, usuarioId);
-    global.fetch = jest.fn().mockResolvedValue(respuestaEspejo(11.54, '2026-08-25')) as unknown as typeof fetch;
+    global.fetch = jest.fn().mockResolvedValue(respuestaEspejo(11.54, '2026-08-25'));
 
     const resultado = await service.sincronizarAutomatico();
     expect(resultado).toEqual({ actualizado: false, motivo: 'ya_hay_valor_manual', fecha: '2026-08-25' });
@@ -181,7 +181,7 @@ describe('TipoCambioService — sincronizarAutomatico()', () => {
   });
 
   it('no reescribe si el valor no cambió', async () => {
-    global.fetch = jest.fn().mockResolvedValue(respuestaEspejo(11.54, '2026-08-25')) as unknown as typeof fetch;
+    global.fetch = jest.fn().mockResolvedValue(respuestaEspejo(11.54, '2026-08-25'));
     await service.sincronizarAutomatico();
 
     const resultado = await service.sincronizarAutomatico();
@@ -189,14 +189,14 @@ describe('TipoCambioService — sincronizarAutomatico()', () => {
   });
 
   it('no lanza si el espejo no responde', async () => {
-    global.fetch = jest.fn().mockRejectedValue(new Error('sin red')) as unknown as typeof fetch;
+    global.fetch = jest.fn().mockRejectedValue(new Error('sin red'));
 
     const resultado = await service.sincronizarAutomatico();
     expect(resultado).toEqual({ actualizado: false, motivo: 'fetch_fallido' });
   });
 
   it('no lanza y no guarda nada si la respuesta viene sin la forma esperada', async () => {
-    global.fetch = jest.fn().mockResolvedValue({ ok: true, json: async () => ({}) }) as unknown as typeof fetch;
+    global.fetch = jest.fn().mockResolvedValue({ ok: true, json: async () => ({}) });
 
     const resultado = await service.sincronizarAutomatico();
     expect(resultado).toEqual({ actualizado: false, motivo: 'respuesta_invalida' });

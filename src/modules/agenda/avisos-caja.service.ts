@@ -6,7 +6,6 @@ import { enSegundoPlano } from '../../common/fiabilidad/en-segundo-plano';
 import { normalizarTelefono } from '../../common/telefono/telefono';
 import { WhatsappCloudService } from '../../common/whatsapp/whatsapp-cloud.service';
 import { esChoqueUnicoEn } from '../../prisma/choque-unico';
-import { Prisma } from '../../prisma/prisma-client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { LineasWhatsappService } from '../lineas-whatsapp/lineas-whatsapp.service';
 import { AgendaConsultaClient } from './agenda-consulta.client';
@@ -104,7 +103,7 @@ export class AvisosCajaService {
         if (await tx.numeroCaja.count() >= MAXIMO_NUMEROS) throw new BadRequestException(`Caben hasta ${MAXIMO_NUMEROS} números de caja.`);
         const creado = await tx.numeroCaja.create({ data: { nombre, telefono, agregadoPorId: usuario.sub } });
         await tx.auditLog.create({ data: { entidad: 'NumeroCaja', entidadId: creado.id, accion: 'NUMERO_CAJA_AGREGADO', usuarioId: usuario.sub,
-          cambios: { nombre, telefono: terminaEn(telefono) } as Prisma.InputJsonValue } });
+          cambios: { nombre, telefono: terminaEn(telefono) } } });
       });
     } catch (error: unknown) {
       if (esChoqueUnicoEn(error, 'NumeroCaja', 'telefono')) throw new ConflictException('Ese número ya recibe los avisos de caja.');
@@ -120,7 +119,7 @@ export class AvisosCajaService {
       if (!fila) throw new NotFoundException('Ese número ya no está en la lista.');
       await tx.numeroCaja.delete({ where: { id } });
       await tx.auditLog.create({ data: { entidad: 'NumeroCaja', entidadId: id, accion: 'NUMERO_CAJA_QUITADO', usuarioId: usuario.sub,
-        cambios: { nombre: fila.nombre, telefono: terminaEn(fila.telefono) } as Prisma.InputJsonValue } });
+        cambios: { nombre: fila.nombre, telefono: terminaEn(fila.telefono) } } });
     });
     return this.vista(usuario);
   }

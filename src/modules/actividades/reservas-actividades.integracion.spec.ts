@@ -63,7 +63,7 @@ beforeEach(async () => {
   const cliente = await prisma.cliente.create({ data: { nombre: 'Contacto sintético', telefono: '+59170009001' } });
   chat = (await prisma.conversacion.create({ data: { clienteId: cliente.id, lineaId: linea } })).id;
   fuente = [reserva(), reserva(900002)];
-  await prisma.reservaChat.create({ data: { conversacionId: chat, reservaAgenda: fuente[0]!.id, estado: 'ESPERANDO_COMPROBANTE' } });
+  await prisma.reservaChat.create({ data: { conversacionId: chat, reservaAgenda: fuente[0].id, estado: 'ESPERANDO_COMPROBANTE' } });
   jest.spyOn(sql, 'reservasParaSeguimiento').mockImplementation(async (_db, _desde, despues, limite) => fuente.filter(r => r.id > despues).slice(0, limite));
   jest.spyOn(sql, 'reservasPorIds').mockImplementation(async (_db, ids) => fuente.filter(r => ids.includes(r.id)));
 });
@@ -89,15 +89,15 @@ it('crea una sola tarea compartida por reserva y avisa solo a quienes pueden ver
 it('el comprobante cambia la tarea, ATENDIDO la completa y cierra la espera del QR; reabrir conserva revisión humana', async () => {
   const worker = crear(); await worker.sincronizar(ahora);
   const inicial = await prisma.actividad.findUniqueOrThrow({ where: { reservaAgenda: 900001 } });
-  fuente[0] = { ...fuente[0]!, estado: 'PAGADO', tieneComprobante: true };
+  fuente[0] = { ...fuente[0], estado: 'PAGADO', tieneComprobante: true };
   await worker.sincronizar(siguiente(1));
   expect(await prisma.actividad.findUnique({ where: { id: inicial.id } })).toMatchObject({ estado: 'PENDIENTE', titulo: 'Verificar comprobante de reserva #900001' });
   expect(await prisma.reservaChat.findUnique({ where: { reservaAgenda: 900001 } })).toMatchObject({ estado: 'PAGO_REGISTRADO' });
-  fuente[0]!.estado = 'ATENDIDO';
+  fuente[0].estado = 'ATENDIDO';
   await worker.sincronizar(siguiente(2));
   expect(await prisma.actividad.findUnique({ where: { id: inicial.id } })).toMatchObject({ estado: 'COMPLETADA' });
   expect(await prisma.reservaChat.findUnique({ where: { reservaAgenda: 900001 } })).toMatchObject({ estado: 'GESTIONADA', proximoIntento: null });
-  fuente[0]!.estado = 'PENDIENTE';
+  fuente[0].estado = 'PENDIENTE';
   await worker.sincronizar(siguiente(3));
   expect(await prisma.actividad.findUnique({ where: { id: inicial.id } })).toMatchObject({ estado: 'PENDIENTE', completadaEn: null });
   expect(await prisma.reservaChat.findUnique({ where: { reservaAgenda: 900001 } })).toMatchObject({ estado: 'REVISION' });
@@ -163,7 +163,7 @@ it('una lectura atrasada no revierte la tarea ni el QR ya gestionados por otra p
     iniciado(); return new Promise(r => { resolver = r; });
   });
   const vieja = crear().sincronizar(siguiente(1)); await empezo;
-  fuente[0]!.estado = 'ATENDIDO';
+  fuente[0].estado = 'ATENDIDO';
   await crear().sincronizar(siguiente(2));
   resolver(antigua); await vieja;
   expect((await prisma.actividad.findUniqueOrThrow({ where: { reservaAgenda: 900001 } })).estado).toBe('COMPLETADA');

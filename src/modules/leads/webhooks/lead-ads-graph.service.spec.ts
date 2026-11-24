@@ -42,7 +42,7 @@ describe('LeadAdsGraphService', () => {
   describe('credenciales', () => {
     it('sin PAGE_ACCESS_TOKEN queda deshabilitado y no llama a nadie', async () => {
       const fetchSpy = jest.fn();
-      global.fetch = fetchSpy as unknown as typeof fetch;
+      global.fetch = fetchSpy;
 
       expect(servicio({}).habilitado).toBe(false);
       expect(await servicio({}).resolverLead('lead-1')).toBeNull();
@@ -53,7 +53,7 @@ describe('LeadAdsGraphService', () => {
   describe('resolverLead', () => {
     it('arma la URL y la cabecera Authorization correctamente', async () => {
       const fetchSpy = jest.fn().mockResolvedValue(respuestaGraph());
-      global.fetch = fetchSpy as unknown as typeof fetch;
+      global.fetch = fetchSpy;
 
       await servicio(CON_TOKEN).resolverLead('lead-1');
 
@@ -63,7 +63,7 @@ describe('LeadAdsGraphService', () => {
     });
 
     it('extrae nombre, teléfono, origen (fb) y anuncioId', async () => {
-      global.fetch = jest.fn().mockResolvedValue(respuestaGraph()) as unknown as typeof fetch;
+      global.fetch = jest.fn().mockResolvedValue(respuestaGraph());
 
       const resuelto = await servicio(CON_TOKEN).resolverLead('lead-1');
 
@@ -78,7 +78,7 @@ describe('LeadAdsGraphService', () => {
     it('platform=ig se traduce a INSTAGRAM_LEAD_AD', async () => {
       global.fetch = jest
         .fn()
-        .mockResolvedValue(respuestaGraph({ platform: 'ig' })) as unknown as typeof fetch;
+        .mockResolvedValue(respuestaGraph({ platform: 'ig' }));
 
       const resuelto = await servicio(CON_TOKEN).resolverLead('lead-1');
       expect(resuelto?.origen).toBe('INSTAGRAM_LEAD_AD');
@@ -93,7 +93,7 @@ describe('LeadAdsGraphService', () => {
             { name: 'phone_number', values: ['+59170000001'] },
           ],
         }),
-      ) as unknown as typeof fetch;
+      );
 
       const resuelto = await servicio(CON_TOKEN).resolverLead('lead-1');
       expect(resuelto?.nombre).toBe('Ana Pérez');
@@ -107,7 +107,7 @@ describe('LeadAdsGraphService', () => {
             { name: 'whatsapp_phone', values: ['+59170000001'] },
           ],
         }),
-      ) as unknown as typeof fetch;
+      );
 
       const resuelto = await servicio(CON_TOKEN).resolverLead('lead-1');
       expect(resuelto?.telefono).toBe('+59170000001');
@@ -116,7 +116,7 @@ describe('LeadAdsGraphService', () => {
     it('null si el formulario no trae ni nombre ni teléfono reconocibles', async () => {
       global.fetch = jest.fn().mockResolvedValue(
         respuestaGraph({ field_data: [{ name: 'pregunta_rara', values: ['x'] }] }),
-      ) as unknown as typeof fetch;
+      );
 
       expect(await servicio(CON_TOKEN).resolverLead('lead-1')).toBeNull();
     });
@@ -124,13 +124,13 @@ describe('LeadAdsGraphService', () => {
     it('null si Graph API rechaza, sin lanzar', async () => {
       global.fetch = jest
         .fn()
-        .mockResolvedValue({ ok: false, status: 400, text: async () => 'token vencido' }) as unknown as typeof fetch;
+        .mockResolvedValue({ ok: false, status: 400, text: async () => 'token vencido' });
 
       await expect(servicio(CON_TOKEN).resolverLead('lead-1')).resolves.toBeNull();
     });
 
     it('null si la red falla, sin lanzar', async () => {
-      global.fetch = jest.fn().mockRejectedValue(new Error('sin red')) as unknown as typeof fetch;
+      global.fetch = jest.fn().mockRejectedValue(new Error('sin red'));
 
       await expect(servicio(CON_TOKEN).resolverLead('lead-1')).resolves.toBeNull();
     });

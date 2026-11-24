@@ -36,7 +36,7 @@ export const CODIGO_MEDICO_AGENDA = /^[A-Za-z0-9][A-Za-z0-9 ._-]{0,19}$/;
 
 async function filas(db: Conexion, sql: string, valores: Valor[] = []): Promise<Fila[]> {
   const [resultado] = await db.execute<RowDataPacket[]>(sql, valores);
-  return resultado as Fila[];
+  return resultado;
 }
 
 const textoONulo = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : null);
@@ -336,7 +336,7 @@ export async function guardarHorarioAgenda(
   if (minutosDelOrigen !== undefined) {
     await db.execute<ResultSetHeader>('UPDATE medicos SET minutos_consulta = ? WHERE medico_pk = ?', [minutosDelOrigen, id]);
   }
-  const html = htmlDelOrigen ?? horarioHtml([...pedidas.values()].map(c => ({ dia: c.dia as DiaAgenda, hora: c.hora })));
+  const html = htmlDelOrigen ?? horarioHtml([...pedidas.values()].map(c => ({ dia: c.dia, hora: c.hora })));
   await db.execute<ResultSetHeader>(`UPDATE medicos SET horario_html = ? WHERE medico_pk = ?`, [html, id]);
   return { ok: true, valor: { encendidas: encender.length, apagadas: apagar.length, creadas: nuevas.length, horarioHtml: html } };
 }

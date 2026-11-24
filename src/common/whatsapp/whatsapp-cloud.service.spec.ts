@@ -37,7 +37,7 @@ describe('WhatsappCloudService', () => {
   describe('enviar', () => {
     it('manda el número sin + y devuelve el id de Meta', async () => {
       const fetchSpy = jest.fn().mockResolvedValue(respuestaOk('wamid.xyz'));
-      global.fetch = fetchSpy as unknown as typeof fetch;
+      global.fetch = fetchSpy;
 
       const resultado = await servicio().enviar('+591 70000001', {
         type: 'text',
@@ -56,7 +56,7 @@ describe('WhatsappCloudService', () => {
 
     it('a quien solo tiene BSUID le escribe por `recipient`, entero y sin `to`', async () => {
       const fetchSpy = jest.fn().mockResolvedValue(respuestaOk('wamid.bsuid'));
-      global.fetch = fetchSpy as unknown as typeof fetch;
+      global.fetch = fetchSpy;
 
       const resultado = await servicio().enviar('BO.13491208655302741918', { type: 'text', text: { body: 'Hola' } }, undefined, CUENTA);
 
@@ -69,7 +69,7 @@ describe('WhatsappCloudService', () => {
 
     it('pasa tal cual el contenido interactivo', async () => {
       const fetchSpy = jest.fn().mockResolvedValue(respuestaOk());
-      global.fetch = fetchSpy as unknown as typeof fetch;
+      global.fetch = fetchSpy;
 
       await servicio().enviar('+59170000001', {
         type: 'interactive',
@@ -89,7 +89,7 @@ describe('WhatsappCloudService', () => {
         ok: false,
         status: 400,
         text: async () => 'error de Meta',
-      }) as unknown as typeof fetch;
+      });
 
       await expect(
         servicio().enviar('+59170000001', { type: 'text', text: { body: 'x' } }, undefined, CUENTA),
@@ -103,7 +103,7 @@ describe('WhatsappCloudService', () => {
         ok: false,
         status: 503,
         text: async () => 'Service Unavailable',
-      }) as unknown as typeof fetch;
+      });
 
       await expect(
         servicio().enviar('+59170000001', { type: 'text', text: { body: 'x' } }, undefined, CUENTA),
@@ -111,7 +111,7 @@ describe('WhatsappCloudService', () => {
     });
 
     it('un fallo de red es INCIERTO, sin lanzar', async () => {
-      global.fetch = jest.fn().mockRejectedValue(new Error('sin red')) as unknown as typeof fetch;
+      global.fetch = jest.fn().mockRejectedValue(new Error('sin red'));
 
       await expect(
         servicio().enviar('+59170000001', { type: 'text', text: { body: 'x' } }, undefined, CUENTA),
@@ -121,7 +121,7 @@ describe('WhatsappCloudService', () => {
     it('un 200 sin id es INCIERTO: Meta lo aceptó pero no dejó con qué correlacionar', async () => {
       global.fetch = jest
         .fn()
-        .mockResolvedValue({ ok: true, status: 200, json: async () => ({}) }) as unknown as typeof fetch;
+        .mockResolvedValue({ ok: true, status: 200, json: async () => ({}) });
 
       await expect(
         servicio().enviar('+59170000001', { type: 'text', text: { body: 'x' } }, undefined, CUENTA),
@@ -132,7 +132,7 @@ describe('WhatsappCloudService', () => {
   describe('marcarLeido', () => {
     it('manda el id del mensaje y el indicador solo si se pide', async () => {
       const fetchSpy = jest.fn().mockResolvedValue({ ok: true, status: 200 });
-      global.fetch = fetchSpy as unknown as typeof fetch;
+      global.fetch = fetchSpy;
       const s = servicio();
 
       await s.marcarLeido('wamid.in', false, CUENTA);
@@ -143,7 +143,7 @@ describe('WhatsappCloudService', () => {
     });
 
     it('no lanza si Meta falla', async () => {
-      global.fetch = jest.fn().mockRejectedValue(new Error('x')) as unknown as typeof fetch;
+      global.fetch = jest.fn().mockRejectedValue(new Error('x'));
       await expect(servicio().marcarLeido('wamid.in', false, CUENTA)).resolves.toBeUndefined();
     });
   });
@@ -153,20 +153,20 @@ describe('WhatsappCloudService', () => {
       global.fetch = jest.fn().mockResolvedValue({
         ok: true,
         json: async () => ({ url: 'https://cdn.meta/x' }),
-      }) as unknown as typeof fetch;
+      });
 
       expect(await servicio().urlDeMedia('media-1', CUENTA)).toBe('https://cdn.meta/x');
     });
 
     it('clasifica como permanente una media inexistente en el origen', async () => {
-      global.fetch = jest.fn().mockResolvedValue({ ok: false, status: 404 }) as unknown as typeof fetch;
+      global.fetch = jest.fn().mockResolvedValue({ ok: false, status: 404 });
       await expect(servicio().urlDeMedia('media-1', CUENTA)).rejects.toMatchObject({ codigo: 'MEDIA_NO_DISPONIBLE', categoria: 'PERMANENTE' });
     });
 
     /* El CDN de Meta también exige el token: sin él la descarga da 401. */
     it('descarga con el token en la cabecera', async () => {
       const fetchSpy = jest.fn().mockResolvedValue({ ok: true });
-      global.fetch = fetchSpy as unknown as typeof fetch;
+      global.fetch = fetchSpy;
 
       await servicio().descargarMedia('https://cdn.meta/x', CUENTA);
 

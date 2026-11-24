@@ -18,7 +18,7 @@ const ESPECIALIDADES = `WITH especialidades AS (
 
 async function filas(db: Lector, sql: string, valores: (string | number)[] = []): Promise<Fila[]> {
   const [resultado] = await db.execute<RowDataPacket[]>(sql, valores);
-  return resultado as Fila[];
+  return resultado;
 }
 function texto(v: unknown): string { if (typeof v !== 'string') throw new Error('Texto inválido'); return v; }
 function entero(v: unknown): number {

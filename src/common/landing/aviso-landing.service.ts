@@ -46,7 +46,7 @@ export class AvisoLandingService implements OnModuleDestroy {
     if (!this.habilitado || etiquetas.length === 0) return;
     for (const etiqueta of etiquetas) this.pendientes.add(etiqueta);
     if (this.temporizador) return;
-    this.temporizador = setTimeout(() => enSegundoPlano('aviso a la landing', this.logger, () => this.enviar()), ESPERA_AGRUPAR_MS);
+    this.temporizador = setTimeout(() => void enSegundoPlano('aviso a la landing', this.logger, () => this.enviar()), ESPERA_AGRUPAR_MS);
     // Un aviso pendiente no mantiene vivo el proceso al apagarlo.
     this.temporizador.unref();
   }

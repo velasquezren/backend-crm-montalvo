@@ -127,7 +127,7 @@ describe('validación de lo que manda el modelo', () => {
 
   it('un requerido ausente, vacío o que no es texto se rechaza diciendo cuál', () => {
     for (const args of [{}, { medicoId: '  ' }, { medicoId: 7 }]) {
-      const r = validarArgumentos(reservar, args as Record<string, unknown>);
+      const r = validarArgumentos(reservar, args);
       expect(r.ok).toBe(false);
       if (!r.ok) expect(r.motivo).toContain('medicoId');
     }
@@ -396,7 +396,7 @@ describe('buscar_medico: un médico por su nombre, en una sola vuelta', () => {
     };
   }
   const buscar = (agenda: ReturnType<typeof agendaDeLaClinica>, nombre: string) =>
-    montar(agenda as unknown as Partial<AgendaService>).ejecutar('buscar_medico', { nombre }, CONTEXTO, { permitirEscritura: false });
+    montar(agenda).ejecutar('buscar_medico', { nombre }, CONTEXTO, { permitirEscritura: false });
 
   it('«dr montalvo» lo encuentra en todas las especialidades a la vez, con su especialidad y su precio', async () => {
     const agenda = agendaDeLaClinica();
@@ -420,7 +420,7 @@ describe('buscar_medico: un médico por su nombre, en una sola vuelta', () => {
     agenda.todosLosMedicos.mockResolvedValue([
       { medico: { ...med('9', 'Dra. Paola Prueba Sintética', 'e'), modalidad: 'A_SOLICITUD', precio: null, horarioInformativo: null }, especialidad: e },
     ]);
-    const r = await montar(agenda as unknown as Partial<AgendaService>)
+    const r = await montar(agenda)
       .ejecutar('buscar_medico', { nombre: 'dra paola' }, { ...CONTEXTO, solicitud: 'AGENDAR' }, { permitirEscritura: false });
     expect(r).toMatchObject({ ok: true, datos: [{ id: '9', especialidad: 'Ecografista', modalidad: 'A_SOLICITUD', precioConsulta: null, comoSeAgenda: expect.stringContaining('motivo CITA') }] });
     expect(agenda.dias).not.toHaveBeenCalled();
@@ -430,7 +430,7 @@ describe('buscar_medico: un médico por su nombre, en una sola vuelta', () => {
 
   it('quiere agendar y es uno solo: sus días con cupo van con él, sin otra vuelta del modelo (15/10)', async () => {
     const agenda = { ...agendaDeLaClinica(), dias: jest.fn().mockResolvedValue({ medicoId: '1', dias: ['2026-10-19', '2026-10-23'] }) };
-    const servicio = montar(agenda as unknown as Partial<AgendaService>);
+    const servicio = montar(agenda);
     const agendar = { ...CONTEXTO, solicitud: 'AGENDAR' as const };
     expect(await servicio.ejecutar('buscar_medico', { nombre: 'montalvo' }, agendar, { permitirEscritura: false }))
       .toMatchObject({ ok: true, datos: [{ id: '1', diasConCupo: { dias: ['2026-10-19', '2026-10-23'] } }] });
@@ -560,7 +560,7 @@ describe('mi_agenda: la agenda del médico que escribe', () => {
     const { contexto } = conMedico();
     const conVentas = { ...contexto, ventas: ventas() };
     const agenda = { especialidades: jest.fn(), medicos: jest.fn(), disponibilidad: jest.fn() };
-    const servicio = montar(agenda as unknown as Partial<AgendaService>);
+    const servicio = montar(agenda);
     for (const nombre of ['enviar_horario', 'enviar_promocion', 'estado_de_pago', 'reservar']) {
       const r = await servicio.ejecutar(nombre, { especialidadId: '1', medicoId: '7', fecha: '2026-10-12', hora: '09:00', nombre: 'x', ci: '1', promocionId: 'p1' }, conVentas, { permitirEscritura: true });
       expect(r.ok).toBe(false);
@@ -573,7 +573,7 @@ describe('mi_agenda: la agenda del médico que escribe', () => {
   it('con un médico, lo informativo de la clínica sí se consulta («¿qué servicios hay?»)', async () => {
     const { contexto } = conMedico();
     const agenda = { especialidades: jest.fn().mockResolvedValue({ datos: [{ id: 'e1', nombre: 'Ginecología' }], total: 1, pagina: 1, limite: 100, totalPaginas: 1 }) };
-    const r = await montar(agenda as unknown as Partial<AgendaService>).ejecutar('listar_especialidades', {}, contexto, NO);
+    const r = await montar(agenda).ejecutar('listar_especialidades', {}, contexto, NO);
     expect(r.ok).toBe(true);
     expect(agenda.especialidades).toHaveBeenCalled();
   });

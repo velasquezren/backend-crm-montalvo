@@ -213,7 +213,7 @@ beforeEach(async () => {
   ];
 
   const audit = new AuditService(prisma);
-  const clientes = new ClientesService(prisma, audit, new ServiciosService(prisma) as ServiciosService, categoriasDePrueba(prisma));
+  const clientes = new ClientesService(prisma, audit, new ServiciosService(prisma), categoriasDePrueba(prisma));
   const lineas = new LineasWhatsappService(prisma, new ConfigService());
   service = new ResultadosService(prisma, new PortalResultadosClient(), clientes, conversacionesStub, lineas, audit);
 });

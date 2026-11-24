@@ -81,7 +81,7 @@ describe('idempotencia del envío · PostgreSQL real', () => {
     const fallidos = resultados.filter(r => r.status === 'rejected');
     expect(ok).toHaveLength(1);
     expect(fallidos).toHaveLength(1);
-    expect((fallidos[0] as PromiseRejectedResult).reason.code).toBe('P2002');
+    expect(fallidos[0].reason.code).toBe('P2002');
     expect(await prisma.mensaje.count({ where: { clientMessageId: id } })).toBe(1);
   });
 

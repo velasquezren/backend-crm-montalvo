@@ -57,7 +57,7 @@ export class ReservasActividadesService implements OnModuleInit, OnModuleDestroy
       for (const id of ids) await this.proyectar(actuales.find(r => r.id === id) ?? null, id, ahora);
       const nuevas = await this.agenda.ejecutar(db => reservasParaSeguimiento(db, textoDeFechaCivil(fechaCivilClinica(ahora)), this.cursor, LOTE));
       for (const reserva of nuevas) await this.proyectar(reserva, reserva.id, ahora);
-      this.cursor = nuevas.length === LOTE ? nuevas[nuevas.length - 1]!.id : 0;
+      this.cursor = nuevas.length === LOTE ? nuevas[nuevas.length - 1].id : 0;
       await this.notificarPendientes(ahora);
       return ids.length + nuevas.length;
     } finally { this.corriendo = false; }

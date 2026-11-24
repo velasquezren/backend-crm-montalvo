@@ -67,7 +67,7 @@ export async function reservasSinCargarDelMedico(db: Lector, medicoId: number, f
       ORDER BY p.hora, p.para_age LIMIT ?`,
     [medicoId, fecha, ...ESTADOS_RESERVA_SIN_CARGAR, String(TOPE_CITAS_POR_DIA)],
   );
-  return (filas as RowDataPacket[]).map(f => ({
+  return (filas).map(f => ({
     hora: String(f.hora), paciente: texto(f.nombre_age), estado: String(f.estado ?? ''),
   }));
 }

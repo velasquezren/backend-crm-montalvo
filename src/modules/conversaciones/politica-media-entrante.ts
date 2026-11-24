@@ -17,7 +17,7 @@ export function resultadoFalloMedia(error: ErrorMedia, intentos: number, creada:
       proximoIntento: null,
     };
   }
-  const minutos = error.categoria === 'CONFIGURACION' ? 60 : ESPERAS_MINUTOS[Math.max(0, intentos - 1)]!;
+  const minutos = error.categoria === 'CONFIGURACION' ? 60 : ESPERAS_MINUTOS[Math.max(0, intentos - 1)];
   return {
     estado: 'REINTENTABLE',
     ultimoError: error.codigo,

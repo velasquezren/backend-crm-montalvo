@@ -374,13 +374,13 @@ describe('VentasService contra Postgres real', () => {
 
       expect((await service.findAll({ modulo: 'LABORATORIO' })).total).toBe(1);
       expect((await service.findAll({ sinModulo: true })).total).toBe(1);
-      expect((await service.resumen({ sinModulo: true })).porEstado[0]!.cantidad).toBe(1);
+      expect((await service.resumen({ sinModulo: true })).porEstado[0].cantidad).toBe(1);
     });
 
     it('respeta el alcance de la agente', async () => {
       await service.create(ventaBase(), agenteId);
       await service.create(ventaBase(), otraAgenteId);
-      expect((await service.resumen({ agenteId })).porEstado[0]!.cantidad).toBe(1);
+      expect((await service.resumen({ agenteId })).porEstado[0].cantidad).toBe(1);
     });
   });
 

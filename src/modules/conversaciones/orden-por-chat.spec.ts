@@ -52,8 +52,8 @@ describe('envíos a Meta en orden por chat', () => {
     const registro: string[] = [];
     const a = tarea('chat c', registro);
     const b = tarea('chat d', registro);
-    enOrdenPorChat('chat-c', a.trabajo);
-    enOrdenPorChat('chat-d', b.trabajo);
+    void enOrdenPorChat('chat-c', a.trabajo);
+    void enOrdenPorChat('chat-d', b.trabajo);
     await vaciar();
     expect(registro).toEqual(['empieza chat c', 'empieza chat d']);
     a.terminar();

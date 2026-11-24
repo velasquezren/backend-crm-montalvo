@@ -1,7 +1,6 @@
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
 import { R2Service } from '../../common/storage/r2.service';
-import { TranscriptorAudio } from '../asistente/modelo.port';
 import { EscuchaAudiosService } from './escucha-audios.service';
 import { TranscripcionAudioService } from './transcripcion-audio.service';
 import { ConversacionesGateway } from './conversaciones.gateway';
@@ -13,7 +12,7 @@ let conversacionId: string;
 const transcribir = jest.fn();
 const gateway = { emitirActividad: jest.fn() };
 const storage = { habilitado: true, leer: jest.fn(async () => ({ cuerpo: new Blob(['audio sintetico']).stream(), bytes: 15, tipo: 'audio/ogg' })) };
-const escuchas = new EscuchaAudiosService(db, storage as unknown as R2Service, { nombre: 'sintetico', transcribir } as unknown as TranscriptorAudio, new ConfigService({ ASISTENTE_ESPERA_AUDIO_MS: '0' }), gateway as unknown as ConversacionesGateway);
+const escuchas = new EscuchaAudiosService(db, storage as unknown as R2Service, { nombre: 'sintetico', transcribir }, new ConfigService({ ASISTENTE_ESPERA_AUDIO_MS: '0' }), gateway as unknown as ConversacionesGateway);
 const worker = new TranscripcionAudioService(db, escuchas);
 
 beforeAll(async () => { await db.$connect(); });

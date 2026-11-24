@@ -55,7 +55,7 @@ function servicio(): WhatsappCloudService {
 /** Deja `fetch` haciendo lo que se le diga y devuelve el espía para inspeccionarlo. */
 function conFetch(implementacion: () => unknown): jest.Mock {
   const espia = jest.fn().mockImplementation(implementacion);
-  global.fetch = espia as unknown as typeof fetch;
+  global.fetch = espia;
   return espia;
 }
 

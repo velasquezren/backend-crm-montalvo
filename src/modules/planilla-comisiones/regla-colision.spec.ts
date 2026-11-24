@@ -208,7 +208,7 @@ describe('ConfiguracionComisionesService · colisión de ReglaClasificacion', ()
       const { servicio, actualizadas } = montar([REGLA_DIU, otra]);
 
       await expect(
-        servicio.actualizarRegla('r2', { prioridad: 50 } as never),
+        servicio.actualizarRegla('r2', { prioridad: 50 }),
       ).rejects.toThrow(ConflictException);
 
       expect(actualizadas).toHaveLength(0);
@@ -223,7 +223,7 @@ describe('ConfiguracionComisionesService · colisión de ReglaClasificacion', ()
       /* El PATCH no toca el patrón — el chequeo tiene que usar el patrón YA
          guardado de r2, no quedarse corto porque este payload no lo trae. */
       await expect(
-        servicio.actualizarRegla('r2', { prioridad: 50 } as never),
+        servicio.actualizarRegla('r2', { prioridad: 50 }),
       ).rejects.toThrow(ConflictException);
 
       expect(actualizadas).toHaveLength(0);
@@ -232,7 +232,7 @@ describe('ConfiguracionComisionesService · colisión de ReglaClasificacion', ()
     it('editar sin tocar prioridad ni patrón no dispara el chequeo contra sí misma', async () => {
       const { servicio, actualizadas } = montar([REGLA_DIU]);
 
-      await servicio.actualizarRegla('r1', { notas: 'revisar el mes que viene' } as never);
+      await servicio.actualizarRegla('r1', { notas: 'revisar el mes que viene' });
 
       expect(actualizadas).toHaveLength(1);
     });
@@ -241,7 +241,7 @@ describe('ConfiguracionComisionesService · colisión de ReglaClasificacion', ()
       const { servicio } = montar([]);
 
       await expect(
-        servicio.actualizarRegla('no-existe', { prioridad: 10 } as never),
+        servicio.actualizarRegla('no-existe', { prioridad: 10 }),
       ).rejects.toThrow(NotFoundException);
     });
 
@@ -249,7 +249,7 @@ describe('ConfiguracionComisionesService · colisión de ReglaClasificacion', ()
       const otra: ReglaFalsa = { ...REGLA_DIU, id: 'r2', prioridad: 90 };
       const { servicio, actualizadas } = montar([REGLA_DIU, otra]);
 
-      await servicio.actualizarRegla('r2', { prioridad: 50, activa: false } as never);
+      await servicio.actualizarRegla('r2', { prioridad: 50, activa: false });
 
       expect(actualizadas).toHaveLength(1);
     });

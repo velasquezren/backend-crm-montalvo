@@ -54,7 +54,7 @@ const VARIABLE = /\{\{\s*([^}]+?)\s*\}\}/g;
 const TIENE_VARIABLE = /\{\{[^}]+\}\}/;
 
 function nombresEnOrden(texto: string, formato: 'POSITIONAL' | 'NAMED'): string[] {
-  const nombres = [...new Set([...texto.matchAll(VARIABLE)].map(m => m[1]!))];
+  const nombres = [...new Set([...texto.matchAll(VARIABLE)].map(m => m[1]))];
   /* Posicionales: Meta las numera desde 1 y las espera en ese orden, aunque en
      el texto aparezcan como «{{2}} … {{1}}». */
   return formato === 'POSITIONAL' ? nombres.sort((a, b) => Number(a) - Number(b)) : nombres;

@@ -4,7 +4,6 @@ import { cubreRol } from '../../common/auth/roles';
 import { UsuarioJwt } from '../../common/decorators/current-user.decorator';
 import { normalizarTelefono } from '../../common/telefono/telefono';
 import { esChoqueUnicoEn } from '../../prisma/choque-unico';
-import { Prisma } from '../../prisma/prisma-client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AgendaMedicosCrmService } from './agenda-medicos-crm.service';
 
@@ -95,7 +94,7 @@ export class AccesoMedicoAgendaService {
         await tx.auditLog.create({
           data: {
             entidad: 'AccesoMedicoAgenda', entidadId: String(agendaMedicoId), accion: antes ? 'ACCESO_MEDICO_CAMBIADO' : 'ACCESO_MEDICO_AUTORIZADO', usuarioId: usuario.sub,
-            cambios: { telefono: terminaEn(telefono), ...(antes ? { anterior: terminaEn(antes.telefono) } : {}) } as Prisma.InputJsonValue,
+            cambios: { telefono: terminaEn(telefono), ...(antes ? { anterior: terminaEn(antes.telefono) } : {}) },
           },
         });
       });
@@ -121,7 +120,7 @@ export class AccesoMedicoAgendaService {
       await tx.auditLog.create({
         data: {
           entidad: 'AccesoMedicoAgenda', entidadId: String(agendaMedicoId), accion: 'ACCESO_MEDICO_REVOCADO', usuarioId: usuario.sub,
-          cambios: { telefono: terminaEn(fila.telefono) } as Prisma.InputJsonValue,
+          cambios: { telefono: terminaEn(fila.telefono) },
         },
       });
     });

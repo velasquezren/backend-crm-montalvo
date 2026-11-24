@@ -11,7 +11,7 @@ import { ComprobantesReservaChatService, leerImagenAcotada } from './comprobante
 import { comprobanteAmbiguo, marcarComprobanteDeReserva, registrarReservaDeChat } from './reservas-chat';
 import { BYTES_MAXIMOS_IMAGEN } from '../../common/storage/imagen-publica';
 import { AsistenteLineasService } from '../asistente/asistente-lineas.service';
-import { DatosComprobante, LectorComprobantes } from '../asistente/modelo.port';
+import { DatosComprobante } from '../asistente/modelo.port';
 import { TEXTO_NO_ES_COMPROBANTE } from './comprobante-reserva';
 
 const db = new PrismaService('postgresql://crm_app@127.0.0.1:5433/crm_test');
@@ -27,7 +27,7 @@ const lineasIA = { leeComprobantes: jest.fn(async () => false) };
 const lector = { nombre: 'lector-sintetico', leer: jest.fn<Promise<{ datos: DatosComprobante; uso: never }>, [unknown]>() };
 const despachador = { texto: jest.fn(async () => undefined) };
 const worker = () => new ComprobantesReservaChatService(db, r2 as unknown as R2Service, agenda as unknown as AgendaReservasService, gateway as unknown as ConversacionesGateway, constancia as unknown as ConstanciaReservaService,
-  lineasIA as unknown as AsistenteLineasService, lector as unknown as LectorComprobantes, despachador as unknown as DespachadorSalienteService);
+  lineasIA as unknown as AsistenteLineasService, lector, despachador as unknown as DespachadorSalienteService);
 /** Ahora, como lo escribe un comprobante boliviano: «2026-10-22T15:10». */
 const ahoraEnLaPaz = () => new Date().toLocaleString('sv-SE', { timeZone: 'America/La_Paz' }).slice(0, 16).replace(' ', 'T');
 const leido = (cambios: Partial<DatosComprobante> = {}): { datos: DatosComprobante; uso: never } => ({ uso: undefined as never, datos: {

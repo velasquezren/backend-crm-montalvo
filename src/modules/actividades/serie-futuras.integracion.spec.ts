@@ -286,7 +286,7 @@ describe('A5.2 · compatibilidad', () => {
   it('los PATCH individuales siguen afectando a una sola', async () => {
     const ids = await sembrarSerie([L12, L19, L26]);
 
-    await service.update(ids[0], { fechaProgramada: new Date('2026-10-12T20:00:00.000Z') } as never, agenteA);
+    await service.update(ids[0], { fechaProgramada: new Date('2026-10-12T20:00:00.000Z') }, agenteA);
     await service.actualizarEstado(ids[1], { estado: 'CANCELADA' } as never, agenteA);
 
     /* Por id, no por posición. `sembrarSerie` crea las tres en un bucle

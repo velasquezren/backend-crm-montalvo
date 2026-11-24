@@ -32,7 +32,7 @@ const TAG = 16;
 export function esPeticionCifrada(v: unknown): v is PeticionCifrada {
   if (typeof v !== 'object' || v === null) return false;
   const o = v as Record<string, unknown>;
-  return ['encrypted_flow_data', 'encrypted_aes_key', 'initial_vector'].every(k => typeof o[k] === 'string' && (o[k] as string).length > 0 && (o[k] as string).length < 1_000_000);
+  return ['encrypted_flow_data', 'encrypted_aes_key', 'initial_vector'].every(k => typeof o[k] === 'string' && o[k].length > 0 && o[k].length < 1_000_000);
 }
 
 export function descifrarPeticionFlow(peticion: PeticionCifrada, llavePrivada: KeyObject): PeticionDescifrada {

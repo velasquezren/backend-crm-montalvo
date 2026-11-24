@@ -111,7 +111,7 @@ beforeEach(async () => {
   envios = [];
   jest.spyOn(whatsapp, 'listarPlantillas').mockResolvedValue(PLANTILLAS);
   jest.spyOn(whatsapp, 'enviar').mockImplementation(async (telefono, cuerpo) => {
-    envios.push({ telefono, cuerpo: cuerpo as unknown as Record<string, unknown> });
+    envios.push({ telefono, cuerpo: cuerpo });
     return { estado: 'ENVIADO' as const, metaMsgId: `wamid.${envios.length}` };
   });
   const lineas = new LineasWhatsappService(prisma, config);
@@ -171,7 +171,7 @@ describe('iniciar una conversación', () => {
     expect((await prisma.conversacion.findUniqueOrThrow({ where: { id: conversacionId } })).agenteId).toBe(ana.id);
 
     await esperarEnvios(1);
-    expect(envios[0]!.telefono).toBe('+59170012345');
+    expect(envios[0].telefono).toBe('+59170012345');
 
     /* La paciente contesta: Meta manda `from` sin el `+`. */
     await ingesta.procesarEntrante('+59170012345', 'Hola, sí me interesa', 'wamid.respuesta', 'Lucía', undefined, undefined, false, VENTAS);
@@ -292,7 +292,7 @@ describe('enviar una plantilla en un chat existente', () => {
     expect(mensaje.contenido).toContain('Hola Lucía');
     expect(mensaje.contenido).not.toContain('{{');
     await esperarEnvios(1);
-    expect(envios[0]!.cuerpo).toMatchObject({
+    expect(envios[0].cuerpo).toMatchObject({
       type: 'template',
       template: {
         name: 'seguimiento_servicio',

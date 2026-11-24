@@ -13,7 +13,7 @@ describe('R2: transporte de recuperación de media', () => {
     const signal = new AbortController().signal;
     await new R2Service(config).subirMediaEntrante('wa/chat/mensaje', new ArrayBuffer(2), 'image/jpeg', signal);
     expect(spy).toHaveBeenCalledTimes(1);
-    const [request, init] = spy.mock.calls[0]!;
+    const [request, init] = spy.mock.calls[0];
     expect(request).toBeInstanceOf(Request);
     expect((request as Request).url).toBe('https://f06.r2.cloudflarestorage.com/bucket-ficticio/wa/chat/mensaje');
     expect((request as Request).headers.get('if-none-match')).toBe('*');

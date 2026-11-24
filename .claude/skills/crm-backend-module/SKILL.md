@@ -89,7 +89,11 @@ modules/<dominio>/
 
 ## Antes de dar por terminado
 
-- `npx nest build` sin errores (**no uses el navegador en este proyecto**).
+- `npm run build` sin errores (**no uses el navegador en este proyecto**). Incluye
+  `npm run lint` (ESLint con tipos, `eslint.config.mjs`): promesas sin esperar,
+  `switch` incompletos sobre un enum, `any`, `==`. Una promesa que se lanza y no
+  se espera va por `enSegundoPlano()` o con `void` explícito; nada de desactivar
+  la regla.
 - Probar con `curl` contra la base local (puerto 5433) si tocaste un endpoint.
 - Si tocaste `schema.prisma`, la migración está generada y commiteada.
 - Ningún `any`, ningún `take` fijo nuevo, ningún acceso a la tabla de otro dominio,

@@ -575,7 +575,7 @@ describe('WhatsappWebhookController', () => {
         );
 
         expect(servicio.procesarEntrante).toHaveBeenCalledTimes(1);
-        const args = (servicio.procesarEntrante as jest.Mock).mock.calls[0];
+        const args = (servicio.procesarEntrante).mock.calls[0];
         expect(args[4]).toMatchObject({ tipo: 'STICKER', mediaId: 'st-1' });
         expect(args[8]).toBeUndefined();
       });
@@ -591,7 +591,7 @@ describe('WhatsappWebhookController', () => {
         await controller.procesarWebhook(payload({ messages: [toque] }));
 
         expect(servicio.procesarEntrante).toHaveBeenCalledTimes(1);
-        const args = (servicio.procesarEntrante as jest.Mock).mock.calls[0];
+        const args = (servicio.procesarEntrante).mock.calls[0];
         expect(args[1]).toBe('Interacción recibida; pendiente de revisión.');
         /* El último argumento es `interaccionOriginal`: sin el payload crudo,
            `guardarRespuesta` no puede correlacionar el toque con la oferta. */

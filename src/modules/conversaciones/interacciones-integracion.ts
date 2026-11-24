@@ -267,7 +267,7 @@ export async function guardarRespuesta(
       const tipoCorrecto = (guardada.respuestasPlantilla && seleccion.tipo === 'template_reply') || (m.tipo === 'botones' && seleccion.tipo === 'button_reply') || (m.tipo === 'lista' && seleccion.tipo === 'list_reply');
       const flowValido = seleccion.tipo === 'nfm_reply' && m.tipo === 'flow' && guardada.flow?.id === m.flowId &&
         guardada.flow.version.length > 0 && seleccion.datos['flow_version'] === guardada.flow.version && seleccion.correlacion === m.correlacion &&
-        Object.entries(guardada.flow.respuestas).every(([k, valores]) => typeof seleccion.datos[k] === 'string' && valores.includes(seleccion.datos[k] as string)) &&
+        Object.entries(guardada.flow.respuestas).every(([k, valores]) => typeof seleccion.datos[k] === 'string' && valores.includes(seleccion.datos[k])) &&
         Object.entries(guardada.flow.campos ?? {}).every(([k, campo]) => validarCampoFlow(seleccion.datos[k], campo)) &&
         Object.keys(seleccion.datos).every(k => k === 'flow_token' || k === 'flow_version' || Object.hasOwn(guardada.flow!.respuestas, k) || Object.hasOwn(guardada.flow!.campos ?? {}, k));
       if (guardada.telefono === telefono && ((tipoCorrecto && opcion) || flowValido)) {

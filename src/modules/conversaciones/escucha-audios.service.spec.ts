@@ -2,7 +2,7 @@ import { ConfigService } from '@nestjs/config';
 
 import { R2Service } from '../../common/storage/r2.service';
 import { PrismaService } from '../../prisma/prisma.service';
-import { TranscriptorAudio, TurnoModelo } from '../asistente/modelo.port';
+import { TurnoModelo } from '../asistente/modelo.port';
 import { BYTES_MAXIMOS_AUDIO } from '../asistente/transcripcion';
 import { aTurno, rafagaDeLaPaciente } from './asistente-chat.service';
 import { AUDIOS_POR_TURNO, audiosDeLaRafaga, EscuchaAudiosService, MensajeEscuchable } from './escucha-audios.service';
@@ -63,7 +63,7 @@ function montar(o: {
   };
   const transcribir = o.transcribir ?? jest.fn().mockResolvedValue({ texto: 'Hola, quería una cita', uso: USO });
   const servicio = new EscuchaAudiosService(
-    prisma as unknown as PrismaService, r2 as unknown as R2Service, { nombre: 't', transcribir } as unknown as TranscriptorAudio,
+    prisma as unknown as PrismaService, r2 as unknown as R2Service, { nombre: 't', transcribir },
     new ConfigService({ ASISTENTE_ESPERA_AUDIO_MS: o.esperaMs ?? '0' }),
   );
   jest.spyOn(servicio['logger'], 'warn').mockImplementation(() => undefined);

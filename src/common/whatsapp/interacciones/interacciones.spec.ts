@@ -175,7 +175,7 @@ describe("mensajes preparados sin transporte", () => {
       ],
     };
     expect(() => validarMensaje(m)).not.toThrow();
-    m.secciones[0]!.opciones[0]!.titulo += "x";
+    m.secciones[0].opciones[0].titulo += "x";
     expect(() => validarMensaje(m)).toThrow();
   });
   it("Flow navigate y data_exchange son excluyentes", () => {

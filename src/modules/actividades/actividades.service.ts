@@ -68,7 +68,7 @@ export function fechasDeRepeticion(inicio: Date, repetir?: RepetirActividadDto):
   const paso = { SEMANAL: { dias: 7 }, QUINCENAL: { dias: 14 }, MENSUAL: { meses: 1 } }[repetir.frecuencia];
   const fechas = [inicio];
   for (let i = 1; i < repetir.veces; i++) {
-    fechas.push(desplazarEnCalendarioClinica(fechas[i - 1]!, paso));
+    fechas.push(desplazarEnCalendarioClinica(fechas[i - 1], paso));
   }
   return fechas;
 }

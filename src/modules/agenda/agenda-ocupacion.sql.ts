@@ -111,5 +111,5 @@ export async function horasLibres(db: Lector, f: FiltroHorasLibres): Promise<Hor
       f.medicoId, f.desde, f.hasta, ...ESTADOS_QUE_OCUPAN,
     ],
   );
-  return (filas as RowDataPacket[]).map(r => ({ fecha: String(r.fecha), hora: String(r.hora) }));
+  return (filas).map(r => ({ fecha: String(r.fecha), hora: String(r.hora) }));
 }

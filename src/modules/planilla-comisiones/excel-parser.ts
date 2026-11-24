@@ -57,7 +57,7 @@ function valorDeCelda(valor: CellValue): unknown {
   if (valor === null || valor === undefined) return null;
   if (valor instanceof Date) return aHoraLocal(valor);
   if (typeof valor !== 'object') return valor;
-  if ('result' in valor) return valor.result === undefined ? null : valorDeCelda(valor.result as CellValue);
+  if ('result' in valor) return valor.result === undefined ? null : valorDeCelda(valor.result);
   if ('richText' in valor) return valor.richText.map(trozo => trozo.text).join('');
   if ('text' in valor) return valor.text;
   if ('error' in valor) return null;

@@ -44,7 +44,7 @@ export type ResultadoReserva =
 
 async function filas(db: Conexion, sql: string, valores: (string | number | null)[]): Promise<Fila[]> {
   const [resultado] = await db.execute<RowDataPacket[]>(sql, valores);
-  return resultado as Fila[];
+  return resultado;
 }
 
 const ES_CLAVE_DUPLICADA = (error: unknown) =>

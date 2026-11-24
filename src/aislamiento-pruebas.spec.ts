@@ -7,7 +7,6 @@ import * as path from 'node:path';
  * mismo: si alguien lo quita de la configuración de jest o lo debilita, esto
  * falla. Ver el motivo en la cabecera de ese archivo.
  */
-// eslint-disable-next-line @typescript-eslint/no-require-imports
 const aislamiento = require('../test/aislamiento-pruebas.cjs') as {
   motivoDeBaseNoPermitida: (url: string) => string | null;
   esDestinoLocal: (host?: string) => boolean;

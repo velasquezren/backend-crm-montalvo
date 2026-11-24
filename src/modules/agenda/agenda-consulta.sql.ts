@@ -53,7 +53,7 @@ const COLUMNAS = `p.para_age AS id, DATE_FORMAT(p.fecha, '%Y-%m-%d') AS fecha, D
 
 async function filas(db: Lector, sql: string, valores: (string | number)[]): Promise<Fila[]> {
   const [resultado] = await db.execute<RowDataPacket[]>(sql, valores);
-  return resultado as Fila[];
+  return resultado;
 }
 
 const textoONulo = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : null);
