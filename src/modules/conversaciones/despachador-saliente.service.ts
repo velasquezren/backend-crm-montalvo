@@ -351,8 +351,11 @@ export class DespachadorSalienteService {
       // Entre la descarga y la subida pudieron pausar el chat o corregir su ficha.
       await this.informes.seleccion(destino.conversacionId, destino.telefono, key.slice(PREFIJO_INFORME_CHAT.length), true);
     } catch {
-      await this.registrarResultadoEnvio(destino, { estado: 'NO_SALIO', motivo: 'Informe no disponible o autorización cambiada. Requiere revisión.' }, false);
+      /* Primero la persona, después el estado: son dos escrituras, y si el
+         proceso cae entre ellas lo seguro es que alguien ya esté avisado (el
+         mensaje sigue INCIERTO, sin reintento) y no un PDF fallido que nadie ve. */
       await this.prisma.$transaction(tx => registrarSolicitudAtencion(tx, destino.conversacionId, 'REVISION', destino.mensajeId, new Date()));
+      await this.registrarResultadoEnvio(destino, { estado: 'NO_SALIO', motivo: 'Informe no disponible o autorización cambiada. Requiere revisión.' }, false);
       return;
     }
     await this.registrarResultadoEnvio(destino, await this.whatsapp.enviar(destino.telefono,
