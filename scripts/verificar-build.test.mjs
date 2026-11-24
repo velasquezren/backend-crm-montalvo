@@ -36,7 +36,10 @@ test('npm run build conserva el entrypoint en builds limpios y consecutivos', as
   // Copia el código actual, incluido Prisma generado, pero nunca dist, cachés o .env.
   // Usa las dependencias instaladas: esta prueba no instala ni descarga paquetes.
   for (const ruta of ['src', 'scripts', 'prisma', '.claude', '.env.example',
-    'package.json', 'nest-cli.json', 'tsconfig.json', 'tsconfig.build.json']) {
+    'package.json', 'nest-cli.json', 'tsconfig.json', 'tsconfig.build.json',
+    // `npm run build` incluye `npm run lint` desde 2026-11-24: sin su
+    // configuración ESLint 9 aborta y esta prueba falla con el build sano.
+    'eslint.config.mjs']) {
     cpSync(join(proyecto, ruta), join(raiz, ruta), { recursive: true });
   }
   /* `check:skills` exige que PANORAMA nombre cada módulo. Sin copiarlo, esta
