@@ -23,6 +23,8 @@
     "noUnusedParameters": true,
     "forceConsistentCasingInFileNames": true,
     "noFallthroughCasesInSwitch": true,
+    "noImplicitReturns": true,
+    "noImplicitOverride": true,
     "esModuleInterop": true,
     "isolatedModules": true
   }
