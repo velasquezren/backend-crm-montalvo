@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, ParseUUIDPipe, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, HttpStatus, Param, ParseUUIDPipe, Patch, Post, Query } from '@nestjs/common';
 
 import { CurrentUser, UsuarioJwt } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -76,9 +76,13 @@ export class ResultadosController {
     return this.constancia.validar(mes, usuario);
   }
 
-  /** Anula la validación, con motivo. La copia pasa a la auditoría. Solo SUPER_ADMIN. */
+  /**
+   * Anula la validación, con motivo. La copia pasa a la auditoría. Solo
+   * SUPER_ADMIN. POST y no DELETE: lleva cuerpo (el motivo), y un DELETE con
+   * cuerpo lo descartan algunos proxies y el cliente HTTP del frontend.
+   */
   @Roles('SUPER_ADMIN')
-  @Delete('constancia/:mes/validacion')
+  @Post('constancia/:mes/validacion/anular')
   @HttpCode(HttpStatus.NO_CONTENT)
   anularValidacion(@Param() { mes }: MesConstanciaDto, @Body() dto: AnularValidacionDto, @CurrentUser() usuario: UsuarioJwt) {
     return this.constancia.anularValidacion(mes, dto.motivo, usuario);
