@@ -270,3 +270,19 @@ la purga en `interacciones.integracion.spec.ts`, el permiso en
 
 **Orden de despliegue:** Resultados primero (ruta nueva, sin migración), después
 el backend del CRM (sin migración) y al final el frontend.
+
+### Validación, impresiones e historial por meses (27/11/2026)
+
+Pedido de René: saber quién imprimió, si el mes se validó, y guardarlo por meses.
+
+| Qué | Cómo |
+| --- | --- |
+| Validar un mes | `POST /resultados/constancia/:mes/validacion`, **solo SUPER_ADMIN**, solo meses que ya terminaron (400) y una vez (409, también si dos pulsan a la vez). Calcula la constancia entera y la guarda en `ConstanciaResultadosMes.copia` con quién (nombre de ese momento) y cuándo, en la misma transacción que la auditoría `CONSTANCIA_VALIDADA`. |
+| Leer un mes validado | `GET /resultados/constancia` sirve la **copia congelada** (`version: VALIDADA`): reimprimir saca lo que se notarió aunque después cambie un estado de WhatsApp o un paciente abra su informe. `version=EN_VIVO` recalcula para comparar, sin tocar la copia. La respuesta trae `validacion` (o `null`). |
+| Anular | `DELETE /resultados/constancia/:mes/validacion` con `motivo` (5–300), solo SUPER_ADMIN. La fila se borra y la copia pasa a la auditoría `CONSTANCIA_VALIDACION_ANULADA` con el motivo y quién había validado. |
+| Imprimir | `POST /resultados/constancia/:mes/impresion` (ADMIN+): tipo, filtro en palabras, filas y versión. **No es best-effort**: la pantalla no imprime si no queda registrado. Auditoría `CONSTANCIA_RESULTADOS_IMPRESA`. |
+| Historial | `GET /resultados/constancia/meses` (ADMIN+): los 12 meses hasta el actual con avisos, validación e impresiones (cuántas y la última). |
+
+Despliegue: migración `constancia_resultados_mes` (solo crea la tabla) con el
+backend del CRM, y después el frontend. Pruebas: «validación del mes» en
+`resultados.integracion.spec.ts` y los permisos en `resultados-roles.spec.ts`.

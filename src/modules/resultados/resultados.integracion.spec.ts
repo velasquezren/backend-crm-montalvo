@@ -10,7 +10,7 @@ import { ClientesService } from '../clientes/clientes.service';
 import { ServiciosService } from '../servicios/servicios.service';
 import { EnvioPlantillasService } from '../conversaciones/envio-plantillas.service';
 import { LineasWhatsappService } from '../lineas-whatsapp/lineas-whatsapp.service';
-import { ConstanciaResultadosService } from './constancia-resultados.service';
+import { ConstanciaResultadosService, desplazarMes, rangoDelMes } from './constancia-resultados.service';
 import { PortalResultadosClient } from './portal-resultados.client';
 import { ResultadosService } from './resultados.service';
 import { categoriasDePrueba } from '../clientes/categorias.de-prueba';
@@ -174,6 +174,7 @@ beforeEach(async () => {
      al resto de la suite sin claves foráneas — pasó, y tumbó seis specs. */
   await prisma.avisoResultado.deleteMany();
   await prisma.destinoAvisoResultado.deleteMany();
+  await prisma.constanciaResultadosMes.deleteMany();
   await prisma.mensaje.deleteMany({ where: { conversacion: { lineaId: LINEA } } });
   await prisma.conversacion.deleteMany({ where: { lineaId: LINEA } });
   await prisma.accesoLineaWhatsapp.deleteMany({ where: { lineaId: LINEA } });
@@ -1111,6 +1112,73 @@ describe('constancia mensual de entregas', () => {
     expect(await prisma.auditLog.count({ where: { entidad: 'ConstanciaResultados', accion: 'CONSTANCIA_RESULTADOS_GENERADA' } })).toBe(1);
     await constancia.mensual({ mes: mesActual, pagina: 2 }, admin);
     expect(await prisma.auditLog.count({ where: { entidad: 'ConstanciaResultados' } })).toBe(1);
+  });
+
+  /* Validar (27/11/2026): un mes cerrado se congela tal como se lleva a notariar. */
+  describe('validación del mes', () => {
+    const superAdmin = { sub: 'a0000000-0000-4000-8000-000000000001', rol: 'SUPER_ADMIN' } as never;
+    const mesAnterior = desplazarMes(mesActual, -1);
+    const enElMesAnterior = () => new Date(rangoDelMes(mesAnterior).desde.getTime() + 5 * 86_400_000);
+
+    it('no se valida el mes en curso: todavía pueden salir avisos', async () => {
+      await expect(constancia.validar(mesActual, superAdmin)).rejects.toThrow('ya terminó');
+      expect(await prisma.constanciaResultadosMes.count()).toBe(0);
+    });
+
+    it('congela la constancia: lo que pase después no cambia la copia validada, y en vivo sí se ve', async () => {
+      const { mensaje } = await avisoAntiguo(INFORME, enElMesAnterior(), { mensajeId: 'x', telefono: '+59170000001', estudio: 'Ecografía abdominal' });
+      await prisma.auditLog.updateMany({ where: { accion: 'RESULTADO_ENVIADO' }, data: { cambios: { informeId: INFORME, mensajeId: mensaje.id, telefono: '+59170000001' } } });
+
+      const validacion = await constancia.validar(mesAnterior, superAdmin);
+      expect(validacion.totalAvisos).toBe(1);
+      expect(await prisma.auditLog.count({ where: { entidad: 'ConstanciaResultados', entidadId: mesAnterior, accion: 'CONSTANCIA_VALIDADA' } })).toBe(1);
+
+      /* Después de validar, WhatsApp cambia el estado del aviso. */
+      await prisma.mensaje.update({ where: { id: mensaje.id }, data: { estadoEnvio: 'FALLIDO', codigoErrorEnvio: 131026 } });
+
+      const validada = await constancia.mensual({ mes: mesAnterior }, admin);
+      expect(validada.version).toBe('VALIDADA');
+      expect(validada.validacion).toMatchObject({ totalAvisos: 1 });
+      expect(validada.total).toBe(1);
+      expect(validada.datos[0].whatsapp?.estado).toBe('LEIDO');
+
+      const enVivo = await constancia.mensual({ mes: mesAnterior, version: 'EN_VIVO' }, admin);
+      expect(enVivo.version).toBe('EN_VIVO');
+      expect(enVivo.validacion).not.toBeNull();
+      expect(enVivo.datos[0].whatsapp?.estado).toBe('FALLIDO');
+    });
+
+    it('no se valida dos veces; anular deja la copia y el motivo en la auditoría y vuelve a en vivo', async () => {
+      await avisoAntiguo(INFORME, enElMesAnterior(), { telefono: '+59170000001' });
+      await constancia.validar(mesAnterior, superAdmin);
+      await expect(constancia.validar(mesAnterior, superAdmin)).rejects.toThrow('ya está validado');
+
+      await constancia.anularValidacion(mesAnterior, 'Faltaba un aviso de FileMaker', superAdmin);
+      expect(await prisma.constanciaResultadosMes.count()).toBe(0);
+      const anulada = await prisma.auditLog.findFirstOrThrow({ where: { entidadId: mesAnterior, accion: 'CONSTANCIA_VALIDACION_ANULADA' } });
+      expect(anulada.cambios).toMatchObject({ motivo: 'Faltaba un aviso de FileMaker', totalAvisos: 1, copia: { datos: [expect.objectContaining({ informeId: INFORME })] } });
+      await expect(constancia.anularValidacion(mesAnterior, 'otra vez', superAdmin)).rejects.toThrow('no está validado');
+
+      const r = await constancia.mensual({ mes: mesAnterior }, admin);
+      expect([r.version, r.validacion]).toEqual(['EN_VIVO', null]);
+    });
+
+    it('cada impresión consta y el historial dice avisos, validación y quién imprimió por última vez', async () => {
+      await avisoAntiguo(INFORME, enElMesAnterior(), { telefono: '+59170000001' });
+      await constancia.validar(mesAnterior, superAdmin);
+      await constancia.registrarImpresion(mesAnterior, { filas: 1, version: 'VALIDADA', tipo: 'ECOGRAFIA' }, admin);
+      await constancia.registrarImpresion(mesAnterior, { filas: 1, version: 'VALIDADA', filtro: 'Leídos' }, admin);
+
+      const impresas = await prisma.auditLog.findMany({ where: { entidadId: mesAnterior, accion: 'CONSTANCIA_RESULTADOS_IMPRESA' } });
+      expect(impresas).toHaveLength(2);
+      expect(impresas.map(i => (i.cambios as { tipo: string | null }).tipo).sort()).toEqual(['ECOGRAFIA', null].sort());
+
+      const meses = await constancia.meses();
+      expect(meses).toHaveLength(12);
+      expect(meses[0]).toMatchObject({ mes: mesActual, enCurso: true, validacion: null });
+      expect(meses[1]).toMatchObject({ mes: mesAnterior, enCurso: false, avisos: 1, validacion: { totalAvisos: 1 }, impresiones: { total: 2 } });
+      expect(meses[1].impresiones.ultima).not.toBeNull();
+    });
   });
 
   it('renovar borra la fila del aviso pero la constancia conserva los dos envíos, y el número con el que salió cada uno', async () => {

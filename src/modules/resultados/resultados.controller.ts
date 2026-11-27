@@ -1,8 +1,9 @@
-import { Body, Controller, Get, Param, ParseUUIDPipe, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, ParseUUIDPipe, Patch, Post, Query } from '@nestjs/common';
 
 import { CurrentUser, UsuarioJwt } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { ConstanciaResultadosService } from './constancia-resultados.service';
+import { AnularValidacionDto, ImpresionConstanciaDto, MesConstanciaDto } from './dto/mes-constancia.dto';
 import { QueryConstanciaDto } from './dto/query-constancia.dto';
 import { QueryResultadosDto } from './dto/query-resultados.dto';
 import { TelefonoPacienteDto } from './dto/telefono-paciente.dto';
@@ -43,6 +44,44 @@ export class ResultadosController {
   @Get('constancia')
   constanciaMensual(@Query() query: QueryConstanciaDto, @CurrentUser() usuario: UsuarioJwt) {
     return this.constancia.mensual(query, usuario);
+  }
+
+  /**
+   * Los últimos 12 meses de la constancia: avisos, si el mes está validado y
+   * quién imprimió por última vez. Solo administración, como la constancia.
+   */
+  @Roles('ADMIN')
+  @Get('constancia/meses')
+  mesesDeConstancia() {
+    return this.constancia.meses();
+  }
+
+  /**
+   * Deja constancia de una impresión (quién, cuándo, qué recorte). La pantalla
+   * no imprime si esto falla: el registro de quién imprimió es el pedido.
+   */
+  @Roles('ADMIN')
+  @Post('constancia/:mes/impresion')
+  registrarImpresion(@Param() { mes }: MesConstanciaDto, @Body() dto: ImpresionConstanciaDto, @CurrentUser() usuario: UsuarioJwt) {
+    return this.constancia.registrarImpresion(mes, dto, usuario);
+  }
+
+  /**
+   * Valida un mes ya cerrado y congela su constancia. Solo SUPER_ADMIN
+   * (27/11/2026, René): validar es cerrar el mes que se lleva a notariar.
+   */
+  @Roles('SUPER_ADMIN')
+  @Post('constancia/:mes/validacion')
+  validarMes(@Param() { mes }: MesConstanciaDto, @CurrentUser() usuario: UsuarioJwt) {
+    return this.constancia.validar(mes, usuario);
+  }
+
+  /** Anula la validación, con motivo. La copia pasa a la auditoría. Solo SUPER_ADMIN. */
+  @Roles('SUPER_ADMIN')
+  @Delete('constancia/:mes/validacion')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  anularValidacion(@Param() { mes }: MesConstanciaDto, @Body() dto: AnularValidacionDto, @CurrentUser() usuario: UsuarioJwt) {
+    return this.constancia.anularValidacion(mes, dto.motivo, usuario);
   }
 
   /**

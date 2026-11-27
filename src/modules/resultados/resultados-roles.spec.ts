@@ -55,3 +55,26 @@ describe('la constancia mensual de entregas', () => {
     expect(() => guard.canActivate(contexto(ResultadosController, 'constanciaMensual', rol))).toThrow(ForbiddenException);
   });
 });
+
+/* Imprimir y ver el historial: administración. Validar y anular: solo
+   SUPER_ADMIN (27/11/2026, René), porque validar cierra el mes que se notaría. */
+describe('validación e impresiones de la constancia', () => {
+  it.each([Rol.ADMIN, Rol.SUPER_ADMIN])('%s registra impresiones y ve el historial', rol => {
+    for (const metodo of ['registrarImpresion', 'mesesDeConstancia'] as const) {
+      expect(guard.canActivate(contexto(ResultadosController, metodo, rol))).toBe(true);
+    }
+  });
+  it.each([Rol.ASISTENTE, Rol.RECEPCION, Rol.AGENTE])('%s no imprime ni ve el historial', rol => {
+    for (const metodo of ['registrarImpresion', 'mesesDeConstancia'] as const) {
+      expect(() => guard.canActivate(contexto(ResultadosController, metodo, rol))).toThrow(ForbiddenException);
+    }
+  });
+  it('solo SUPER_ADMIN valida y anula', () => {
+    for (const metodo of ['validarMes', 'anularValidacion'] as const) {
+      expect(guard.canActivate(contexto(ResultadosController, metodo, Rol.SUPER_ADMIN))).toBe(true);
+      for (const rol of [Rol.ADMIN, Rol.ASISTENTE, Rol.RECEPCION, Rol.AGENTE]) {
+        expect(() => guard.canActivate(contexto(ResultadosController, metodo, rol))).toThrow(ForbiddenException);
+      }
+    }
+  });
+});

@@ -207,19 +207,19 @@ model Cliente {
   /// Residuo del volcado original (contadores internos de FileMaker). Se
   /// conserva por trazabilidad pero NO se envía en los listados: son 19 claves
   /// que encarecían cada página sin que nadie las leyera.
-  datosExtra      Json?
-  intereses       Interes[]
-  leads           Lead[]
-  conversaciones  Conversacion[]
-  ventas          Venta[]
-  actividades     Actividad[]
-  campanas        CampanaDestinatario[]
-  createdAt       DateTime              @default(now())
-  updatedAt       DateTime              @updatedAt
+  datosExtra             Json?
+  intereses              Interes[]
+  leads                  Lead[]
+  conversaciones         Conversacion[]
+  ventas                 Venta[]
+  actividades            Actividad[]
+  campanas               CampanaDestinatario[]
+  createdAt              DateTime                @default(now())
+  updatedAt              DateTime                @updatedAt
   // `Cliente_saldoTotal_idx` es parcial (`WHERE "saldoTotal" > 0`) y el lenguaje de
   // Prisma no puede expresar un WHERE: vive solo en el SQL de la migración. Prisma
   // no lo ve y por eso tampoco intenta borrarlo.
-  avisosResultado AvisoResultado[]
+  avisosResultado        AvisoResultado[]
   destinosAvisoResultado DestinoAvisoResultado[]
 
   @@index([categoria])
@@ -635,15 +635,15 @@ model InteraccionMensaje {
 }
 
 model Mensaje {
-  reservaQr           ReservaChat?            @relation("QrReservaChat")
-  reservaComprobante  ReservaChat?            @relation("ComprobanteReservaChat")
-  primerContacto      PrimerContactoWhatsapp?
-  id                  String                  @id @default(uuid())
-  conversacion        Conversacion            @relation(fields: [conversacionId], references: [id], onDelete: Cascade)
-  conversacionId      String
-  direccion           DireccionMensaje
+  reservaQr            ReservaChat?               @relation("QrReservaChat")
+  reservaComprobante   ReservaChat?               @relation("ComprobanteReservaChat")
+  primerContacto       PrimerContactoWhatsapp?
+  id                   String                     @id @default(uuid())
+  conversacion         Conversacion               @relation(fields: [conversacionId], references: [id], onDelete: Cascade)
+  conversacionId       String
+  direccion            DireccionMensaje
   /// Para media, `contenido` guarda el pie de foto (caption) o el nombre del archivo; puede ir vacío.
-  contenido           String
+  contenido            String
   /// Identidad de la INTENCIÓN de envío, generada por el navegador (UUID) y
   /// estable entre reintentos. Es lo que hace idempotente el POST: el backend
   /// persiste el mensaje y dispara el envío a Meta ANTES de responder, así que
@@ -657,53 +657,53 @@ model Mensaje {
   /// No confundir con `whatsappMsgId`, que lo asigna Meta DESPUÉS del
   /// despacho, ni con `intentosEnvio`/`proximoIntento`, que son los reintentos
   /// TÉCNICOS del worker sobre esta misma fila.
-  clientMessageId     String?                 @unique @db.VarChar(64)
-  whatsappMsgId       String?                 @unique
+  clientMessageId      String?                    @unique @db.VarChar(64)
+  whatsappMsgId        String?                    @unique
   /// Tipo de contenido. TEXTO por defecto; el resto llega por el webhook de media.
-  tipo                TipoMensaje             @default(TEXTO)
+  tipo                 TipoMensaje                @default(TEXTO)
   /// Clave del objeto en R2 (Cloudflare). Null mientras se descarga/sube en segundo plano.
-  mediaKey            String?
+  mediaKey             String?
   /// MIME real del archivo (image/jpeg, application/pdf, audio/ogg…).
-  mediaMime           String?
+  mediaMime            String?
   /// Nombre original del archivo (documentos). Null para imágenes/audio.
-  mediaNombre         String?
+  mediaNombre          String?
   /// Ancho y alto con que se VE la imagen (ya girada por EXIF). El chat reserva
   /// esa caja antes de que llegue la foto, y el hilo no salta al cargar.
   /// Null en lo anterior a 2026-09-23 y en lo que no es imagen.
-  mediaAncho          Int?
-  mediaAlto           Int?
+  mediaAncho           Int?
+  mediaAlto            Int?
   /// Lo que dice una nota de voz (AUDIO entrante), transcrito por el asistente
   /// de IA o por la transcripción interna activada por línea. Null si nunca
   /// se escuchó —línea sin asistente— o si no se entendió. Se guarda para no
   /// volver a mandarla a Google en cada turno y para que el asistente no pierda lo
   /// que ella dijo cuando la conversación sigue. Solo la escribe Conversaciones.
-  transcripcion       String?                 @db.VarChar(2000)
+  transcripcion        String?                    @db.VarChar(2000)
   /// Trabajo interno; no se incluye en lecturas REST.
-  trabajoMedia        TrabajoMediaEntrante?
+  trabajoMedia         TrabajoMediaEntrante?
   trabajoTranscripcion TrabajoTranscripcionAudio?
-  interaccion         InteraccionMensaje?
+  interaccion          InteraccionMensaje?
   /// Solo aplica a SALIENTE — el paciente no tiene "estado de entrega" hacia nosotros.
   /// Ticks estilo WhatsApp: ENVIADO al crear, luego lo actualiza la respuesta de Meta
   /// (FALLIDO) o el webhook de `statuses` (ENTREGADO/LEIDO).
-  estadoEnvio         EstadoMensaje?
+  estadoEnvio          EstadoMensaje?
   /// Código seguro de Meta para explicar el fallo sin exponer su respuesta cruda.
-  codigoErrorEnvio    Int?
+  codigoErrorEnvio     Int?
   /// Las plantillas no se reconstruyen como texto libre en los reintentos.
-  permiteReintento    Boolean                 @default(true)
-  entregadoEn         DateTime?
-  leidoEn             DateTime?
+  permiteReintento     Boolean                    @default(true)
+  entregadoEn          DateTime?
+  leidoEn              DateTime?
   /// Cuántas veces se intentó despachar. Solo crece cuando CONSTA que no salió;
   /// un INCIERTO no cuenta, porque no se reintenta.
-  intentosEnvio       Int                     @default(0)
+  intentosEnvio        Int                        @default(0)
   /// Cuándo toca reintentar. `null` = nada agendado, que es el caso de casi
   /// todas las filas: solo un FALLIDO con intentos por delante lleva fecha.
-  proximoIntento      DateTime?
+  proximoIntento       DateTime?
   /// Quién del equipo lo escribió (texto, adjunto, ubicación o plantilla desde el
   /// chat). Null en lo entrante, en lo automático y en lo anterior al 2026-10-14.
   /// En una línea compartida (Recepción) es lo que dice «esto lo contestó Ana»:
   /// la conversación tiene un responsable, pero contesta quien esté.
-  autor               Usuario?                @relation("MensajeAutor", fields: [autorId], references: [id], onDelete: SetNull)
-  autorId             String?
+  autor                Usuario?                   @relation("MensajeAutor", fields: [autorId], references: [id], onDelete: SetNull)
+  autorId              String?
   /// true = lo mandó el sistema (acuse fuera de horario), no una persona.
   ///
   /// Existe por el inbox, no por trazabilidad: la pestaña "Sin responder" detecta
@@ -712,20 +712,20 @@ model Mensaje {
   /// conversación DESAPARECERÍA de esa pestaña — el lunes nadie sabría quién
   /// escribió el fin de semana. La automatización habría empeorado, en silencio,
   /// justo el problema que venía a resolver.
-  automatico          Boolean                 @default(false)
+  automatico           Boolean                    @default(false)
   /// true = lo escribió el asistente de IA (modo RESPONDER). Siempre con
   /// `automatico: true`: no es una respuesta de una persona y la conversación
   /// sigue en «Sin responder». El chat lo rotula para que nadie lo confunda.
-  asistente           Boolean                 @default(false)
+  asistente            Boolean                    @default(false)
   /// Si salió como plantilla, su categoría en Meta (`MARKETING`, `UTILITY`…);
   /// null en todo lo demás. Es lo que permite no mandarle otra campaña a quien
   /// acaba de recibir una (Audiencias): Meta limita cuántas plantillas de
   /// marketing recibe cada persona, y a quien no las lee le llegan menos.
   /// Desde el 2026-09-30: lo anterior quedó sin marcar.
-  plantillaCategoria  String?                 @db.VarChar(20)
-  createdAt           DateTime                @default(now())
-  avisoResultado      AvisoResultado?
-  destinatarioCampana CampanaDestinatario?
+  plantillaCategoria   String?                    @db.VarChar(20)
+  createdAt            DateTime                   @default(now())
+  avisoResultado       AvisoResultado?
+  destinatarioCampana  CampanaDestinatario?
 
   @@index([conversacionId, createdAt])
   /// Solo lo usa el barrido de reintentos, que pregunta por `proximoIntento`
@@ -787,45 +787,45 @@ enum EstadoMensaje {
 }
 
 model Venta {
-  id                String         @id @default(uuid())
-  cliente           Cliente        @relation(fields: [clienteId], references: [id])
+  id                String          @id @default(uuid())
+  cliente           Cliente         @relation(fields: [clienteId], references: [id])
   clienteId         String
-  agente            Usuario        @relation(fields: [agenteId], references: [id])
+  agente            Usuario         @relation(fields: [agenteId], references: [id])
   agenteId          String
   producto          String
   /// Montos en bolivianos (Bs) — moneda única del sistema, ver shared/pipes/moneda.pipe.ts en el frontend.
-  monto             Decimal        @db.Decimal(12, 2)
-  estado            EstadoVenta    @default(GANADA)
-  metodoPago        String?        @db.VarChar(50)
-  comprobante       String?        @db.VarChar(100)
-  comprobanteKey    String?        @db.VarChar(255)
-  comprobanteMime   String?        @db.VarChar(100)
-  comprobanteNombre String?        @db.VarChar(255)
-  medico            String?        @db.VarChar(120)
-  modulo            String?        @db.VarChar(60)
-  notas             String?        @db.Text
+  monto             Decimal         @db.Decimal(12, 2)
+  estado            EstadoVenta     @default(GANADA)
+  metodoPago        String?         @db.VarChar(50)
+  comprobante       String?         @db.VarChar(100)
+  comprobanteKey    String?         @db.VarChar(255)
+  comprobanteMime   String?         @db.VarChar(100)
+  comprobanteNombre String?         @db.VarChar(255)
+  medico            String?         @db.VarChar(120)
+  modulo            String?         @db.VarChar(60)
+  notas             String?         @db.Text
   /// Lead que originó esta venta, si el agente lo indicó al registrarla.
   /// Opcional a propósito: hay ventas presenciales o históricas sin un lead
   /// trabajado antes en el pipeline. Sirve para saber de qué campaña/anuncio
   /// vino una venta real (vía `Lead.anuncioId`/`origen`) en vez de asumir que
   /// TODOS los leads abiertos del cliente se cerraron por esta venta —
   /// ver `LeadsService.marcarConvertidos`.
-  lead              Lead?          @relation(fields: [leadId], references: [id])
+  lead              Lead?           @relation(fields: [leadId], references: [id])
   leadId            String?
   /// Por qué se perdió. Solo tiene sentido con `estado = PERDIDA`; se limpia si
   /// la venta vuelve a moverse a otro estado — mismo criterio que
   /// `Lead.motivoPerdida` y `VentaImportada.motivoExclusion`.
-  motivoPerdida     String?        @db.VarChar(200)
+  motivoPerdida     String?         @db.VarChar(200)
   /// Clave de la INTENCIÓN de registrar, generada por el navegador. Un doble
   /// envío o el reintento de una respuesta perdida devuelven la venta que ya
   /// existe en vez de contar el dinero dos veces. Mismo patrón que
   /// `Mensaje.clientMessageId`: la garantía es el índice único.
-  clientRequestId   String?        @unique @db.VarChar(64)
+  clientRequestId   String?         @unique @db.VarChar(64)
   /// Si nació de confirmar un pago de promoción por WhatsApp.
   pagoPromocion     PagoPromocion?
   /// El aviso de esta venta a Meta (Conversions API), si se registró. Ver `ConversionMeta`.
   conversionMeta    ConversionMeta?
-  createdAt         DateTime       @default(now())
+  createdAt         DateTime        @default(now())
 
   @@index([clienteId])
   @@index([agenteId])
@@ -838,16 +838,16 @@ model Venta {
 /// Última instantánea aceptada de FileMaker. Pendiente hasta aplicar MySQL y la ficha web.
 /// Agenda es el dueño. La revisión evita que un reintento antiguo reponga horarios viejos.
 model HorarioFilemaker {
-  codigo           String   @id
-  registroId       String   @unique
-  medicoAgendaId   Int      @unique
-  revision         Int
-  huella           String
-  datos            Json
-  pendiente        Boolean  @default(true)
-  sincronizadoEn   DateTime?
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  codigo         String    @id
+  registroId     String    @unique
+  medicoAgendaId Int       @unique
+  revision       Int
+  huella         String
+  datos          Json
+  pendiente      Boolean   @default(true)
+  sincronizadoEn DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
   @@index([pendiente, updatedAt])
 }
@@ -1731,6 +1731,24 @@ model DestinoAvisoResultado {
   elegidoEn        DateTime @default(now())
 
   @@index([clienteId])
+}
+
+/// Un mes de la constancia de entregas de resultados, VALIDADO por un
+/// SUPER_ADMIN (27/11/2026, René): queda quién y cuándo, y una copia congelada
+/// de la constancia tal como se validó, para que reimprimirla saque lo mismo
+/// que se llevó a notariar aunque después un paciente abra su informe. Uno
+/// por mes; anular la validación borra la fila y deja la copia en la
+/// auditoría (`CONSTANCIA_VALIDACION_ANULADA`). Sin FK al usuario a propósito:
+/// el documento dice el nombre que tenía al validar. Ver `ConstanciaResultadosService`.
+model ConstanciaResultadosMes {
+  /// `2026-11`, en el calendario de la clínica (La Paz).
+  mes               String   @id @db.Char(7)
+  validadaEn        DateTime @default(now())
+  validadaPorId     String
+  validadaPorNombre String   @db.VarChar(120)
+  totalAvisos       Int
+  /// `ConstanciaMensual` completa (todas las filas) en el momento de validar.
+  copia             Json
 }
 
 /// En qué punto está una campaña. Ver `modules/campanas`.
